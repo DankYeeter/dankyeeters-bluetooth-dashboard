@@ -71,6 +71,8 @@ fun BtDashboardApp() {
             appGraph(
                 onOpenOnboarding = { navController.navigate(ROUTE_ONBOARDING) },
                 onBack = { navController.popBackStack() },
+                // "Watch live" starts deep capture and jumps to the timeline.
+                onWatchLive = { navController.navigate(Destination.MONITOR.route) },
             )
         }
     }
@@ -79,8 +81,11 @@ fun BtDashboardApp() {
 private fun NavGraphBuilder.appGraph(
     onOpenOnboarding: () -> Unit,
     onBack: () -> Unit,
+    onWatchLive: () -> Unit = {},
 ) {
-    composable(Destination.DASHBOARD.route) { DashboardScreen(onOpenOnboarding = onOpenOnboarding) }
+    composable(Destination.DASHBOARD.route) {
+        DashboardScreen(onOpenOnboarding = onOpenOnboarding, onWatchLive = onWatchLive)
+    }
     composable(Destination.EQ.route) { EqScreen() }
     composable(Destination.HEARING.route) { HearingTestScreen() }
     composable(Destination.MONITOR.route) { MonitorScreen() }
