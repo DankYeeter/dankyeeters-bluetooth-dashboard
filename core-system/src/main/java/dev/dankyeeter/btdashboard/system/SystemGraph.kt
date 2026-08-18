@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.system
 
 import android.content.Context
 import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizerFactory
+import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
 import dev.dankyeeter.btdashboard.system.attach.EqController
 import dev.dankyeeter.btdashboard.system.attach.GlobalAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.attach.SessionAttachmentStrategy
@@ -22,6 +23,7 @@ object SystemGraph {
     private var _store: EqSettingsStore? = null
     private var _controller: EqController? = null
     private var _secureSettings: SecureSettingsGate? = null
+    private var _airPods: AirPodsScanner? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -38,6 +40,12 @@ object SystemGraph {
     val secureSettings: SecureSettingsGate
         get() = synchronized(lock) {
             _secureSettings ?: SecureSettingsGate(ctx()).also { _secureSettings = it }
+        }
+
+    /** Read-only AirPods beacon listener; started/stopped by the Dashboard. */
+    val airPodsScanner: AirPodsScanner
+        get() = synchronized(lock) {
+            _airPods ?: AirPodsScanner(ctx()).also { _airPods = it }
         }
 
     val settingsStore: EqSettingsStore
