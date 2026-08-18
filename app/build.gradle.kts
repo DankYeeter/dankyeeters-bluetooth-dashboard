@@ -38,8 +38,34 @@ android {
 
     buildFeatures { compose = true }
 
+    /**
+     * Robolectric smoke tests need the merged resources and the manifest —
+     * without this every screen fails on the first `stringResource`/theme
+     * lookup rather than on anything meaningful.
+     */
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+/**
+ * Unit tests run on the debug variant only.
+ *
+ * The Compose test rule hosts screens in the empty activity that
+ * `ui-test-manifest` contributes, and that artifact is deliberately
+ * debug-only — merging a test activity into the release manifest would ship it
+ * to users. Running the same suite twice bought nothing anyway.
+ */
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.enableUnitTest = false
     }
 }
 
@@ -67,4 +93,11 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    // Supplies the empty activity the Compose test rule hosts screens in.
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
