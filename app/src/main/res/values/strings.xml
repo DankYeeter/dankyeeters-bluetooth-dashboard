@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DankYeeter\'s Bluetooth Dashboard</string>
+    <!-- Shown in the system's notification-access list. -->
+    <string name="now_playing_listener_label">Now playing (read-only)</string>
 </resources>

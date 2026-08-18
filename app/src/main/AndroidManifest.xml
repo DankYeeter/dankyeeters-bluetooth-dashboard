@@ -3,12 +3,22 @@
 
     <!-- No INTERNET permission anywhere in this project, by design. -->
 
+    <!--
+      Package visibility for the now-playing card: we resolve Tidal's app label
+      for the "You're hearing ..." line. Read-only, and the card degrades to the
+      package name if the query is unavailable.
+    -->
+    <queries>
+        <package android:name="com.aspiro.tidal" />
+    </queries>
+
     <application
         android:name=".BtDashboardApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@android:drawable/ic_lock_silent_mode_off"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="false"
         android:theme="@style/Theme.BtDashboard">
@@ -23,5 +33,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Now-playing (read-only). Notification access is a Settings toggle, not
+          a runtime permission: the app deep-links the user there and works
+          without it — only this one card goes quiet.
+
+          We read metadata from media notifications and never send anything back
+          to the player. Tidal is never modified.
+        -->
+        <service
+            android:name=".nowplaying.TidalNotificationListener"
+            android:exported="false"
+            android:label="@string/now_playing_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
