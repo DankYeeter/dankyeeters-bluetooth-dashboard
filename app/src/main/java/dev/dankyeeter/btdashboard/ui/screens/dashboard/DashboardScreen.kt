@@ -48,6 +48,7 @@ import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
 fun DashboardScreen(
     onOpenOnboarding: () -> Unit,
     viewModel: DashboardViewModel = viewModel(),
+    onWatchLive: () -> Unit = {},
 ) {
     val shizukuState by SystemGraph.shizuku.state.collectAsState()
     val attachment by SystemGraph.eqController.status.collectAsState()
@@ -78,6 +79,10 @@ fun DashboardScreen(
                 Button(onClick = onOpenOnboarding) { Text("Open setup") }
             }
         }
+
+        // Milestone 2 monitor sections; bodies live in BluetoothSection.kt.
+        BluetoothCodecSection(onWatchLive = onWatchLive)
+        ForeignEqSection()
 
         DeviceListCard(viewModel.presets)
         BackupCard(viewModel)
