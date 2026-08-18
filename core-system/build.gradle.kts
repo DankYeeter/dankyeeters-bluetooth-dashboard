@@ -27,4 +27,5 @@ dependencies {
     implementation(libs.shizuku.provider)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

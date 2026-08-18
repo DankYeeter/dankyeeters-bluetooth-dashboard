@@ -2,11 +2,19 @@ package dev.dankyeeter.btdashboard.system
 
 import android.content.Context
 import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizerFactory
+import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
 import dev.dankyeeter.btdashboard.system.attach.EqController
 import dev.dankyeeter.btdashboard.system.attach.GlobalAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.attach.SessionAttachmentStrategy
+import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate
+import dev.dankyeeter.btdashboard.system.devices.DeviceConnectionWatcher
+import dev.dankyeeter.btdashboard.system.devices.DeviceProfileApplier
+import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
+import dev.dankyeeter.btdashboard.system.devices.EqCompensationApplier
+import dev.dankyeeter.btdashboard.system.devices.SystemMediaVolumeController
 import dev.dankyeeter.btdashboard.system.persist.EqSettingsStore
+import dev.dankyeeter.btdashboard.system.setup.SetupStore
 import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsGate
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
 
@@ -24,6 +32,11 @@ object SystemGraph {
     private var _controller: EqController? = null
     private var _secureSettings: SecureSettingsGate? = null
     private var _airPods: AirPodsScanner? = null
+    private var _deviceProfiles: DeviceProfileStore? = null
+    private var _absoluteVolume: AbsoluteVolumeGate? = null
+    private var _applier: DeviceProfileApplier? = null
+    private var _watcher: DeviceConnectionWatcher? = null
+    private var _setupStore: SetupStore? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -63,4 +76,49 @@ object SystemGraph {
                 ).also { _controller = it }
             }
         }
+
+    // ---- Milestone 2: per-device profiles -----------------------------------
+
+    val deviceProfiles: DeviceProfileStore
+        get() = synchronized(lock) {
+            _deviceProfiles ?: DeviceProfileStore(ctx()).also { _deviceProfiles = it }
+        }
+
+    val absoluteVolume: AbsoluteVolumeGate
+        get() = synchronized(lock) {
+            _absoluteVolume ?: AbsoluteVolumeGate(ctx(), secureSettings).also { _absoluteVolume = it }
+        }
+
+    val deviceProfileApplier: DeviceProfileApplier
+        get() = synchronized(lock) {
+            _applier ?: DeviceProfileApplier(
+                profiles = deviceProfiles,
+                volume = SystemMediaVolumeController(ctx()),
+                compensation = EqCompensationApplier(
+                    profiles = HearingGraph.profileStore,
+                    settingsStore = settingsStore,
+                    controller = eqController,
+                ),
+                absoluteVolume = absoluteVolume,
+            ).also { _applier = it }
+        }
+
+    val deviceConnectionWatcher: DeviceConnectionWatcher
+        get() = synchronized(lock) {
+            _watcher ?: DeviceConnectionWatcher(
+                context = ctx(),
+                store = deviceProfiles,
+                applier = deviceProfileApplier,
+            ).also { _watcher = it }
+        }
+
+    val setupStore: SetupStore
+        get() = synchronized(lock) {
+            _setupStore ?: SetupStore(ctx()).also { _setupStore = it }
+        }
+
+    /** Starts the ACL-connect listener. Idempotent; called from Application. */
+    fun startDeviceProfileAutoApply() {
+        deviceConnectionWatcher.start()
+    }
 }
