@@ -59,7 +59,8 @@ class NalRTest {
     fun `insertion gain follows X plus 0_31 H plus C`() {
         val pta = 65.0 / 3.0                       // 21.6667
         // X = 0.15 * PTA = 3.25
-        assertEquals(10.45, NalR.insertionGainDb(1000.0, 20.0, pta), 1e-9)  // 3.25 + 6.2 + 1
+        // 3.25 + 6.2 + 1, minus the zero-loss baseline max(0, C(1k)) = 1
+        assertEquals(9.45, NalR.insertionGainDb(1000.0, 20.0, pta), 1e-9)
         assertEquals(11.55, NalR.insertionGainDb(2000.0, 30.0, pta), 1e-9)  // 3.25 + 9.3 - 1
         assertEquals(13.65, NalR.insertionGainDb(3000.0, 40.0, pta), 1e-9)  // 3.25 + 12.4 - 2
         assertEquals(15.20, NalR.insertionGainDb(4000.0, 45.0, pta), 1e-9)  // 3.25 + 13.95 - 2

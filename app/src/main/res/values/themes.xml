@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.BtDashboard" parent="android:Theme.Material.DayNight.NoActionBar" />
+    <!-- Compose owns all theming; this framework theme only removes the action bar. -->
+    <style name="Theme.BtDashboard" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>

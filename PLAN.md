@@ -140,8 +140,17 @@ in DESIGN.md.
   Sampling strategy: **hybrid adaptive (Option C) + on-demand deep capture
   (Option D)** — events always on, slow polling (30–60 s) while A2DP plays,
   burst to 2–5 s on anomaly (bitrate drop/RSSI dip); full resolution only
-  during "test device" runs. Primary target: Android 17 (Pixel 11 Pro),
-  Pixel 8 Pro second.
+  during "test device" runs **plus a "watch live" quick-action on the
+  dashboard** that jumps straight into deep capture (10 s resolution) so
+  acute problems can be inspected while they happen. If the shell identity
+  turns out not to reach BQR on Android 17, a dedicated deep-dive into
+  Android 17's Bluetooth stack is planned to develop an alternative. Primary target:
+  Android 17 (Pixel 11 Pro), Pixel 8 Pro second.
+  Rights reality check: BQR needs BLUETOOTH_PRIVILEGED; we call it under
+  Shizuku's shell identity — whether shell may register BQR callbacks must
+  be verified on-device per Android version. The source hierarchy exists
+  exactly for this: monitor degrades transparently and shows which data
+  source is currently active. Without root, shell identity is the ceiling.
   - codec + bitrate change history (aptX Adaptive downscaling events are the
     best real-world proxy for bandwidth trouble)
   Battery discipline: event-driven sampling only while A2DP is playing,
@@ -164,6 +173,16 @@ in DESIGN.md.
   with a deep link to that app's info screen.
   The headphone's onboard DSP EQ is not readable (vendor BLE protocol —
   Milestone 3); v1 keeps the "set vendor app to Flat" documentation rule.
+- **AirPods BLE beacon features (added 2026-08-18):** AirPods broadcast BLE
+  proximity beacons readable without pairing or Apple hardware (format
+  documented by open-source projects like CAPod/MaterialPods — prior art,
+  reimplement cleanly, no GPL code copying): per-bud + case battery, in-ear
+  wear status, model identification (drives automatic preset selection),
+  lid events. Not possible: ANC switching, in-bud EQ, firmware features.
+- **Device icons (decided 2026-08-18):** our own minimalist vector line
+  illustrations per model only (copyright-safe, scales, gold-line-on-black
+  fits the Edgy theme). No user-photo feature, no manufacturer press images
+  in the repo — editorial-use licenses don't cover software redistribution.
 - **Profile export/import (added 2026-08-18):** local JSON export of hearing
   test results + EQ/device profiles, importable on another phone (Daniel is
   getting a Pixel 11 Pro alongside the Pixel 8 Pro; no cloud allowed).

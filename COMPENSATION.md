@@ -47,6 +47,12 @@ C(f) correction table (dB):
 Interpolate C linearly on log-frequency for our 8 test frequencies
 (250…8000 Hz; use C(8000) = C(6000) = −2). Clamp IG(f) ≥ 0.
 
+Normalisation (added during implementation): the raw formula prescribes a
+residual +1 dB at 1 kHz even for a zero-loss ear (the C table's only
+positive entry). We subtract the zero-loss prescription max(0, C(f)) after
+clamping, so normal hearing maps to exactly no gain at every frequency;
+real losses shift by at most 1 dB.
+
 Note: NAL-R equalizes *speech-band* loudness. For music we keep its shape
 logic (it is exactly the "loudness equalization" both Mimi and Audiodo
 pursue) but expose overall strength via the intensity slider instead of

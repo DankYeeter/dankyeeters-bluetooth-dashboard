@@ -45,9 +45,17 @@ object NalR {
     /**
      * Insertion gain `IG(f) = 0.15 * PTA + 0.31 * H_T(f) + C(f)`, clamped to
      * be non-negative (NAL-R never prescribes attenuation).
+     *
+     * The raw formula prescribes a residual +1 dB at 1 kHz even for a
+     * zero-loss ear (the C-table's only positive entry). We subtract the
+     * zero-loss prescription `max(0, C(f))` so that normal hearing maps to
+     * exactly no gain at every frequency — losses shift by at most 1 dB.
      */
-    fun insertionGainDb(frequencyHz: Double, thresholdDb: Double, ptaDb: Double): Double =
-        (0.15 * ptaDb + 0.31 * thresholdDb + correctionDb(frequencyHz)).coerceAtLeast(0.0)
+    fun insertionGainDb(frequencyHz: Double, thresholdDb: Double, ptaDb: Double): Double {
+        val c = correctionDb(frequencyHz)
+        val raw = (0.15 * ptaDb + 0.31 * thresholdDb + c).coerceAtLeast(0.0)
+        return (raw - c.coerceAtLeast(0.0)).coerceAtLeast(0.0)
+    }
 }
 
 /**

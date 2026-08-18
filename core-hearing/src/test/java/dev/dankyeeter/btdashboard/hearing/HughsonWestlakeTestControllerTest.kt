@@ -28,9 +28,9 @@ class HughsonWestlakeTestControllerTest {
         var startCalls = 0
         var startSucceeds = true
         var level = -100.0
-        var frequency = 0.0
-        var ear: ToneEar? = null
-        var toneActive = false
+        var lastFrequency = 0.0
+        var lastEar: ToneEar? = null
+        var lastToneActive = false
         val activations = mutableListOf<Triple<ToneEar?, Double, Double>>()
         var respondCallback: (() -> Unit)? = null
 
@@ -43,15 +43,15 @@ class HughsonWestlakeTestControllerTest {
         }
 
         override fun stop() {}
-        override fun setFrequency(hz: Double) { frequency = hz }
+        override fun setFrequency(hz: Double) { lastFrequency = hz }
         override fun setLevelDbFs(db: Double) { level = db }
-        override fun setEar(ear: ToneEar) { this.ear = ear }
+        override fun setEar(ear: ToneEar) { lastEar = ear }
         override fun setRampMs(ms: Double) {}
 
         override fun setToneActive(active: Boolean) {
-            toneActive = active
+            lastToneActive = active
             if (!active) return
-            activations += Triple(ear, frequency, level)
+            activations += Triple(lastEar, lastFrequency, level)
             if (level >= simulatedThresholdDb) respondCallback?.invoke()
         }
     }
@@ -92,8 +92,8 @@ class HughsonWestlakeTestControllerTest {
         val completed = controller.state.first() as HearingTestState.Completed
         assertEquals(-60.0, completed.run.left.single().thresholdDb, 1e-9)
         assertTrue(completed.run.right.isEmpty())
-        assertEquals(ToneEar.LEFT, tone.ear)
-        assertFalse("the tone must be gated off at the end", tone.toneActive)
+        assertEquals(ToneEar.LEFT, tone.lastEar)
+        assertFalse("the tone must be gated off at the end", tone.lastToneActive)
     }
 
     @Test
@@ -163,7 +163,7 @@ class HughsonWestlakeTestControllerTest {
             HearingTestState.Aborted(AbortReason.VOLUME_CHANGED),
             controller.state.first(),
         )
-        assertFalse(tone.toneActive)
+        assertFalse(tone.lastToneActive)
     }
 
     @Test

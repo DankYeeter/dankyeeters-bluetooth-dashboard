@@ -18,7 +18,8 @@ import org.junit.Test
  * f    250  500  1k   2k   3k   4k   6k   8k
  * H_T   10   15   20   30   40   45   50   55
  * PTA = (15 + 20 + 30) / 3 = 21.6667      X = 3.25
- * IG     0    0  10.45 11.55 13.65 15.20 16.75 18.30
+ * IG     0    0   9.45 11.55 13.65 15.20 16.75 18.30
+ * (1 kHz includes the zero-loss baseline subtraction of max(0, C) = 1 dB)
  * ```
  */
 class NalRCompensationCalculatorTest {
@@ -27,7 +28,7 @@ class NalRCompensationCalculatorTest {
     private val eps = 1e-4
 
     private val slopingThresholds = listOf(10.0, 15.0, 20.0, 30.0, 40.0, 45.0, 50.0, 55.0)
-    private val expectedIg = listOf(0.0, 0.0, 10.45, 11.55, 13.65, 15.20, 16.75, 18.30)
+    private val expectedIg = listOf(0.0, 0.0, 9.45, 11.55, 13.65, 15.20, 16.75, 18.30)
 
     private fun points(values: List<Double>): List<ThresholdPoint> =
         TEST_FREQUENCIES_HZ.zip(values) { hz, v -> ThresholdPoint(hz, v) }
@@ -55,11 +56,11 @@ class NalRCompensationCalculatorTest {
 
     @Test
     fun `full band curve matches the hand-computed golden vector`() {
-        // scaled (s = 0.6):  0, 0, 6.27, 6.93, 8.19, 9.12, 10.05, 10.98
+        // scaled (s = 0.6):  0, 0, 5.67, 6.93, 8.19, 9.12, 10.05, 10.98
         // mapped onto 31.5..16k with edge x0.5 outside 250..8000:
-        //   0, 0, 0, 0, 0, 6.27, 6.93, 9.12, 10.98, 5.49
+        //   0, 0, 0, 0, 0, 5.67, 6.93, 9.12, 10.98, 5.49
         // 3-point moving average, then the 6 dB/oct limiter (inert here):
-        val expected = listOf(0.0, 0.0, 0.0, 0.0, 2.09, 4.40, 7.44, 9.01, 8.53, 8.235)
+        val expected = listOf(0.0, 0.0, 0.0, 0.0, 1.89, 4.20, 7.24, 9.01, 8.53, 8.235)
 
         val r = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
         expected.forEachIndexed { i, e ->

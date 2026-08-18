@@ -3,7 +3,7 @@ package dev.dankyeeter.btdashboard.system.attach
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.AudioEffect
+import android.media.audiofx.AudioEffect
 import android.util.Log
 
 /**

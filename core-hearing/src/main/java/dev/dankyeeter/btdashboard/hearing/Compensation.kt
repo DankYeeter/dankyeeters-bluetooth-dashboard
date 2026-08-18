@@ -134,7 +134,8 @@ data class CalibrationPreset(
             dataSource = dataSource,
             measurementRig = measurementRig,
             targetCurve = targetCurve,
-            offsetsDb = responseDeviationDb.map { -it },
+            // `+ 0.0` normalises IEEE -0.0 back to 0.0 for a zero deviation
+            offsetsDb = responseDeviationDb.map { -it + 0.0 },
             formFactor = formFactor,
             approximate = approximate,
             notes = notes,
