@@ -37,6 +37,7 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
     val settings by viewModel.settings.collectAsState()
     val status by viewModel.attachmentStatus.collectAsState()
     val bypass by viewModel.bypass.collectAsState()
+    val compensation by viewModel.compensation.collectAsState()
     var earView by remember { mutableStateOf(EarView.LINKED) }
 
     Column(
@@ -67,12 +68,31 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             Switch(checked = bypass, onCheckedChange = viewModel::setBypass)
             Text("  A/B: play flat (curve kept)")
         }
+        Text(
+            "The pre-gain stays applied while you A/B, so flat and compensated " +
+                "play at matched loudness — louder must not be able to pass for better.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
 
         Text(
             "Headroom (pre-gain): ${"%.1f".format(settings.preGainDb)} dB — applied " +
                 "automatically so boosted bands cannot clip.",
             style = MaterialTheme.typography.bodySmall,
         )
+
+        CompensationSection(
+            state = compensation,
+            onSelectPreset = viewModel::selectPreset,
+            onIntensityChange = viewModel::setIntensity,
+            onIntensityChangeFinished = viewModel::applyCompensationIfActive,
+            onApply = viewModel::applyCompensation,
+            onSaveProfile = viewModel::saveProfile,
+            onLoadProfile = viewModel::loadProfile,
+            onDeleteProfile = viewModel::deleteProfile,
+        )
+
+        Text("Bands", style = MaterialTheme.typography.titleMedium)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             EarView.entries.forEach { view ->
