@@ -47,6 +47,7 @@ dependencies {
     implementation(project(":core-audio"))
     implementation(project(":core-hearing"))
     implementation(project(":core-system"))
+    implementation(project(":core-monitor"))
 
     implementation(libs.kotlinx.serialization.json)
 

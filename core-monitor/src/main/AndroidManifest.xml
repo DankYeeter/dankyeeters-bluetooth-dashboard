@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- No INTERNET permission here either; the monitor is purely local. -->
+
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+
+    <!--
+      BLUETOOTH_PRIVILEGED can never be granted to a normal app. We declare it
+      so that the (documented, best-effort) BluetoothQualityReport registration
+      under Shizuku's shell identity has a chance on builds that check the
+      calling package rather than the calling uid. The monitor treats it as
+      unavailable until proven otherwise on-device.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED"
+        tools:ignore="ProtectedPermissions" />
+</manifest>
