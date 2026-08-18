@@ -12,3 +12,5 @@ build/
 *.keystore
 !debug.keystore
 /gradle/wrapper/gradle-wrapper.jar.sha256
+
+.kotlin/
