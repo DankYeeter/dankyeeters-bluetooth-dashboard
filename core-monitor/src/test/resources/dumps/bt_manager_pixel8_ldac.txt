@@ -1,0 +1,50 @@
+Bluetooth Status
+  enabled: true
+  state: ON
+  address: xx:xx:xx:xx:11:22
+  name: Pixel 8 Pro
+  time since enabled: 03:12:47.221
+
+Bluetooth Config:
+  Name: Pixel 8 Pro
+  Address: xx:xx:xx:xx:11:22
+  ScanMode: SCAN_MODE_CONNECTABLE
+
+Bonded devices:
+  xx:xx:xx:xx:ab:cd [ DUAL ] Noble FoKus Prestige Encore
+  xx:xx:xx:xx:77:0a [ BREDR ] SoundCore Motion Boom
+
+BluetoothManagerService:
+  mEnable: true
+  curUser: 0
+
+Profile: A2dpService
+  mMaxConnectedAudioDevices: 5
+  mCurrentDevice: xx:xx:xx:xx:ab:cd
+  mA2dpOffloadEnabled: true
+
+  A2dpStateMachine for xx:xx:xx:xx:ab:cd
+    mCurrentState: Connected
+    mIsPlaying: true
+    mLastConnectionState: STATE_CONNECTING
+    codecConfig:{codecName:LDAC,mCodecType:4,mCodecPriority:1000000,mSampleRate:0x4(96000),mBitsPerSample:0x2(24),mChannelMode:0x2(Stereo),mCodecSpecific1:1001,mCodecSpecific2:0,mCodecSpecific3:0,mCodecSpecific4:0}
+    codecsSelectable:[{codecName:SBC,mCodecType:0},{codecName:AAC,mCodecType:1},{codecName:LDAC,mCodecType:4}]
+
+  A2dpStateMachine for xx:xx:xx:xx:77:0a
+    mCurrentState: Connected
+    mIsPlaying: false
+    codecConfig:{codecName:SBC,mCodecType:0,mCodecPriority:1000,mSampleRate:0x1(44100),mBitsPerSample:0x1(16),mChannelMode:0x2(Stereo),mCodecSpecific1:0,mCodecSpecific2:0,mCodecSpecific3:0,mCodecSpecific4:0}
+
+RemoteDevices:
+  Address: xx:xx:xx:xx:ab:cd
+    Name: Noble FoKus Prestige Encore
+    Alias: Encore
+    BondState: 12
+    Rssi: -62
+  Address: xx:xx:xx:xx:77:0a
+    Name: SoundCore Motion Boom
+    BondState: 12
+    Rssi: -71
+
+Bluetooth Menders:
+  none

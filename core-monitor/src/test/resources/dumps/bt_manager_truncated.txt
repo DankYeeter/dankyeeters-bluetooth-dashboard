@@ -1,0 +1,10 @@
+Bluetooth Status
+  enabled: true
+  state: TURNING_ON
+
+Profile: A2dpService
+  mCurrentDevice: null
+  A2dpStateMachine
+    mCurrentState: Disconnected
+
+*** SERVICE 'bluetooth_manager' DUMP TIMEOUT (10000ms) EXPIRED ***

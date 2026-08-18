@@ -1,0 +1,20 @@
+Output thread 0xb4000075a1c8, name AudioOut_D, tid 1922, type 0 (MIXER):
+  I/O handle: 13
+  Standby: no
+  Sample rate: 48000 Hz
+
+  1 Effect Chains
+   Effects session 0, 1 effects, thread 0xb4000075a1c8
+    Effect ID 27:
+     Session Status State Registered Enabled Suspended:
+     0       0      3     y          y       n
+     Descriptor:
+     - UUID: 7261676f-6d75-7369-6364-28e2fd3ac39e
+     - name: DynamicsProcessing
+     - implementor: The Android Open Source Project
+     Clients:
+      Pid   Priority Ctrl
+      9033  0        y
+
+Input thread 0xb4000075c440, name AudioIn_5, tid 1944:
+  0 Effect Chains

@@ -1,0 +1,36 @@
+Bluetooth Status
+  enabled: true
+  state: ON
+  address: xx:xx:xx:xx:5f:31
+  name: Pixel 11 Pro
+
+AdapterService dump:
+  mBluetoothState: ON
+  mSnoopLogSettingAtEnable: DISABLED
+
+Bonded devices:
+  xx:xx:xx:xx:ab:cd [ DUAL ] Noble FoKus Prestige Encore
+
+Profile: A2dpService (offload)
+  mActiveDevice = xx:xx:xx:xx:ab:cd
+  audio_config: sample_rate=48000 bits=24 channels=2
+
+  StateMachine for xx:xx:xx:xx:ab:cd
+    state = Connected
+    isA2dpPlaying = true
+    codec_config = codecName=aptX Adaptive mCodecType=8 mSampleRate=48000 mBitsPerSample=24 mChannelMode=2
+    adaptive_bitrate_kbps = 279
+    last_codec_change_ms_ago = 4211
+
+LeAudio Service:
+  no active group
+
+Metrics:
+  a2dp_audio_underrun_count: 3
+  a2dp_audio_overrun_count: 0
+
+RemoteDevices:
+  Address: xx:xx:xx:xx:ab:cd
+    Name: Noble FoKus Prestige Encore
+    rssi = -58
+    BondState: 12
