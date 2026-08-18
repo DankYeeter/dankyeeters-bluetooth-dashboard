@@ -20,6 +20,9 @@ dependencies {
     api(project(":core-audio"))
     api(libs.kotlinx.coroutines.android)
 
+    // Run storage: a handful of small records, no queries — DataStore is enough.
+    implementation(libs.androidx.datastore.preferences)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }

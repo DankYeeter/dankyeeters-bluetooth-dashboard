@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        The microphone is used for exactly one thing: the ambient-noise
+        pre-check before a hearing test (MicAmbientNoiseCheck). Audio is
+        analysed in memory and never recorded, stored or transmitted — the app
+        has no INTERNET permission.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+</manifest>
