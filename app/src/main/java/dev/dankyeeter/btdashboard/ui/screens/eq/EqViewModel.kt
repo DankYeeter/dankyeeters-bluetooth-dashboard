@@ -14,6 +14,7 @@ import dev.dankyeeter.btdashboard.hearing.DEFAULT_INTENSITY
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_PARTIAL_FACTOR
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.SystemGraph
+import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,6 +92,21 @@ class EqViewModel : ViewModel() {
         }
         viewModelScope.launch {
             profileStore.profiles.collect { list -> update { it.copy(profiles = list) } }
+        }
+        viewModelScope.launch {
+            // Hardware detection (AirPods beacon) suggests a preset. It is only
+            // adopted while nothing better is selected: a preset the user chose,
+            // or the one a test run was actually measured with, always wins.
+            DetectedDeviceRepository.suggestedPresetId.collect { suggested ->
+                if (suggested == null) return@collect
+                update {
+                    if (it.presetId == CalibrationPresetRepository.GENERIC_ID) {
+                        it.copy(presetId = suggested)
+                    } else {
+                        it
+                    }
+                }
+            }
         }
         viewModelScope.launch {
             store.activeProfileId.collect { id -> update { it.copy(activeProfileId = id) } }

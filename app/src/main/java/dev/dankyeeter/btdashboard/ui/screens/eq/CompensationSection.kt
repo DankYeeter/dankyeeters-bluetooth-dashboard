@@ -52,8 +52,9 @@ import kotlin.math.abs
  * actually looks.
  */
 @Composable
-fun CompensationSection(
+internal fun CompensationSection(
     state: CompensationUiState,
+    earView: EarView,
     onSelectPreset: (String) -> Unit,
     onIntensityChange: (Float) -> Unit,
     onIntensityChangeFinished: () -> Unit,
@@ -88,7 +89,7 @@ fun CompensationSection(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                CompensationPreview(result)
+                CompensationPreview(result, earView)
                 EarDifference(result)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onApply, enabled = !state.applied) {
@@ -200,11 +201,17 @@ private fun IntensityControl(
     }
 }
 
-/** Overlaid left/right band-gain curves plus the numbers underneath. */
+/**
+ * Band-gain curves plus the numbers underneath, following the screen's ear
+ * selector: both ears overlaid by default ([EarView.LINKED]), or a single ear
+ * when the user is working on one side.
+ */
 @Composable
-private fun CompensationPreview(result: CompensationResult) {
+private fun CompensationPreview(result: CompensationResult, earView: EarView) {
     val left = result.left.bandGainsDb.map { it.toFloat() }
     val right = result.right.bandGainsDb.map { it.toFloat() }
+    val showLeft = earView != EarView.RIGHT
+    val showRight = earView != EarView.LEFT
     val leftColor = MaterialTheme.colorScheme.primary
     val rightColor = MaterialTheme.colorScheme.tertiary
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
@@ -242,13 +249,13 @@ private fun CompensationPreview(result: CompensationResult) {
                     drawPath(path, color, style = Stroke(width = 4f))
                     values.forEachIndexed { i, v -> drawCircle(color, radius = 5f, center = Offset(x(i), y(v))) }
                 }
-                curve(left, leftColor)
-                curve(right, rightColor)
+                if (showLeft) curve(left, leftColor)
+                if (showRight) curve(right, rightColor)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Left", style = MaterialTheme.typography.labelMedium, color = leftColor)
-            Text("Right", style = MaterialTheme.typography.labelMedium, color = rightColor)
+            if (showLeft) Text("Left", style = MaterialTheme.typography.labelMedium, color = leftColor)
+            if (showRight) Text("Right", style = MaterialTheme.typography.labelMedium, color = rightColor)
             Text(
                 "0–12 dB, bands 31.5 Hz … 16 kHz",
                 style = MaterialTheme.typography.labelSmall,
@@ -270,7 +277,11 @@ private fun CompensationPreview(result: CompensationResult) {
                     },
                 )
                 Text(
-                    "L %+.1f   R %+.1f".format(left[i], right[i]),
+                    when {
+                        showLeft && showRight -> "L %+.1f   R %+.1f".format(left[i], right[i])
+                        showLeft -> "L %+.1f".format(left[i])
+                        else -> "R %+.1f".format(right[i])
+                    },
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

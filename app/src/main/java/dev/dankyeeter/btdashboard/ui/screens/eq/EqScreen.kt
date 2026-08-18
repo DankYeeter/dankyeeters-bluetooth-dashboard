@@ -30,7 +30,18 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
 
-private enum class EarView { LINKED, LEFT, RIGHT }
+/**
+ * Which ear the screen is looking at. Drives the band sliders *and* the
+ * compensation preview chart — one selector, both views, so the chart never
+ * shows a different ear than the sliders underneath it.
+ *
+ * [LINKED] is the default and keeps the both-ears overlay in the chart.
+ */
+internal enum class EarView(val label: String) {
+    LINKED("Both"),
+    LEFT("Left"),
+    RIGHT("Right"),
+}
 
 @Composable
 fun EqScreen(viewModel: EqViewModel = viewModel()) {
@@ -81,8 +92,27 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             style = MaterialTheme.typography.bodySmall,
         )
 
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Ear view", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EarView.entries.forEach { view ->
+                    FilterChip(
+                        selected = earView == view,
+                        onClick = { earView = view },
+                        label = { Text(view.label) },
+                    )
+                }
+            }
+            Text(
+                "Applies to the band sliders and to the compensation preview below.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+
         CompensationSection(
             state = compensation,
+            earView = earView,
             onSelectPreset = viewModel::selectPreset,
             onIntensityChange = viewModel::setIntensity,
             onIntensityChangeFinished = viewModel::applyCompensationIfActive,
@@ -93,16 +123,6 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
         )
 
         Text("Bands", style = MaterialTheme.typography.titleMedium)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EarView.entries.forEach { view ->
-                FilterChip(
-                    selected = earView == view,
-                    onClick = { earView = view },
-                    label = { Text(view.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                )
-            }
-        }
 
         val gains = when (earView) {
             EarView.RIGHT -> settings.rightGainsDb
