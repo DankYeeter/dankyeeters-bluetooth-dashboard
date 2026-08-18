@@ -1,0 +1,150 @@
+package dev.dankyeeter.btdashboard.audio.eq
+
+import android.media.audiofx.DynamicsProcessing
+import android.util.Log
+
+/**
+ * [SystemEqualizer] backed by Android's `DynamicsProcessing` effect.
+ *
+ * Layout: 2 channels x 10 pre-EQ bands, no multiband compressor, no post-EQ,
+ * plus the built-in per-channel limiter as the final stage.
+ *
+ * Every call into the framework is wrapped defensively: OEM audio HALs are
+ * inconsistent about `DynamicsProcessing` support and throw
+ * `UnsupportedOperationException`/`IllegalStateException` rather than returning
+ * errors. A dead effect flips [isAlive] to false; callers re-attach.
+ */
+class DynamicsProcessingEqualizer private constructor(
+    override val sessionId: Int,
+    private var effect: DynamicsProcessing,
+) : SystemEqualizer {
+
+    private var alive = true
+    override val isAlive: Boolean get() = alive
+
+    override fun apply(settings: EqSettings) = guard {
+        val clean = settings.sanitized()
+        Ear.entries.forEach { ear ->
+            val gains = clean.gainsFor(ear)
+            for (band in 0 until EqBands.COUNT) {
+                writeBand(ear, band, gains[band])
+            }
+        }
+        effect.setInputGainAllChannelsTo(clean.preGainDb)
+        Ear.entries.forEach { ear ->
+            val limiter = effect.getLimiterByChannelIndex(ear.channelIndex)
+            limiter.isEnabled = clean.limiterEnabled
+            effect.setLimiterByChannelIndex(ear.channelIndex, limiter)
+        }
+        effect.enabled = clean.enabled
+    }
+
+    override fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) = guard {
+        require(bandIndex in 0 until EqBands.COUNT) { "band index out of range: $bandIndex" }
+        writeBand(ear, bandIndex, gainDb.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB))
+    }
+
+    override fun setPreGain(db: Float) = guard {
+        effect.setInputGainAllChannelsTo(db.coerceIn(-24f, 0f))
+    }
+
+    override fun setEnabled(enabled: Boolean) = guard {
+        effect.enabled = enabled
+    }
+
+    override fun close() {
+        if (!alive) return
+        alive = false
+        runCatching { effect.enabled = false }
+        runCatching { effect.release() }
+    }
+
+    private fun writeBand(ear: Ear, bandIndex: Int, gainDb: Float) {
+        val band = effect.getPreEqBandByChannelIndex(ear.channelIndex, bandIndex)
+        band.isEnabled = true
+        band.cutoffFrequency = EqBands.CENTER_FREQUENCIES_HZ[bandIndex]
+        band.gain = gainDb
+        effect.setPreEqBandByChannelIndex(ear.channelIndex, bandIndex, band)
+    }
+
+    private inline fun guard(block: () -> Unit) {
+        if (!alive) return
+        try {
+            block()
+        } catch (t: RuntimeException) {
+            Log.w(TAG, "DynamicsProcessing call failed on session $sessionId; marking dead", t)
+            alive = false
+        }
+    }
+
+    companion object {
+        private const val TAG = "DpEqualizer"
+        private const val EFFECT_PRIORITY = 0
+
+        /** Attack/release/ratio/threshold/post-gain for the output limiter. */
+        private const val LIMITER_ATTACK_MS = 1f
+        private const val LIMITER_RELEASE_MS = 60f
+        private const val LIMITER_RATIO = 10f
+        private const val LIMITER_THRESHOLD_DB = -1f
+        private const val LIMITER_POST_GAIN_DB = 0f
+
+        /**
+         * Attaches a fresh effect to [sessionId]. Returns null on any failure —
+         * missing permission for a foreign/global session, unsupported device,
+         * or a session that disappeared between discovery and attach.
+         */
+        fun create(sessionId: Int): DynamicsProcessingEqualizer? = try {
+            val effect = DynamicsProcessing(EFFECT_PRIORITY, sessionId, buildConfig())
+            DynamicsProcessingEqualizer(sessionId, effect)
+        } catch (t: RuntimeException) {
+            Log.w(TAG, "Could not attach DynamicsProcessing to session $sessionId", t)
+            null
+        }
+
+        private fun buildConfig(): DynamicsProcessing.Config {
+            val eq = DynamicsProcessing.Eq(true, true, EqBands.COUNT).apply {
+                for (i in 0 until EqBands.COUNT) {
+                    setBand(
+                        i,
+                        DynamicsProcessing.EqBand(
+                            /* enabled = */ true,
+                            /* cutoffFrequency = */ EqBands.CENTER_FREQUENCIES_HZ[i],
+                            /* gain = */ 0f,
+                        ),
+                    )
+                }
+            }
+            val limiter = DynamicsProcessing.Limiter(
+                /* inUse = */ true,
+                /* enabled = */ true,
+                /* linkGroup = */ 0,
+                LIMITER_ATTACK_MS,
+                LIMITER_RELEASE_MS,
+                LIMITER_RATIO,
+                LIMITER_THRESHOLD_DB,
+                LIMITER_POST_GAIN_DB,
+            )
+            return DynamicsProcessing.Config.Builder(
+                /* variant = */ DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
+                /* channelCount = */ 2,
+                /* preEqInUse = */ true,
+                /* preEqBandCount = */ EqBands.COUNT,
+                /* mbcInUse = */ false,
+                /* mbcBandCount = */ 0,
+                /* postEqInUse = */ false,
+                /* postEqBandCount = */ 0,
+                /* limiterInUse = */ true,
+            )
+                .setPreferredFrameDuration(10f)
+                .setPreEqAllChannelsTo(eq)
+                .setLimiterAllChannelsTo(limiter)
+                .build()
+        }
+    }
+}
+
+/** Default factory; :core-system decides which session id to pass in. */
+class DynamicsProcessingEqualizerFactory : SystemEqualizerFactory {
+    override fun create(sessionId: Int): SystemEqualizer? =
+        DynamicsProcessingEqualizer.create(sessionId)
+}
