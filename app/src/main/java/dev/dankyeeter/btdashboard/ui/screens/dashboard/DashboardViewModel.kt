@@ -15,12 +15,15 @@ import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanState
 import dev.dankyeeter.btdashboard.transfer.BackupExportResult
 import dev.dankyeeter.btdashboard.transfer.BackupImportResult
 import dev.dankyeeter.btdashboard.transfer.BackupRepository
+import dev.dankyeeter.btdashboard.system.setup.SetupStatus
 import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
+import dev.dankyeeter.btdashboard.ui.screens.wizard.AndroidSetupEnvironment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -56,6 +59,25 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _backupMessage = MutableStateFlow<BackupMessage?>(null)
     val backupMessage: StateFlow<BackupMessage?> = _backupMessage.asStateFlow()
+
+    // ---- setup status ---------------------------------------------------------
+
+    private val setupEnvironment = AndroidSetupEnvironment(application)
+    private val setupTick = MutableStateFlow(0)
+
+    /**
+     * "Setup incomplete: N steps left", or null once nothing is outstanding.
+     * Recomputed from [setupTick] on every resume, so granting a permission
+     * elsewhere makes the card disappear without a restart.
+     */
+    val setupSummary: StateFlow<String?> =
+        combine(SystemGraph.setupStore.skippedStepIds, setupTick) { skipped, _ ->
+            SetupStatus.summary(SetupStatus.evaluate(setupEnvironment, skipped))
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun refreshSetupStatus() {
+        setupTick.value += 1
+    }
 
     init {
         // Model detection drives preset selection: the EQ screen adopts the

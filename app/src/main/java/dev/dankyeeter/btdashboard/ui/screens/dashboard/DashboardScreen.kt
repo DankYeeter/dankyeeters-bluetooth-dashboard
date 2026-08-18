@@ -49,9 +49,21 @@ fun DashboardScreen(
     onOpenOnboarding: () -> Unit,
     viewModel: DashboardViewModel = viewModel(),
     onWatchLive: () -> Unit = {},
+    onOpenWizard: () -> Unit = {},
+    onOpenDeviceProfiles: () -> Unit = {},
 ) {
     val shizukuState by SystemGraph.shizuku.state.collectAsState()
     val attachment by SystemGraph.eqController.status.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // The wizard's steps can be satisfied outside the app; re-check on resume.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshSetupStatus()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(
         modifier = Modifier
@@ -62,6 +74,7 @@ fun DashboardScreen(
     ) {
         Text("Dashboard", style = MaterialTheme.typography.headlineSmall)
 
+        SetupStatusCard(viewModel, onOpenWizard)
         NowPlayingCard(viewModel)
         AirPodsCard(viewModel)
 
@@ -76,7 +89,11 @@ fun DashboardScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text("EQ attachment: $attachment", style = MaterialTheme.typography.bodySmall)
-                Button(onClick = onOpenOnboarding) { Text("Open setup") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onOpenWizard) { Text("Setup wizard") }
+                    OutlinedButton(onClick = onOpenOnboarding) { Text("Shizuku details") }
+                }
+                OutlinedButton(onClick = onOpenDeviceProfiles) { Text("Device profiles") }
             }
         }
 
@@ -96,6 +113,34 @@ fun DashboardScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        }
+    }
+}
+
+// ---- setup ------------------------------------------------------------------
+
+/**
+ * Compact nag until the wizard's steps are either satisfied or skipped.
+ *
+ * It counts *outstanding* steps, not ungranted ones: a step the user
+ * deliberately skipped is a decision, and repeating the question forever is how
+ * an app teaches people to ignore it.
+ */
+@Composable
+private fun SetupStatusCard(viewModel: DashboardViewModel, onOpenWizard: () -> Unit) {
+    val summary by viewModel.setupSummary.collectAsState()
+    val text = summary ?: return
+
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Button(onClick = onOpenWizard) { Text("Finish setup") }
         }
     }
 }
