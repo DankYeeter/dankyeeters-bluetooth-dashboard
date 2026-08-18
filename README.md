@@ -78,6 +78,11 @@ of pretending everything is fine.
 Standard Android Studio project. `./gradlew assembleDebug` with an Android SDK,
 NDK and CMake 3.22+ installed. Oboe is pulled in as a Gradle prefab dependency.
 
+The Gradle wrapper binary (`gradlew`, `gradlew.bat`, `gradle-wrapper.jar`) is not
+checked in yet — only `gradle/wrapper/gradle-wrapper.properties` is. Generate it
+once with a local Gradle 8.11+ install (`gradle wrapper`) or let Android Studio
+do it on first open.
+
 ## License
 
 Not yet decided; all rights reserved for now.
