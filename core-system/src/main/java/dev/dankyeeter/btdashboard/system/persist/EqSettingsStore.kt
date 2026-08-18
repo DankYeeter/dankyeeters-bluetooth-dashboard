@@ -50,6 +50,9 @@ class EqSettingsStore(private val context: Context) {
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { it[KEY_PROFILE_ID] }
 
+    /** One-shot read of [activeProfileId] (used by the backup export). */
+    suspend fun activeProfileIdOrNull(): String? = activeProfileId.first()
+
     suspend fun setActiveProfileId(id: String?) {
         context.eqDataStore.edit { prefs ->
             if (id == null) prefs.remove(KEY_PROFILE_ID) else prefs[KEY_PROFILE_ID] = id
