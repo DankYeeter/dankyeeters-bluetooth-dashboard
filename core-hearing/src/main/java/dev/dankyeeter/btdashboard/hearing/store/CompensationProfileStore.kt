@@ -72,9 +72,11 @@ class CompensationProfileStore(context: Context) {
                     put("ancMode", p.ancMode.name)
                     put("intensity", p.intensity.toDouble())
                     put("partialFactor", p.partialFactor.toDouble())
-                    put("runIds", JSONArray(p.audiogram.runIds))
-                    put("left", encodePoints(p.audiogram.left))
-                    put("right", encodePoints(p.audiogram.right))
+                    p.audiogram?.let { audiogram ->
+                        put("runIds", JSONArray(audiogram.runIds))
+                        put("left", encodePoints(audiogram.left))
+                        put("right", encodePoints(audiogram.right))
+                    }
                     put("eq", encodeEq(p.eq))
                 },
             )
@@ -116,11 +118,17 @@ class CompensationProfileStore(context: Context) {
                     id = id,
                     name = o.optString("name", id),
                     createdAtMillis = o.optLong("createdAtMillis"),
-                    audiogram = Audiogram(
-                        runIds = o.optJSONArray("runIds").toStringList(),
-                        left = parsePoints(o.optJSONArray("left")),
-                        right = parsePoints(o.optJSONArray("right")),
-                    ),
+                    // No "left"/"right" keys means a hand-tuned profile, not a
+                    // corrupt one: it is stored with its EQ curve and nothing else.
+                    audiogram = if (!o.has("left") && !o.has("right")) {
+                        null
+                    } else {
+                        Audiogram(
+                            runIds = o.optJSONArray("runIds").toStringList(),
+                            left = parsePoints(o.optJSONArray("left")),
+                            right = parsePoints(o.optJSONArray("right")),
+                        )
+                    },
                     calibrationPresetId = o.optString("calibrationPresetId"),
                     ancMode = runCatching { AncMode.valueOf(o.optString("ancMode")) }
                         .getOrDefault(AncMode.UNKNOWN),

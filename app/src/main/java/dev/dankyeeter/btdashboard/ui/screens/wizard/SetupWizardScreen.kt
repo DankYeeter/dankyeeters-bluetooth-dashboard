@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.dankyeeter.btdashboard.nowplaying.NotificationAccess
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
 import dev.dankyeeter.btdashboard.system.setup.SetupStepState
@@ -38,6 +37,10 @@ import dev.dankyeeter.btdashboard.system.setup.SetupStepStatus
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuState
 import dev.dankyeeter.btdashboard.ui.screens.devices.CopyableCommand
+import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldButton
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 
 /**
  * The one guided flow that asks for everything the app needs, in order.
@@ -79,7 +82,7 @@ fun SetupWizardScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Setup", style = MaterialTheme.typography.headlineSmall)
+        GoldTitle("Setup", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Step ${index + 1} of ${viewModel.stepCount} · " +
                 "${steps.count { it.status == SetupStepStatus.DONE }} done",
@@ -94,11 +97,11 @@ fun SetupWizardScreen(
         StepCard(state = current, viewModel = viewModel)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (index > 0) OutlinedButton(onClick = viewModel::previous) { Text("Back") }
+            if (index > 0) GoldOutlinedButton(onClick = viewModel::previous) { Text("Back") }
             if (index < viewModel.stepCount - 1) {
-                Button(onClick = viewModel::next) { Text("Next") }
+                GoldButton(onClick = viewModel::next) { Text("Next") }
             } else {
-                Button(onClick = { viewModel.finish(onDone) }) { Text("Finish") }
+                GoldButton(onClick = { viewModel.finish(onDone) }) { Text("Finish") }
             }
             TextButton(onClick = { viewModel.skip(current.step) }) {
                 Text(if (current.step.optional) "Skip" else "Skip anyway")
@@ -136,7 +139,7 @@ private fun SetupStepStatus.describe(): String = when (this) {
 
 @Composable
 private fun StepCard(state: SetupStepState, viewModel: SetupWizardViewModel) {
-    Card(Modifier.fillMaxWidth()) {
+    GoldCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(state.step.title, style = MaterialTheme.typography.titleMedium)
             Text(
@@ -170,13 +173,12 @@ private fun StepCard(state: SetupStepState, viewModel: SetupWizardViewModel) {
                         "Allow notifications",
                     )
 
-                    SetupStep.NOTIFICATION_ACCESS -> NotificationAccessAction()
                     SetupStep.SHIZUKU -> ShizukuAction()
                     SetupStep.SECURE_SETTINGS -> SecureSettingsAction()
                 }
             }
 
-            OutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
+            GoldOutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
         }
     }
 }
@@ -192,7 +194,7 @@ private fun PermissionAction(
     ) { viewModel.refresh() }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Button(onClick = { launcher.launch(permissions) }) { Text(label) }
+        GoldButton(onClick = { launcher.launch(permissions) }) { Text(label) }
         Text(
             "If Android does not show a dialog, the permission was denied permanently — " +
                 "grant it in Settings → Apps → this app → Permissions.",
@@ -200,17 +202,6 @@ private fun PermissionAction(
             color = MaterialTheme.colorScheme.outline,
         )
     }
-}
-
-@Composable
-private fun NotificationAccessAction() {
-    val context = LocalContext.current
-    Button(
-        onClick = {
-            context.startActivity(NotificationAccess.settingsIntent())
-            NotificationAccess.requestRebind(context)
-        },
-    ) { Text("Open notification access") }
 }
 
 /**

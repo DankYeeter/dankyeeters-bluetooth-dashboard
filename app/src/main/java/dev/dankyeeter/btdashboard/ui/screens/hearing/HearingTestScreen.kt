@@ -41,6 +41,9 @@ import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import java.text.DateFormat
 import java.util.Date
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldButton
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 
 /**
  * Hearing-test flow: plain-text intro, optional fit check, a distraction-free
@@ -91,14 +94,7 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
                 "• Do three or more runs. The app uses the per-frequency median of your runs.",
             style = MaterialTheme.typography.bodyMedium,
         )
-        Text(
-            "This is audiometry-inspired consumer calibration, not a clinical hearing test, and it " +
-                "cannot diagnose anything. If you suspect hearing loss, see an audiologist.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Text("Your headphones", style = MaterialTheme.typography.titleMedium)
+        GoldTitle("Your headphones")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = state.formFactor == DeviceFormFactor.IN_EAR,
@@ -163,7 +159,7 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         )
 
         if (state.runs.isNotEmpty()) {
-            OutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
+            GoldOutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
                 Text("Your runs (${state.runs.size})")
             }
         }
@@ -212,13 +208,30 @@ private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewMode
                     color = Color.White.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center,
                 )
-                if (state.presenting != null) {
+                val presenting = state.presenting
+                if (presenting != null) {
                     LinearProgressIndicator(
                         progress = { state.progress },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // A full run is ten minutes of near-identical screens. Without
+                    // a moving number there is no way to tell it apart from a
+                    // frozen one — which is exactly how the first build read.
+                    // The frequency is safe to show; the level is not, because
+                    // knowing it would bias the answer.
+                    Text(
+                        "Tone ${presenting.frequencyIndex + 1} of ${presenting.frequencyCount}" +
+                            " · ${formatHz(presenting.frequencyHz)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.7f),
+                    )
                 } else {
                     CircularProgressIndicator()
+                    Text(
+                        "Getting the audio stream ready…",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.7f),
+                    )
                 }
             }
 
@@ -227,7 +240,7 @@ private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewMode
                 shape = CircleShape,
                 modifier = Modifier.size(220.dp),
             ) {
-                Text("I hear it", style = MaterialTheme.typography.headlineSmall)
+                GoldTitle("I hear it", style = MaterialTheme.typography.headlineSmall)
             }
 
             Column(
@@ -296,10 +309,10 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
             }
         }
 
-        Button(onClick = viewModel::backToIntro, modifier = Modifier.fillMaxWidth()) {
+        GoldButton(onClick = viewModel::backToIntro, modifier = Modifier.fillMaxWidth()) {
             Text("Run another test")
         }
-        OutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
+        GoldOutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
             Text("Manage runs")
         }
     }
@@ -330,7 +343,7 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
         if (state.runs.isNotEmpty()) {
             TextButton(onClick = viewModel::deleteAllRuns) { Text("Delete all runs") }
         }
-        Button(onClick = viewModel::backToIntro, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        GoldButton(onClick = viewModel::backToIntro, modifier = Modifier.fillMaxWidth()) { Text("Back") }
     }
 }
 
@@ -356,3 +369,7 @@ private fun RunRow(run: AudiogramRun, onDelete: () -> Unit) {
         }
     }
 }
+
+/** 1000 -> "1 kHz", 250 -> "250 Hz". Locale-free: the app is English-only. */
+private fun formatHz(hz: Int): String =
+    if (hz >= 1000 && hz % 1000 == 0) "${hz / 1000} kHz" else "$hz Hz"

@@ -19,19 +19,44 @@ import androidx.compose.ui.platform.LocalContext
  */
 enum class AppTheme { LIGHT, DARK, EDGY, SYSTEM }
 
-private val Gold = Color(0xFFC9A227)
-private val GoldMuted = Color(0xFF8C6F1A)
+private val Parchment = Color(0xFFEDE9DF)
 
+/**
+ * True black with gold, all the way down.
+ *
+ * The container roles have to be listed explicitly: `darkColorScheme()` fills
+ * every role it is not given with Material's default dark tones, and Card,
+ * chips and dialogs all paint from `surfaceContainer*` rather than `surface`.
+ * Overriding only `surface` left the app 60% mid-grey with a gold trim, which
+ * is not the look this theme exists for.
+ */
 private val EdgyColorScheme = darkColorScheme(
-    primary = Gold,
+    primary = Gold.Base,
     onPrimary = Color.Black,
-    secondary = GoldMuted,
+    primaryContainer = Color(0xFF2A2109),
+    onPrimaryContainer = Gold.Base,
+    secondary = Gold.Deep,
+    onSecondary = Color.Black,
+    secondaryContainer = Color(0xFF1F1907),
+    onSecondaryContainer = Gold.Base,
+    tertiary = Gold.Base,
+    onTertiary = Color.Black,
     background = Color.Black,
-    onBackground = Color(0xFFEDE9DF),
+    onBackground = Parchment,
     surface = Color.Black,
-    onSurface = Color(0xFFEDE9DF),
-    surfaceVariant = Color(0xFF121212),
-    outline = GoldMuted,
+    onSurface = Parchment,
+    surfaceVariant = Color(0xFF141414),
+    onSurfaceVariant = Color(0xFFCFC8B8),
+    surfaceTint = Gold.Base,
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF0A0A0A),
+    surfaceContainer = Color(0xFF101010),
+    surfaceContainerHigh = Color(0xFF161616),
+    surfaceContainerHighest = Color(0xFF1C1C1C),
+    inverseSurface = Parchment,
+    inverseOnSurface = Color.Black,
+    outline = Gold.Deep,
+    outlineVariant = Color(0xFF3A3016),
 )
 
 @Composable
@@ -55,5 +80,8 @@ fun BtDashboardTheme(
         else -> lightColorScheme()
     }
 
-    MaterialTheme(colorScheme = colorScheme, content = content)
+    // Only Edgy paints metal; Material You owns the accent in the other themes.
+    ProvideGoldAccents(enabled = theme == AppTheme.EDGY) {
+        MaterialTheme(colorScheme = colorScheme, content = content)
+    }
 }

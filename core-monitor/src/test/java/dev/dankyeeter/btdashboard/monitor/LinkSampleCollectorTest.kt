@@ -29,7 +29,7 @@ class LinkSampleCollectorTest {
             CodecStatus(CodecFamily.LDAC, sampleRateHz = 96_000, bitrateKbps = 606),
         )
         val dumpsys = FakeDumpsysLinkSource(
-            DumpsysSnapshot(listOf(DumpsysDevice(address, rssiDbm = -62))),
+            DumpsysSnapshot(listOf(DumpsysDevice(address, isConnected = true, rssiDbm = -62))),
         )
 
         val sample = LinkSampleCollector(codecSource, dumpsys, bqr) { 1_234L }.collect().single()
@@ -47,7 +47,7 @@ class LinkSampleCollectorTest {
         val codecSource = FakeCodecStatusSource(isProfileAvailable = false)
         val dumpsys = FakeDumpsysLinkSource(
             DumpsysSnapshot(
-                listOf(DumpsysDevice(address, codec = CodecFamily.SBC, isPlaying = true, rssiDbm = -70)),
+                listOf(DumpsysDevice(address, isConnected = true, codec = CodecFamily.SBC, isPlaying = true, rssiDbm = -70)),
             ),
         )
 

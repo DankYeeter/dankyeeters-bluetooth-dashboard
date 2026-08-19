@@ -10,24 +10,23 @@ enum class Ear(val channelIndex: Int) {
     RIGHT(1),
 }
 
-/** Fixed 10-band layout (ISO octave centres). Index order is used everywhere. */
+/**
+ * Layout-independent EQ constants.
+ *
+ * The band *positions* moved to [EqBandLayout] once the EQ stopped being fixed
+ * at ten; what is left here applies to every layout.
+ */
 object EqBands {
-    val CENTER_FREQUENCIES_HZ: List<Float> = listOf(
-        31.5f, 63f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f,
-    )
-
-    const val COUNT: Int = 10
-
     /** Gain range the UI and the compensation math must stay inside. */
     const val MIN_GAIN_DB: Float = -15f
     const val MAX_GAIN_DB: Float = 15f
 
-    /**
-     * Bands outside the 250–8000 Hz audiometry range. The hearing test cannot
-     * measure these, so any gain here is extrapolated and must be labelled as
-     * such in the UI (Stage B/C requirement).
-     */
-    val EXTRAPOLATED_INDICES: Set<Int> = setOf(0, 1, 2, 9)
+    /** The default layout's centres, kept for callers that predate layouts. */
+    val CENTER_FREQUENCIES_HZ: List<Float> get() = EqBandLayout.DEFAULT.centersHz
+
+    val COUNT: Int get() = EqBandLayout.DEFAULT.bandCount
+
+    val EXTRAPOLATED_INDICES: Set<Int> get() = EqBandLayout.DEFAULT.extrapolatedIndices
 }
 
 /**
@@ -45,14 +44,36 @@ object EqBands {
  */
 data class EqSettings(
     val enabled: Boolean = false,
-    val leftGainsDb: List<Float> = List(EqBands.COUNT) { 0f },
-    val rightGainsDb: List<Float> = List(EqBands.COUNT) { 0f },
+    val layout: EqBandLayout = EqBandLayout.DEFAULT,
+    val leftGainsDb: List<Float> = List(layout.bandCount) { 0f },
+    val rightGainsDb: List<Float> = List(layout.bandCount) { 0f },
     val preGainDb: Float = 0f,
     val limiterEnabled: Boolean = true,
 ) {
     init {
-        require(leftGainsDb.size == EqBands.COUNT) { "leftGainsDb must have ${EqBands.COUNT} entries" }
-        require(rightGainsDb.size == EqBands.COUNT) { "rightGainsDb must have ${EqBands.COUNT} entries" }
+        require(leftGainsDb.size == layout.bandCount) {
+            "leftGainsDb must have ${layout.bandCount} entries for ${layout.id}"
+        }
+        require(rightGainsDb.size == layout.bandCount) {
+            "rightGainsDb must have ${layout.bandCount} entries for ${layout.id}"
+        }
+    }
+
+    val bandCount: Int get() = layout.bandCount
+
+    val centersHz: List<Float> get() = layout.centersHz
+
+    /**
+     * Same curve, different resolution. Gains are resampled rather than reset,
+     * so trying a finer layout never costs the user the setting they had.
+     */
+    fun withLayout(target: EqBandLayout): EqSettings {
+        if (target == layout) return this
+        return copy(
+            layout = target,
+            leftGainsDb = EqBandLayout.resample(leftGainsDb, layout, target),
+            rightGainsDb = EqBandLayout.resample(rightGainsDb, layout, target),
+        ).sanitized()
     }
 
     fun gainsFor(ear: Ear): List<Float> = when (ear) {

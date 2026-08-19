@@ -6,8 +6,14 @@ import android.util.Log
 /**
  * [SystemEqualizer] backed by Android's `DynamicsProcessing` effect.
  *
- * Layout: 2 channels x 10 pre-EQ bands, no multiband compressor, no post-EQ,
- * plus the built-in per-channel limiter as the final stage.
+ * Layout: 2 channels x N pre-EQ bands (N from [EqBandLayout]), no multiband
+ * compressor, no post-EQ, plus the built-in per-channel limiter as the final
+ * stage.
+ *
+ * `DynamicsProcessing` fixes its band count at construction, so a layout change
+ * is not a parameter update — the effect is released and rebuilt on the same
+ * session. That is why [apply] tracks which layout the live effect was built
+ * for and recreates it when the incoming settings disagree.
  *
  * Every call into the framework is wrapped defensively: OEM audio HALs are
  * inconsistent about `DynamicsProcessing` support and throw
@@ -17,6 +23,7 @@ import android.util.Log
 class DynamicsProcessingEqualizer private constructor(
     override val sessionId: Int,
     private var effect: DynamicsProcessing,
+    private var layout: EqBandLayout,
 ) : SystemEqualizer {
 
     private var alive = true
@@ -24,9 +31,10 @@ class DynamicsProcessingEqualizer private constructor(
 
     override fun apply(settings: EqSettings) = guard {
         val clean = settings.sanitized()
+        if (clean.layout != layout) rebuildFor(clean.layout)
         Ear.entries.forEach { ear ->
             val gains = clean.gainsFor(ear)
-            for (band in 0 until EqBands.COUNT) {
+            for (band in 0 until layout.bandCount) {
                 writeBand(ear, band, gains[band])
             }
         }
@@ -39,8 +47,10 @@ class DynamicsProcessingEqualizer private constructor(
         effect.enabled = clean.enabled
     }
 
+    override val activeLayout: EqBandLayout get() = layout
+
     override fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) = guard {
-        require(bandIndex in 0 until EqBands.COUNT) { "band index out of range: $bandIndex" }
+        require(bandIndex in 0 until layout.bandCount) { "band index out of range: $bandIndex" }
         writeBand(ear, bandIndex, gainDb.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB))
     }
 
@@ -50,6 +60,24 @@ class DynamicsProcessingEqualizer private constructor(
 
     override fun setEnabled(enabled: Boolean) = guard {
         effect.enabled = enabled
+    }
+
+    /**
+     * Swaps in an effect with the new band count. If the framework refuses the
+     * new configuration the old effect is already gone, so the equaliser marks
+     * itself dead and the caller re-attaches — the same path a HAL failure takes.
+     */
+    private fun rebuildFor(target: EqBandLayout) {
+        runCatching { effect.enabled = false }
+        runCatching { effect.release() }
+        val rebuilt = createEffect(sessionId, target)
+        if (rebuilt == null) {
+            alive = false
+            Log.w(TAG, "Could not rebuild DynamicsProcessing for ${target.id}")
+            return
+        }
+        effect = rebuilt
+        layout = target
     }
 
     override fun close() {
@@ -93,22 +121,33 @@ class DynamicsProcessingEqualizer private constructor(
          * missing permission for a foreign/global session, unsupported device,
          * or a session that disappeared between discovery and attach.
          */
-        fun create(sessionId: Int): DynamicsProcessingEqualizer? = try {
-            val effect = DynamicsProcessing(EFFECT_PRIORITY, sessionId, buildConfig())
-            DynamicsProcessingEqualizer(sessionId, effect)
+        fun create(
+            sessionId: Int,
+            layout: EqBandLayout = EqBandLayout.DEFAULT,
+        ): DynamicsProcessingEqualizer? = try {
+            val effect = DynamicsProcessing(EFFECT_PRIORITY, sessionId, buildConfig(layout))
+            DynamicsProcessingEqualizer(sessionId, effect, layout)
         } catch (t: RuntimeException) {
             Log.w(TAG, "Could not attach DynamicsProcessing to session $sessionId", t)
             null
         }
 
-        private fun buildConfig(): DynamicsProcessing.Config {
-            val eq = DynamicsProcessing.Eq(true, true, EqBands.COUNT).apply {
-                for (i in 0 until EqBands.COUNT) {
+        /** Raw effect for [rebuildFor], which needs the framework object itself. */
+        private fun createEffect(sessionId: Int, layout: EqBandLayout): DynamicsProcessing? = try {
+            DynamicsProcessing(EFFECT_PRIORITY, sessionId, buildConfig(layout))
+        } catch (t: RuntimeException) {
+            Log.w(TAG, "Could not rebuild DynamicsProcessing on session $sessionId", t)
+            null
+        }
+
+        private fun buildConfig(layout: EqBandLayout): DynamicsProcessing.Config {
+            val eq = DynamicsProcessing.Eq(true, true, layout.bandCount).apply {
+                for (i in 0 until layout.bandCount) {
                     setBand(
                         i,
                         DynamicsProcessing.EqBand(
                             /* enabled = */ true,
-                            /* cutoffFrequency = */ EqBands.CENTER_FREQUENCIES_HZ[i],
+                            /* cutoffFrequency = */ layout.centersHz[i],
                             /* gain = */ 0f,
                         ),
                     )
@@ -128,7 +167,7 @@ class DynamicsProcessingEqualizer private constructor(
                 /* variant = */ DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
                 /* channelCount = */ 2,
                 /* preEqInUse = */ true,
-                /* preEqBandCount = */ EqBands.COUNT,
+                /* preEqBandCount = */ layout.bandCount,
                 /* mbcInUse = */ false,
                 /* mbcBandCount = */ 0,
                 /* postEqInUse = */ false,

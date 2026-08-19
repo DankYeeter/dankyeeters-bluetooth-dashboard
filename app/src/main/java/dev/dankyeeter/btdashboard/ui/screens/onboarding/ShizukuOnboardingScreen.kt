@@ -26,6 +26,9 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsState
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuState
+import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 
 /**
  * Guided setup. There is no Play Store in this project, so the install step
@@ -47,7 +50,7 @@ fun ShizukuOnboardingScreen(onDone: () -> Unit) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Set up system-wide EQ", style = MaterialTheme.typography.headlineSmall)
+        GoldTitle("Set up system-wide EQ", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Android only lets an app equalize other apps' audio with elevated " +
                 "privileges. Shizuku provides these without root, via a one-time " +
@@ -88,7 +91,7 @@ fun ShizukuOnboardingScreen(onDone: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            OutlinedButton(onClick = { manager.refresh() }) { Text("Re-check") }
+            GoldOutlinedButton(onClick = { manager.refresh() }) { Text("Re-check") }
         }
 
         val secure = secureSettings.state()
@@ -120,7 +123,7 @@ fun ShizukuOnboardingScreen(onDone: () -> Unit) {
 
 @Composable
 private fun StepCard(title: String, body: String, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+    GoldCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(body, style = MaterialTheme.typography.bodySmall)
@@ -134,7 +137,7 @@ private fun CopyRow(context: Context, label: String, value: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium)
         Text(value, style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = {
+        GoldOutlinedButton(onClick = {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
         }) { Text("Copy") }

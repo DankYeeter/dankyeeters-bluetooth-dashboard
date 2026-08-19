@@ -5,9 +5,13 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import dev.dankyeeter.btdashboard.system.SystemGraph
+import dev.dankyeeter.btdashboard.system.persist.AppearanceChoice
 import dev.dankyeeter.btdashboard.ui.BtDashboardApp
 import dev.dankyeeter.btdashboard.ui.screens.hearing.VolumeKeyLock
+import dev.dankyeeter.btdashboard.ui.theme.AppTheme
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 
 class MainActivity : ComponentActivity() {
@@ -15,7 +19,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            BtDashboardTheme {
+            // Collected here rather than inside the nav host: the theme wraps
+            // every screen, so a change has to recompose the whole tree.
+            val appearance by SystemGraph.appearanceStore.choice
+                .collectAsState(initial = AppearanceChoice.SYSTEM)
+
+            BtDashboardTheme(theme = appearance.toAppTheme()) {
                 BtDashboardApp()
             }
         }
@@ -42,4 +51,12 @@ class MainActivity : ComponentActivity() {
         // Shizuku can be started/stopped while we are backgrounded.
         SystemGraph.shizuku.refresh()
     }
+}
+
+/** The persisted preference in :core-system, expressed as the UI's theme enum. */
+private fun AppearanceChoice.toAppTheme(): AppTheme = when (this) {
+    AppearanceChoice.SYSTEM -> AppTheme.SYSTEM
+    AppearanceChoice.LIGHT -> AppTheme.LIGHT
+    AppearanceChoice.DARK -> AppTheme.DARK
+    AppearanceChoice.EDGY -> AppTheme.EDGY
 }

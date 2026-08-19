@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.ui.screens.eq
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.audio.eq.Ear
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
@@ -155,7 +156,20 @@ class EqViewModel : ViewModel() {
         compensationDrivesTheEq = false
         _bypass.value = false
         viewModelScope.launch { store.setActiveProfileId(null) }
-        commit(EqSettings.FLAT.copy(enabled = _settings.value.enabled))
+        val current = _settings.value
+        commit(EqSettings(enabled = current.enabled, layout = current.layout))
+    }
+
+    /**
+     * Changes how many bands the EQ has. The curve is resampled onto the new
+     * centres rather than reset, so trying a finer layout is free: nothing the
+     * user tuned, and no compensation curve, is lost by looking.
+     */
+    fun setBandLayout(layout: EqBandLayout) {
+        val current = _settings.value
+        if (current.layout == layout) return
+        commit(current.withLayout(layout))
+        persist()
     }
 
     /** Persists the current curve; call on slider release. */
@@ -194,20 +208,28 @@ class EqViewModel : ViewModel() {
         if (compensationDrivesTheEq) applyCompensation()
     }
 
+    /**
+     * Saves whatever is currently in force under a name.
+     *
+     * A hearing-test result is stored with its audiogram, so a later re-test
+     * cannot change it. Without one, the live curve is saved on its own — a
+     * hand-tuned EQ deserves to be nameable and recallable just as much, and
+     * requiring a hearing test first made the whole preset feature unreachable
+     * for anyone who just wanted to set the sliders.
+     */
     fun saveProfile(name: String) {
         val state = _compensation.value
-        val audiogram = state.audiogram ?: return
-        val result = state.result ?: return
+        val result = state.result
         val profile = CompensationProfile(
             id = UUID.randomUUID().toString(),
-            name = name.trim().ifBlank { "Profile ${state.profiles.size + 1}" },
+            name = name.trim().ifBlank { "Preset ${state.profiles.size + 1}" },
             createdAtMillis = System.currentTimeMillis(),
-            audiogram = audiogram,
+            audiogram = if (result == null) null else state.audiogram,
             calibrationPresetId = state.presetId,
             ancMode = AncMode.UNKNOWN,
             intensity = state.intensity,
             partialFactor = DEFAULT_PARTIAL_FACTOR,
-            eq = result.eq,
+            eq = result?.eq ?: _settings.value,
         )
         viewModelScope.launch {
             profileStore.save(profile)
@@ -217,7 +239,9 @@ class EqViewModel : ViewModel() {
 
     /** Restores a saved profile: its snapshot wins over the current test data. */
     fun loadProfile(profile: CompensationProfile) {
-        compensationDrivesTheEq = true
+        // A hand-tuned preset carries no audiogram, so nothing should recompute
+        // a compensation curve over the top of the gains it restores.
+        compensationDrivesTheEq = profile.audiogram != null
         _bypass.value = false
         update {
             it.copy(
@@ -248,6 +272,9 @@ class EqViewModel : ViewModel() {
             calibrationPresetId = next.presetId,
             intensity = next.intensity,
             partialFactor = DEFAULT_PARTIAL_FACTOR,
+            // The prescription is mapped onto whatever layout is active, so a
+            // 31-band EQ gets a 31-band curve instead of a stretched 10-band one.
+            layout = _settings.value.layout,
         )
         _compensation.value = next.copy(result = result).withAppliedFlag(_settings.value)
     }
@@ -261,7 +288,11 @@ class EqViewModel : ViewModel() {
 
     private fun commit(value: EqSettings) {
         val clean = value.sanitized()
+        val layoutChanged = clean.layout != _settings.value.layout
         _settings.value = clean
+        // A layout change invalidates the cached preview: it was computed for
+        // the old centres, so "applied" would compare lists of different sizes.
+        if (layoutChanged) update { it }
         _compensation.value = _compensation.value.withAppliedFlag(clean)
         pushLive(effective(clean, _bypass.value))
         viewModelScope.launch { store.save(clean) }

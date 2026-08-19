@@ -43,6 +43,10 @@ import dev.dankyeeter.btdashboard.system.devices.ApplyResult
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
 import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
 import kotlin.math.roundToInt
+import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldButton
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 
 /**
  * Per-device profiles (spec core function 2).
@@ -77,7 +81,7 @@ fun DeviceProfilesScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Device profiles", style = MaterialTheme.typography.headlineSmall)
+        GoldTitle("Device profiles", style = MaterialTheme.typography.headlineSmall)
         Text(
             "When one of these headphones connects, the app applies its profile: " +
                 "compensation curve, media volume, absolute-volume preference. " +
@@ -89,9 +93,9 @@ fun DeviceProfilesScreen(
         lastAutoApply?.let { AutoApplyCard(it) }
 
         if (!viewModel.hasBluetoothPermission()) {
-            Card(Modifier.fillMaxWidth()) {
+            GoldCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Bluetooth access missing", style = MaterialTheme.typography.titleMedium)
+                    GoldTitle("Bluetooth access missing")
                     Text(
                         "Without BLUETOOTH_CONNECT the paired-device list stays empty. " +
                             "Profiles for devices already seen still work.",
@@ -127,7 +131,7 @@ fun DeviceProfilesScreen(
         }
 
         message?.let { text ->
-            Card(Modifier.fillMaxWidth()) {
+            GoldCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(text, style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = viewModel::dismissMessage) { Text("Dismiss") }
@@ -159,7 +163,7 @@ private fun DeviceRowCard(
     onEdit: () -> Unit,
     onApply: () -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
+    GoldCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -181,8 +185,8 @@ private fun DeviceRowCard(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onEdit) { Text(if (profile == null) "Create profile" else "Edit") }
-                if (profile != null) OutlinedButton(onClick = onApply) { Text("Apply now") }
+                GoldButton(onClick = onEdit) { Text(if (profile == null) "Create profile" else "Edit") }
+                if (profile != null) GoldOutlinedButton(onClick = onApply) { Text("Apply now") }
             }
         }
     }
@@ -216,9 +220,9 @@ private fun ProfileEditorCard(initial: DeviceProfile, viewModel: DeviceProfilesV
     var absoluteEnabled by remember(initial.deviceKey) { mutableStateOf(initial.absoluteVolumeEnabled) }
     var autoApply by remember(initial.deviceKey) { mutableStateOf(initial.autoApply) }
 
-    Card(Modifier.fillMaxWidth()) {
+    GoldCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Edit profile", style = MaterialTheme.typography.titleMedium)
+            GoldTitle("Edit profile")
 
             OutlinedTextField(
                 value = name,
@@ -252,7 +256,7 @@ private fun ProfileEditorCard(initial: DeviceProfile, viewModel: DeviceProfilesV
             }
 
             PickerMenu(
-                label = "Compensation profile",
+                label = "EQ preset",
                 selectedLabel = compensationProfiles.firstOrNull { it.id == compensationId }?.name
                     ?: "Leave alone",
                 options = listOf<Pair<String?, String>>(null to "Leave alone") +
@@ -261,8 +265,8 @@ private fun ProfileEditorCard(initial: DeviceProfile, viewModel: DeviceProfilesV
             )
             if (compensationProfiles.isEmpty()) {
                 Text(
-                    "No saved compensation profiles yet — run a hearing test and save one " +
-                        "on the EQ screen first.",
+                    "No saved presets yet. Set a curve on the EQ screen — by hand or from " +
+                        "a hearing test — save it under a name, then bind it here.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -318,7 +322,7 @@ private fun ProfileEditorCard(initial: DeviceProfile, viewModel: DeviceProfilesV
                         )
                     },
                 ) { Text("Save") }
-                OutlinedButton(onClick = viewModel::stopEditing) { Text("Cancel") }
+                GoldOutlinedButton(onClick = viewModel::stopEditing) { Text("Cancel") }
                 TextButton(onClick = { viewModel.delete(initial.deviceKey) }) { Text("Delete") }
             }
         }
@@ -358,7 +362,7 @@ private fun AbsoluteVolumeEditor(
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onWriteNow(!status.enabled) }) {
+                    GoldOutlinedButton(onClick = { onWriteNow(!status.enabled) }) {
                         Text(if (status.enabled) "Turn off now" else "Turn on now")
                     }
                 }
@@ -431,7 +435,7 @@ private fun <T> PickerMenu(
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium)
-        OutlinedButton(onClick = { expanded = true }) { Text(selectedLabel) }
+        GoldOutlinedButton(onClick = { expanded = true }) { Text(selectedLabel) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (value, text) ->
                 DropdownMenuItem(

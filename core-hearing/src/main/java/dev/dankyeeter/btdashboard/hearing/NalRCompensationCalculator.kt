@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.audio.eq.Ear
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import kotlin.math.abs
@@ -33,7 +34,15 @@ class NalRCompensationCalculator(
         calibrationPresetId: String,
         intensity: Float,
         partialFactor: Float,
-    ): EqSettings = computeDetailed(audiogram, calibrationPresetId, intensity, partialFactor).eq
+    ): EqSettings = compute(audiogram, calibrationPresetId, intensity, partialFactor, EqBandLayout.DEFAULT)
+
+    fun compute(
+        audiogram: Audiogram,
+        calibrationPresetId: String,
+        intensity: Float,
+        partialFactor: Float,
+        layout: EqBandLayout,
+    ): EqSettings = computeDetailed(audiogram, calibrationPresetId, intensity, partialFactor, layout).eq
 
     /**
      * Same computation as [compute] but keeps the intermediate values the EQ
@@ -44,20 +53,22 @@ class NalRCompensationCalculator(
         calibrationPresetId: String,
         intensity: Float,
         partialFactor: Float,
+        layout: EqBandLayout = EqBandLayout.DEFAULT,
     ): CompensationResult {
         val preset = presets.byId(calibrationPresetId)
             ?: presets.byId(CalibrationPresetRepository.GENERIC_ID)
             ?: BundledCalibrationPresets.generic
         val strength = (intensity * partialFactor).coerceIn(0f, 1f).toDouble()
 
-        val left = computeEar(audiogram.points(Ear.LEFT), preset, strength)
-        val right = computeEar(audiogram.points(Ear.RIGHT), preset, strength)
+        val left = computeEar(audiogram.points(Ear.LEFT), preset, strength, layout)
+        val right = computeEar(audiogram.points(Ear.RIGHT), preset, strength, layout)
 
         val peak = (left.bandGainsDb + right.bandGainsDb).maxOrNull() ?: 0.0
         val preGain = -peak.coerceAtLeast(0.0)
 
         val eq = EqSettings(
             enabled = false, // the caller owns the master switch
+            layout = layout,
             leftGainsDb = left.bandGainsDb.map { it.toFloat() },
             rightGainsDb = right.bandGainsDb.map { it.toFloat() },
             preGainDb = preGain.toFloat(),
@@ -77,6 +88,7 @@ class NalRCompensationCalculator(
         points: List<ThresholdPoint>,
         preset: CalibrationPreset,
         strength: Double,
+        layout: EqBandLayout,
     ): EarCompensation {
         // Step 2: device correction -> H_T(f) at the audiometric frequencies.
         val corrected: List<Double> = TEST_FREQUENCIES_HZ.mapIndexed { i, hz ->
@@ -93,12 +105,12 @@ class NalRCompensationCalculator(
         // Step 4 + per-band cap of step 5.
         val scaled = insertionGain.map { (strength * it).coerceIn(0.0, MAX_BAND_GAIN_DB) }
 
-        // Step 6: map onto the 10 EQ centres.
-        val mapped = mapToBands(scaled)
+        // Step 6: map onto whichever band layout is active.
+        val mapped = mapToBands(scaled, layout)
 
         // Rest of step 5: 3-point moving average, then the explicit 6 dB/octave
         // ceiling the spec names. The limiter only ever lowers a band.
-        val bands = limitSlope(movingAverage3(mapped))
+        val bands = limitSlope(movingAverage3(mapped), layout)
 
         return EarCompensation(
             correctedThresholdsDb = corrected,
@@ -130,11 +142,14 @@ class NalRCompensationCalculator(
      * audiometric data down there or up there, so we never extrapolate a full
      * gain.
      */
-    private fun mapToBands(gainsAtTestFrequencies: List<Double>): List<Double> {
+    private fun mapToBands(
+        gainsAtTestFrequencies: List<Double>,
+        layout: EqBandLayout,
+    ): List<Double> {
         val xs = TEST_FREQUENCIES_HZ.map { it.toDouble() }
         val low = xs.first()
         val high = xs.last()
-        return EqBands.CENTER_FREQUENCIES_HZ.map { centre ->
+        return layout.centersHz.map { centre ->
             val f = centre.toDouble()
             when {
                 f < low -> gainsAtTestFrequencies.first() * EDGE_BAND_FACTOR
@@ -164,16 +179,46 @@ class NalRCompensationCalculator(
          * Enforces [MAX_SLOPE_DB_PER_OCTAVE] between neighbouring bands by
          * pulling the *louder* band down — never by boosting, so this can only
          * make the curve safer.
+         *
+         * The ceiling is per *octave*, not per band. On a third-octave layout
+         * neighbours are a third of an octave apart, so the step allowed
+         * between them is a third as large; applying the octave figure verbatim
+         * would let a 31-band curve rise three times as steeply as a 10-band
+         * one from the same audiogram.
          */
-        fun limitSlope(values: List<Double>): List<Double> {
+        fun limitSlope(
+            values: List<Double>,
+            layout: EqBandLayout = EqBandLayout.DEFAULT,
+        ): List<Double> {
+            val steps = allowedSteps(layout, values.size)
             val out = values.toMutableList()
             for (i in 1 until out.size) {
-                out[i] = minOf(out[i], out[i - 1] + MAX_SLOPE_DB_PER_OCTAVE)
+                out[i] = minOf(out[i], out[i - 1] + steps[i - 1])
             }
             for (i in out.size - 2 downTo 0) {
-                out[i] = minOf(out[i], out[i + 1] + MAX_SLOPE_DB_PER_OCTAVE)
+                out[i] = minOf(out[i], out[i + 1] + steps[i])
             }
             return out
+        }
+
+        /**
+         * The dB step allowed between each adjacent pair.
+         *
+         * Computed per pair, not from an average: ISO band centres are rounded
+         * nominal values, so 63→125 Hz is 0.9885 octaves while 4000→8000 Hz is
+         * exactly 1.0. Averaging those would apply a slightly wrong ceiling to
+         * every pair instead of the right one to each.
+         */
+        private fun allowedSteps(layout: EqBandLayout, bandCount: Int): List<Double> {
+            val centres = layout.centersHz
+            if (centres.size != bandCount || bandCount < 2) {
+                return List(maxOf(bandCount - 1, 0)) { MAX_SLOPE_DB_PER_OCTAVE }
+            }
+            return (1 until bandCount).map { i ->
+                val octaves = kotlin.math.ln(centres[i] / centres[i - 1].toDouble()) /
+                    kotlin.math.ln(2.0)
+                MAX_SLOPE_DB_PER_OCTAVE * octaves
+            }
         }
 
         /** Largest absolute inter-band step; for tests and the UI's warnings. */
@@ -189,7 +234,7 @@ data class EarCompensation(
     val ptaDb: Double,
     /** NAL-R `IG(f)` before the intensity slider. */
     val insertionGainDb: List<Double>,
-    /** Final gains at the 10 EQ band centres. */
+    /** Final gains at the active layout's band centres. */
     val bandGainsDb: List<Double>,
 )
 

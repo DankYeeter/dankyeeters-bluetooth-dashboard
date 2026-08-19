@@ -29,6 +29,7 @@ class VolumeGuard(context: Context) {
         context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     private var referenceVolume: Int = -1
+    private var userVolume: Int = -1
     private var watchdog: Job? = null
 
     val maxVolume: Int get() = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -36,6 +37,40 @@ class VolumeGuard(context: Context) {
 
     /** Fraction of the maximum below which the test is not worth running. */
     val isVolumeTooLow: Boolean get() = currentVolume < (maxVolume * MIN_VOLUME_FRACTION)
+
+    /**
+     * Puts the media stream at a defined level for the run and latches it.
+     *
+     * The protocol's absolute levels only mean anything against a known system
+     * volume, and leaving that to the user made the test silent whenever the
+     * A2DP stream happened to sit at 3/25. The previous value is remembered and
+     * put back by [restoreUserVolume] once the run ends.
+     *
+     * @return false only if the device refused the change *and* the volume that
+     *   is actually set is too low to run a meaningful test.
+     */
+    fun applyTestVolume(fraction: Double = TEST_VOLUME_FRACTION): Boolean {
+        if (userVolume < 0) userVolume = currentVolume
+        val wanted = (maxVolume * fraction).toInt().coerceIn(1, maxVolume)
+        runCatching {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, wanted, 0)
+        }.onFailure {
+            // Fixed-volume devices, DND policy or an absolute-volume A2DP sink
+            // can all refuse this. Fall back to whatever is set.
+            Log.w(TAG, "could not set the test volume", it)
+        }
+        latchReference()
+        return !isVolumeTooLow
+    }
+
+    /** Puts back the volume the user had before [applyTestVolume]. */
+    fun restoreUserVolume() {
+        if (userVolume < 0) return
+        runCatching {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, userVolume, 0)
+        }.onFailure { Log.w(TAG, "could not restore the user's media volume", it) }
+        userVolume = -1
+    }
 
     /** Latches the current media volume as this run's reference. */
     fun latchReference(): Int {
@@ -83,6 +118,7 @@ class VolumeGuard(context: Context) {
 
     fun release() {
         stopWatchdog()
+        restoreUserVolume()
         referenceVolume = -1
     }
 
@@ -90,5 +126,9 @@ class VolumeGuard(context: Context) {
         const val TAG = "VolumeGuard"
         const val POLL_INTERVAL_MS = 250L
         const val MIN_VOLUME_FRACTION = 0.3
+
+        /** Where the run puts the media stream: loud enough for the -85 dBFS floor,
+         *  well short of anything uncomfortable at the -6 dBFS ceiling. */
+        const val TEST_VOLUME_FRACTION = 0.7
     }
 }

@@ -14,6 +14,7 @@ import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
 import dev.dankyeeter.btdashboard.system.devices.EqCompensationApplier
 import dev.dankyeeter.btdashboard.system.devices.SystemMediaVolumeController
 import dev.dankyeeter.btdashboard.system.persist.EqSettingsStore
+import dev.dankyeeter.btdashboard.system.persist.AppearanceStore
 import dev.dankyeeter.btdashboard.system.setup.SetupStore
 import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsGate
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
@@ -37,6 +38,7 @@ object SystemGraph {
     private var _applier: DeviceProfileApplier? = null
     private var _watcher: DeviceConnectionWatcher? = null
     private var _setupStore: SetupStore? = null
+    private var _appearanceStore: AppearanceStore? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -110,6 +112,11 @@ object SystemGraph {
                 store = deviceProfiles,
                 applier = deviceProfileApplier,
             ).also { _watcher = it }
+        }
+
+    val appearanceStore: AppearanceStore
+        get() = synchronized(lock) {
+            _appearanceStore ?: AppearanceStore(ctx()).also { _appearanceStore = it }
         }
 
     val setupStore: SetupStore

@@ -71,14 +71,13 @@ class HughsonWestlakeTestController(
         toneGenerator.setLevelDbFs(protocol.minLevelDb)
 
         val guard = volumeGuard
-        if (guard != null) {
-            if (guard.isVolumeTooLow) {
-                return PrepareResult.Failed(
-                    "Media volume is very low. Set it to your normal listening level, then start the test — " +
-                        "it stays locked for the whole run.",
-                )
-            }
-            guard.latchReference()
+        if (guard != null && !guard.applyTestVolume()) {
+            // Only reachable when the device refused the change (fixed-volume
+            // output, DND policy) and what is actually set is unusable.
+            return PrepareResult.Failed(
+                "This device would not let the app set the media volume, and it is currently too low " +
+                    "for the test. Turn it up to about two thirds, then start again.",
+            )
         }
 
         if (config.runAmbientNoiseCheck) {

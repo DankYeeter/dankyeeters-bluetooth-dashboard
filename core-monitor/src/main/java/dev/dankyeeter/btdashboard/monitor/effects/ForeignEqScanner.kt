@@ -10,8 +10,16 @@ data class ForeignEqScanResult(
     val warnings: List<ForeignEqWarning> = emptyList(),
     val available: Boolean = true,
     val unavailableReason: String? = null,
+    /**
+     * Companion apps whose EQ lives in the headphone's own DSP. Detected by
+     * package, never by effect chain — there is no effect chain to find.
+     */
+    val vendorApps: List<VendorEqApp> = emptyList(),
 ) {
     val hasForeignEq: Boolean get() = warnings.isNotEmpty()
+
+    /** Something is or may be stacking on our curve, from either direction. */
+    val hasAnyRisk: Boolean get() = warnings.isNotEmpty() || vendorApps.isNotEmpty()
 }
 
 /**
@@ -24,7 +32,19 @@ class ForeignEqScanner(
     private val shell: ShellRunner,
     private val processResolver: ProcessResolver,
     private val ownPid: Int = Process.myPid(),
+    private val installedPackages: () -> Set<String> = { emptySet() },
 ) {
+
+    /**
+     * Vendor EQ cannot be found in the audio dump because it never enters the
+     * audio pipeline: the companion app talks to the headphone over Bluetooth
+     * and the filtering happens after the phone is done. Presence of the app is
+     * the only signal available, so that is what we report.
+     */
+    private fun installedVendorApps(): List<VendorEqApp> =
+        runCatching { installedPackages() }.getOrDefault(emptySet())
+            .mapNotNull(VendorEqApps::byPackage)
+            .distinctBy { it.packageName }
 
     suspend fun scan(): ForeignEqScanResult {
         if (!shell.isAvailable) {
@@ -45,6 +65,7 @@ class ForeignEqScanner(
         val pidMap = runCatching { processResolver.pidToPackage() }.getOrDefault(emptyMap())
         return ForeignEqScanResult(
             warnings = ForeignEqDetector.detect(snapshot, ownPid, pidMap),
+            vendorApps = installedVendorApps(),
         )
     }
 }

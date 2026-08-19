@@ -36,7 +36,13 @@ data class CompensationProfile(
     val id: String,
     val name: String,
     val createdAtMillis: Long,
-    val audiogram: Audiogram,
+    /**
+     * The hearing test this profile came from, or null for a curve the user
+     * dialled in by hand. A manual preset is a first-class profile: it can be
+     * named, bound to a device and recalled like any other, it simply has no
+     * measurement behind it.
+     */
+    val audiogram: Audiogram? = null,
     val calibrationPresetId: String,
     val ancMode: AncMode,
     val intensity: Float = DEFAULT_INTENSITY,

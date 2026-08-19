@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
-import dev.dankyeeter.btdashboard.nowplaying.NotificationAccess
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.setup.SetupEnvironment
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
@@ -29,10 +28,6 @@ class AndroidSetupEnvironment(context: Context) : SetupEnvironment {
 
         SetupStep.MICROPHONE -> granted(Manifest.permission.RECORD_AUDIO)
         SetupStep.NOTIFICATIONS -> granted(Manifest.permission.POST_NOTIFICATIONS)
-        SetupStep.NOTIFICATION_ACCESS -> runCatching {
-            NotificationAccess.isGranted(appContext)
-        }.getOrDefault(false)
-
         SetupStep.SHIZUKU -> SystemGraph.shizuku.state.value.isReady
         SetupStep.SECURE_SETTINGS -> SystemGraph.secureSettings.state() == SecureSettingsState.GRANTED
     }

@@ -6,10 +6,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.hearing.CalibrationPreset
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
-import dev.dankyeeter.btdashboard.nowplaying.CodecSummary
-import dev.dankyeeter.btdashboard.nowplaying.NowPlaying
-import dev.dankyeeter.btdashboard.nowplaying.NowPlayingCodecRegistry
-import dev.dankyeeter.btdashboard.nowplaying.NowPlayingRepository
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanState
 import dev.dankyeeter.btdashboard.transfer.BackupExportResult
@@ -30,7 +26,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * Dashboard state: what is playing, through which codec, on which device.
+ * Dashboard state: which device is connected, and what setup is still missing.
  *
  * An [AndroidViewModel] because the backup flow needs a context for the
  * Storage Access Framework URIs; everything else comes from the graphs.
@@ -40,22 +36,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val scanner = SystemGraph.airPodsScanner
     private val backups = BackupRepository(application)
-
-    val nowPlaying: StateFlow<NowPlaying?> = NowPlayingRepository.current
-    val listenerConnected: StateFlow<Boolean> = NowPlayingRepository.listenerConnected
-
-    /**
-     * Codec of the active link, once the monitor registers a source. Until
-     * then this stays null and the now-playing line simply omits the codec
-     * clause instead of inventing one.
-     */
-    val codec: StateFlow<CodecSummary?> = NowPlayingCodecRegistry.source
-        .flatMapLatest { it?.codec ?: flowOf(null) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    val airPods: StateFlow<AirPodsScanState> = scanner.state
-
-    val presets: List<CalibrationPreset> = HearingGraph.presets.all()
 
     private val _backupMessage = MutableStateFlow<BackupMessage?>(null)
     val backupMessage: StateFlow<BackupMessage?> = _backupMessage.asStateFlow()
@@ -91,8 +71,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
-
-    fun startScan() = scanner.start()
 
     fun stopScan() = scanner.stop()
 

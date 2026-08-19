@@ -81,7 +81,8 @@ data class BackupProfile(
     @SerialName("id") val id: String,
     @SerialName("name") val name: String,
     @SerialName("createdAtMillis") val createdAtMillis: Long,
-    @SerialName("audiogram") val audiogram: BackupAudiogram,
+    /** Null for a hand-tuned preset: it has an EQ curve but no measurement. */
+    @SerialName("audiogram") val audiogram: BackupAudiogram? = null,
     @SerialName("calibrationPresetId") val calibrationPresetId: String,
     @SerialName("ancMode") val ancMode: String = "UNKNOWN",
     @SerialName("intensity") val intensity: Float,

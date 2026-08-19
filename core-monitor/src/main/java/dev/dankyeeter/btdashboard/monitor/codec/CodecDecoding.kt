@@ -37,9 +37,17 @@ object CodecDecoding {
         else -> CodecFamily.UNKNOWN
     }
 
-    /** Matches a codec name from text sources (dumpsys, broadcasts). */
+    /**
+     * Matches a codec name from text sources (dumpsys, broadcasts).
+     *
+     * Separators are normalised before matching because the same codec is
+     * spelled `AptX-HD` in dumpsys, `aptX_HD` in some broadcasts and `aptX HD`
+     * in others — and "APTX" is a prefix of all of them, so an unnormalised
+     * name falls through to plain aptX and silently downgrades the badge.
+     */
     fun codecFamilyFromName(name: String?): CodecFamily {
-        val n = name?.trim()?.uppercase()?.replace("_", " ") ?: return CodecFamily.UNKNOWN
+        val n = name?.trim()?.uppercase()?.replace('_', ' ')?.replace('-', ' ')
+            ?: return CodecFamily.UNKNOWN
         return when {
             n.contains("ADAPTIVE") -> CodecFamily.APTX_ADAPTIVE
             n.contains("APTX HD") || n.contains("APTXHD") -> CodecFamily.APTX_HD

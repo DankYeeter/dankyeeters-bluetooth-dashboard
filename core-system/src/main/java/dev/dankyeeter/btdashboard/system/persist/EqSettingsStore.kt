@@ -9,7 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import dev.dankyeeter.btdashboard.audio.eq.EqBands
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -38,6 +38,7 @@ class EqSettingsStore(private val context: Context) {
         val clean = value.sanitized()
         context.eqDataStore.edit { prefs ->
             prefs[KEY_ENABLED] = clean.enabled
+            prefs[KEY_LAYOUT] = clean.layout.id
             prefs[KEY_LEFT] = clean.leftGainsDb.joinToString(";")
             prefs[KEY_RIGHT] = clean.rightGainsDb.joinToString(";")
             prefs[KEY_PRE_GAIN] = clean.preGainDb
@@ -60,21 +61,29 @@ class EqSettingsStore(private val context: Context) {
     }
 
     private fun Preferences.toEqSettings(): EqSettings {
-        val left = parseGains(this[KEY_LEFT])
-        val right = parseGains(this[KEY_RIGHT])
+        val layout = EqBandLayout.fromId(this[KEY_LAYOUT])
         return EqSettings(
             enabled = this[KEY_ENABLED] ?: false,
-            leftGainsDb = left,
-            rightGainsDb = right,
+            layout = layout,
+            leftGainsDb = parseGains(this[KEY_LEFT], layout),
+            rightGainsDb = parseGains(this[KEY_RIGHT], layout),
             preGainDb = this[KEY_PRE_GAIN] ?: 0f,
             limiterEnabled = this[KEY_LIMITER] ?: true,
         )
     }
 
-    /** Defensive: a corrupted or version-shifted string degrades to flat. */
-    private fun parseGains(raw: String?): List<Float> {
+    /**
+     * Defensive: a corrupted string degrades to flat. A string whose length
+     * belongs to a *different* layout is resampled rather than discarded — the
+     * stored curve is still the user's curve, only at another resolution, and
+     * throwing it away on a layout change would be the wrong kind of safe.
+     */
+    private fun parseGains(raw: String?, layout: EqBandLayout): List<Float> {
         val parsed = raw?.split(";")?.mapNotNull { it.toFloatOrNull() } ?: emptyList()
-        return if (parsed.size == EqBands.COUNT) parsed else List(EqBands.COUNT) { 0f }
+        if (parsed.size == layout.bandCount) return parsed
+        val source = EqBandLayout.entries.firstOrNull { it.bandCount == parsed.size }
+            ?: return List(layout.bandCount) { 0f }
+        return EqBandLayout.resample(parsed, source, layout)
     }
 
     private companion object {
@@ -84,5 +93,6 @@ class EqSettingsStore(private val context: Context) {
         val KEY_PRE_GAIN = floatPreferencesKey("eq_pre_gain_db")
         val KEY_LIMITER = booleanPreferencesKey("eq_limiter_enabled")
         val KEY_PROFILE_ID = stringPreferencesKey("active_profile_id")
+        val KEY_LAYOUT = stringPreferencesKey("eq_band_layout")
     }
 }

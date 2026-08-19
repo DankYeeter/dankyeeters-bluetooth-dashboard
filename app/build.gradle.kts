@@ -13,8 +13,8 @@ android {
         applicationId = "dev.dankyeeter.btdashboard"
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.3.0"
         // English-only app: no translated resources are shipped.
         resourceConfigurations += listOf("en")
     }

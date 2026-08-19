@@ -1,7 +1,9 @@
 package dev.dankyeeter.btdashboard.monitor.sampling
 
+import dev.dankyeeter.btdashboard.monitor.codec.CodecReadPath
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatusSource
+import dev.dankyeeter.btdashboard.monitor.codec.sameDevice
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
@@ -34,14 +36,31 @@ class LinkSampleCollector(
         // dumpsys is the only source of RSSI without privileged APIs, and the
         // only source at all when the A2DP proxy is unreachable.
         val dump = if (dumpsysSource.isAvailable) dumpsysSource.snapshot() else null
-        val dumpByAddress = dump?.devices?.associateBy { it.address }.orEmpty()
+        // Only connected devices. A `dumpsys bluetooth_manager` lists every
+        // address the phone has ever seen — around 200 on a phone in daily use
+        // — and taking the whole list wrote one row per stranger per poll,
+        // which buried the real link in ~200x its own noise.
+        val dumpByAddress = dump?.devices
+            ?.filter { it.isConnected }
+            ?.associateBy { it.address }
+            .orEmpty()
 
         if (devices.isEmpty() && dumpByAddress.isEmpty()) return emptyList()
 
-        val addresses = (devices.map { it.address } + dumpByAddress.keys).distinct()
+        // The A2DP proxy reports the real address; a user-build dump redacts it
+        // to "XX:XX:XX:XX:35:6A". Comparing them as strings made one headphone
+        // look like two devices — one row with the codec, one with no source at
+        // all. The real address wins, because that is what profiles key on.
+        val addresses = buildList {
+            addAll(devices.map { it.address })
+            dumpByAddress.keys.forEach { dumped ->
+                if (none { sameDevice(it, dumped) }) add(dumped)
+            }
+        }
         return addresses.map { address ->
             val device = devices.firstOrNull { it.address == address }
-            val dumped = dumpByAddress[address]
+            val dumped = dumpByAddress.entries
+                .firstOrNull { sameDevice(it.key, address) }?.value
             val codecStatus = device
                 ?.let { codecSource.codecStatus(address) }
                 ?.let { it as? CodecReadResult.Available }
@@ -49,7 +68,13 @@ class LinkSampleCollector(
 
             val source = when {
                 qualityReportSource.availability.value.isActive -> LinkDataSource.QUALITY_REPORT
-                codecStatus != null -> LinkDataSource.CODEC_API
+                // The codec source may itself have fallen back to the shell, so
+                // ask the reading where it came from rather than crediting the
+                // system API for rows that `dumpsys` produced.
+                codecStatus != null -> when (codecStatus.readVia) {
+                    CodecReadPath.SYSTEM_API -> LinkDataSource.CODEC_API
+                    CodecReadPath.DUMPSYS -> LinkDataSource.DUMPSYS
+                }
                 dumped != null -> LinkDataSource.DUMPSYS
                 else -> LinkDataSource.NONE
             }

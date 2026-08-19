@@ -52,6 +52,12 @@ class MonitorEngine(
     fun start(scope: CoroutineScope) {
         if (_status.value.running) return
         _status.value = _status.value.copy(running = true, reason = "starting")
+        // The repository has always had a purge; nothing ever called it, so the
+        // tables grew without bound. History is diagnostic data with a two-hour
+        // display window — keeping a day of it is already generous.
+        jobs += scope.launch {
+            runCatching { repository.purgeOlderThan(clock() - RETENTION_MS) }
+        }
         jobs += scope.launch { collectEvents() }
         jobs += scope.launch { sampleLoop() }
     }
@@ -145,4 +151,10 @@ class MonitorEngine(
 
     private suspend fun currentScopeActive(): Boolean =
         kotlin.coroutines.coroutineContext[Job]?.isActive ?: true
+
+    private companion object {
+        /** How much link history is kept on disk. */
+        const val RETENTION_MS = 24 * 60 * 60 * 1000L
+    }
+
 }

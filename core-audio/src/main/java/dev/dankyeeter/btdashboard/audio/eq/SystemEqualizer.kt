@@ -21,6 +21,9 @@ interface SystemEqualizer : AutoCloseable {
     val isAlive: Boolean
 
     /** Applies a full settings snapshot. Cheap enough for slider drags. */
+    /** Band layout the live effect is currently built for. */
+    val activeLayout: EqBandLayout get() = EqBandLayout.DEFAULT
+
     fun apply(settings: EqSettings)
 
     /** Updates a single band gain without rewriting the whole config. */

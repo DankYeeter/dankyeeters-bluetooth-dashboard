@@ -3,7 +3,6 @@ package dev.dankyeeter.btdashboard
 import android.app.Application
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
-import dev.dankyeeter.btdashboard.monitorbridge.MonitorCodecSource
 import dev.dankyeeter.btdashboard.system.SystemGraph
 
 class BtDashboardApplication : Application() {
@@ -16,6 +15,5 @@ class BtDashboardApplication : Application() {
         // Per-device profiles: listen for ACL connects for as long as we live.
         SystemGraph.startDeviceProfileAutoApply()
         // Feeds the dashboard's now-playing codec clause from the monitor.
-        MonitorCodecSource.install()
     }
 }

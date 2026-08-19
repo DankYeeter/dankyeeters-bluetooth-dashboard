@@ -41,6 +41,9 @@ import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.CompensationResult
 import kotlin.math.abs
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldButton
+import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
 
 /**
  * The compensation flow of COMPENSATION.md, rendered on the EQ screen:
@@ -48,7 +51,7 @@ import kotlin.math.abs
  * -> apply, plus named profiles.
  *
  * Every disclaimer visible here is deliberate. The numbers are consumer
- * calibration, not clinical audiometry, and the UI says so where the user
+ * calibration for headphone EQ, and the UI states what the numbers mean where
  * actually looks.
  */
 @Composable
@@ -66,7 +69,7 @@ internal fun CompensationSection(
 ) {
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Hearing compensation", style = MaterialTheme.typography.titleMedium)
+            GoldTitle("Hearing compensation")
 
             AudiogramSummary(state)
             PresetPicker(state, onSelectPreset)
@@ -82,9 +85,8 @@ internal fun CompensationSection(
             } else {
                 if (result.severeLossWarning) {
                     Text(
-                        "Your thresholds are well outside what a consumer EQ should try " +
-                            "to compensate. Please see a hearing professional — this app " +
-                            "is not a medical device.",
+                        "Your thresholds are outside the range this EQ can correct — the " +
+                            "gain needed here would clip long before it helped.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -92,7 +94,7 @@ internal fun CompensationSection(
                 CompensationPreview(result, earView)
                 EarDifference(result)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onApply, enabled = !state.applied) {
+                    GoldButton(onClick = onApply, enabled = !state.applied) {
                         Text(if (state.applied) "Applied" else "Apply to EQ")
                     }
                 }
@@ -117,53 +119,23 @@ private fun AudiogramSummary(state: CompensationUiState) {
     Text(text, style = MaterialTheme.typography.bodySmall)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PresetPicker(state: CompensationUiState, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
     val preset = state.preset
 
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-        OutlinedTextField(
-            value = preset?.displayName ?: state.presetId,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Device calibration preset") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            state.presets.forEach { item ->
-                DropdownMenuItem(
-                    text = { Text(item.displayName) },
-                    onClick = {
-                        onSelect(item.id)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
+    // No model list. The supported headphones are shipped support, not a
+    // catalogue to shop from: the connected device decides which curve is in
+    // force, and this only states which one that is.
+    Text(
+        when {
+            preset == null -> "No device calibration."
+            preset.id == CalibrationPresetRepository.GENERIC_ID ->
+                "No calibration for this device — running uncorrected."
+            else -> "Calibrated for ${preset.displayName}."
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
 
-    if (preset != null) {
-        Text(
-            preset.provenanceLine(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        if (preset.notes.isNotBlank()) {
-            Text(
-                preset.notes,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        }
-        if (preset.requiresFitCheck) {
-            AssistChip(onClick = {}, label = { Text("In-ear — fit check required") })
-        }
-    }
 }
 
 @Composable
@@ -328,7 +300,7 @@ private fun ProfileList(
     var name by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Profiles", style = MaterialTheme.typography.titleSmall)
+        Text("Presets", style = MaterialTheme.typography.titleSmall)
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -337,7 +309,7 @@ private fun ProfileList(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Profile name") },
+                label = { Text("Preset name") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
@@ -346,14 +318,13 @@ private fun ProfileList(
                     onSave(name)
                     name = ""
                 },
-                enabled = state.result != null,
             ) { Text("Save") }
         }
 
         if (state.profiles.isEmpty()) {
             Text(
-                "No saved profiles yet. A profile stores the audiogram, the preset " +
-                    "and the intensity together, so a later re-test never changes it.",
+                "No saved presets yet. Save the current curve under a name — from a " +
+                    "hearing test or set by hand — and recall it any time.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )

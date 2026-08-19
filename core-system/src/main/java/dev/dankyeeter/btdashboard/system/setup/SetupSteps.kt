@@ -41,14 +41,6 @@ enum class SetupStep(
             "reboot. Without it the EQ can be silently off and you would not know.",
         optional = true,
     ),
-    NOTIFICATION_ACCESS(
-        id = "notification_access",
-        title = "Notification access (now playing)",
-        rationale = "Reads the media notification so the dashboard can show what Tidal " +
-            "is playing next to the codec it rides on. Read-only: Tidal is never " +
-            "touched. Only the now-playing card depends on it.",
-        optional = true,
-    ),
     SHIZUKU(
         id = "shizuku",
         title = "Shizuku",

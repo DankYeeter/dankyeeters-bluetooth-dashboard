@@ -41,6 +41,8 @@ data class CodecStatus(
     val bitrateKbps: Int? = null,
     /** Codecs the remote device advertised as selectable, if readable. */
     val selectableCodecs: List<CodecFamily> = emptyList(),
+    /** Which mechanism produced these values. Never hidden from the user. */
+    val readVia: CodecReadPath = CodecReadPath.SYSTEM_API,
 ) {
     val label: String get() = family.displayName
 

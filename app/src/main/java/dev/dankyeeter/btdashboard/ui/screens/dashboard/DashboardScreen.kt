@@ -34,15 +34,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.hearing.CalibrationPreset
-import dev.dankyeeter.btdashboard.nowplaying.CodecSummary
-import dev.dankyeeter.btdashboard.nowplaying.NotificationAccess
-import dev.dankyeeter.btdashboard.nowplaying.NowPlaying
 import dev.dankyeeter.btdashboard.system.SystemGraph
-import dev.dankyeeter.btdashboard.system.airpods.AirPodsBeacon
-import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanState
 import dev.dankyeeter.btdashboard.system.shizuku.ShizukuState
 import dev.dankyeeter.btdashboard.transfer.BackupSchema
 import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
+import dev.dankyeeter.btdashboard.ui.theme.GoldRule
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.GoldButton
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 
 @Composable
 fun DashboardScreen(
@@ -51,6 +51,7 @@ fun DashboardScreen(
     onWatchLive: () -> Unit = {},
     onOpenWizard: () -> Unit = {},
     onOpenDeviceProfiles: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val shizukuState by SystemGraph.shizuku.state.collectAsState()
     val attachment by SystemGraph.eqController.status.collectAsState()
@@ -72,15 +73,14 @@ fun DashboardScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Dashboard", style = MaterialTheme.typography.headlineSmall)
+        GoldTitle("Dashboard", style = MaterialTheme.typography.headlineSmall)
+        GoldRule()
 
         SetupStatusCard(viewModel, onOpenWizard)
-        NowPlayingCard(viewModel)
-        AirPodsCard(viewModel)
 
-        Card(Modifier.fillMaxWidth()) {
+        GoldCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("System access", style = MaterialTheme.typography.titleMedium)
+                GoldTitle("System access")
                 Text(
                     when (shizukuState) {
                         is ShizukuState.Ready -> "Shizuku ready — global EQ possible."
@@ -90,10 +90,13 @@ fun DashboardScreen(
                 )
                 Text("EQ attachment: $attachment", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onOpenWizard) { Text("Setup wizard") }
-                    OutlinedButton(onClick = onOpenOnboarding) { Text("Shizuku details") }
+                    GoldButton(onClick = onOpenWizard) { Text("Setup wizard") }
+                    GoldOutlinedButton(onClick = onOpenOnboarding) { Text("Shizuku details") }
                 }
-                OutlinedButton(onClick = onOpenDeviceProfiles) { Text("Device profiles") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GoldOutlinedButton(onClick = onOpenDeviceProfiles) { Text("Device profiles") }
+                    GoldOutlinedButton(onClick = onOpenSettings) { Text("Settings") }
+                }
             }
         }
 
@@ -101,19 +104,8 @@ fun DashboardScreen(
         BluetoothCodecSection(onWatchLive = onWatchLive)
         ForeignEqSection()
 
-        DeviceListCard(viewModel.presets)
         BackupCard(viewModel)
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Honest limits", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Audiometry-inspired consumer calibration without clinical validity — " +
-                        "not a substitute for professional hearing diagnostics.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
     }
 }
 
@@ -131,7 +123,7 @@ private fun SetupStatusCard(viewModel: DashboardViewModel, onOpenWizard: () -> U
     val summary by viewModel.setupSummary.collectAsState()
     val text = summary ?: return
 
-    Card(Modifier.fillMaxWidth()) {
+    GoldCard {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -140,263 +132,14 @@ private fun SetupStatusCard(viewModel: DashboardViewModel, onOpenWizard: () -> U
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            Button(onClick = onOpenWizard) { Text("Finish setup") }
+            GoldButton(onClick = onOpenWizard) { Text("Finish setup") }
         }
     }
 }
 
 // ---- now playing ------------------------------------------------------------
 
-/**
- * "You're hearing X in LDAC @ 990 kbps".
- *
- * Both halves degrade independently: without notification access there is no
- * track, and until the link monitor registers a codec source there is no codec
- * clause. Neither absence is allowed to invent a value.
- */
-@Composable
-private fun NowPlayingCard(viewModel: DashboardViewModel) {
-    val context = LocalContext.current
-    val nowPlaying by viewModel.nowPlaying.collectAsState()
-    val codec by viewModel.codec.collectAsState()
-    val connected by viewModel.listenerConnected.collectAsState()
-
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Now playing", style = MaterialTheme.typography.titleMedium)
-
-            when {
-                !connected && !NotificationAccess.isGranted(context) -> {
-                    Text(
-                        "Grant notification access and this card shows what Tidal is " +
-                            "playing, together with the codec it is riding on. We only " +
-                            "read the media notification — Tidal itself is never touched.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            context.startActivity(NotificationAccess.settingsIntent())
-                            NotificationAccess.requestRebind(context)
-                        },
-                    ) { Text("Open notification access") }
-                }
-
-                nowPlaying == null -> Text(
-                    "Nothing is playing right now.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-
-                else -> NowPlayingLine(nowPlaying!!, codec)
-            }
-        }
-    }
-}
-
-@Composable
-private fun NowPlayingLine(nowPlaying: NowPlaying, codec: CodecSummary?) {
-    Text(
-        buildString {
-            append("You're hearing ")
-            append(nowPlaying.describe())
-            if (codec != null) {
-                append(" in ")
-                append(codec.describe())
-            }
-            append('.')
-        },
-        style = MaterialTheme.typography.bodyLarge,
-    )
-    val detail = buildString {
-        append(nowPlaying.appLabel)
-        nowPlaying.album?.let { append(" · ").append(it) }
-        if (codec == null) append(" · codec unknown (link monitor not reporting yet)")
-        codec?.sampleRateHz?.let { append(" · ").append(it / 1000).append(" kHz") }
-    }
-    Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-}
-
-// ---- AirPods ----------------------------------------------------------------
-
-/**
- * Battery and wear state decoded from the AirPods BLE beacon.
- *
- * Scanning runs only while this screen is resumed — the advertisement is free
- * to listen to, but a permanently running BLE scan is not free in battery.
- */
-@Composable
-private fun AirPodsCard(viewModel: DashboardViewModel) {
-    val state by viewModel.airPods.collectAsState()
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) viewModel.startScan() }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> viewModel.startScan()
-                Lifecycle.Event.ON_STOP -> viewModel.stopScan()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            viewModel.stopScan()
-        }
-    }
-
-    // Nothing to say before a scan has produced anything.
-    if (state is AirPodsScanState.Idle) return
-
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("AirPods", style = MaterialTheme.typography.titleMedium)
-
-            when (val current = state) {
-                is AirPodsScanState.Found -> AirPodsDetail(current.beacon, current.rssi)
-
-                AirPodsScanState.PermissionMissing -> {
-                    Text(
-                        "Allow nearby-device scanning to read AirPods battery and wear " +
-                            "state. We only listen to the beacon they broadcast anyway; " +
-                            "the permission is declared with neverForLocation, so Android " +
-                            "does not ask for your location.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    OutlinedButton(
-                        onClick = { permissionLauncher.launch(Manifest.permission.BLUETOOTH_SCAN) },
-                    ) { Text("Allow scanning") }
-                }
-
-                is AirPodsScanState.Unavailable -> Text(
-                    current.reason,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-
-                else -> Text(
-                    "Listening for AirPods nearby…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AirPodsDetail(beacon: AirPodsBeacon, rssi: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Icon(
-            painter = painterResource(DeviceIcons.forPresetId(beacon.model.calibrationPresetId)),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp),
-        )
-        Column {
-            Text(beacon.model.displayName, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                "${beacon.color.displayName} · $rssi dBm",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        }
-    }
-
-    BatteryRow("Left", beacon.leftBatteryPercent, beacon.leftCharging, beacon.leftInEar)
-    BatteryRow("Right", beacon.rightBatteryPercent, beacon.rightCharging, beacon.rightInEar)
-    BatteryRow("Case", beacon.caseBatteryPercent, beacon.caseCharging, inEar = false)
-
-    Text(
-        buildString {
-            append(if (beacon.bothInEar) "Both buds in ear" else "Not fully worn")
-            append(" · lid ")
-            append(if (beacon.lidOpen) "open" else "closed")
-        },
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.outline,
-    )
-
-    if (beacon.model.calibrationPresetId != null) {
-        Text(
-            "Detected model — the EQ screen selects the matching calibration preset " +
-                "unless you already picked one.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
-    }
-}
-
-@Composable
-private fun BatteryRow(label: String, percent: Int?, charging: Boolean, inEar: Boolean) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.size(width = 48.dp, height = 20.dp))
-        if (percent == null) {
-            Text(
-                "—",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            LinearProgressIndicator(
-                progress = { percent / 100f },
-                modifier = Modifier.weight(1f),
-            )
-            Text("$percent %", style = MaterialTheme.typography.labelMedium)
-        }
-        Text(
-            buildString {
-                if (charging) append("charging")
-                if (inEar) {
-                    if (isNotEmpty()) append(" · ")
-                    append("in ear")
-                }
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
-    }
-}
-
 // ---- devices ----------------------------------------------------------------
-
-@Composable
-private fun DeviceListCard(presets: List<CalibrationPreset>) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Devices", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Bundled calibration presets. Pick the matching one on the EQ screen " +
-                    "before a hearing test.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-            presets.forEach { preset ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        painter = painterResource(DeviceIcons.forPresetId(preset.id)),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Text(preset.displayName, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
-    }
-}
 
 // ---- backup -----------------------------------------------------------------
 
@@ -416,9 +159,9 @@ private fun BackupCard(viewModel: DashboardViewModel) {
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::import) }
 
-    Card(Modifier.fillMaxWidth()) {
+    GoldCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Backup", style = MaterialTheme.typography.titleMedium)
+            GoldTitle("Backup")
             Text(
                 "Hearing runs, profiles and the EQ curve as a plain JSON file — for " +
                     "moving to another phone. Local only: there is no cloud and no " +

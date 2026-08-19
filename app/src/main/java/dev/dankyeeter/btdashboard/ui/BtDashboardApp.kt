@@ -31,6 +31,7 @@ import dev.dankyeeter.btdashboard.ui.screens.eq.EqScreen
 import dev.dankyeeter.btdashboard.ui.screens.hearing.HearingTestScreen
 import dev.dankyeeter.btdashboard.ui.screens.monitor.MonitorScreen
 import dev.dankyeeter.btdashboard.ui.screens.onboarding.ShizukuOnboardingScreen
+import dev.dankyeeter.btdashboard.ui.screens.settings.SettingsScreen
 import dev.dankyeeter.btdashboard.ui.screens.wizard.SetupWizardScreen
 
 enum class Destination(val route: String, val label: String, val icon: ImageVector) {
@@ -43,6 +44,7 @@ enum class Destination(val route: String, val label: String, val icon: ImageVect
 const val ROUTE_ONBOARDING = "onboarding"
 const val ROUTE_WIZARD = "wizard"
 const val ROUTE_DEVICE_PROFILES = "device_profiles"
+const val ROUTE_SETTINGS = "settings"
 
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD)
@@ -105,6 +107,7 @@ fun BtDashboardApp() {
                 onWatchLive = { navController.navigate(Destination.MONITOR.route) },
                 onOpenWizard = { navController.navigate(ROUTE_WIZARD) },
                 onOpenDeviceProfiles = { navController.navigate(ROUTE_DEVICE_PROFILES) },
+                onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
             )
         }
     }
@@ -116,6 +119,7 @@ private fun NavGraphBuilder.appGraph(
     onWatchLive: () -> Unit = {},
     onOpenWizard: () -> Unit = {},
     onOpenDeviceProfiles: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     composable(Destination.DASHBOARD.route) {
         DashboardScreen(
@@ -123,6 +127,7 @@ private fun NavGraphBuilder.appGraph(
             onWatchLive = onWatchLive,
             onOpenWizard = onOpenWizard,
             onOpenDeviceProfiles = onOpenDeviceProfiles,
+            onOpenSettings = onOpenSettings,
         )
     }
     composable(Destination.EQ.route) { EqScreen() }
@@ -131,4 +136,5 @@ private fun NavGraphBuilder.appGraph(
     composable(ROUTE_ONBOARDING) { ShizukuOnboardingScreen(onDone = onBack) }
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }
     composable(ROUTE_DEVICE_PROFILES) { DeviceProfilesScreen(onBack = onBack) }
+    composable(ROUTE_SETTINGS) { SettingsScreen(onBack = onBack) }
 }

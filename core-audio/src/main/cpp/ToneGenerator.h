@@ -92,6 +92,15 @@ private:
     double mPhase = 0.0;
     double mPhaseIncrement = 0.0;
     double mCurrentAmplitude = 0.0;
+
+    // Raised-cosine ramp state, audio-thread-only. A ramp is re-armed whenever
+    // the effective target changes; it always spans mRampLengthSamples, so the
+    // fade takes the configured time regardless of how loud the tone is.
+    double mRampStartAmplitude = 0.0;
+    double mRampTargetAmplitude = 0.0;
+    double mRampLengthSamples = 0.0;
+    double mRampPosition = 0.0;
+    bool mRampArmed = false;
 };
 
 } // namespace btdashboard

@@ -63,6 +63,10 @@ void ToneGenerator::stop() {
     mSampleRate = 0;
     mCurrentAmplitude = 0.0;
     mPhase = 0.0;
+    mRampArmed = false;
+    mRampPosition = 0.0;
+    mRampStartAmplitude = 0.0;
+    mRampTargetAmplitude = 0.0;
 }
 
 void ToneGenerator::recomputePhaseIncrement() {
@@ -108,18 +112,35 @@ oboe::DataCallbackResult ToneGenerator::onAudioReady(oboe::AudioStream * /*strea
     const double target = active ? mTargetAmplitude.load(std::memory_order_relaxed) : 0.0;
     const int32_t channel = mChannel.load(std::memory_order_relaxed);
 
-    const double rampSamples =
-            std::max(1.0, mRampMs.load(std::memory_order_relaxed) * 0.001 * mSampleRate);
-    const double step = 1.0 / rampSamples;
+    // Re-arm the ramp whenever the effective target moved. The ramp always runs
+    // from wherever the envelope currently is to the new target over the full
+    // configured time — never a rate proportional to the target, which would
+    // make a gate-off from a quiet tone take minutes (and from a loud one,
+    // hours) instead of the configured milliseconds.
+    if (!mRampArmed || target != mRampTargetAmplitude) {
+        mRampStartAmplitude = mCurrentAmplitude;
+        mRampTargetAmplitude = target;
+        mRampLengthSamples =
+                std::max(1.0, mRampMs.load(std::memory_order_relaxed) * 0.001 * mSampleRate);
+        mRampPosition = 0.0;
+        mRampArmed = true;
+        mSettled.store(false, std::memory_order_relaxed);
+    }
 
     const bool leftOn = channel != static_cast<int32_t>(ToneChannel::Right);
     const bool rightOn = channel != static_cast<int32_t>(ToneChannel::Left);
 
     for (int32_t i = 0; i < numFrames; ++i) {
-        if (mCurrentAmplitude < target) {
-            mCurrentAmplitude = std::min(target, mCurrentAmplitude + target * step);
-        } else if (mCurrentAmplitude > target) {
-            mCurrentAmplitude = std::max(target, mCurrentAmplitude - std::max(target, 1e-6) * step);
+        if (mRampPosition < mRampLengthSamples) {
+            mRampPosition += 1.0;
+            // Raised cosine: zero slope at both ends, so no click cues the
+            // listener that a stimulus started or stopped.
+            const double t = mRampPosition / mRampLengthSamples;
+            const double shaped = 0.5 * (1.0 - std::cos(M_PI * std::min(1.0, t)));
+            mCurrentAmplitude =
+                    mRampStartAmplitude + (mRampTargetAmplitude - mRampStartAmplitude) * shaped;
+        } else {
+            mCurrentAmplitude = mRampTargetAmplitude;
         }
 
         const auto sample = static_cast<float>(mCurrentAmplitude * std::sin(mPhase));
@@ -130,7 +151,7 @@ oboe::DataCallbackResult ToneGenerator::onAudioReady(oboe::AudioStream * /*strea
         out[i * kChannelCount + 1] = rightOn ? sample : 0.0f;
     }
 
-    if (std::fabs(mCurrentAmplitude - target) < 1e-7) {
+    if (mRampPosition >= mRampLengthSamples) {
         mSettled.store(true, std::memory_order_relaxed);
     }
     return oboe::DataCallbackResult::Continue;

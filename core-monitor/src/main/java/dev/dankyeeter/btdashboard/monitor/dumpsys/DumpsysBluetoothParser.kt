@@ -8,6 +8,8 @@ data class DumpsysDevice(
     val address: String,
     val name: String? = null,
     val isActive: Boolean = false,
+    /** `mConnectionState: STATE_CONNECTED` — a bonded device is not a connected one. */
+    val isConnected: Boolean = false,
     val isPlaying: Boolean = false,
     val codec: CodecFamily? = null,
     val sampleRateHz: Int? = null,
@@ -60,6 +62,10 @@ object DumpsysBluetoothParser {
         val warnings = mutableListOf<String>()
         var cursor: String? = null
         var sawBluetoothSection = false
+        // Devices whose codec came from a real `mCodecConfig:` line; nothing
+        // weaker is allowed to overwrite those.
+        val authoritative = mutableSetOf<String>()
+        var inIgnoredBlock = false
 
         fun edit(address: String, block: (DumpsysDevice) -> DumpsysDevice) {
             val current = devices[address] ?: DumpsysDevice(address)
@@ -69,6 +75,15 @@ object DumpsysBluetoothParser {
         for (rawLine in dump.lineSequence()) {
             val line = rawLine.trimEnd()
             if (line.isBlank()) continue
+
+            val headerCandidate = line.trimStart()
+            if (IGNORED_BLOCK_HEADERS.any { headerCandidate.startsWith(it) }) {
+                inIgnoredBlock = true
+            } else if (inIgnoredBlock && !headerCandidate.startsWith("{")) {
+                // The block ends at the first line that is not one of its
+                // `{codecName:...}` entries.
+                inIgnoredBlock = false
+            }
             if (line.contains("Bluetooth Status", true) ||
                 line.contains("BluetoothManagerService", true) ||
                 line.contains("AdapterService", true)
@@ -81,8 +96,12 @@ object DumpsysBluetoothParser {
                 cursor = mac
                 edit(mac) { it }
                 // "AA:..:FF Noble FoKus Prestige Encore" — trailing text is a name.
+                // The active device is printed as "AA:..:FF: Focal Bathys <- ACTIVE",
+                // so the marker has to come off or it ends up in the name.
                 val trailing = line.substringAfter(mac).trim()
                     .removePrefix("-").removePrefix(":").trim()
+                    .substringBefore("<-")
+                    .trim()
                     .trim('[', ']', '"')
                 // Reject anything that looks structural (key:value, braces) —
                 // a device name is plain trailing text.
@@ -93,7 +112,12 @@ object DumpsysBluetoothParser {
                     edit(mac) { d -> if (d.name == null) d.copy(name = trailing) else d }
                 }
                 if (line.contains("mCurrentDevice", true) || line.contains("ActiveDevice", true) ||
-                    line.contains("mActiveDevice", true)
+                    line.contains("mActiveDevice", true) ||
+                    // "AA:..:FF: Focal Bathys <- ACTIVE"
+                    line.contains("<- ACTIVE", true) ||
+                    // "=== A2dpStateMachine for AA:..:FF (Active) ===" is the
+                    // clearest active marker the dump has.
+                    line.contains("(Active)", true)
                 ) {
                     edit(mac) { it.copy(isActive = true) }
                 }
@@ -105,6 +129,17 @@ object DumpsysBluetoothParser {
                 if (n.isNotBlank() && !MAC.containsMatchIn(n)) edit(device) { it.copy(name = n) }
             }
 
+            if (line.contains("mConnectionState", true)) {
+                // Every bonded device keeps an A2dpStateMachine block with the
+                // codec of its last session. Without this, a headphone that has
+                // been off for a week still reports a codec.
+                if (line.contains("STATE_CONNECTED", true)) {
+                    edit(device) { it.copy(isConnected = true) }
+                } else if (line.contains("STATE_DISCONNECTED", true)) {
+                    edit(device) { it.copy(isConnected = false) }
+                }
+            }
+
             if (line.contains("mIsPlaying", true) || line.contains("A2DP playing", true) ||
                 line.contains("isA2dpPlaying", true)
             ) {
@@ -112,27 +147,39 @@ object DumpsysBluetoothParser {
                 edit(device) { it.copy(isPlaying = playing) }
             }
 
-            // The selected config comes first; the "codecsSelectable" list that
-            // follows must not overwrite it with whatever the remote supports.
-            val isCapabilityLine = line.contains("selectable", true) ||
-                line.contains("capabilit", true)
-            if (!isCapabilityLine && devices[device]?.codec == null) {
-                CODEC_NAME.find(line)?.groupValues?.getOrNull(1)?.let { name ->
-                    val family = CodecDecoding.codecFamilyFromName(name)
-                    if (family != CodecFamily.UNKNOWN) edit(device) { it.copy(codec = family) }
+            // Only `mCodecConfig:` states what is actually negotiated *now*.
+            // Three other things in the same dump look just like it and are all
+            // wrong to read: the adapter-wide `codecConfigOffloading` list
+            // (which starts with SBC and is not per-device), the
+            // `mCodecsSelectableCapabilities` list that follows every config,
+            // and the `rec[n]: ... CODEC_CONFIG_CHANGED` state-machine history,
+            // which carries whatever was negotiated hours ago. Reading any of
+            // them reported SBC on a live aptX HD link.
+            val trimmed = line.trimStart()
+            if (trimmed.startsWith("mCodecConfig")) {
+                readCodecFrom(line)?.let { config ->
+                    authoritative += device
+                    edit(device) {
+                        it.copy(
+                            codec = config.family,
+                            sampleRateHz = config.sampleRateHz ?: it.sampleRateHz,
+                            bitsPerSample = config.bitsPerSample ?: it.bitsPerSample,
+                        )
+                    }
                 }
-            }
-            if (devices[device]?.codec == null) {
-                CODEC_TYPE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { raw ->
-                    val family = CodecDecoding.codecFamily(raw)
-                    if (family != CodecFamily.UNKNOWN) edit(device) { it.copy(codec = family) }
+            } else if (device !in authoritative && !inIgnoredBlock && !isHistoryLine(trimmed)) {
+                // Tolerance for OEM dumps that never print `mCodecConfig`.
+                if (devices[device]?.codec == null) {
+                    readCodecFrom(line)?.let { config ->
+                        edit(device) {
+                            it.copy(
+                                codec = config.family,
+                                sampleRateHz = config.sampleRateHz ?: it.sampleRateHz,
+                                bitsPerSample = config.bitsPerSample ?: it.bitsPerSample,
+                            )
+                        }
+                    }
                 }
-            }
-            SAMPLE_RATE.find(line)?.let { m ->
-                firstInt(m.groupValues)?.let { hz -> edit(device) { it.copy(sampleRateHz = hz) } }
-            }
-            BITS.find(line)?.let { m ->
-                firstInt(m.groupValues)?.let { b -> edit(device) { it.copy(bitsPerSample = b) } }
             }
             if (!line.contains("codecName", true)) {
                 RSSI.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { rssi ->
@@ -151,4 +198,42 @@ object DumpsysBluetoothParser {
 
     private fun firstInt(groups: List<String>): Int? =
         groups.drop(1).firstOrNull { it.isNotEmpty() }?.toIntOrNull()
+
+    /** Blocks whose `{codecName:...}` entries describe capabilities, not the live link. */
+    private val IGNORED_BLOCK_HEADERS = listOf(
+        "codecConfigOffloading",
+        "codecConfigPriorities",
+        "mCodecsSelectableCapabilities",
+        "mCodecsLocalCapabilities",
+    )
+
+    /** `rec[12]: time=... CODEC_CONFIG_CHANGED ...` — a past negotiation, not the current one. */
+    private fun isHistoryLine(trimmed: String): Boolean =
+        trimmed.startsWith("rec[") || trimmed.contains("CODEC_CONFIG_CHANGED")
+
+    private data class ParsedCodec(
+        val family: CodecFamily,
+        val sampleRateHz: Int?,
+        val bitsPerSample: Int?,
+    )
+
+    /**
+     * Reads one `{codecName:...}` blob. A capability entry lists several rates
+     * as `0x3(44100|48000)`; only a single concrete value is accepted, so a
+     * range can never be mistaken for the negotiated rate.
+     */
+    private fun readCodecFrom(line: String): ParsedCodec? {
+        val family = CODEC_NAME.find(line)?.groupValues?.getOrNull(1)
+            ?.let(CodecDecoding::codecFamilyFromName)
+            ?.takeIf { it != CodecFamily.UNKNOWN }
+            ?: CODEC_TYPE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?.let(CodecDecoding::codecFamily)
+                ?.takeIf { it != CodecFamily.UNKNOWN }
+            ?: return null
+        return ParsedCodec(
+            family = family,
+            sampleRateHz = SAMPLE_RATE.find(line)?.let { firstInt(it.groupValues) },
+            bitsPerSample = BITS.find(line)?.let { firstInt(it.groupValues) },
+        )
+    }
 }

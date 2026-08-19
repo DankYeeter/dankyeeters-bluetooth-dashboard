@@ -12,6 +12,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -27,8 +30,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.audio.eq.Ear
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
+import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 
 /**
  * Which ear the screen is looking at. Drives the band sliders *and* the
@@ -58,9 +64,9 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("System EQ", style = MaterialTheme.typography.headlineSmall)
+        GoldTitle("System EQ", style = MaterialTheme.typography.headlineSmall)
 
-        Card(Modifier.fillMaxWidth()) {
+        GoldCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Reach", style = MaterialTheme.typography.titleSmall)
                 Text(status.describe(), style = MaterialTheme.typography.bodySmall)
@@ -122,17 +128,34 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             onDeleteProfile = viewModel::deleteProfile,
         )
 
-        Text("Bands", style = MaterialTheme.typography.titleMedium)
+        GoldTitle("Bands")
+
+        // Layout picker. Switching resamples the curve onto the new centres, so
+        // this is a resolution control, not a reset button.
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            EqBandLayout.entries.forEachIndexed { index, layout ->
+                SegmentedButton(
+                    selected = settings.layout == layout,
+                    onClick = { viewModel.setBandLayout(layout) },
+                    shape = SegmentedButtonDefaults.itemShape(index, EqBandLayout.entries.size),
+                ) { Text(layout.label) }
+            }
+        }
+        Text(
+            settings.layout.description,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
 
         val gains = when (earView) {
             EarView.RIGHT -> settings.rightGainsDb
             else -> settings.leftGainsDb
         }
 
-        EqBands.CENTER_FREQUENCIES_HZ.forEachIndexed { index, freq ->
+        settings.centersHz.forEachIndexed { index, freq ->
             BandSlider(
                 label = freq.labelHz(),
-                extrapolated = index in EqBands.EXTRAPOLATED_INDICES,
+                extrapolated = index in settings.layout.extrapolatedIndices,
                 gainDb = gains[index],
                 onChange = { value ->
                     when (earView) {

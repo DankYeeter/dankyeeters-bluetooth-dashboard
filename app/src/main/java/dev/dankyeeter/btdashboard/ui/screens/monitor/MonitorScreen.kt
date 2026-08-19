@@ -14,6 +14,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +29,10 @@ import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.GoldButton
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 
 private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
 
@@ -46,36 +51,47 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Link Monitor", style = MaterialTheme.typography.headlineSmall)
+        GoldTitle("Link Monitor", style = MaterialTheme.typography.headlineSmall)
 
-        Card(Modifier.fillMaxWidth()) {
+        GoldCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Data source", style = MaterialTheme.typography.titleMedium)
+                GoldTitle("Data source")
+                // Lead with the source that is working. The old wording opened
+                // with the BQR failure, which read as "nothing is being measured"
+                // even though the fallback was collecting fine.
                 Text(
-                    when (val availability = bqr) {
+                    when (bqr) {
                         is QualityReportAvailability.Active ->
                             "Bluetooth Quality Report active — packet loss and glitch counts " +
                                 "come straight from the controller."
                         is QualityReportAvailability.Unavailable ->
-                            "Bluetooth Quality Report unavailable: ${availability.reason}. " +
-                                "Falling back to ${viewModel.activeSource().displayName}."
+                            "Reading the link through ${viewModel.activeSource().displayName}."
                     },
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
+                (bqr as? QualityReportAvailability.Unavailable)?.let { unavailable ->
+                    Text(
+                        "Bluetooth Quality Report would give controller-level packet loss, but " +
+                            "it needs BLUETOOTH_PRIVILEGED, which no normal app can hold " +
+                            "(${unavailable.reason}).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
                 Text(
                     "Sampling: ${status.mode.name.lowercase()} — ${status.reason}",
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = viewModel::startDeepCapture) { Text("Watch live") }
-                    OutlinedButton(onClick = viewModel::stopDeepCapture) { Text("Stop capture") }
+                    GoldButton(onClick = viewModel::startDeepCapture) { Text("Watch live") }
+                    GoldOutlinedButton(onClick = viewModel::stopDeepCapture) { Text("Stop capture") }
                 }
             }
         }
 
-        Card(Modifier.fillMaxWidth()) {
+        GoldCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Timeline (last 2 hours)", style = MaterialTheme.typography.titleMedium)
+                GoldTitle("Timeline (last 2 hours)")
                 LinkTimeline(samples = samples, events = events)
                 Text(
                     "${samples.size} samples · ${events.size} events",
@@ -84,9 +100,9 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             }
         }
 
-        Card(Modifier.fillMaxWidth()) {
+        GoldCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Events", style = MaterialTheme.typography.titleMedium)
+                GoldTitle("Events")
                 if (events.isEmpty()) {
                     Text(
                         "No events recorded yet.",
@@ -98,7 +114,12 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             }
         }
 
-        DiagnosticCard(diagnostic, onRun = { viewModel.runDiagnostic() })
+        DiagnosticCard(
+            diagnostic,
+            onRun = { viewModel.runDiagnostic() },
+            onCancel = viewModel::cancelDiagnostic,
+            onDismissMessage = viewModel::dismissDiagnosticMessage,
+        )
     }
 }
 
@@ -130,10 +151,15 @@ private fun EventRow(event: MonitorEvent) {
 
 /** The guided "test device" routine and its report. */
 @Composable
-private fun DiagnosticCard(state: DiagnosticUiState, onRun: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+private fun DiagnosticCard(
+    state: DiagnosticUiState,
+    onRun: () -> Unit,
+    onCancel: () -> Unit,
+    onDismissMessage: () -> Unit,
+) {
+    GoldCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Test device", style = MaterialTheme.typography.titleMedium)
+            GoldTitle("Test device")
             Text(
                 "Connection check, codec negotiation, codec cycling and a 3-minute " +
                     "soak with deep capture, ending in a summary report.",
@@ -159,7 +185,21 @@ private fun DiagnosticCard(state: DiagnosticUiState, onRun: () -> Unit) {
                 Text(report.verdict, style = MaterialTheme.typography.bodyMedium)
             }
 
-            Button(onClick = onRun, enabled = !state.running) { Text("Run diagnostic") }
+            state.message?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(onClick = onDismissMessage) { Text("OK") }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GoldButton(onClick = onRun, enabled = !state.running) { Text("Run diagnostic") }
+                if (state.running) {
+                    GoldOutlinedButton(onClick = onCancel) { Text("Stop diagnostic") }
+                }
+            }
         }
     }
 }

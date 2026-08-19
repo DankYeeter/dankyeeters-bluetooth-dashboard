@@ -57,7 +57,7 @@ class DeviceDiagnosticRunnerTest {
     fun `a full run walks every step and summarises`() = runTest {
         val clock = TestClock()
         val dumpsys = FakeDumpsysLinkSource(
-            DumpsysSnapshot(listOf(DumpsysDevice(address, rssiDbm = -60, isPlaying = true))),
+            DumpsysSnapshot(listOf(DumpsysDevice(address, isConnected = true, rssiDbm = -60, isPlaying = true))),
         )
         val progress = mutableListOf<DiagnosticStep>()
 
