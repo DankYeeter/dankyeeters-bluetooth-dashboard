@@ -1,15 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- No INTERNET permission anywhere in this project, by design. -->
 
     <!--
-      Package visibility for the now-playing card: we resolve Tidal's app label
-      for the "You're hearing ..." line. Read-only, and the card degrades to the
-      package name if the query is unavailable.
+      QUERY_ALL_PACKAGES: needed for the "these apps could have their own EQ"
+      check, which has to look at every installed app — an equaliser we have
+      never heard of is exactly the one worth warning about, and a fixed
+      <queries> list can only ever find the ones we already knew.
+
+      Play Store policy restricts this permission to a short list of app types.
+      It is granted here because this app is explicitly never going to the Play
+      Store (see PLAN.md non-goals): local git and a sideloaded APK, no store
+      listing, no distribution. Nothing leaves the device either — there is no
+      INTERNET permission, so the package list is read, tiered, shown, and
+      discarded when the process ends.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!--
+      Kept even though QUERY_ALL_PACKAGES makes it redundant today: if that
+      permission is ever restricted or revoked, the high-confidence tiers still
+      work. The <intent> element keeps the "declares an equalizer panel" tier
+      alive, and the explicit packages keep the vendor-companion tier alive.
+
+      Those companion apps run their equaliser inside the headphone, where no
+      audio-effect scan can see it, so the only detectable signal is that the
+      app is installed.
     -->
     <queries>
-        <package android:name="com.aspiro.tidal" />
+        <intent>
+            <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+        </intent>
+        <package android:name="com.naimaudio.naim.std" />
+        <package android:name="com.sony.songpal.mdr" />
+        <package android:name="com.bose.monet" />
+        <package android:name="com.bose.bosemusic" />
+        <package android:name="com.sennheiser.control" />
+        <package android:name="com.sennheiser.smartcontrol" />
+        <package android:name="com.jbl.headphones" />
+        <package android:name="com.beoplay.bang_olufsen" />
+        <package android:name="com.anker.soundcore" />
+        <package android:name="com.libratone.androidapp" />
+        <package android:name="com.nothing.smartcenter" />
+        <package android:name="com.jabra.sound" />
     </queries>
 
     <application
@@ -34,22 +70,5 @@
             </intent-filter>
         </activity>
 
-        <!--
-          Now-playing (read-only). Notification access is a Settings toggle, not
-          a runtime permission: the app deep-links the user there and works
-          without it — only this one card goes quiet.
-
-          We read metadata from media notifications and never send anything back
-          to the player. Tidal is never modified.
-        -->
-        <service
-            android:name=".nowplaying.TidalNotificationListener"
-            android:exported="false"
-            android:label="@string/now_playing_listener_label"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
     </application>
 </manifest>

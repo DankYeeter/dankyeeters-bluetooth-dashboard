@@ -173,6 +173,24 @@ in DESIGN.md.
   with a deep link to that app's info screen.
   The headphone's onboard DSP EQ is not readable (vendor BLE protocol —
   Milestone 3); v1 keeps the "set vendor app to Flat" documentation rule.
+- **"Which apps could have an EQ?" (added 2026-08-19):** a second, wider check
+  next to the audio_flinger scan, worded as a prompt and never as a verdict.
+  Three tiers of evidence: apps declaring an intent filter for
+  `DISPLAY_AUDIO_EFFECT_CONTROL_PANEL` (a declaration, not a guess), the
+  curated vendor companion list, and — weakest, collapsed behind "show more" —
+  apps merely requesting `MODIFY_AUDIO_SETTINGS`. Apps currently producing
+  audio (`getActivePlaybackConfigurations`) sort to the top as *context*, not
+  as evidence. Needs `QUERY_ALL_PACKAGES`, which is acceptable only because
+  this app never goes to the Play Store; nothing leaves the device.
+  Explicitly **not** attempted: dex/APK scanning for `audiofx` references
+  (obfuscation + native DSP make it unreliable and slow) and any claim about
+  apps filtering in their own code — the Focal case is exactly that, and
+  absence of evidence is not evidence of absence.
+  Battery: the package pass never runs periodically. It runs when the section
+  becomes visible or on an explicit tap, is cached for the process lifetime,
+  and is invalidated only by `ACTION_PACKAGE_ADDED`/`REMOVED`/`REPLACED`.
+  The playing-now overlay is event-driven via
+  `registerAudioPlaybackCallback`, unregistered on `ON_STOP`.
 - **AirPods BLE beacon features (added 2026-08-18):** AirPods broadcast BLE
   proximity beacons readable without pairing or Apple hardware (format
   documented by open-source projects like CAPod/MaterialPods — prior art,
