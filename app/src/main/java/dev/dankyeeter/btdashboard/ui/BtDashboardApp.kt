@@ -15,6 +15,9 @@ import androidx.compose.material3.Text
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.runtime.rememberCoroutineScope
+import dev.dankyeeter.btdashboard.privileged.adb.HelperAutoStart
+import kotlinx.coroutines.launch
 import android.util.Log
 import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateScreen
@@ -167,12 +170,18 @@ private fun NavGraphBuilder.appGraph(
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }
     composable(ROUTE_ACTIVATE) {
         val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         ActivateScreen(
             // The only thing an app may do towards starting a shell-uid
             // process: hand over the command. Replacing this with a
             // self-connecting ADB client is the point of the screen's shape -
             // when that lands, only this lambda changes.
             onActivate = {
+                // Try the automatic route first. It cannot succeed until the
+                // app's key is paired with adbd, but it reports precisely how
+                // far it got - and the clipboard fallback still leaves the user
+                // with something they can use in the meantime.
+                scope.launch { HelperAutoStart(context).attemptAndLog() }
                 val command = PrivilegedBootstrap(context).adbCommand()
                 val clipboard = context
                     .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

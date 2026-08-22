@@ -10,6 +10,10 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        // Instrumented tests live here now: the ADB reachability probe has to
+        // run on the device, in the app's own process, because that is the only
+        // place its private key and network position exist.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         applicationId = "dev.dankyeeter.btdashboard"
         minSdk = 31
         targetSdk = 35
@@ -97,6 +101,11 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
