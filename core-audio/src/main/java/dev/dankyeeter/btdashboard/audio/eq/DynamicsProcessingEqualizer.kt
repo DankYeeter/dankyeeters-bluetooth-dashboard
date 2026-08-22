@@ -44,7 +44,42 @@ class DynamicsProcessingEqualizer private constructor(
             limiter.isEnabled = clean.limiterEnabled
             effect.setLimiterByChannelIndex(ear.channelIndex, limiter)
         }
-        effect.enabled = clean.enabled
+        setEnabledVerified(clean.enabled)
+    }
+
+    /**
+     * Switches the effect on and checks that it actually went on.
+     *
+     * `effect.enabled = x` looks like a property assignment, but underneath it
+     * is `AudioEffect.setEnabled`, which **returns a status code instead of
+     * throwing**. Kotlin discards that value, so a refusal is completely
+     * silent: the effect stays attached, the app reports success, and nothing
+     * is equalised.
+     *
+     * That is not hypothetical. Attaching to a freshly harvested foreign
+     * session on the device produced exactly this - `Registered=y, Enabled=n` in
+     * AudioFlinger - and the EQ only came alive when a later playback event
+     * happened to re-attach it. The framework needs a moment after an effect is
+     * created on someone else's session before it will accept the enable.
+     *
+     * So: assign, read back, and try once more if the framework disagreed. The
+     * read-back is the point - it is the only way to tell "on" from "asked to be
+     * on".
+     */
+    private fun setEnabledVerified(target: Boolean) {
+        effect.enabled = target
+        // hasControl matters more than the return value here: another effect
+        // holding control makes every setEnabled a no-op that still reports
+        // success locally, which is exactly the "attached but Enabled=n" state
+        // AudioFlinger showed on a harvested session.
+        Log.i(TAG, "session $sessionId enable=$target control=${effect.hasControl()} readback=${effect.enabled}")
+        if (effect.enabled == target) return
+
+        Thread.sleep(ENABLE_RETRY_DELAY_MS)
+        effect.enabled = target
+        if (effect.enabled != target) {
+            Log.w(TAG, "session $sessionId refused enabled=$target; the EQ is attached but inert")
+        }
     }
 
     override val activeLayout: EqBandLayout get() = layout
@@ -90,11 +125,16 @@ class DynamicsProcessingEqualizer private constructor(
     private fun writeBand(ear: Ear, bandIndex: Int, gainDb: Float) {
         val band = effect.getPreEqBandByChannelIndex(ear.channelIndex, bandIndex)
         band.isEnabled = true
-        // The *active* layout's centres, not the default one's. Reading the
-        // default list here indexed out of bounds from band 10 upward on the 20-
-        // and 31-band layouts; guard() swallowed the exception and marked the
+        // The band's upper *edge*, not its centre: that is what
+        // cutoffFrequency means, and the difference was measurable in the air.
+        // Writing centres here shifted every band half an octave down, so the
+        // slider labelled 1000 Hz cut 600-1000 Hz and left 1300 Hz alone.
+        //
+        // Still the *active* layout's list, not the default one's: reading the
+        // default indexed out of bounds from band 10 upward on the 20- and
+        // 31-band layouts; guard() swallowed the exception and marked the
         // effect dead, so those layouts moved sliders and changed nothing.
-        band.cutoffFrequency = layout.centersHz[bandIndex]
+        band.cutoffFrequency = layout.upperEdgesHz[bandIndex]
         band.gain = gainDb
         effect.setPreEqBandByChannelIndex(ear.channelIndex, bandIndex, band)
     }
@@ -117,6 +157,13 @@ class DynamicsProcessingEqualizer private constructor(
     companion object {
         private const val TAG = "DpEqualizer"
         private const val EFFECT_PRIORITY = 0
+
+        /**
+         * Long enough for the framework to finish wiring a new effect onto a
+         * foreign session, short enough to stay on the caller's thread. The
+         * attach path already runs off the main thread.
+         */
+        private const val ENABLE_RETRY_DELAY_MS = 120L
 
         /** Attack/release/ratio/threshold/post-gain for the output limiter. */
         private const val LIMITER_ATTACK_MS = 1f
@@ -150,13 +197,15 @@ class DynamicsProcessingEqualizer private constructor(
         }
 
         private fun buildConfig(layout: EqBandLayout): DynamicsProcessing.Config {
+            val edges = layout.upperEdgesHz
             val eq = DynamicsProcessing.Eq(true, true, layout.bandCount).apply {
                 for (i in 0 until layout.bandCount) {
                     setBand(
                         i,
                         DynamicsProcessing.EqBand(
                             /* enabled = */ true,
-                            /* cutoffFrequency = */ layout.centersHz[i],
+                            // Upper edge, not centre - see writeBand.
+                            /* cutoffFrequency = */ edges[i],
                             /* gain = */ 0f,
                         ),
                     )

@@ -7,6 +7,11 @@ import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
 import dev.dankyeeter.btdashboard.system.attach.AudioEffectSessionReceiver
 import dev.dankyeeter.btdashboard.system.attach.EqController
 import dev.dankyeeter.btdashboard.system.attach.GlobalAttachmentStrategy
+import dev.dankyeeter.btdashboard.system.attach.OutputMixReachGate
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import dev.dankyeeter.btdashboard.system.attach.PlaybackSessionHarvester
 import dev.dankyeeter.btdashboard.system.attach.SessionAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
@@ -75,6 +80,14 @@ object SystemGraph {
                 EqController(
                     global = GlobalAttachmentStrategy(factory),
                     session = SessionAttachmentStrategy(factory),
+                    // A global attach reports success even where it is inaudible
+                    // (measured: Bluetooth). The controller has to ask first.
+                    globalAttachReachesOutput = OutputMixReachGate(ctx())::globalAttachReachesOutput,
+                    // Harvesting only makes sense while session mode is the
+                    // active strategy; the controller owns that transition.
+                    setSessionHarvestEnabled = { enabled ->
+                        if (enabled) sessionHarvester.start() else sessionHarvester.stop()
+                    },
                     // The manifest session receiver only earns its wake-ups in
                     // session mode; the controller flips it to match.
                     setSessionReceiverEnabled = { enabled ->
@@ -95,6 +108,49 @@ object SystemGraph {
         get() = synchronized(lock) {
             _absoluteVolume ?: AbsoluteVolumeGate(ctx(), secureSettings).also { _absoluteVolume = it }
         }
+
+    /**
+     * Runs a command as the privileged helper, or returns null without one.
+     *
+     * Same reasoning as [installCodecPreferenceController]: only `:app` holds
+     * the helper's Binder. Installed rather than injected because the helper
+     * comes and goes at runtime, so the harvester must resolve it per call
+     * instead of capturing whatever existed at construction.
+     */
+    @Volatile
+    private var installedShell: (suspend (List<String>) -> String?)? = null
+
+    fun installPrivilegedShell(run: suspend (List<String>) -> String?) {
+        installedShell = run
+    }
+
+    /**
+     * Tells the harvester the helper is available now.
+     *
+     * The app reaches session mode faster than the helper connects, so the
+     * first harvest finds no helper and returns nothing. Without this nudge the
+     * EQ waits for the next playback event - and if music was already playing,
+     * that event never comes.
+     */
+    fun onPrivilegedHelperConnected() {
+        sessionHarvester.onPrivilegedHelperConnected()
+    }
+
+    /**
+     * Watches for players that never announce their session and hands their ids
+     * to the session strategy.
+     *
+     * Started only in session mode - see [EqController]. Without the helper it
+     * simply reports nothing, which is exactly the behaviour before it existed.
+     */
+    private val sessionHarvester: PlaybackSessionHarvester by lazy {
+        PlaybackSessionHarvester(
+            context = ctx(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            runPrivileged = { command -> installedShell?.invoke(command) },
+            onSessionsChanged = { sessions -> eqController.onHarvestedSessions(sessions) },
+        )
+    }
 
     @Volatile
     private var installedCodec: CodecPreferenceController? = null

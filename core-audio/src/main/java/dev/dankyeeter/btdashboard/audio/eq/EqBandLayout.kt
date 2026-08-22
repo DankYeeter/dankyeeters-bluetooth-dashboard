@@ -1,5 +1,7 @@
 package dev.dankyeeter.btdashboard.audio.eq
 
+import kotlin.math.pow
+
 /**
  * A graphic-EQ band layout: how many filters, and where they sit.
  *
@@ -15,6 +17,8 @@ enum class EqBandLayout(
     val label: String,
     val description: String,
     val centersHz: List<Float>,
+    /** Width of one band in octaves: 1 for octave spacing, 1/3 for third-octave. */
+    val octaveFraction: Float,
 ) {
     /** ISO octave centres. The classic ten-slider layout. */
     OCTAVE_10(
@@ -22,6 +26,7 @@ enum class EqBandLayout(
         label = "10 bands",
         description = "One band per octave. Broad, forgiving, easy to set by ear.",
         centersHz = listOf(31.5f, 63f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f),
+        octaveFraction = 1f,
     ),
 
     /** Half-octave spacing: twice the resolution, still readable on a phone. */
@@ -33,6 +38,7 @@ enum class EqBandLayout(
             25f, 35f, 50f, 71f, 100f, 141f, 200f, 283f, 400f, 566f,
             800f, 1130f, 1600f, 2260f, 3200f, 4520f, 6400f, 9050f, 12800f, 18100f,
         ),
+        octaveFraction = 0.5f,
     ),
 
     /** ISO third-octave. What measurement rigs and room EQ actually use. */
@@ -46,10 +52,27 @@ enum class EqBandLayout(
             2000f, 2500f, 3150f, 4000f, 5000f, 6300f, 8000f, 10000f, 12500f, 16000f,
             20000f,
         ),
+        octaveFraction = 1f / 3f,
     ),
     ;
 
     val bandCount: Int get() = centersHz.size
+
+    /**
+     * The **upper edge** of each band, which is what `DynamicsProcessing` means
+     * by `cutoffFrequency` — not the centre.
+     *
+     * Feeding it centres instead was a real, silent miscalibration: measured on
+     * the device, the band labelled "1000 Hz" cut 600-1000 Hz by 14 dB and left
+     * 1300 Hz untouched, i.e. every slider moved the octave *below* its label.
+     * For a correction curve derived from a hearing test that means boosting the
+     * wrong half-octave — plausible-looking and wrong.
+     *
+     * An octave-wide band centred on `f` runs from `f/sqrt(2)` to `f*sqrt(2)`;
+     * in general the edge is `f * 2^(fraction/2)`.
+     */
+    val upperEdgesHz: List<Float>
+        get() = centersHz.map { it * 2.0.pow(octaveFraction / 2.0).toFloat() }
 
     /**
      * Bands the hearing test cannot reach. Audiometry runs 250-8000 Hz, so

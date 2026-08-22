@@ -13,6 +13,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    /**
+     * Android stubs throw by default in unit tests, so a single `Log.w` on an
+     * error path fails a test that is about the error path. The attachment code
+     * logs exactly there - when AudioFlinger refuses an effect - and that
+     * branch is the one worth testing.
+     */
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {

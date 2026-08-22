@@ -8,6 +8,7 @@ import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
+import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -138,6 +139,12 @@ object PrivilegedConnection {
         }.onFailure { Log.w(TAG, "cannot watch the helper for death", it) }
         _service.value = proxy
         Log.i(TAG, "privileged helper connected")
+        // The EQ may already be in session mode with music playing and no
+        // helper to read session ids from - it harvested once and found
+        // nothing. Nothing else would wake it: a track that never stops
+        // produces no further playback event.
+        runCatching { SystemGraph.onPrivilegedHelperConnected() }
+            .onFailure { Log.w(TAG, "could not nudge the session harvester", it) }
         return previous
     }
 

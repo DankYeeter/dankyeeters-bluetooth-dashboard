@@ -2913,3 +2913,345 @@ eigene Tasks angefasst):
 
 **Gesamtstand dieser Runde: 486 Tests, 0 Fehler; Merge-Build am Gerät sauber
 (Kaltstart ok, kein Crash, 1 Effekt auf Session 0, Hintergrund-CPU ~0).**
+
+## Test 1 — Boot-Pfad: bestanden (22. August, 14:04)
+
+Echter Neustart, `stopped=false`, App **nicht** geöffnet. Logcat belegt: Prozess
+10498 wurde für `dev.dankyeeter.btdashboard.system.boot.BootReceiver` gestartet —
+also der **echte `BOOT_COMPLETED`**, nicht der BT-Trigger. Zeitpunkt: boot_completed
+14:03:54 → Prozessstart 14:04:13 (~17 s), Service Foreground nach ~30 s, 1 Effekt
+auf Session 0. Bathys verband nebenbei automatisch (Connected count 1), der
+ACL-Trigger wäre also ohnehin dagewesen.
+
+Damit ist die frühere „ungetestet"-Notiz erledigt: der Fehlschlag beim ersten
+Versuch lag ausschließlich am vorherigen force-stop (stopped-state unterdrückt
+BOOT_COMPLETED). Beide Einstiegspunkte sind jetzt am Gerät belegt.
+
+## Test-2-Blocker vorab behoben: RECORD_AUDIO fehlte
+
+`AcousticEqTest` nimmt per Mikrofon auf, aber **kein Modul-Manifest deklarierte
+RECORD_AUDIO** — AndroidJUnitRunner hätte es nie granten können, die Aufnahme
+wäre Stille, der Test rot aus einem Grund, der nichts mit dem EQ zu tun hat. Neu:
+`core-audio/src/androidTest/AndroidManifest.xml` mit RECORD_AUDIO; im gemergten
+androidTest-Manifest verifiziert. (Der Test prüft nur `OCTAVE_10` bei 500–8000 Hz,
+Schwelle: +12 dB Boost muss ≥ +3 dB an der Luft bringen; Lautsprecher-Route,
+kein BT nötig.)
+
+## Test 2 — Akustischer EQ-Test: aufschlussreicher Fehlschlag (22. August, 14:19)
+
+Über Lautsprecher (BT per `svc bluetooth disable` abgeschaltet, danach wieder an),
+ruhiger Raum. Zwei Befunde:
+
+**a) RECORD_AUDIO-Autogrant über Gradle versagt.** Der `connectedDebugAndroidTest`-
+Lauf warf `AudioRecord uninitialized` — die Permission war trotz Manifest nicht
+gewährt. Manueller `adb install -r -g` + `am instrument` behebt es
+(`granted=true` verifiziert). **Für belastbare Läufe: Test-APK mit `-g`
+installieren und per `am instrument` fahren, nicht über die Gradle-Task.**
+
+**b) Der gemessene Effekt ist null — an allen Bändern:**
+```
+500 Hz: -0,8 dB   1000 Hz: -0,9 dB   2000 Hz: -1,0 dB   4000 Hz: +0,2 dB   8000 Hz: -2,1 dB
+```
+Ein +12 dB-Boost ist an keinem der fünf Bänder in der Luft sichtbar (Schwelle
++3 dB). Kein Lautsprecher-Artefakt einer Frequenz, sondern flächendeckend keine
+Wirkung.
+
+**Was das heißt — und was NICHT:**
+- Der Test erzeugt einen **session-gebundenen** `DynamicsProcessing` auf seinem
+  eigenen AudioTrack (`create(track.audioSessionId, …)`). Gemessen wird also der
+  **Session-Pfad**, nicht der **globale** Attach auf Session 0, den die App real
+  nutzt (und der laut dumpsys als „1 effect for session 0" hängt).
+- Damit ist es **kein** Beweis, dass die EQ-Funktion des Nutzers tot ist — aber
+  es ist der erste empirische Hinweis überhaupt, dass ein *attachter* Effekt das
+  Audio nicht zwingend hörbar verändert. Bisher war „EQ wirkt" nur über die
+  Attach-Existenz belegt, nie akustisch.
+- Offen bleibt die eigentliche Frage: **wirkt der globale Session-0-Attach
+  hörbar?** Der jetzige Test kann das nicht sagen — er misst den falschen Pfad.
+
+**Test wurde umgebaut** (dauerhaft): misst jetzt alle Bänder und urteilt über die
+Mehrheit statt beim ersten Band abzubrechen — sonst hätte man die -0,8 dB bei
+500 Hz für das ganze Bild gehalten.
+
+**Nächster Schritt (Design-Entscheidung, nicht blind):** einen Messpfad für den
+**globalen** EQ bauen — Service-EQ per EqController mit einem Boost
+konfigurieren, normalen Media-Ton spielen, per Mikrofon messen. Cross-Prozess
+(Service läuft im App-Prozess), daher nicht trivial. Erst wenn das den globalen
+Pfad ebenfalls bei 0 dB zeigt, ist die EQ-Wirkung wirklich widerlegt.
+
+## Test 2 — akustischer EQ-Test: aufgeklärt, Bug gefunden und behoben
+
+### Ausgangslage
+Erste Messungen zeigten **0 dB auf allen Bändern** — sowohl session-gebunden als
+auch global. Daniel hörte ebenfalls keinen Unterschied zwischen den beiden
+Testtönen. Zwei Störfaktoren waren offen: YouTube lief im Hintergrund, und die
+Messkette selbst war nie validiert.
+
+### Was tatsächlich los war (zwei getrennte Sachen)
+
+**1. Der Lautsprecher-Schutzlimiter machte jede Messung blind.**
+Ein Kontrolltest (`the_microphone_can_hear_a_known_level_difference`) spielt
+denselben Ton ohne jeden EQ zweimal — bei −12 und −18 dBFS. Die Kette sieht den
+6-dB-Schritt sauber (+2,9 bis +7,0 dB). Die Kette funktioniert also.
+
+Damit war die Asymmetrie erklärt: **Absenkungen sind sichtbar, Anhebungen nicht.**
+Bei 80 % Lautstärke lässt der Lautsprecherschutz einen Ton nicht lauter werden,
+also wurde jede +12-dB-Anhebung nachgelagert weggedrückt — ununterscheidbar von
+einem toten EQ. Auch der klassische `Equalizer` zeigte dasselbe Bild, was den
+Verdacht auf einen kaputten Effekt entkräftete.
+
+Gegenprobe mit einer **Absenkung** bei 40 % Lautstärke, die kein Limiter
+kaschieren kann:
+
+| Pfad | 500 Hz | 1000 Hz | 2000 Hz | 4000 Hz | 8000 Hz |
+|---|---|---|---|---|---|
+| Session-EQ, −18 dB verlangt | −14,4 | −14,3 | −14,6 | −15,0 | −14,2 |
+| **Global (Session 0), −18 dB** | **−13,7** | **−14,3** | **−14,8** | **−14,9** | **−14,9** |
+| Alle Bänder, −12 dB verlangt | −11,5 | −11,4 | −11,8 | −11,9 | −11,8 |
+
+Der EQ ist im Signalweg und arbeitet präzise — **auch auf dem Ausgabemix**, dem
+Pfad, den die App benutzt. Der ursprüngliche 0-dB-Befund war kein EQ-Fehler.
+
+**2. Ein echter Bug: jedes Band lag eine halbe Oktave zu tief.**
+`DynamicsProcessing.EqBand.cutoffFrequency` ist die **Oberkante** eines Bandes,
+kein Mittenwert. `DynamicsProcessingEqualizer` schrieb dort Oktav-Mittenfrequenzen
+hinein. Am Gerät ausgemessen (Band „1000 Hz" um 18 dB abgesenkt):
+
+| | 400 Hz | 600 Hz | 800 Hz | 1000 Hz | 1300 Hz | 1800 Hz |
+|---|---|---|---|---|---|---|
+| vorher | −0,6 | **−14,7** | **−14,3** | **−14,1** | −0,2 | 0,0 |
+| nachher | −0,2 | 0,0 | −4,8 | **−14,5** | **−14,7** | 0,0 |
+
+Vorher regelte der Regler „1000 Hz" also 600–1000 Hz. Für eine aus dem Hörtest
+abgeleitete Korrekturkurve heißt das: die falsche halbe Oktave wird angehoben —
+plausibel aussehend und falsch.
+
+**Fix:** `EqBandLayout.upperEdgesHz` (neu) liefert `Mitte × 2^(Oktavanteil/2)`;
+`octaveFraction` ist pro Layout hinterlegt (1, ½, ⅓). `DynamicsProcessingEqualizer`
+schreibt diese Kanten in `cutoffFrequency` — in `buildConfig` und in `writeBand`.
+Regression abgesichert durch `EqBandEdgeTest` (4 Tests, u. a. dass die Kanten in
+jedem Layout aufsteigend bleiben — sonst lehnt DynamicsProcessing die Config ab
+und der EQ stirbt still).
+
+### Testsuite danach
+`AcousticEqTest` hat jetzt 5 Tests, alle grün, alle auf Absenkungen umgestellt:
+Kontrolltest, Session-Cut, Global-Cut, Alle-Bänder-Cut, Band-Mapping-Sonde.
+Die alten Boost-Tests sind entfernt — sie konnten prinzipbedingt nur den
+Lautsprecherschutz messen. `EqDiagnosticTest` (Effekt-Inventar, Legacy-Equalizer)
+hat seine Frage beantwortet und wurde wieder entfernt.
+
+Volle Unit-Suite grün. App mit dem Fix gebaut und installiert; Bluetooth wieder
+aktiviert, Test-APK deinstalliert.
+
+**Merke für künftige akustische Tests:** über den Telefonlautsprecher immer mit
+Absenkungen messen, nie mit Anhebungen.
+
+## Bluetooth: EQ hoerbar? — offen, Beweislage widerspruechlich
+
+### Stand
+Ueber **Lautsprecher** ist der EQ bewiesen (18 dB Absenkung -> 14 dB gemessen).
+Ueber **A2DP zu den Bathys** berichtet Daniel "klangen ident". Alle strukturellen
+Pruefungen sagen aber, dass der Effekt dort laeuft.
+
+### Was geprueft wurde (alles ohne Ohren, per dumpsys/Readback)
+
+**Spatializer-These — geprueft und widerlegt.**
+Der A2DP-Ausgang laeuft auf diesem Pixel ueber einen SPATIALIZER-Thread (Typ 7),
+nicht ueber den normalen Mixer — Log: *"Enabling Spatial Audio since enabled for
+media device: bt_a2dp"*. Naheliegende Vermutung war, dass die Session-0-Kette
+dort nicht existiert. Waehrend laufender Wiedergabe zeigt der Thread aber:
+
+```
+SPATIALIZER (AUDIO_DEVICE_OUT_BLUETOOTH_A2DP)
+    1 effects for session 3793   <- track-gebunden
+    1 effects for session 0      <- Ausgabemix, unser Attach-Punkt
+    1 effects for session -1     <- Spatializer selbst
+```
+
+Beide Attach-Punkte liegen auf dem richtigen Thread.
+
+**Effektzustand — gesund.**
+```
+Session State Registered Internal Enabled Suspended:
+00000   003   y          n        y       n
+```
+State 003 = ACTIVE, enabled = y, **suspended = n**. UUID/Typ bestaetigt
+DynamicsProcessing. Kein Suspend durch den Spatializer.
+
+**Konfiguration ueberlebt den Threadwechsel.**
+Vermutung war, dass AudioFlinger die Kette beim Wiedergabestart auf den
+A2DP-Thread verschiebt und den Effekt dabei flach neu anlegt. Readback nach
+Playback-Start: `band8 global=-15.0 session=-15.0` — Gains sind intakt.
+
+**"Active tracks: 0"** auf der Session-0-Kette ist normal: eine Ausgabemix-Kette
+verarbeitet den Mix, nicht einzelne Tracks (die Track-Kette zeigt korrekt 1).
+
+### Schlussfolgerung
+Jede messbare Groesse sagt "laeuft". Dagegen steht ein subjektiver Bericht. Das
+kann nur ein eindeutigerer Reiz oder eine echte Messung aufloesen — nicht noch
+mehr dumpsys.
+
+### Naechster Schritt: `AudibleEqDemoTest` (umgebaut, liegt bereit)
+Sechs Abschnitte statt fuenf, und der **erste Kontrast ist Lautstaerke, nicht
+Klangfarbe**: alle Baender −15 dB. Ein 15-dB-Pegelsprung ist auf jeder
+funktionierenden Kette unueberhoerbar. Ist *der* nicht hoerbar, liegt es an
+Route oder Lautstaerke, nicht am EQ — und das muss man wissen, bevor man weiter
+am Code sucht. Danach erst die beiden Klangfarben-Kontraste.
+
+Weitere Aenderungen: ein Effekt fuer die ganze Demo (Gains werden zwischen den
+Abschnitten umgesetzt, statt sechsmal neu anzuhaengen), Re-Apply nach
+`track.play()`, Gain-Readback pro Abschnitt im Log, und breitbandigeres Rauschen
+— das alte war basslastig, wodurch der "Hoehen abgesenkt"-Abschnitt kaum etwas
+zu entfernen hatte.
+
+```
+adb shell am instrument -w -r -e class \
+  dev.dankyeeter.btdashboard.audio.eq.AudibleEqDemoTest \
+  dev.dankyeeter.btdashboard.audio.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+**Alternative, die ohne Gehoer auskommt:** eine Bathys-Ohrmuschel direkt an das
+Telefonmikrofon legen und `AcousticEqTest` laufen lassen. Dann misst die
+bestehende Kette den Kopfhoererausgang statt den Raum, und die Frage ist
+objektiv entschieden.
+
+### Nebenbefund: Bandkanten-Fix ist durchgaengig
+`cutoffFrequency` wird nur noch an einer Stelle geschrieben
+(`DynamicsProcessingEqualizer`), und die nutzt `upperEdgesHz`. Die uebrigen
+`centersHz`-Nutzungen sind UI-Beschriftungen und der NAL-R-Rechner, der
+Audiogramm-Schwellen auf Bandmitten abbildet — die zeigen jetzt erst auf das,
+was das Band tatsaechlich tut. Volle Unit-Suite und App-Build gruen.
+
+## GELOEST: Warum der EQ ueber Bluetooth nichts tat
+
+> **Korrektur:** Dieser Abschnitt nannte zuerst Spatial Audio als Ursache. Das
+> war falsch — siehe den Nachtrag am Ende des Abschnitts.
+
+### Der Beweis
+Mit dem Telefon an den Ohrmuscheln liess sich die Abstrahlung endlich messen
+statt raten. Voraussetzung war ein Stoerabstands-Test: bei voller Lautstaerke
+liegt der Ton +47 dB (1 kHz) bis +58 dB (8 kHz) ueber dem Rauschen — bei 500 Hz
+nur +0,7 dB, geschlossene Kopfhoerer strahlen keinen Bass ab. Deshalb misst der
+Leakage-Pfad ab 1 kHz und mit lauterem Ton als der Lautsprecher-Pfad.
+
+18-dB-Absenkung, ueber die Bathys gemessen:
+
+```
+Session EQ:  1000 Hz -10,2   2000 -7,7   4000 -7,7   8000 -7,8   BESTANDEN
+Global EQ:   1000 Hz Rauschen  2000 -0,1  4000 -0,4  8000 -0,4   DURCHGEFALLEN
+```
+
+Der session-gebundene EQ wirkt ueber Bluetooth. Der globale (Session 0) — den
+die App benutzte — wirkt **gar nicht**. Genau Daniels Hoereindruck.
+
+### Die Ursache
+Spatial Audio. Bei Bluetooth (nicht am Lautsprecher) laeuft die Ausgabe ueber
+einen SPATIALIZER-Thread, und das spatialisierte Signal passiert die
+Ausgabemix-Effektkette nicht.
+
+Das Perfide: **nichts meldet einen Fehler.** Der Effekt haengt auf dem richtigen
+Thread, meldet ACTIVE, enabled, nicht suspendiert, und seine Gains lesen exakt
+so zurueck wie geschrieben. Der einzige sichtbare Hinweis ist `Active tracks: 0`
+auf dieser Kette — den hatte ich zuvor faelschlich als normal abgetan.
+
+### Der Fix
+`SpatializerGate` (neu) fragt ueber die oeffentliche `Spatializer`-API, ob ein
+Session-0-Effekt den Ausgang ueberhaupt erreicht: `isEnabled && isAvailable`
+heisst "Spatializer ist gerade aktiv", also ist der Ausgabemix der falsche
+Anhaengepunkt. Faellt **offen** aus — bei Unklarheit gewinnt der breitere Modus.
+
+`EqController` fragt das **vor** jedem globalen Attach, weil der Attach selbst
+Erfolg meldet und seinen eigenen Zustand nicht misstrauen kann. Bei Nein:
+Rueckfall auf Session-Modus.
+
+`ensureAttached()` prueft jetzt zusaetzlich, ob der *lebende* Modus noch der
+richtige fuer die aktuelle Route ist. Ohne das blieb der Bug auf dem Umweg
+bestehen: am Lautsprecher global angehaengt, dann Bathys verbunden -> Connect
+ruft `ensureAttached`, der Effekt lebt, also passiert nichts — und der EQ ist
+still. Umgekehrt gewinnt Trennen die breitere Reichweite zurueck, statt den
+Nutzer bis zum naechsten Reglerzug im Session-Modus zu lassen.
+
+Der Statustext nennt jetzt die Ursache und die Stellschraube. Vorher zeigte er
+den generischen Session-Text, der auf den privilegierten Helfer verweist — hier
+schlicht falsch: der Helfer aendert daran nichts, und der Rat haette Daniel auf
+den einzigen Bildschirm geschickt, der nicht helfen kann.
+
+Am Geraet verifiziert: kein Session-0-Effekt mehr, Meldung *"Spatial Audio is on
+for this output and bypasses the system-wide equalizer... Turn Spatial Audio off
+for this device to get the equalizer back for everything."*
+
+### Neue Tests
+`EqControllerSpatializerTest` (6 Faelle): Vorzug fuer global wenn hoerbar,
+Rueckfall wenn nicht, Receiver nur im Session-Modus, Neubewertung bei jedem
+apply, und beide Routenwechsel ueber `ensureAttached`. Die Faelle sind gepinnt,
+weil der verhinderte Fehler unsichtbar ist — die App saehe angehaengt aus und
+korrigierte nichts.
+
+`AcousticEqTest` um den Leakage-Messpfad erweitert (global, session, plus
+eigener Kontrolltest bei denselben Pegeln). `LeakageSnrProbeTest` (neu) misst
+den Stoerabstand, damit ein 0-dB-Ergebnis nie wieder mit "nicht messbar"
+verwechselt wird.
+
+### Was das fuer den Nutzer heisst
+Mit Spatial Audio an erreicht der EQ nur noch Apps, die ihre Audio-Session
+ankuendigen. Das ist weniger als vorher versprochen, aber mehr als vorher
+geliefert (null). Wer die volle Reichweite will, schaltet Spatial Audio fuer das
+Geraet ab — dann greift wieder der globale Pfad, automatisch.
+
+### Nachtrag (22. August, spaeter): Spatial Audio war NICHT die Ursache
+
+Daniel hat Spatial Audio fuer die Bathys abgeschaltet. Der globale Pfad blieb
+wirkungslos — drei weitere Laeufe, alle um null streuend. Die Spatializer-These
+ist damit widerlegt, obwohl sie gut passte (A2DP laeuft ueber einen
+SPATIALIZER-Thread, `Active tracks: 0` auf der Session-0-Kette).
+
+### Zwischenfall: die Messkette war selbst unzuverlaessig
+
+Daniel hoerte, dass "der erste Ton immer lauter ist als der zweite". Da jeder
+Test **erst flach, dann abgesenkt** misst, waere ein systematischer Versatz von
+einer echten EQ-Wirkung nicht zu unterscheiden gewesen — er haette eine
+Absenkung aus dem Nichts erzeugt und die Assertion haette bestanden.
+
+Neuer Test `measuring_the_same_thing_twice_gives_the_same_answer` (A/A): zweimal
+dasselbe messen, Erwartung 0 dB. Ergebnis: bis 5 dB Abweichung, bei 1 kHz
+45-dB-Ausreisser. Eine *systematische* Richtung zeigte sich nicht — es war
+Rauschen, kein Versatz. Aber die vorherigen Einzelmessungen waren damit zu
+wackelig fuer die Aussage, die ich aus ihnen gezogen hatte.
+
+Behoben durch `measureMedian`: jede Messung fuenfmal, Median statt Mittelwert
+(ein Ausreisser wird ignoriert statt eingerechnet). Danach A/A: −3,2 / −0,2 /
++0,9 / −1,9 dB, also ein Rauschband von rund **±3 dB**.
+
+### Das belastbare Ergebnis
+
+Mit robuster Messung, Spatial Audio aus, 18-dB-Absenkung:
+
+```
+Session EQ:  1000 -9,5   2000 -8,9   4000 -7,6   8000 -6,0    BESTANDEN
+Global EQ:   1000 -0,2   2000 -0,2   4000 -0,2   8000  0,0    exakt null
+```
+
+Der Ausgabemix-Attach erreicht den Bluetooth-Ausgang dieses Geraets nicht —
+unabhaengig von Spatial Audio. Der session-gebundene Attach wirkt.
+
+### Fix (korrigiert)
+
+`OutputMixReachGate` ersetzt den falsch benannten `SpatializerGate`. Er prueft
+per `getAudioDevicesForAttributes` die Route, die Medien *tatsaechlich* nehmen
+wuerden — ein verbundenes, aber ungenutztes Geraet darf nicht in den engeren
+Modus zwingen. Bluetooth-Ausgang -> globaler Attach gilt als unzuverlaessig.
+Der Spatializer bleibt als *zweite* Bedingung stehen (wo er greift, ist er ein
+echter Bypass), aber er ist nicht der Grund fuer Bluetooth.
+
+Faellt **offen** aus: laesst sich die Route nicht bestimmen, gilt global als
+nutzbar. Die Asymmetrie traegt das: faelschlich "nicht erreichbar" zu raten
+kostet Reichweite bei Apps, die ihre Session nicht ankuendigen — faelschlich
+"erreichbar" kostet den Nutzer *alles* und sagt nichts dazu.
+
+Der Statustext nennt jetzt Bluetooth statt Spatial Audio. Am Geraet verifiziert:
+kein Session-0-Effekt mehr, Meldung *"Over Bluetooth this phone does not pass
+the system-wide equalizer through..."*.
+
+### Ehrliche Einordnung
+Ich hatte die Spatializer-These vorschnell als "die Antwort" verkauft, bevor die
+Messkette validiert war. Der A/A-Test haette vor jeder Schlussfolgerung stehen
+muessen; er existiert jetzt und ist die Bedingung fuer alle weiteren Aussagen.

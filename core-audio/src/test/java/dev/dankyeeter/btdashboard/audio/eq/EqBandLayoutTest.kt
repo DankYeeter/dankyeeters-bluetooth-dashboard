@@ -151,3 +151,60 @@ class EqSettingsLayoutTest {
         assertTrue("a 10-entry list must not pass as 31 bands", failed)
     }
 }
+
+/**
+ * The band edges the equaliser writes into `cutoffFrequency`.
+ *
+ * Kept separate from the layout's own tests because this is about a framework
+ * contract, not about the layout: `DynamicsProcessing` reads that field as the
+ * band's upper boundary. Passing centres instead was measurable on the device —
+ * the "1000 Hz" band cut 600-1000 Hz and left 1300 Hz untouched — so these
+ * assertions exist to keep that from silently coming back.
+ */
+class EqBandEdgeTest {
+
+    @Test
+    fun an_octave_band_ends_a_half_octave_above_its_centre() {
+        val layout = EqBandLayout.OCTAVE_10
+        val centre = layout.centersHz.indexOf(1000f)
+        // 1000 * sqrt(2)
+        assertEquals(1414.2f, layout.upperEdgesHz[centre], 1f)
+    }
+
+    @Test
+    fun the_band_below_ends_where_this_one_begins() {
+        val layout = EqBandLayout.OCTAVE_10
+        val i = layout.centersHz.indexOf(1000f)
+        // The previous band's upper edge is this band's lower edge, so the
+        // centre sits geometrically in the middle of the two.
+        val lower = layout.upperEdgesHz[i - 1]
+        val upper = layout.upperEdgesHz[i]
+        assertEquals(1000f, kotlin.math.sqrt(lower * upper), 1f)
+    }
+
+    @Test
+    fun narrower_layouts_get_proportionally_narrower_bands() {
+        // A third-octave band spans 2^(1/3), so its edge is only 2^(1/6) above
+        // the centre - much closer than the octave layout's 2^(1/2).
+        val third = EqBandLayout.THIRD_OCTAVE_31
+        val i = third.centersHz.indexOf(1000f)
+        assertEquals(1122.5f, third.upperEdgesHz[i], 1f)
+
+        val half = EqBandLayout.HALF_OCTAVE_20
+        val j = half.centersHz.indexOf(800f)
+        assertEquals(951.4f, half.upperEdgesHz[j], 1f)
+    }
+
+    @Test
+    fun every_layout_keeps_its_edges_ascending() {
+        // DynamicsProcessing requires ascending cutoffs; a layout that broke
+        // that would be rejected at construction and the EQ would go dead.
+        EqBandLayout.entries.forEach { layout ->
+            val edges = layout.upperEdgesHz
+            assertEquals(layout.bandCount, edges.size)
+            edges.zipWithNext().forEach { (a, b) ->
+                assertTrue("${layout.id}: $a should be below $b", a < b)
+            }
+        }
+    }
+}

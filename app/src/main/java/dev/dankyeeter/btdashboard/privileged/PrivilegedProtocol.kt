@@ -44,6 +44,19 @@ object PrivilegedProtocol {
     val ALLOWED: List<List<String>> = listOf(
         listOf("dumpsys", "bluetooth_manager"),
         listOf("dumpsys", "media.audio_flinger"),
+        // Read-only, and the narrowest source for one specific question: which
+        // audio sessions are playing *media* right now. Players that never
+        // broadcast their session (Tidal) can only be equalised by learning the
+        // id this way - measured on the device, an effect attached to a
+        // harvested id works exactly like an announced one.
+        //
+        // Chosen over the already-allowed media.audio_flinger because it is
+        // more precise, not because it is more powerful: it distinguishes
+        // state:started from paused and USAGE_MEDIA from notification blips, so
+        // the app attaches to music and nothing else. Only integer session ids
+        // are kept; package names, metadata and playback content are discarded
+        // at the parser - see PlaybackSessionParser.
+        listOf("dumpsys", "audio"),
         listOf("ps", "-A", "-o", "PID,NAME"),
     )
 

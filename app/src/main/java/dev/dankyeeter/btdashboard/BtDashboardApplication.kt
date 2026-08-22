@@ -23,7 +23,14 @@ class BtDashboardApplication : Application() {
         // generates the ADB command, which is the only moment it can reach a
         // helper anyway - see PrivilegedBootstrap for why the token now rotates
         // per session instead of being written once and kept forever.
-        MonitorGraph.installShellRunner(PrivilegedShellRunner(this))
+        val shellRunner = PrivilegedShellRunner(this)
+        MonitorGraph.installShellRunner(shellRunner)
+        // The same helper, for a second reader: the EQ needs the session ids of
+        // players that never announce themselves (Tidal). Only stdout is passed
+        // on - the harvester keeps integers and throws the rest away.
+        SystemGraph.installPrivilegedShell { command ->
+            shellRunner.run(command).takeIf { it.exitCode == 0 }?.stdout
+        }
         // Codec control needs the same helper. Installed unconditionally for
         // the same reason: without a helper the controller reports "cannot
         // check", which is what every layer above it is built to display.

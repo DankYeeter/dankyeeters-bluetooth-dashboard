@@ -19,11 +19,29 @@ class PrivilegedProtocolTest {
     // ---- the whitelist ------------------------------------------------------
 
     @Test
-    fun `exactly the three commands this app issues are allowed`() {
+    fun `exactly the four commands this app issues are allowed`() {
         assertTrue(PrivilegedProtocol.isAllowed(listOf("dumpsys", "bluetooth_manager")))
         assertTrue(PrivilegedProtocol.isAllowed(listOf("dumpsys", "media.audio_flinger")))
+        assertTrue(PrivilegedProtocol.isAllowed(listOf("dumpsys", "audio")))
         assertTrue(PrivilegedProtocol.isAllowed(listOf("ps", "-A", "-o", "PID,NAME")))
-        assertEquals(3, PrivilegedProtocol.ALLOWED.size)
+        // Pinned on purpose. This list is the entire privileged surface, and it
+        // should never grow by accident - each addition is a deliberate decision
+        // with a reason written next to it.
+        assertEquals(4, PrivilegedProtocol.ALLOWED.size)
+    }
+
+    @Test
+    fun `every allowed command only reads`() {
+        // The helper runs as shell. Nothing on this list may change device
+        // state: `dumpsys <service>` without further arguments prints a report,
+        // and `ps` lists processes. Anything that writes belongs behind a named
+        // AIDL method where it can be classified as mutating - see
+        // PrivilegedOperation - not behind a generic exec.
+        assertTrue(
+            PrivilegedProtocol.ALLOWED.none { command ->
+                command.any { it in setOf("set", "put", "start", "stop", "kill") }
+            },
+        )
     }
 
     @Test
