@@ -90,8 +90,18 @@ object PrivilegedServer {
      */
     private const val RECONNECT_POLL_MS = 3_000L
 
-    /** Backoff ceiling; see the reconnect thread for why it exists at all. */
-    private const val RECONNECT_POLL_MAX_MS = 60_000L
+    /**
+     * Backoff ceiling; see the reconnect thread for why it exists at all.
+     *
+     * Lowered from 60 s. The ceiling only decides how long the *app* waits for
+     * its helper after restarting, and that wait is not free: without the
+     * helper the EQ cannot reach players that never announce their session, so
+     * a minute of silence for Tidal was the price of a wake-up the shell
+     * process would otherwise skip. One /proc scan every 15 s while the app is
+     * not running is a rounding error next to that; the scan does no binder
+     * call, sends no broadcast and starts nothing.
+     */
+    private const val RECONNECT_POLL_MAX_MS = 15_000L
 
     private const val TAG = "btdash_privileged"
 

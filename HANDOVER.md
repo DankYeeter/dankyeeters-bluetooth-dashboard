@@ -3308,3 +3308,29 @@ andere Player seien genauso, widerlegt.
 Music voll funktionsfaehig, auch ueber Bluetooth. Nur Tidal braucht den Helfer.
 Das verschiebt den Helfer vom "notwendig fuer die Kernfunktion" zum "notwendig
 fuer einen Player und fuer Codec-Steuerung".
+
+## Helfer-Wiederverbindung: kein Fehler, eine schlechte Abwaegung
+
+Ich hatte sie heute mehrfach als defekt notiert. Sie ist es nicht - beide
+Verdaechtigen sind geprueft und entlastet:
+
+- **Token-Rotation:** `PrivilegedBootstrap.match()` akzeptiert *beide* Token,
+  den pending und den aktiven. Ein laufender Helfer wird nach einem
+  App-Neustart also nicht deshalb abgewiesen, weil der Setup-Schirm inzwischen
+  einen neuen Token gemuenzt hat.
+- **Neuinstallation:** direkt getestet, `adb install -r` bei laufendem Helfer,
+  Wiederverbindung in unter 10 s.
+
+Was wirklich dahintersteckte: der Backoff. Der Helfer sucht die App mit
+verdoppelnder Wartezeit, und die Obergrenze lag bei **60 s**. Mein
+Fehlschlag-Test lief 72 s mit 12-s-Raster und konnte den Treffer knapp
+verfehlt haben. Reproduzieren liess sich ein echter Ausfall nicht.
+
+**Geaendert:** Obergrenze 60 s -> 15 s. Die Obergrenze entscheidet nur, wie
+lange die *App* nach einem Neustart auf ihren Helfer wartet, und diese Wartezeit
+ist nicht gratis - ohne Helfer erreicht der EQ Tidal nicht. Ein `/proc`-Scan
+alle 15 s waehrend die App nicht laeuft ist dagegen belanglos: kein
+Binder-Aufruf, kein Broadcast, kein App-Start.
+
+Gemessen nach der Aenderung, mit absichtlich hochgelaufenem Backoff (App 45 s
+tot): **verbunden nach ~8 s**.
