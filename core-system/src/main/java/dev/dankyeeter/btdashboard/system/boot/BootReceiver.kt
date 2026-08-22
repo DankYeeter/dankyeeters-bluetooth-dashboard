@@ -165,7 +165,7 @@ class BootReceiver : BroadcastReceiver() {
     private fun setupIntent(context: Context): PendingIntent? = runCatching {
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: return null
-        intent.putExtra(OpenRoute.EXTRA, OpenRoute.SETUP)
+        intent.putExtra(OpenRoute.EXTRA, OpenRoute.ACTIVATE)
         PendingIntent.getActivity(
             context,
             REQUEST_SETUP,
@@ -236,14 +236,19 @@ class BootReceiver : BroadcastReceiver() {
 // the app cannot restart either one.
 
 private fun AttachmentStatus.title(): String = when (this) {
-    is AttachmentStatus.ActiveSessions -> "EQ is session-only after the reboot"
-    else -> "EQ is not active after the reboot"
+    is AttachmentStatus.ActiveSessions -> "EQ is limited"
+    else -> "EQ is off"
 }
 
-/** The collapsed line. Identical for every reduced status — the detail is in the expansion. */
-private const val SHORT_TEXT =
-    "Shell access does not survive a reboot. Open the app for the one command that " +
-        "restores it."
+/**
+ * The collapsed line, deliberately tiny.
+ *
+ * This appears once per reboot among a dozen other notices - the watch that was
+ * not found, the SIM that lost its number, the debugging warning. Nobody reads a
+ * paragraph in that company. The button says what to do; the line only has to
+ * say why it is there.
+ */
+private const val SHORT_TEXT = "Tap Activate to restore it."
 
 private fun AttachmentStatus.longText(): String = buildString {
     append(

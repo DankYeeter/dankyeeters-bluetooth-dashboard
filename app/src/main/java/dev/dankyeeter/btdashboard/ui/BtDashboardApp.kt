@@ -12,7 +12,13 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.util.Log
+import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
+import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateScreen
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,8 +57,11 @@ const val ROUTE_ONBOARDING = "onboarding"
 const val ROUTE_WIZARD = "wizard"
 const val ROUTE_DEVICE_PROFILES = "device_profiles"
 
+/** Must match [dev.dankyeeter.btdashboard.system.boot.OpenRoute.ACTIVATE]. */
+const val ROUTE_ACTIVATE = "activate"
+
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
-private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD)
+private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD, ROUTE_ACTIVATE)
 
 /**
  * @param requestedRoute a screen asked for from outside the app, e.g. by the
@@ -156,5 +165,21 @@ private fun NavGraphBuilder.appGraph(
     }
     composable(ROUTE_ONBOARDING) { SystemAccessScreen(onDone = onBack) }
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }
+    composable(ROUTE_ACTIVATE) {
+        val context = LocalContext.current
+        ActivateScreen(
+            // The only thing an app may do towards starting a shell-uid
+            // process: hand over the command. Replacing this with a
+            // self-connecting ADB client is the point of the screen's shape -
+            // when that lands, only this lambda changes.
+            onActivate = {
+                val command = PrivilegedBootstrap(context).adbCommand()
+                val clipboard = context
+                    .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("ADB command", command))
+            },
+            onDone = onBack,
+        )
+    }
     composable(ROUTE_DEVICE_PROFILES) { DeviceProfilesScreen(onBack = onBack) }
 }
