@@ -3334,3 +3334,92 @@ Binder-Aufruf, kein Broadcast, kein App-Start.
 
 Gemessen nach der Aenderung, mit absichtlich hochgelaufenem Backoff (App 45 s
 tot): **verbunden nach ~8 s**.
+
+# Helferstart ohne PC: Stand 22. August, 23:00
+
+## Warum ueberhaupt
+
+Der privilegierte Helfer stirbt bei jedem Neustart des Telefons und kann sich
+nicht selbst starten - eine App darf keinen Prozess mit shell-Identitaet
+erzeugen, das *ist* die Sandbox-Grenze. Ohne ihn fehlen zwei Dinge:
+Codec-Steuerung und der EQ fuer Tidal (das seine Audio-Session nicht
+ankuendigt - gemessen, siehe oben).
+
+Der einzige Weg ohne Kabel: die App verbindet sich per drahtlosem Debugging mit
+dem **eigenen** Geraet und fuehrt den Befehl selbst aus. Shizukus Verfahren.
+
+## Was steht (alles committet, Tests gruen)
+
+**Portsuche und TLS** - `cd993ec`. Am Geraet belegt:
+
+    discovered 1 endpoint(s): 192.168.178.22:39099 (connecting via 127.0.0.1)
+    auto-start outcome: NeedsPairing (SSLV3_ALERT_CERTIFICATE_UNKNOWN)
+
+Die Kette laeuft bis zum Vertrauensentscheid: mDNS findet den Port, CNXN raus,
+STLS zurueck, TLS-Handschlag, und adbd sagt "Zertifikat unbekannt" - er kennt
+unseren Schluessel noch nicht. Genau so soll es vor der Kopplung aussehen.
+
+**Sicherheit** - `4321cba`. Aus der mDNS-Ankuendigung wird **nur die
+Portnummer** uebernommen; verbunden wird immer gegen 127.0.0.1. Kein Paket kann
+das Geraet verlassen, auch nicht wenn etwas anderes im Netz sich als
+adb-Daemon ausgibt. Zweite Sperre im TLS-Client, Identitaetspruefung davor.
+
+**Ed25519-Arithmetik** - `0c2168d`. Von Hand, weil Android keine Punktarithmetik
+anbietet. Gegen RFC 8032 geprueft, neun Tests.
+
+**SPAKE2-Punkte M und N** - `6a5f4ba`. Nach BoringSSLs Verfahren abgeleitet,
+gegen dessen eigene Tabelle verifiziert.
+
+**SPAKE2 komplett** - `f65701d`. Sechs Tests.
+
+## Was fehlt
+
+1. **TLS mit PSK.** Der SPAKE2-Schluessel wird als Pre-Shared Key in den
+   TLS-Handschlag der Kopplungsverbindung eingespeist. Machbarkeit geprueft
+   (`d38c29c`): `com.android.org.conscrypt.PSKKeyManager` ist per Reflection
+   erreichbar, TLS_ECDHE_PSK_* wird unterstuetzt. Reflection auf
+   nicht-oeffentliche API - `AdbPairingCapability` meldet, ob das Geraet es
+   kann, und muss vor dem Anbieten der Funktion gefragt werden.
+2. **Kopplungsprotokoll.** Paketkopf (Version, Typ, Nutzlaenge),
+   SPAKE2-Nachrichtenaustausch, danach ueber TLS die Uebertragung des
+   oeffentlichen Schluessels im adb-Format, den adbd dann vertraut.
+3. **Kommandoausfuehrung.** Nach erfolgreicher Kopplung: `OPEN shell:<befehl>`
+   ueber die bestehende Verbindung, um den Helfer zu starten. AdbMessage kann
+   die Rahmen bereits.
+4. **UI.** Eingabefeld fuer den sechsstelligen Code hinter dem Activate-Knopf,
+   plus das zugesagte Aufklaerungs-Popup zur INTERNET-Berechtigung.
+
+## Fallen, die Zeit gekostet haben
+
+- **Drahtloses Debugging laeuft nicht bei aktivem USB-Debugging.** 23 ms nach
+  dem Einschalten kam jedesmal `setAdbEnabled(false), transportType=1`. Fuer
+  die Funktion egal (Alltagsfall ist "kein PC"), fuers Testen heisst es: ueber
+  WLAN arbeiten, nicht ueber Kabel.
+- **Es braucht ein verbundenes WLAN.** Ohne Netz schaltet Android es ab.
+- **mDNS liefert veraltete Ports.** adbd lauschte auf 35485, die Ankuendigung
+  bot 34797. `findAll()` sammelt deshalb alle Kandidaten.
+- **Der Port wechselt staendig** - innerhalb einer Stunde 34797, 35485, 39099.
+  Nichts zwischenspeichern.
+
+## Testaufbau wiederherstellen
+
+Kabel ab, drahtloses Debugging an, dann am PC:
+
+    adb pair <ip>:<kopplungsport> <code>
+    adb mdns services            # aktuellen connect-Port ablesen
+    adb connect <ip>:<port>
+
+Danach den Probe ausloesen (der Knopf sitzt mittig):
+
+    adb shell am start -n dev.dankyeeter.btdashboard/.MainActivity \
+      --es dev.dankyeeter.btdashboard.OPEN_ROUTE activate
+    adb shell input tap 672 1539
+    adb logcat -d | grep -aiE "HelperAutoStart|AdbDiscovery"
+
+## Offen aus frueheren Runden
+
+- Play-Store: QUERY_ALL_PACKAGES entkoppeln, Data-Safety-Formular,
+  FGS-Deklaration. Neu dazu: die INTERNET-Berechtigung ist jetzt drin und
+  muss im Datenschutzabschnitt erklaert werden.
+- Der globale EQ-Pfad ueber Bluetooth bleibt tot; Session-IDs erraten und
+  hoehere Effekt-Prioritaet sind beide gemessen und verworfen.
