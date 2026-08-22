@@ -7,6 +7,7 @@ import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import java.net.NetworkInterface
 
 /**
  * Finds the port the phone's own `adbd` is listening on.
@@ -94,14 +95,48 @@ class AdbPortDiscovery(private val context: Context) {
                     // complete() rather than a check-then-set: several
                     // announcements can resolve at once, and only the first
                     // one wins. Later calls are no-ops.
-                    found.complete(Endpoint(host, resolved.port))
+                    found.complete(Endpoint(advertisedHost = host, port = resolved.port))
                 }
             },
         )
     }
 
-    data class Endpoint(val host: String, val port: Int) {
-        override fun toString(): String = "$host:$port"
+    /**
+     * Where to reach adbd - and deliberately **not** where mDNS said it lives.
+     *
+     * [advertisedHost] is kept only so a refusal can name what it refused.
+     * [connectHost] is always loopback, because that is the whole security
+     * argument: adbd binds every interface, so the port learned from the
+     * announcement is reachable at 127.0.0.1, and connecting there means the
+     * packets cannot leave the phone. Not "should not" - cannot. A hostile
+     * announcement on the same network can waste a connection attempt against
+     * a local port; it can never make the app talk to another machine.
+     */
+    data class Endpoint(
+        val advertisedHost: String,
+        val port: Int,
+    ) {
+        val connectHost: String get() = LOOPBACK
+
+        /**
+         * Whether the announcement plausibly came from this device.
+         *
+         * Checked before connecting, so that a stray adb daemon elsewhere on
+         * the network cannot steer the app at an arbitrary local port. Not a
+         * security boundary on its own - [connectHost] is - but it turns "some
+         * device advertised something" into a refusal with a reason instead of
+         * a silent failed handshake.
+         */
+        fun looksLikeThisDevice(): Boolean {
+            if (advertisedHost == LOOPBACK || advertisedHost == LOOPBACK_V6) return true
+            return runCatching {
+                NetworkInterface.getNetworkInterfaces().asSequence().any { nic ->
+                    nic.inetAddresses.asSequence().any { it.hostAddress == advertisedHost }
+                }
+            }.getOrDefault(false)
+        }
+
+        override fun toString(): String = "$advertisedHost:$port (connecting via $LOOPBACK)"
     }
 
     companion object {
@@ -119,5 +154,9 @@ class AdbPortDiscovery(private val context: Context) {
          * announcement, short enough not to feel broken.
          */
         const val DEFAULT_TIMEOUT_MS = 5_000L
+
+        /** The only address this client ever connects to. */
+        const val LOOPBACK = "127.0.0.1"
+        const val LOOPBACK_V6 = "::1"
     }
 }

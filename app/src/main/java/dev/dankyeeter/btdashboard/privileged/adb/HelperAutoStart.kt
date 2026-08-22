@@ -2,6 +2,8 @@ package dev.dankyeeter.btdashboard.privileged.adb
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Tries to start the privileged helper without a computer.
@@ -32,16 +34,33 @@ class HelperAutoStart(private val context: Context) {
         data class Broken(val step: String, val detail: String) : Outcome
     }
 
-    suspend fun attempt(): Outcome {
+    /**
+     * Runs on IO throughout: mDNS discovery blocks, the socket blocks, and the
+     * TLS handshake blocks. Enforced here rather than left to callers - the
+     * natural caller is a button press, and Compose hands that a main-thread
+     * scope, which turned the first real attempt into NetworkOnMainThread.
+     */
+    suspend fun attempt(): Outcome = withContext(Dispatchers.IO) {
         val endpoint = runCatching { AdbPortDiscovery(context).find() }
-            .getOrElse { return Outcome.Broken("discovery", it.describe()) }
-            ?: return Outcome.NoService
+            .getOrElse { return@withContext Outcome.Broken("discovery", it.describe()) }
+            ?: return@withContext Outcome.NoService
+
+        // Both ends have to be this phone. The connection itself is pinned to
+        // loopback and cannot leave the device; this refuses even to try when
+        // the announcement came from somewhere else, so a foreign adb daemon on
+        // the same Wi-Fi cannot aim the app at an arbitrary local port.
+        if (!endpoint.looksLikeThisDevice()) {
+            return@withContext Outcome.Broken(
+                "identity",
+                "announcement came from ${endpoint.advertisedHost}, which is not this device",
+            )
+        }
 
         val keys = AdbKeyStore(context)
         runCatching { keys.certificate() }
-            .onFailure { return Outcome.Broken("certificate", it.describe()) }
+            .onFailure { return@withContext Outcome.Broken("certificate", it.describe()) }
 
-        return when (val result = AdbTlsClient(keys).connect(endpoint)) {
+        when (val result = AdbTlsClient(keys).connect(endpoint)) {
             is AdbTlsClient.Result.Connected -> {
                 result.session.close()
                 Outcome.Connected(endpoint.toString())

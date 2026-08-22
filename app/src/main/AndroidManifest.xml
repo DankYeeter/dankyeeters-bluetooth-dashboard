@@ -2,7 +2,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- No INTERNET permission anywhere in this project, by design. -->
+    <!--
+      INTERNET, and it is worth writing down why, because this project went
+      years without it and the old comment here said it never would.
+
+      It is not for the internet. Android gates *socket creation itself* behind
+      this permission - loopback included - and the app needs a socket to reach
+      the debugging service running on this very phone. That is the only way to
+      start the privileged helper without plugging into a computer, which is
+      what makes codec control and the Tidal equaliser work after a reboot.
+
+      What the app does with it is deliberately boxed in:
+        - Only the port number ever comes from the network announcement. The
+          connection itself always goes to 127.0.0.1, never to the advertised
+          address, so no packet can leave the device even if something else on
+          the network claims to be an adb daemon. See AdbPortDiscovery.
+        - There is no code anywhere in this project that talks to a remote host.
+          No HTTP client, no analytics, no crash reporter, no dependency that
+          brings one.
+
+      The honest cost: this used to be a structural guarantee - "cannot send" -
+      and it is now a promise backed by review. That trade was Daniel's call,
+      made knowingly, and the app explains it before the first connection.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
       QUERY_ALL_PACKAGES: needed for the "these apps could have their own EQ"
@@ -13,9 +36,13 @@
       Play Store policy restricts this permission to a short list of app types.
       It is granted here because this app is explicitly never going to the Play
       Store (see PLAN.md non-goals): local git and a sideloaded APK, no store
-      listing, no distribution. Nothing leaves the device either — there is no
-      INTERNET permission, so the package list is read, tiered, shown, and
-      discarded when the process ends.
+      listing, no distribution. The package list is read, tiered, shown, and
+      discarded when the process ends — it is never stored and never sent.
+
+      That last sentence used to lean on there being no INTERNET permission at
+      all. There is one now, for the loopback connection to this phone's own
+      debugging service, so the claim rests on review instead of on a locked
+      door: no code in this project addresses a remote host.
     -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
