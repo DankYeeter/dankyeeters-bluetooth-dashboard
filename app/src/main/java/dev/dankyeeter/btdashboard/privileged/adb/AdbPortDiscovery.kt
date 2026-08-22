@@ -32,15 +32,27 @@ import java.net.NetworkInterface
 class AdbPortDiscovery(private val context: Context) {
 
     /**
-     * @return host and port of the running service, or null if nothing answered
-     *   within [timeoutMs]. Null is the ordinary answer when wireless debugging
-     *   is off, not an error.
+     * Every endpoint announced within [timeoutMs], not just the first.
+     *
+     * The first answer is not good enough, and that was measured rather than
+     * feared: with adbd actually listening on port 35485, discovery returned
+     * 34797 - a leftover announcement from an earlier session with nothing
+     * behind it. mDNS caches, devices reconnect, ports change, and nothing
+     * removes the old record promptly.
+     *
+     * So the whole window is collected and the caller tries each in turn. On
+     * loopback a dead port refuses instantly, which makes working through a
+     * short list far cheaper than getting it wrong once.
+     *
+     * @return endpoints in the order they resolved; empty when wireless
+     *   debugging is off, which is an ordinary answer and not an error.
      */
-    suspend fun find(
+    suspend fun findAll(
         serviceType: String = SERVICE_CONNECT,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
-    ): Endpoint? {
-        val manager = context.getSystemService(NsdManager::class.java) ?: return null
+    ): List<Endpoint> {
+        val manager = context.getSystemService(NsdManager::class.java) ?: return emptyList()
+        val collected = LinkedHashSet<Endpoint>()
         val found = CompletableDeferred<Endpoint>()
 
         val listener = object : NsdManager.DiscoveryListener {
@@ -58,29 +70,36 @@ class AdbPortDiscovery(private val context: Context) {
             override fun onServiceFound(info: NsdServiceInfo) {
                 // The announcement carries only a name; the port arrives with
                 // the resolve below.
-                resolve(manager, info, found)
+                resolve(manager, info) { endpoint ->
+                    synchronized(collected) { collected += endpoint }
+                }
             }
 
             override fun onServiceLost(info: NsdServiceInfo) = Unit
         }
 
-        return try {
+        try {
             manager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, listener)
+            // Always waits the full window: a live announcement often arrives
+            // after a stale one, and returning early would keep picking the
+            // wrong port forever.
             withTimeout(timeoutMs) { found.await() }
         } catch (_: TimeoutCancellationException) {
-            null
+            // Expected. Nothing ever completes `found`; the window simply ends.
         } catch (t: Throwable) {
             Log.w(TAG, "could not discover $serviceType", t)
-            null
         } finally {
             runCatching { manager.stopServiceDiscovery(listener) }
         }
+        val endpoints = synchronized(collected) { collected.toList() }
+        Log.i(TAG, "discovered ${endpoints.size} endpoint(s): $endpoints")
+        return endpoints
     }
 
     private fun resolve(
         manager: NsdManager,
         info: NsdServiceInfo,
-        found: CompletableDeferred<Endpoint>,
+        onResolved: (Endpoint) -> Unit,
     ) {
         @Suppress("DEPRECATION") // registerServiceInfoCallback is API 34+; minSdk here is 31.
         manager.resolveService(
@@ -92,10 +111,7 @@ class AdbPortDiscovery(private val context: Context) {
 
                 override fun onServiceResolved(resolved: NsdServiceInfo) {
                     val host = resolved.host?.hostAddress ?: return
-                    // complete() rather than a check-then-set: several
-                    // announcements can resolve at once, and only the first
-                    // one wins. Later calls are no-ops.
-                    found.complete(Endpoint(advertisedHost = host, port = resolved.port))
+                    onResolved(Endpoint(advertisedHost = host, port = resolved.port))
                 }
             },
         )
