@@ -90,9 +90,10 @@ class EqController(
         setSessionHarvestEnabled(true)
         // Say why the wider mode is off. The session strategy's own "nothing has
         // announced itself" message points at the privileged helper as the fix,
-        // which is true in general and wrong here: with Spatial Audio in the way
-        // the helper changes nothing, and following that advice wastes the
-        // user's time on the one screen that cannot help them.
+        // which is half right and misleading: the helper does reach players that
+        // stay silent (Tidal), but it cannot make the output mix audible over
+        // Bluetooth, and that is what the user is missing here. The message
+        // needs to name the route, not a component.
         _status.value = if (globalIsInaudibleHere && sessionStatus is AttachmentStatus.Unavailable) {
             AttachmentStatus.Unavailable(NO_GLOBAL_REACH_REASON)
         } else {
