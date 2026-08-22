@@ -3288,3 +3288,23 @@ Korrektur, einmal, direkt nach dem Anhaengen. Verifiziert: 3 von 3 Kaltstarts
 Die Lebenslauf-Logs in `SessionAttachmentStrategy` und `DynamicsProcessingEqualizer`
 bleiben drin — sie feuern einmal pro Attach und waren das einzige Mittel, das
 diesen Fehler sichtbar gemacht hat.
+
+## Gemessen: wer kuendigt seine Session an
+
+Test mit **ausgeschaltetem Helfer**, damit die Ernte nicht greifen kann - ein
+Effekt entsteht dann nur, wenn der Player sich selbst meldet.
+
+| Player | Ankuendigung | Beleg |
+|---|---|---|
+| Spotify | **ja** | `Session opened: 8137 by com.spotify.music`, Effekt 4203 auf 08137, Enabled=y |
+| YouTube Music | **ja** | `Session opened: 8921 by com.google.android.apps.youtube.music`, Effekt 4211, Enabled=y |
+| Tidal | **nein** | spielte durchgehend, Empfaenger protokollierte nichts |
+
+Damit ist die frueher aus einem Code-Kommentar uebernommene Behauptung
+"Tidal broadcastet nicht" endlich belegt - und die stillschweigende Annahme,
+andere Player seien genauso, widerlegt.
+
+**Folge fuer eine Play-Store-Variante ohne Helfer:** fuer Spotify und YouTube
+Music voll funktionsfaehig, auch ueber Bluetooth. Nur Tidal braucht den Helfer.
+Das verschiebt den Helfer vom "notwendig fuer die Kernfunktion" zum "notwendig
+fuer einen Player und fuer Codec-Steuerung".
