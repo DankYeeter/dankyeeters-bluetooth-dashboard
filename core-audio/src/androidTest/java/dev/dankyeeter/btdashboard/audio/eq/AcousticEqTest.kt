@@ -104,6 +104,7 @@ class AcousticEqTest {
         volumeFraction: Float = 0.4f,
         amplitude: Double = 0.25,
         centres: List<Float> = testableCentres,
+        priority: Int = 0,
     ) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val audio = context.getSystemService(AudioManager::class.java)
@@ -126,8 +127,8 @@ class AcousticEqTest {
                 val band = layout.centersHz.indexOfFirst { abs(it - centre) < 1f }
                 assumeTrue("band $centre not in layout", band >= 0)
 
-                val flat = measureMedian(centre, layout, band, 0f, globalMix, amplitude)
-                val cut = measureMedian(centre, layout, band, -18f, globalMix, amplitude)
+                val flat = measureMedian(centre, layout, band, 0f, globalMix, amplitude, priority = priority)
+                val cut = measureMedian(centre, layout, band, -18f, globalMix, amplitude, priority = priority)
                 assumeTrue("effect unavailable on this device", flat != null && cut != null)
 
                 drops += centre to 20 * log10(flat!! / cut!!.coerceAtLeast(1e-9))
@@ -192,6 +193,31 @@ class AcousticEqTest {
             volumeFraction = 1.0f,
             amplitude = 0.7,
             centres = leakageCentres,
+        )
+    }
+
+    /**
+     * Does the output-mix effect reach Bluetooth if it asks for **priority**?
+     *
+     * The global attach is created with priority 0. On a route served by a
+     * SPATIALIZER output thread that may simply lose to whatever else sits in
+     * the chain - and losing is silent, which is the whole problem. If a higher
+     * priority wins control, the app needs no session ids at all over
+     * Bluetooth, and a Play Store build without the privileged helper would be
+     * just as capable as the sideload one.
+     *
+     * That makes this the most valuable experiment left: it is the difference
+     * between "full function needs ADB" and "full function for everyone".
+     */
+    @Test
+    fun cutting_the_global_mix_with_high_priority_lowers_it_through_headphone_leakage() {
+        runBandCut(
+            globalMix = true,
+            label = "Global EQ (priority 100) via Bluetooth leakage",
+            volumeFraction = 1.0f,
+            amplitude = 0.7,
+            centres = leakageCentres,
+            priority = 100,
         )
     }
 
@@ -398,10 +424,11 @@ class AcousticEqTest {
         gainDb: Float,
         globalMix: Boolean = false,
         amplitude: Double = 0.25,
+        priority: Int = 0,
     ): Double? {
         val track = buildTrack()
         val effectSession = if (globalMix) GLOBAL_MIX_SESSION else track.audioSessionId
-        val equalizer = DynamicsProcessingEqualizer.create(effectSession, layout)
+        val equalizer = DynamicsProcessingEqualizer.create(effectSession, layout, priority)
             ?: run { track.release(); return null }
 
         val gains = MutableList(layout.bandCount) { 0f }
@@ -463,9 +490,10 @@ class AcousticEqTest {
         globalMix: Boolean,
         amplitude: Double,
         repeats: Int = 5,
+        priority: Int = 0,
     ): Double? {
         val values = (0 until repeats).mapNotNull {
-            measure(centre, layout, band, gainDb, globalMix, amplitude)
+            measure(centre, layout, band, gainDb, globalMix, amplitude, priority)
         }
         if (values.isEmpty()) return null
         return values.sorted()[values.size / 2]

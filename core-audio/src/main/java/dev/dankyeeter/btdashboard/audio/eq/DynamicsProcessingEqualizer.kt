@@ -180,8 +180,9 @@ class DynamicsProcessingEqualizer private constructor(
         fun create(
             sessionId: Int,
             layout: EqBandLayout = EqBandLayout.DEFAULT,
+            priority: Int = EFFECT_PRIORITY,
         ): DynamicsProcessingEqualizer? = try {
-            val effect = DynamicsProcessing(EFFECT_PRIORITY, sessionId, buildConfig(layout))
+            val effect = DynamicsProcessing(priority, sessionId, buildConfig(layout))
             DynamicsProcessingEqualizer(sessionId, effect, layout)
         } catch (t: RuntimeException) {
             Log.w(TAG, "Could not attach DynamicsProcessing to session $sessionId", t)

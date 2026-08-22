@@ -12,6 +12,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,11 +54,29 @@ const val ROUTE_DEVICE_PROFILES = "device_profiles"
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD)
 
+/**
+ * @param requestedRoute a screen asked for from outside the app, e.g. by the
+ *   boot notification's "Activate" button. Null in the ordinary case.
+ * @param onRouteHandled called once the request has been navigated to, so the
+ *   same request is not replayed on every recomposition.
+ */
 @Composable
-fun BtDashboardApp() {
+fun BtDashboardApp(
+    requestedRoute: String? = null,
+    onRouteHandled: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+
+    // An outside request wins over the first-run check below: someone who just
+    // tapped "Activate" asked for this screen deliberately.
+    LaunchedEffect(requestedRoute) {
+        val route = requestedRoute ?: return@LaunchedEffect
+        runCatching { navController.navigate(route) }
+            .onFailure { Log.w("BtDashboardApp", "cannot open requested route $route", it) }
+        onRouteHandled()
+    }
 
     // First launch opens the wizard exactly once. "Completed" only records that
     // it was seen — the live status is always recomputed, never trusted from here.

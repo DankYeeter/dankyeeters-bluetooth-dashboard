@@ -20,6 +20,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +77,25 @@ fun SetupWizardScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Open on the first thing that still needs doing, not on step 1.
+    //
+    // On a first run those are the same, so nothing changes there. What changes
+    // is the returning user: after a reboot the helper is gone and everything
+    // else is still Done, and landing on "Bluetooth access — Done" makes the
+    // person click Next past four finished steps to reach the one that brought
+    // them here. The boot notification's "Activate" button leads straight in,
+    // and it should land where the work is.
+    //
+    // Once per screen instance, and only forwards from the default: after that
+    // the user's own navigation owns the index.
+    var jumped by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(steps) {
+        if (jumped || steps.isEmpty()) return@LaunchedEffect
+        jumped = true
+        val pending = steps.indexOfFirst { it.status != SetupStepStatus.DONE }
+        if (pending > 0) viewModel.goTo(pending)
     }
 
     val current = steps.getOrNull(index) ?: steps.firstOrNull() ?: return

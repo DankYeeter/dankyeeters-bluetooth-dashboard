@@ -122,7 +122,20 @@ class BootReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
-            .apply { launchIntent(context)?.let(::setContentIntent) }
+            .apply {
+                launchIntent(context)?.let(::setContentIntent)
+                // An explicit button, not just a tappable body. This notice
+                // appears exactly once per reboot and asks for exactly one
+                // thing; a labelled action says what tapping will do, where a
+                // bare notification only says that something is wrong.
+                //
+                // It cannot start the helper itself - that is the sandbox
+                // boundary the helper exists to cross, and no app may cross it
+                // unaided. What it can do is land on the screen that hands over
+                // the command, which turns "remember to do the thing" into one
+                // tap plus a paste.
+                setupIntent(context)?.let { addAction(0, ACTION_LABEL, it) }
+            }
             .build()
 
         try {
@@ -138,6 +151,29 @@ class BootReceiver : BroadcastReceiver() {
      * looked up by package rather than naming an Activity, because this module
      * is below :app and cannot see one.
      */
+    /**
+     * Opens the app straight on the setup screen.
+     *
+     * Deliberately the launcher intent plus an extra rather than naming the
+     * Activity: this module sits below `:app` and cannot see one. `:app` reads
+     * [OpenRoute.EXTRA] on the way in and navigates there.
+     *
+     * A distinct request code from [launchIntent] - two PendingIntents on the
+     * same code and component would otherwise be treated as the same intent,
+     * and the second would silently reuse the first one's extras.
+     */
+    private fun setupIntent(context: Context): PendingIntent? = runCatching {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: return null
+        intent.putExtra(OpenRoute.EXTRA, OpenRoute.SETUP)
+        PendingIntent.getActivity(
+            context,
+            REQUEST_SETUP,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }.getOrNull()
+
     private fun launchIntent(context: Context): PendingIntent? = runCatching {
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: return null
@@ -183,6 +219,11 @@ class BootReceiver : BroadcastReceiver() {
         const val LEGACY_CHANNEL_ID = "eq_status"
         const val CHANNEL_ID = "eq_status_quiet"
         const val NOTIFICATION_ID = 1001
+
+        /** Distinct from the content intent's 0; see [setupIntent]. */
+        const val REQUEST_SETUP = 1
+        const val ACTION_LABEL = "Activate"
+
     }
 }
 
