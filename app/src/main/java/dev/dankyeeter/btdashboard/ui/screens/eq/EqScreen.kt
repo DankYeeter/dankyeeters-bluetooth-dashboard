@@ -24,7 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,9 +32,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
+import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
 import dev.dankyeeter.btdashboard.ui.theme.GoldCard
 import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.ui.theme.Panel
+import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
+import dev.dankyeeter.btdashboard.ui.screens.dashboard.ForeignEqSection
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 
 /**
  * Which ear the screen is looking at. Drives the band sliders *and* the
@@ -51,10 +56,10 @@ internal enum class EarView(val label: String) {
 
 @Composable
 fun EqScreen(viewModel: EqViewModel = viewModel()) {
-    val settings by viewModel.settings.collectAsState()
-    val status by viewModel.attachmentStatus.collectAsState()
-    val bypass by viewModel.bypass.collectAsState()
-    val compensation by viewModel.compensation.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val status by viewModel.attachmentStatus.collectAsStateWithLifecycle()
+    val bypass by viewModel.bypass.collectAsStateWithLifecycle()
+    val compensation by viewModel.compensation.collectAsStateWithLifecycle()
     var earView by remember { mutableStateOf(EarView.LINKED) }
 
     Column(
@@ -64,33 +69,35 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        GoldTitle("System EQ", style = MaterialTheme.typography.headlineSmall)
+        Text("System EQ", style = MaterialTheme.typography.displayMedium)
 
-        GoldCard {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Panel {
                 Text("Reach", style = MaterialTheme.typography.titleSmall)
                 Text(status.describe(), style = MaterialTheme.typography.bodySmall)
-            }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Switch(checked = settings.enabled, onCheckedChange = viewModel::setEnabled)
             Text("  EQ enabled")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        ExplainedRow(
+            label = "Output limiter",
+            explanation = "Catches the loudest peaks so a boosted band cannot distort. " +
+                "Leave it on unless you are measuring something — it only acts on the " +
+                "few percent of moments that would clip, and never changes the level " +
+                "of normal listening.",
+        ) {
             Switch(checked = settings.limiterEnabled, onCheckedChange = viewModel::setLimiterEnabled)
-            Text("  Output limiter")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        ExplainedRow(
+            label = "Compare with EQ off",
+            explanation = "Plays your music untouched so you can hear the difference, " +
+                "without losing your settings — flip it back and the curve returns. " +
+                "Both sides play at the same loudness on purpose: louder always sounds " +
+                "better at first, and that would make the comparison worthless.",
+        ) {
             Switch(checked = bypass, onCheckedChange = viewModel::setBypass)
-            Text("  A/B: play flat (curve kept)")
         }
-        Text(
-            "The pre-gain stays applied while you A/B, so flat and compensated " +
-                "play at matched loudness — louder must not be able to pass for better.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
 
         Text(
             "Headroom (pre-gain): ${"%.1f".format(settings.preGainDb)} dB — applied " +
@@ -123,19 +130,41 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             onIntensityChange = viewModel::setIntensity,
             onIntensityChangeFinished = viewModel::applyCompensationIfActive,
             onApply = viewModel::applyCompensation,
+            onSelectAdjustedReference = viewModel::selectAdjustedReference,
             onSaveProfile = viewModel::saveProfile,
             onLoadProfile = viewModel::loadProfile,
             onDeleteProfile = viewModel::deleteProfile,
         )
 
-        GoldTitle("Bands")
+        ForeignEqSection()
+
+        PanelHeader("Bands")
+
+        // The generated profile states why its sliders do not move. A control
+        // that silently ignores a drag is worse than no control at all.
+        if (compensation.adjustedReferenceActive) {
+            Text(
+                "${AdjustedReference.NAME} is generated from your " +
+                    "${compensation.runCount} hearing-test runs, so its bands cannot be " +
+                    "edited \u2014 that is what makes it a reference rather than a taste " +
+                    "setting. The band count is fixed with them: on a coarser grid the " +
+                    "3 kHz and 6 kHz tones you were tested at never reach the sound at " +
+                    "all. Save a copy under a new name to tune it by hand, or reset to " +
+                    "flat to leave it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
 
         // Layout picker. Switching resamples the curve onto the new centres, so
-        // this is a resolution control, not a reset button.
+        // this is a resolution control, not a reset button \u2014 except on the
+        // generated curve, where the grid is part of the measurement and the
+        // ViewModel refuses the change outright.
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             EqBandLayout.entries.forEachIndexed { index, layout ->
                 SegmentedButton(
                     selected = settings.layout == layout,
+                    enabled = !compensation.adjustedReferenceActive,
                     onClick = { viewModel.setBandLayout(layout) },
                     shape = SegmentedButtonDefaults.itemShape(index, EqBandLayout.entries.size),
                 ) { Text(layout.label) }
@@ -157,6 +186,7 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
                 label = freq.labelHz(),
                 extrapolated = index in settings.layout.extrapolatedIndices,
                 gainDb = gains[index],
+                enabled = !compensation.adjustedReferenceActive,
                 onChange = { value ->
                     when (earView) {
                         EarView.LINKED -> viewModel.setLinkedBandGain(index, value)
@@ -179,6 +209,7 @@ private fun BandSlider(
     gainDb: Float,
     onChange: (Float) -> Unit,
     onRelease: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.width(88.dp)) {
@@ -195,6 +226,7 @@ private fun BandSlider(
             value = gainDb,
             onValueChange = onChange,
             onValueChangeFinished = onRelease,
+            enabled = enabled,
             valueRange = EqBands.MIN_GAIN_DB..EqBands.MAX_GAIN_DB,
             modifier = Modifier.weight(1f),
         )

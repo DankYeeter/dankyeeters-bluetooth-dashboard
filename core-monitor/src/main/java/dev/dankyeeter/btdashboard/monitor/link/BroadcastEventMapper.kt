@@ -32,18 +32,44 @@ object BtActions {
     const val A2DP_ACTIVE_DEVICE_CHANGED =
         "android.bluetooth.a2dp.profile.action.ACTIVE_DEVICE_CHANGED"
 
+    /** `BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED` - public, unlike the rest. */
+    const val A2DP_CONNECTION_STATE_CHANGED =
+        "android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED"
+
+    /** `BluetoothAdapter.ACTION_STATE_CHANGED` - the adapter itself being turned off. */
+    const val ADAPTER_STATE_CHANGED = "android.bluetooth.adapter.action.STATE_CHANGED"
+
     const val EXTRA_STATE = "android.bluetooth.profile.extra.STATE"
 
     /** A2DP playing states (`BluetoothA2dp.STATE_PLAYING` / `STATE_NOT_PLAYING`). */
     const val STATE_PLAYING = 10
     const val STATE_NOT_PLAYING = 11
 
+    /** What the timeline listens to: actions that map to a user-visible event. */
     val all: List<String> = listOf(
         ACL_CONNECTED,
         ACL_DISCONNECTED,
         A2DP_PLAYING_STATE_CHANGED,
         A2DP_CODEC_CONFIG_CHANGED,
         A2DP_ACTIVE_DEVICE_CHANGED,
+    )
+
+    /**
+     * What the dashboard listens to: anything that can change *what the device
+     * list looks like*, including the two that tell no story of their own.
+     *
+     * Kept separate from [all] rather than merged into it - the timeline would
+     * silently drop the extra actions anyway, and one shared list would invite
+     * someone to tidy up for one consumer and break the other.
+     */
+    val connectionRelevant: List<String> = listOf(
+        ACL_CONNECTED,
+        ACL_DISCONNECTED,
+        A2DP_CONNECTION_STATE_CHANGED,
+        A2DP_ACTIVE_DEVICE_CHANGED,
+        A2DP_PLAYING_STATE_CHANGED,
+        A2DP_CODEC_CONFIG_CHANGED,
+        ADAPTER_STATE_CHANGED,
     )
 }
 

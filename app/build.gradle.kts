@@ -36,7 +36,13 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
-    buildFeatures { compose = true }
+    // AIDL for the privileged helper's Binder interface. The generated stub
+    // has to be loadable in two places: this app, and the helper that
+    // app_process starts from this same APK.
+    buildFeatures {
+        compose = true
+        aidl = true
+    }
 
     /**
      * Robolectric smoke tests need the merged resources and the manifest —

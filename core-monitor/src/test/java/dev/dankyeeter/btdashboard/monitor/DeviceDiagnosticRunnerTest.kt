@@ -17,6 +17,7 @@ import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -85,6 +86,32 @@ class DeviceDiagnosticRunnerTest {
         assertTrue(cycling.detail.contains("privileged"))
     }
 
+    /**
+     * A live controller that happens to offer nothing must not be reported as
+     * a missing privilege.
+     *
+     * This wording cost a whole on-device session: the helper was running the
+     * entire time, the app showed it as "Running", and the diagnostic still
+     * said "needs privileged access we do not have yet" — so the search went
+     * looking for a broken helper instead of for the empty capability list that
+     * was actually there.
+     */
+    @Test
+    fun `an empty list from a live controller does not blame the privilege`() = runTest {
+        val clock = TestClock()
+        val report = runner(
+            clock,
+            connectedSource(),
+            FakeDumpsysLinkSource(),
+            FakeCodecController(available = emptyList()),
+        ).run(address, soakDurationMs = 10_000, soakIntervalMs = 10_000)
+
+        val cycling = report.steps.first { it.step == DiagnosticStep.CODEC_CYCLING }.outcome
+        assertTrue(cycling is StepOutcome.Skipped)
+        assertFalse(cycling.detail.contains("privileged"))
+        assertTrue(cycling.detail.contains("no selectable codecs"))
+    }
+
     @Test
     fun `codec cycling reports which codecs actually held`() = runTest {
         val clock = TestClock()
@@ -97,7 +124,34 @@ class DeviceDiagnosticRunnerTest {
 
         val cycling = report.steps.first { it.step == DiagnosticStep.CODEC_CYCLING }.outcome
         assertTrue(cycling is StepOutcome.Passed)
-        assertEquals("Applied: SBC, AAC", cycling.detail)
+        // LDAC was what the link negotiated, and it is also the codec this fake
+        // refuses — so the restore cannot succeed and has to say where it left
+        // the link instead of quietly ending on AAC.
+        assertEquals("Applied: SBC, AAC — could not restore LDAC; the link is on AAC", cycling.detail)
+    }
+
+    /**
+     * The diagnostic must hand the link back the way it found it.
+     *
+     * `setCodecConfigPreference` pins whatever it sets at
+     * `CODEC_PRIORITY_HIGHEST`. Without this, a run on a real Focal Bathys left
+     * it pinned to AAC — the last codec in the list — and it kept choosing AAC
+     * over aptX HD on every later connection.
+     */
+    @Test
+    fun `cycling restores the codec the link started on`() = runTest {
+        val clock = TestClock()
+        val controller = FakeCodecController(
+            // LDAC first so the run ends on AAC and the restore has real work.
+            available = listOf(CodecFamily.LDAC, CodecFamily.SBC, CodecFamily.AAC),
+        )
+        val report = runner(clock, connectedSource(), FakeDumpsysLinkSource(), controller)
+            .run(address, soakDurationMs = 10_000, soakIntervalMs = 10_000)
+
+        val cycling = report.steps.first { it.step == DiagnosticStep.CODEC_CYCLING }.outcome
+        assertTrue(cycling is StepOutcome.Passed)
+        assertTrue(cycling.detail.contains("restored to LDAC"))
+        assertEquals(CodecFamily.LDAC, controller.lastSelected)
     }
 
     @Test

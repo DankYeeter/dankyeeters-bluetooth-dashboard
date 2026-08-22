@@ -41,13 +41,16 @@ enum class SetupStep(
             "reboot. Without it the EQ can be silently off and you would not know.",
         optional = true,
     ),
-    SHIZUKU(
+    // The id stays "shizuku" although Shizuku itself is gone: SetupStore keys
+    // done/skipped state by this string, and renaming it would silently reopen
+    // the step on every phone that already completed it.
+    SHELL_ACCESS(
         id = "shizuku",
-        title = "Shizuku",
-        rationale = "The system-wide EQ needs an elevated identity, which Shizuku " +
-            "provides without root after a one-time ADB wireless-debugging pairing. " +
-            "Without it the EQ only reaches apps that broadcast their audio session — " +
-            "Tidal does not do so reliably.",
+        title = "Shell access",
+        rationale = "Reading what the Bluetooth stack negotiated, and setting codecs, " +
+            "needs a shell-level identity. This app brings its own helper for that — " +
+            "started once per boot with a single ADB command. No third-party app " +
+            "involved.",
         optional = true,
     ),
     SECURE_SETTINGS(

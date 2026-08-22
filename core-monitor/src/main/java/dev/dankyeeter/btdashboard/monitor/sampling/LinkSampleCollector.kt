@@ -32,7 +32,17 @@ class LinkSampleCollector(
 
     suspend fun collect(): List<LinkQualitySample> {
         val now = clock()
+        // Cheapest possible exit, taken before anything execs a shell command:
+        // with neither the A2DP profile nor the shell reachable there is no
+        // mechanism that could report a connected device, so the run has
+        // nothing to find and every source below would only cost battery
+        // discovering that.
+        if (!codecSource.isProfileAvailable && !dumpsysSource.isAvailable) return emptyList()
+
         val devices = codecSource.connectedDevices()
+        // No A2DP device and no way to find one another way: stop here rather
+        // than paying for a dump we already know cannot contribute a row.
+        if (devices.isEmpty() && !dumpsysSource.isAvailable) return emptyList()
         // dumpsys is the only source of RSSI without privileged APIs, and the
         // only source at all when the A2DP proxy is unreachable.
         val dump = if (dumpsysSource.isAvailable) dumpsysSource.snapshot() else null

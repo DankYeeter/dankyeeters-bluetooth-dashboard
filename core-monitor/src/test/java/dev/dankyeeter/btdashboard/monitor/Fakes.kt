@@ -14,7 +14,7 @@ import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /** Device-free stand-ins for everything the monitor talks to. */
 
@@ -26,8 +26,17 @@ class FakeCodecStatusSource(
     var codecReads = 0
         private set
 
+    /**
+     * Stands in for both legs of the real flow - the proxy-bound signal and
+     * the Bluetooth broadcasts. Emit to make a collector re-read [devices].
+     * Seeded, because the real flow's StateFlow leg hands a collector one
+     * read the moment it subscribes.
+     */
+    val ticks = MutableSharedFlow<Unit>(replay = 1, extraBufferCapacity = 8)
+        .apply { tryEmit(Unit) }
+
     override suspend fun connectedDevices(): List<BtAudioDevice> = devices
-    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> = flowOf(devices)
+    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> = ticks.map { devices }
     override suspend fun codecStatus(address: String): CodecReadResult {
         codecReads++
         return statuses[address] ?: CodecReadResult.Unsupported("no fake status configured")
@@ -70,9 +79,13 @@ class FakeCodecController(
     private val available: List<CodecFamily>,
     private val refuse: Set<CodecFamily> = emptySet(),
 ) : CodecController {
+    /** The last codec that was accepted — what the link would be left on. */
+    var lastSelected: CodecFamily? = null
+        private set
+
     override suspend fun availableCodecs(address: String) = available
     override suspend fun selectCodec(address: String, codec: CodecFamily): CodecFamily? =
-        if (codec in refuse) null else codec
+        if (codec in refuse) null else codec.also { lastSelected = it }
 }
 
 /** Deterministic clock for soak/window tests. */

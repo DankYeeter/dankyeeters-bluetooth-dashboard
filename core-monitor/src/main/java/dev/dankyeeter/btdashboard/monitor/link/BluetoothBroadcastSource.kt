@@ -42,9 +42,15 @@ class BluetoothBroadcastSource(
         }
 
         val filter = IntentFilter().apply { BtActions.all.forEach(::addAction) }
-        // Bluetooth broadcasts are system-sent; RECEIVER_NOT_EXPORTED is correct.
+        // Must be EXPORTED. The Bluetooth stack is its own package at uid 1002,
+        // not the system uid, so NOT_EXPORTED registers happily and then drops
+        // every broadcast — which is why the timeline recorded 0 events through
+        // any number of real connects and disconnects.
+        //
+        // These are all protected broadcasts, so exporting cannot be abused by
+        // another app to inject fake link events.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(receiver, filter)

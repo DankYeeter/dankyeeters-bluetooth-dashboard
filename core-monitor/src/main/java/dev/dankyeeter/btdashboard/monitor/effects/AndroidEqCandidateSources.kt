@@ -45,8 +45,17 @@ class PackageManagerAppSource(private val context: Context) : InstalledAppSource
                     ?.any { it == Manifest.permission.MODIFY_AUDIO_SETTINGS } == true
                 val vendor = VendorEqApps.byPackage(packageName) != null
 
-                // Filter before loading a single label.
-                if (!declares && !requests && !vendor) return@mapNotNull null
+                // MODIFY_AUDIO_SETTINGS on its own is not evidence. Measured on
+                // a Pixel 8 Pro in daily use: 83 installed apps hold it, while
+                // exactly 1 declares an equalizer panel. Counting the permission
+                // turned a 3-app answer into "56 apps could have an EQ", which
+                // is worse than saying nothing — a number that large reads as
+                // noise and gets ignored, taking the two real warnings with it.
+                //
+                // What is left is evidence a user can act on: an app that says
+                // it has an equalizer UI, or a companion app whose EQ we know
+                // lives in the headphone.
+                if (!declares && !vendor) return@mapNotNull null
 
                 val appInfo: ApplicationInfo? = info.applicationInfo
                 InstalledApp(

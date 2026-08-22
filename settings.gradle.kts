@@ -17,8 +17,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Shizuku artifacts (dev.rikka.shizuku) live on JitPack.
-        maven("https://jitpack.io")
     }
 }
 

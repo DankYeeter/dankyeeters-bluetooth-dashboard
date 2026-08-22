@@ -1,0 +1,251 @@
+package dev.dankyeeter.btdashboard.privileged
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * The whitelist and the wire format.
+ *
+ * Worth testing independently of the transport, and worth keeping after the
+ * socket transport was measured to be blocked by SELinux (see
+ * [PrivilegedServer]): whatever carries the messages, *these* are the rules
+ * about what a process running with shell privileges will agree to do.
+ */
+class PrivilegedProtocolTest {
+
+    // ---- the whitelist ------------------------------------------------------
+
+    @Test
+    fun `exactly the three commands this app issues are allowed`() {
+        assertTrue(PrivilegedProtocol.isAllowed(listOf("dumpsys", "bluetooth_manager")))
+        assertTrue(PrivilegedProtocol.isAllowed(listOf("dumpsys", "media.audio_flinger")))
+        assertTrue(PrivilegedProtocol.isAllowed(listOf("ps", "-A", "-o", "PID,NAME")))
+        assertEquals(3, PrivilegedProtocol.ALLOWED.size)
+    }
+
+    @Test
+    fun `a different service on an allowed executable is refused`() {
+        // Matching is the whole argument vector, not the program name. Allowing
+        // `dumpsys <anything>` would hand out most of the system's state.
+        assertFalse(PrivilegedProtocol.isAllowed(listOf("dumpsys", "package")))
+        assertFalse(PrivilegedProtocol.isAllowed(listOf("dumpsys")))
+    }
+
+    @Test
+    fun `extra arguments are refused, not ignored`() {
+        // Nothing this app runs varies at runtime, so a "close enough" match
+        // would widen the surface for no benefit at all.
+        assertFalse(
+            PrivilegedProtocol.isAllowed(listOf("dumpsys", "bluetooth_manager", "--proto")),
+        )
+        assertFalse(PrivilegedProtocol.isAllowed(listOf("ps", "-A")))
+    }
+
+    @Test
+    fun `nothing else gets through`() {
+        listOf(
+            listOf("sh", "-c", "rm -rf /"),
+            listOf("pm", "uninstall", "com.something"),
+            listOf("settings", "put", "global", "anything", "1"),
+            emptyList(),
+        ).forEach {
+            assertFalse("$it must be refused", PrivilegedProtocol.isAllowed(it))
+        }
+    }
+
+    // ---- the wire format ----------------------------------------------------
+
+    @Test
+    fun `auth survives a round trip`() {
+        val token = "6f5c1e8a-0b3d-4a71-9e2f-1c4d5b6a7f80"
+        assertEquals(token, PrivilegedProtocol.decodeAuth(PrivilegedProtocol.encodeAuth(token)))
+    }
+
+    @Test
+    fun `a command survives a round trip`() {
+        val command = listOf("ps", "-A", "-o", "PID,NAME")
+        assertEquals(command, PrivilegedProtocol.decodeRun(PrivilegedProtocol.encodeRun(command)))
+    }
+
+    @Test
+    fun `output containing newlines survives, which is the point of the encoding`() {
+        // Every dumpsys reply is full of newlines. A plain-text line protocol
+        // would have the first one end the message and the rest be parsed as
+        // further commands.
+        val dump = "Bluetooth Status\n  state: ON\n\n  device: XX:XX\n"
+        val encoded = PrivilegedProtocol.encodeResult(0, dump, "")
+        assertEquals(1, encoded.lines().size)
+
+        val (exit, stdout, stderr) = PrivilegedProtocol.decodeResult(encoded)!!
+        assertEquals(0, exit)
+        assertEquals(dump, stdout)
+        assertEquals("", stderr)
+    }
+
+    @Test
+    fun `a non-zero exit is carried as data, not as an error`() {
+        val (exit, _, stderr) = PrivilegedProtocol.decodeResult(
+            PrivilegedProtocol.encodeResult(1, "", "not found"),
+        )!!
+        assertEquals(1, exit)
+        assertEquals("not found", stderr)
+    }
+
+    @Test
+    fun `errors survive a round trip`() {
+        val message = "not on the whitelist: sh"
+        assertEquals(message, PrivilegedProtocol.decodeError(PrivilegedProtocol.encodeError(message)))
+    }
+
+    @Test
+    fun `garbage decodes to null instead of throwing`() {
+        // The helper reads from a socket anything on the device may connect to.
+        // Malformed input has to be a refusable value, not a crash of a
+        // privileged process.
+        listOf("", "RUN", "RUN !!!not base64!!!", "OK", "OK x y z", "NONSENSE").forEach {
+            assertNull("decodeRun($it)", PrivilegedProtocol.decodeRun(it))
+        }
+        assertNull(PrivilegedProtocol.decodeAuth("AUTH"))
+        assertNull(PrivilegedProtocol.decodeResult("OK notanumber a b"))
+        assertNull(PrivilegedProtocol.decodeError("OK 0 a b"))
+    }
+
+    @Test
+    fun `a result line is not mistaken for a command line`() {
+        val result = PrivilegedProtocol.encodeResult(0, "x", "")
+        assertNull(PrivilegedProtocol.decodeRun(result))
+        assertNull(PrivilegedProtocol.decodeAuth(result))
+    }
+
+    // ---- codec replies ------------------------------------------------------
+
+    @Test
+    fun `a codec observation survives a round trip`() {
+        val observation = CodecObservation(
+            family = "LDAC",
+            sampleRateHz = 96_000,
+            bitsPerSample = 24,
+            channelMode = ChannelModes.STEREO,
+            ldacQuality = 1000L,
+            matched = true,
+            selectable = listOf("LDAC", "AAC", "SBC"),
+            note = "read back after 750 ms",
+        )
+        assertEquals(observation, PrivilegedProtocol.decodeCodec(PrivilegedProtocol.encodeCodec(observation)))
+    }
+
+    @Test
+    fun `all three states of matched survive`() {
+        // Three-valued on purpose: "agreed", "did not agree (yet)", and "we
+        // only read, nothing was requested". Collapsing them to a boolean is
+        // how "not observed" turns into "failed".
+        listOf(true, false, null).forEach { matched ->
+            val observation = CodecObservation(family = "AAC", matched = matched)
+            val decoded = PrivilegedProtocol.decodeCodec(PrivilegedProtocol.encodeCodec(observation))
+            assertEquals(matched, decoded?.matched)
+        }
+    }
+
+    @Test
+    fun `a note with spaces does not split the line`() {
+        // The free text is the part that carries a sentence for the user, and a
+        // separator-delimited line with unescaped text in it is the oldest bug
+        // in this file.
+        val observation = CodecObservation(
+            family = "APTX_HD",
+            matched = false,
+            note = "after 2500 ms the codec still reads aptX - the stack either refused " +
+                "the request or has not finished renegotiating",
+        )
+        val encoded = PrivilegedProtocol.encodeCodec(observation)
+        assertEquals(1, encoded.lines().size)
+        assertEquals(observation.note, PrivilegedProtocol.decodeCodec(encoded)?.note)
+    }
+
+    @Test
+    fun `an empty selectable list stays empty rather than becoming one blank entry`() {
+        val encoded = PrivilegedProtocol.encodeCodec(CodecObservation(family = "SBC"))
+        assertEquals(emptyList<String>(), PrivilegedProtocol.decodeCodec(encoded)?.selectable)
+    }
+
+    @Test
+    fun `a codec line is not mistaken for anything else, and vice versa`() {
+        val codec = PrivilegedProtocol.encodeCodec(CodecObservation(family = "SBC"))
+        assertNull(PrivilegedProtocol.decodeResult(codec))
+        assertNull(PrivilegedProtocol.decodeRun(codec))
+        assertNull(PrivilegedProtocol.decodeError(codec))
+
+        assertNull(PrivilegedProtocol.decodeCodec(PrivilegedProtocol.encodeError("nope")))
+        assertNull(PrivilegedProtocol.decodeCodec(PrivilegedProtocol.encodeResult(0, "a", "b")))
+    }
+
+    @Test
+    fun `garbage in a codec line decodes to null instead of throwing`() {
+        listOf(
+            "",
+            "CODEC",
+            "CODEC a b c d e f g",
+            "CODEC !!! 1 1 1 1 1 !!! !!!",
+            "CODEC ${b64("SBC")} x 1 1 1 1 ${b64("")} ${b64("")}",
+            "CODEC ${b64("SBC")} 1 1 1 1 7 ${b64("")} ${b64("")}",
+        ).forEach { assertNull("decodeCodec($it)", PrivilegedProtocol.decodeCodec(it)) }
+    }
+
+    private fun b64(value: String): String =
+        java.util.Base64.getEncoder().encodeToString(value.toByteArray())
+
+    // ---- the operation surface ----------------------------------------------
+
+    @Test
+    fun `every method on the Binder is classified as reading or writing`() {
+        // The guard the AIDL documentation promises. A method added to
+        // IPrivilegedService and forgotten in PrivilegedOperation would be an
+        // entry point on a shell-uid process that nobody decided was safe.
+        val onTheInterface = IPrivilegedService::class.java.declaredMethods
+            .map { it.name }
+            .toSortedSet()
+        val classified = PrivilegedProtocol.PrivilegedOperation.entries
+            .map { it.aidlName }
+            .toSortedSet()
+
+        assertEquals(classified, onTheInterface)
+    }
+
+    @Test
+    fun `mutating operations are a short, named list`() {
+        // The security note that came with codec control: until it, every
+        // operation was read-only. If this list ever grows, it should be
+        // because somebody meant it to.
+        assertEquals(
+            listOf("setCodecPreference", "shutdown"),
+            PrivilegedProtocol.WRITE_OPERATIONS.map { it.aidlName }.sorted(),
+        )
+        assertEquals(
+            listOf("codecStatus", "exec", "version"),
+            PrivilegedProtocol.READ_OPERATIONS.map { it.aidlName }.sorted(),
+        )
+    }
+
+    @Test
+    fun `the three shell commands are all read-only`() {
+        // The exec whitelist and the mutating list have to agree: exec is
+        // classified as a read, which is only true while everything it can run
+        // is a read.
+        assertTrue(
+            PrivilegedProtocol.ALLOWED.all { it.first() == "dumpsys" || it.first() == "ps" },
+        )
+        assertFalse(PrivilegedProtocol.PrivilegedOperation.EXEC.mutates)
+    }
+
+    @Test
+    fun `operations can be found by their AIDL name`() {
+        assertEquals(
+            PrivilegedProtocol.PrivilegedOperation.SET_CODEC_PREFERENCE,
+            PrivilegedProtocol.PrivilegedOperation.byAidlName("setCodecPreference"),
+        )
+        assertNull(PrivilegedProtocol.PrivilegedOperation.byAidlName("nothingLikeThat"))
+    }
+}

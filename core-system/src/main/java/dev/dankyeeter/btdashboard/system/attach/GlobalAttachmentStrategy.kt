@@ -4,43 +4,29 @@ import android.util.Log
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
-import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
-import dev.dankyeeter.btdashboard.system.shizuku.ShizukuState
 
 /**
  * Global attachment: one [SystemEqualizer] on audio session 0, the output mix.
  * This is the only path that reaches every app, Tidal included.
  *
- * ### Status (Stage A)
- * The direct attempt is implemented: with `MODIFY_AUDIO_SETTINGS` plus the
- * elevated context Shizuku provides, `DynamicsProcessing(0, 0, config)` is
- * attached to `AUDIO_SESSION_OUTPUT_MIX`. On stock Pixel builds this is
- * accepted once the app holds the privileged identity; on some builds
- * AudioFlinger additionally requires `MODIFY_AUDIO_ROUTING`, which is a
- * signature permission and can only be granted through Shizuku's
- * `IPackageManager.grantRuntimePermission` shim.
+ * History worth keeping: this used to gate on Shizuku being ready, on the
+ * theory that attaching to session 0 needs `MODIFY_AUDIO_ROUTING` granted
+ * through an elevated identity. Measured on the Pixel 8 Pro / Android 16 that
+ * is not the case — `DynamicsProcessing(0, 0, config)` attaches with plain
+ * `MODIFY_AUDIO_SETTINGS`, and that permission appears in the manifest while
+ * `MODIFY_AUDIO_ROUTING` appears nowhere in the project. The gate's only
+ * effect was to *refuse to try* on phones where the try would have worked.
+ * Now the factory's own result is the answer; a build that really does refuse
+ * a global effect gets the honest fallback text below.
  *
- * ### What remains (documented deliberately, not hidden)
- * 1. Binding `IAudioPolicyService`/`IPackageManager` through
- *    `ShizukuBinderWrapper` to grant `MODIFY_AUDIO_ROUTING` to ourselves —
- *    the hidden-API surface differs per Android version and needs on-device
- *    iteration on the target Pixel.
- * 2. Verifying that the global effect survives an audio-device switch
- *    (BT connect/disconnect re-creates the output mix on some builds); the
- *    watchdog re-attaches via [reattachIfNeeded].
- * 3. Shizuku itself does not survive a reboot (wireless debugging is off after
- *    boot). The boot receiver therefore posts an "EQ inactive — start Shizuku"
- *    notification instead of pretending the EQ is running.
- *
- * Everything above is behind this interface, so the rest of the app is already
- * final regardless of how the remaining plumbing lands.
+ * The effect can still die when the output mix is torn down (BT device
+ * switch); the watchdog re-attaches via [reattachIfNeeded].
  */
 class GlobalAttachmentStrategy(
     private val factory: SystemEqualizerFactory,
-    private val shizuku: ShizukuManager,
 ) : EqAttachmentStrategy {
 
-    override val kind = AttachmentKind.GLOBAL_SHIZUKU
+    override val kind = AttachmentKind.GLOBAL
 
     private var equalizer: SystemEqualizer? = null
     private var current: EqSettings = EqSettings.FLAT
@@ -51,13 +37,28 @@ class GlobalAttachmentStrategy(
     override fun activate(settings: EqSettings): AttachmentStatus {
         current = settings.sanitized()
 
-        val shizukuState = shizuku.state.value
-        if (shizukuState !is ShizukuState.Ready) {
-            lastStatus = AttachmentStatus.Unavailable(
-                "Shizuku is not ready. Without it the EQ can only attach to apps " +
-                    "that announce their audio session."
-            )
-            return lastStatus
+        // No gate before the attempt. The old Shizuku-Ready check was a proxy
+        // with no mechanical role: nothing Shizuku provides flows into the
+        // attach, and MODIFY_AUDIO_ROUTING appears nowhere in this project —
+        // measured on the Pixel 8 Pro / Android 16, DynamicsProcessing on
+        // session 0 attaches with plain MODIFY_AUDIO_SETTINGS. The factory
+        // result below is the real answer, so it is the only check.
+        // A live attachment is reused, not replaced. activate() runs on every
+        // service start and every boot-restore, and each call used to build a
+        // fresh DynamicsProcessing while the field silently dropped the old
+        // one: a native effect leak, and worse — the instances *stack* on the
+        // output mix, so the correction curve was applied twice, three times…
+        // For an app whose whole purpose is a precise curve, that is not a
+        // performance bug but a wrong-audio bug.
+        equalizer?.let { existing ->
+            if (existing.isAlive) {
+                existing.apply(current)
+                lastStatus = AttachmentStatus.ActiveGlobal(GLOBAL_SESSION_ID)
+                return lastStatus
+            }
+            // Dead effect (output mix was torn down): release before replacing.
+            existing.close()
+            equalizer = null
         }
 
         val eq = factory.create(GLOBAL_SESSION_ID)

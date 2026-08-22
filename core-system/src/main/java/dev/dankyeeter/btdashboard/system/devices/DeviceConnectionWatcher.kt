@@ -34,6 +34,8 @@ class DeviceConnectionWatcher(
     private val store: DeviceProfileStore,
     private val applier: DeviceProfileApplier,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Called on every connect, before profiles are applied. */
+    private val onConnected: () -> Unit = {},
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
 
@@ -54,15 +56,23 @@ class DeviceConnectionWatcher(
             }
         }
         val filter = IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED)
-        // System-sent broadcast: NOT_EXPORTED is the correct registration flag.
+        // Must be EXPORTED. NOT_EXPORTED admits only senders sharing our uid,
+        // and ACL_CONNECTED does not come from the system uid — the Bluetooth
+        // stack is its own package at uid 1002. Registering NOT_EXPORTED
+        // therefore succeeded and then silently dropped every broadcast, which
+        // is why per-device profiles never applied on a real connect.
+        //
+        // Exporting is safe here: ACTION_ACL_CONNECTED is a protected
+        // broadcast, so no third-party app can forge one.
         val registered = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(created, filter, Context.RECEIVER_NOT_EXPORTED)
+                context.registerReceiver(created, filter, Context.RECEIVER_EXPORTED)
             } else {
                 @Suppress("UnspecifiedRegisterReceiverFlag")
                 context.registerReceiver(created, filter)
             }
         }.isSuccess
+        Log.i(TAG, "ACL receiver registration: $registered")
         if (registered) receiver = created
     }
 
@@ -76,12 +86,22 @@ class DeviceConnectionWatcher(
         val address = device.address ?: return
         val key = DeviceKey.fromAddress(address) ?: return
         val name = runCatching { device.name }.getOrNull()?.takeIf { it.isNotBlank() } ?: address
+        // Logged unconditionally: auto-apply is invisible when it works, so
+        // without this there is no way to tell "applied silently" apart from
+        // "the broadcast never arrived" — which is exactly the ambiguity that
+        // made this feature impossible to diagnose on a real device.
+        Log.i(TAG, "ACL connect: $name")
         scope.launch {
             runCatching {
                 // Remember the device first, so an unknown headphone shows up in
                 // the profile editor even though nothing was applied to it.
                 store.noteSeen(key, name, clock())
-                _lastResult.value = applier.onDeviceConnected(address)
+                // Independent of any profile: a device switch can kill the
+                // global effect, and every connect is a chance to notice.
+                runCatching { onConnected() }
+                val result = applier.onDeviceConnected(address)
+                _lastResult.value = result
+                Log.i(TAG, "auto-apply for $name: $result")
             }.onFailure { Log.w(TAG, "profile auto-apply failed", it) }
         }
     }

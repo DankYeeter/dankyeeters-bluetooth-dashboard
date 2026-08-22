@@ -17,9 +17,6 @@ data class ForeignEqScanResult(
     val vendorApps: List<VendorEqApp> = emptyList(),
 ) {
     val hasForeignEq: Boolean get() = warnings.isNotEmpty()
-
-    /** Something is or may be stacking on our curve, from either direction. */
-    val hasAnyRisk: Boolean get() = warnings.isNotEmpty() || vendorApps.isNotEmpty()
 }
 
 /**

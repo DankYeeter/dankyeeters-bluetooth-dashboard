@@ -90,10 +90,19 @@ class DynamicsProcessingEqualizer private constructor(
     private fun writeBand(ear: Ear, bandIndex: Int, gainDb: Float) {
         val band = effect.getPreEqBandByChannelIndex(ear.channelIndex, bandIndex)
         band.isEnabled = true
-        band.cutoffFrequency = EqBands.CENTER_FREQUENCIES_HZ[bandIndex]
+        // The *active* layout's centres, not the default one's. Reading the
+        // default list here indexed out of bounds from band 10 upward on the 20-
+        // and 31-band layouts; guard() swallowed the exception and marked the
+        // effect dead, so those layouts moved sliders and changed nothing.
+        band.cutoffFrequency = layout.centersHz[bandIndex]
         band.gain = gainDb
         effect.setPreEqBandByChannelIndex(ear.channelIndex, bandIndex, band)
     }
+
+    /** Reads a gain back out of the framework — proof the value reached the effect. */
+    fun readBandGain(ear: Ear, bandIndex: Int): Float? = runCatching {
+        effect.getPreEqBandByChannelIndex(ear.channelIndex, bandIndex).gain
+    }.getOrNull()
 
     private inline fun guard(block: () -> Unit) {
         if (!alive) return

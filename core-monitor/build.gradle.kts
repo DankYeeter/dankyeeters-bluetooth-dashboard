@@ -25,7 +25,6 @@ dependencies {
     api(libs.kotlinx.coroutines.android)
 
     // Shell identity for BQR registration, dumpsys and ps.
-    api(libs.shizuku.api)
 
     // Event/sample history needs real queries and time-range scans → Room.
     api(libs.room.runtime)

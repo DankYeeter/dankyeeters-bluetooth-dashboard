@@ -62,6 +62,10 @@ object NalR {
  * Piecewise-linear interpolation on a logarithmic frequency axis; outside the
  * support the edge value is held (never extrapolated). [xs] must be sorted
  * ascending and positive.
+ *
+ * Kept for the C(f) table, which COMPENSATION.md specifies as linearly
+ * interpolated. Measured curves use [logInterpolateMonotone] instead — see
+ * there for why the two differ on purpose.
  */
 internal fun logInterpolate(xs: List<Double>, ys: List<Double>, x: Double): Double {
     require(xs.size == ys.size && xs.isNotEmpty()) { "xs/ys must be non-empty and aligned" }
@@ -74,6 +78,72 @@ internal fun logInterpolate(xs: List<Double>, ys: List<Double>, x: Double): Doub
         if (x in a..b) {
             val t = (lx - ln(a)) / (ln(b) - ln(a))
             return ys[i] + t * (ys[i + 1] - ys[i])
+        }
+    }
+    return ys.last()
+}
+
+/**
+ * Monotone cubic (Fritsch-Carlson) interpolation on a logarithmic frequency
+ * axis; outside the support the edge value is held, exactly as
+ * [logInterpolate] does.
+ *
+ * Used wherever a **measured** curve is resampled — an audiogram, or the
+ * prescribed gains on their way to the EQ bands. Straight lines between
+ * audiometric points are a poor model of a curve that bends, and the bend that
+ * matters is the noise notch: reconstructing a 4 kHz dip onto third-octave
+ * bands is off by up to 3.6 dB piecewise-linear against 1.25 dB here, from the
+ * very same measured points. Better interpolation buys more accuracy than more
+ * test tones do, and costs the listener no extra minutes in the test.
+ *
+ * **Monotone specifically, not a natural cubic spline.** A natural spline
+ * overshoots around a notch and would invent a dip deeper than anything that
+ * was measured — a number the user never produced, presented as their hearing.
+ * Fritsch-Carlson cannot do that: the interpolant provably stays within the
+ * bracketing samples, because the tangent is forced to zero at every local
+ * extremum.
+ *
+ * Deliberately *not* applied to NalR's C(f) table: that one is a published
+ * constant of the prescription rule, and COMPENSATION.md specifies linear
+ * interpolation for it. Smoothing a spec is not an improvement.
+ */
+internal fun logInterpolateMonotone(xs: List<Double>, ys: List<Double>, x: Double): Double {
+    require(xs.size == ys.size && xs.isNotEmpty()) { "xs/ys must be non-empty and aligned" }
+    val n = xs.size
+    // Two points describe a straight line; the cubic has nothing to add.
+    if (n < 3) return logInterpolate(xs, ys, x)
+    if (x <= xs.first()) return ys.first()
+    if (x >= xs.last()) return ys.last()
+
+    val lxs = xs.map(::ln)
+    val lx = ln(x)
+    val h = DoubleArray(n - 1) { lxs[it + 1] - lxs[it] }
+    val slope = DoubleArray(n - 1) { (ys[it + 1] - ys[it]) / h[it] }
+
+    val tangent = DoubleArray(n)
+    tangent[0] = slope[0]
+    tangent[n - 1] = slope[n - 2]
+    for (i in 1 until n - 1) {
+        // Sign change or a flat neighbour means this point is a local extremum:
+        // a zero tangent there is what makes overshoot impossible.
+        tangent[i] = if (slope[i - 1] * slope[i] <= 0.0) {
+            0.0
+        } else {
+            val w1 = 2.0 * h[i] + h[i - 1]
+            val w2 = h[i] + 2.0 * h[i - 1]
+            (w1 + w2) / (w1 / slope[i - 1] + w2 / slope[i])
+        }
+    }
+
+    for (i in 0 until n - 1) {
+        if (lx <= lxs[i + 1]) {
+            val t = (lx - lxs[i]) / h[i]
+            val t2 = t * t
+            val t3 = t2 * t
+            return (2 * t3 - 3 * t2 + 1) * ys[i] +
+                (t3 - 2 * t2 + t) * h[i] * tangent[i] +
+                (-2 * t3 + 3 * t2) * ys[i + 1] +
+                (t3 - t2) * h[i] * tangent[i + 1]
         }
     }
     return ys.last()

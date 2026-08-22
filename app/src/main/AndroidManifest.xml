@@ -51,6 +51,7 @@
     <application
         android:name=".BtDashboardApplication"
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -69,6 +70,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            How the privileged helper hands its Binder to the app. Exported
+            because the caller runs as a different uid (shell), which is also
+            why the provider checks both the calling uid and a token the app
+            generated - see PrivilegedProvider. A socket cannot be used here:
+            SELinux denies untrusted_app -> shell connectto, measured on the
+            device.
+        -->
+        <provider
+            android:name=".privileged.PrivilegedProvider"
+            android:authorities="dev.dankyeeter.btdashboard.privileged"
+            android:enabled="true"
+            android:exported="true" />
 
     </application>
 </manifest>

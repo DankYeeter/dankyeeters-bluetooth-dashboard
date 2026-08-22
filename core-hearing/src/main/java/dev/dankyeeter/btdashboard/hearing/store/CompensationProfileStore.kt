@@ -8,7 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import dev.dankyeeter.btdashboard.audio.eq.EqBands
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
@@ -100,6 +100,9 @@ class CompensationProfileStore(context: Context) {
 
     private fun encodeEq(eq: EqSettings): JSONObject = JSONObject().apply {
         put("enabled", eq.enabled)
+        // The band count is part of the curve, not a display setting: without
+        // it a twenty-band preset came back as ten empty bands (see toGains).
+        put("layout", eq.layout.id)
         put("left", JSONArray(eq.leftGainsDb.map { it.toDouble() }))
         put("right", JSONArray(eq.rightGainsDb.map { it.toDouble() }))
         put("preGainDb", eq.preGainDb.toDouble())
@@ -157,18 +160,35 @@ class CompensationProfileStore(context: Context) {
 
     private fun parseEq(o: JSONObject?): EqSettings {
         if (o == null) return EqSettings.FLAT
+        // Entries written before layouts were persisted carry no "layout" key
+        // and were all ten-band; fromId(null) is exactly that, so they read
+        // back unchanged.
+        val layout = EqBandLayout.fromId(o.optString("layout").takeIf { it.isNotBlank() })
         return EqSettings(
             enabled = o.optBoolean("enabled", false),
-            leftGainsDb = o.optJSONArray("left").toGains(),
-            rightGainsDb = o.optJSONArray("right").toGains(),
+            layout = layout,
+            leftGainsDb = o.optJSONArray("left").toGains(layout),
+            rightGainsDb = o.optJSONArray("right").toGains(layout),
             preGainDb = o.optDouble("preGainDb", 0.0).toFloat(),
             limiterEnabled = o.optBoolean("limiterEnabled", true),
         ).sanitized()
     }
 
-    private fun JSONArray?.toGains(): List<Float> {
+    /**
+     * Gains for [layout]; a stored curve of a different length is resampled
+     * rather than dropped.
+     *
+     * The lengths can only disagree when the layout moved under a saved preset,
+     * and `EqSettingsStore` already answers that case the same way. Coming back
+     * approximately beats coming back flat: flat is silent data loss, and the
+     * user has no way to tell it apart from a preset they saved badly.
+     */
+    private fun JSONArray?.toGains(layout: EqBandLayout): List<Float> {
         val parsed = (0 until (this?.length() ?: 0)).map { this!!.optDouble(it, 0.0).toFloat() }
-        return if (parsed.size == EqBands.COUNT) parsed else List(EqBands.COUNT) { 0f }
+        if (parsed.size == layout.bandCount) return parsed
+        val source = EqBandLayout.entries.firstOrNull { it.bandCount == parsed.size }
+            ?: return List(layout.bandCount) { 0f }
+        return EqBandLayout.resample(parsed, source, layout)
     }
 
     private fun JSONArray?.toStringList(): List<String> =

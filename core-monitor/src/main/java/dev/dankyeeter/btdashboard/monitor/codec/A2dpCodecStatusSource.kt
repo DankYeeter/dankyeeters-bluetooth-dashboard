@@ -10,10 +10,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.channels.awaitClose
+import dev.dankyeeter.btdashboard.monitor.link.BroadcastConnectionTicks
+import dev.dankyeeter.btdashboard.monitor.link.ConnectionTicks
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 
 /**
  * Real [CodecStatusSource] on top of `BluetoothA2dp`.
@@ -26,6 +30,7 @@ import kotlinx.coroutines.flow.flowOf
  */
 class A2dpCodecStatusSource(
     private val context: Context,
+    private val ticks: ConnectionTicks = BroadcastConnectionTicks(context),
 ) : CodecStatusSource {
 
     private val adapter: BluetoothAdapter? =
@@ -34,13 +39,26 @@ class A2dpCodecStatusSource(
     @Volatile
     private var a2dp: BluetoothProfile? = null
 
+    /**
+     * Whether [a2dp] is bound. A signal, not bookkeeping: the proxy binds
+     * asynchronously, so whoever reads the device list at construction time
+     * gets an empty answer and would stay wrong until something else happened
+     * to ask again. That was the dashboard, and the refresh button was the
+     * something else.
+     */
+    private val proxyBound = MutableStateFlow(false)
+
     private val serviceListener = object : BluetoothProfile.ServiceListener {
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-            if (profile == BluetoothProfile.A2DP) a2dp = proxy
+            if (profile != BluetoothProfile.A2DP) return
+            a2dp = proxy
+            proxyBound.value = true
         }
 
         override fun onServiceDisconnected(profile: Int) {
-            if (profile == BluetoothProfile.A2DP) a2dp = null
+            if (profile != BluetoothProfile.A2DP) return
+            a2dp = null
+            proxyBound.value = false
         }
     }
 
@@ -84,14 +102,28 @@ class A2dpCodecStatusSource(
     }
 
     /**
-     * The device list only changes on ACL/profile broadcasts, which the
-     * broadcast event source already owns; here we just re-read on demand.
-     * A live flow is provided for symmetry and is refreshed by the sampler.
+     * The live device list - the dashboard's only source, and the reason it
+     * needs no refresh button.
+     *
+     * Two triggers, no timer:
+     *  - [proxyBound], which as a `StateFlow` also emits its current value on
+     *    collection and so doubles as the initial read; and
+     *  - [ticks], the Bluetooth broadcasts.
+     *
+     * The breadth of the broadcast set is what makes guessing a settling delay
+     * unnecessary. ACL_CONNECTED arrives before A2DP is negotiated, so that
+     * read finds the device with an unknown codec - and then
+     * CONNECTION_STATE_CHANGED and CODEC_CONFIG_CHANGED arrive and it is read
+     * again, now complete.
+     *
+     * [distinctUntilChanged] is what keeps that from churning: several
+     * broadcasts describe one connect, and only the reads that actually
+     * changed something reach the UI.
      */
-    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> = callbackFlow {
-        trySend(connectedDevices())
-        awaitClose { }
-    }
+    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> =
+        merge(proxyBound.map { }, ticks.ticks())
+            .map { connectedDevices() }
+            .distinctUntilChanged()
 
     @SuppressLint("MissingPermission")
     private fun deviceName(device: BluetoothDevice): String =

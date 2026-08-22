@@ -71,6 +71,19 @@ class AbsoluteVolumeGate(
         Settings.Global.putInt(resolver, KEY_DISABLE_ABSOLUTE_VOLUME, if (enabled) 0 else 1)
     }.onFailure { Log.w(TAG, "absolute-volume write refused", it) }.getOrDefault(false)
 
+    /**
+     * Deletes the key, confirmed by reading it back as absent.
+     *
+     * Writing `0` would look identical from the outside and is not the same
+     * thing: it pins "enabled" as a value this app chose, where an absent key
+     * is the state the phone shipped in and what the OEM default resolves to.
+     * The read-back is the only evidence the delete landed.
+     */
+    override fun clear(): Boolean = runCatching {
+        Settings.Global.putString(resolver, KEY_DISABLE_ABSOLUTE_VOLUME, null)
+        Settings.Global.getString(resolver, KEY_DISABLE_ABSOLUTE_VOLUME) == null
+    }.onFailure { Log.w(TAG, "absolute-volume reset refused", it) }.getOrDefault(false)
+
     private companion object {
         const val TAG = "AbsoluteVolumeGate"
 

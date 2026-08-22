@@ -3,11 +3,10 @@ package dev.dankyeeter.btdashboard.ui.screens.monitor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
-import dev.dankyeeter.btdashboard.monitor.codec.NoOpCodecController
+import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DeviceDiagnosticRunner
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStepResult
-import dev.dankyeeter.btdashboard.monitor.dumpsys.ShellDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
@@ -15,7 +14,7 @@ import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
-import dev.dankyeeter.btdashboard.monitor.shell.ShizukuShellRunner
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
@@ -57,6 +56,10 @@ class MonitorViewModel : ViewModel() {
     private var diagnosticJob: Job? = null
 
     init {
+        // The sampler polls only while something is playing or a screen that
+        // shows the numbers is up. This ViewModel exists exactly as long as the
+        // Monitor screen's nav entry does, so its lifetime is that signal.
+        MonitorGraph.setUiVisible(true)
         MonitorGraph.ensureRunning()
         viewModelScope.launch { _bqr.value = MonitorGraph.qualityReportSource.start() }
     }
@@ -70,7 +73,12 @@ class MonitorViewModel : ViewModel() {
      */
     fun activeSource(): LinkDataSource = when {
         _bqr.value.isActive -> LinkDataSource.QUALITY_REPORT
-        else -> samples.value.lastOrNull()?.source ?: LinkDataSource.NONE
+        // Fall back to what the collector *can* reach when no sample has been
+        // written yet: the samples flow is WhileSubscribed, so it is legitimately
+        // empty for the first seconds on this screen, and reporting "no source"
+        // there reads as a failure rather than as a cold start.
+        else -> samples.value.lastOrNull()?.source
+            ?: MonitorGraph.collectorSource()
     }
 
     fun startDeepCapture() {
@@ -99,16 +107,26 @@ class MonitorViewModel : ViewModel() {
                 )
                 return@launch
             }
-            val shell = ShizukuShellRunner()
             val runner = DeviceDiagnosticRunner(
                 codecSource = MonitorGraph.codecSource,
                 collector = LinkSampleCollector(
                     codecSource = MonitorGraph.codecSource,
-                    dumpsysSource = ShellDumpsysLinkSource(shell),
+                    // The shared, TTL-cached reader — never a fresh
+                    // ShellDumpsysLinkSource. A diagnostic soak samples on the
+                    // deep-capture interval, and each of those runs would
+                    // otherwise pay for its own exec-and-parse of the dump.
+                    dumpsysSource = MonitorGraph.dumpsysSource,
                     qualityReportSource = MonitorGraph.qualityReportSource,
                 ),
-                // Forcing codecs needs privileges we have not verified on-device.
-                codecController = NoOpCodecController,
+                // Real codec control when the privileged helper is answering,
+                // NoOpCodecController when it is not. The helper runs as
+                // com.android.shell, which holds BLUETOOTH_PRIVILEGED
+                // (granted=true, verified on the device), so
+                // setCodecConfigPreference is reachable from inside it.
+                //
+                // Resolved here rather than in init: the helper can connect or
+                // die between opening this screen and pressing the button.
+                codecController = PrivilegedCodec.controller(),
             )
             MonitorGraph.engine.startDeepCapture(soakMinutes * 60_000L)
             val report = runner.run(
@@ -144,7 +162,9 @@ class MonitorViewModel : ViewModel() {
     }
 
     override fun onCleared() {
-        // Leaving the screen must not leave deep capture burning battery.
+        // Leaving the screen must not leave deep capture burning battery —
+        // nor idle polling for a screen that is no longer there.
+        MonitorGraph.setUiVisible(false)
         if (_diagnostic.value.running) MonitorGraph.engine.stopDeepCapture()
         super.onCleared()
     }

@@ -2,6 +2,8 @@ package dev.dankyeeter.btdashboard.monitor.codec
 
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * Reads the codec through the A2DP system API, and falls back to
@@ -44,7 +46,17 @@ class FallbackCodecStatusSource(
         }.getOrDefault(emptyList())
     }
 
-    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> = primary.connectedDevicesFlow()
+    /**
+     * The primary's flow is the *trigger*; the list that comes out is this
+     * class's own. Forwarding the primary's list would skip the dumpsys
+     * fallback, so a device the dump can see through an unbound A2DP proxy
+     * would be present in [connectedDevices] and absent here - one value
+     * disagreeing with itself depending on which way you asked.
+     */
+    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> =
+        primary.connectedDevicesFlow()
+            .map { connectedDevices() }
+            .distinctUntilChanged()
 
     override suspend fun codecStatus(address: String): CodecReadResult {
         val direct = primary.codecStatus(address)

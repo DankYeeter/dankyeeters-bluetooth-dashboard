@@ -47,7 +47,6 @@ data class BluetoothDashboardState(
      */
     val eqCandidates: EqCandidateScan? = null,
     val candidatesScanning: Boolean = false,
-    val deepCaptureActive: Boolean = false,
 )
 
 class BluetoothDashboardViewModel : ViewModel() {
@@ -58,13 +57,27 @@ class BluetoothDashboardViewModel : ViewModel() {
     val state: StateFlow<BluetoothDashboardState> = _state.asStateFlow()
 
     init {
-        refresh()
+        observeConnections()
     }
 
-    fun refresh() {
+    /**
+     * The device list is push-based: it follows the Bluetooth broadcasts and
+     * the A2DP proxy binding, so a headphone that connects while this screen
+     * is open appears by itself.
+     *
+     * There is no refresh entry point, on purpose. A button the user has to
+     * press is a standing admission that the screen is stale without it - and
+     * this one also hid a real bug, because the A2DP proxy binds
+     * asynchronously and the first read usually happened before it was ready.
+     */
+    private fun observeConnections() {
         viewModelScope.launch {
+            MonitorGraph.codecSource.connectedDevicesFlow().collect(::render)
+        }
+    }
+
+    private suspend fun render(devices: List<BtAudioDevice>) {
             val source = MonitorGraph.codecSource
-            val devices = source.connectedDevices()
             val beacon = (airPods.state.value as? AirPodsScanState.Found)?.beacon
 
             // The supported headphones are never listed in the UI, so the
@@ -108,7 +121,6 @@ class BluetoothDashboardViewModel : ViewModel() {
                     LinkDataSource.NONE
                 },
             )
-        }
     }
 
     fun startBeaconScan() = airPods.start()
@@ -134,7 +146,7 @@ class BluetoothDashboardViewModel : ViewModel() {
      * Tier every installed app by how likely it is to carry its own EQ.
      *
      * Called when the section becomes visible and when the user taps "check
-     * again" — never on a timer and never from [refresh]. The first call pays
+     * again" — never on a timer and never from the device-list flow. The first call pays
      * for one pass over the package list (a few hundred milliseconds on a
      * background dispatcher, measured and shown in the UI); every later call
      * reuses the cached pass and only re-reads what is currently playing, which
@@ -171,6 +183,5 @@ class BluetoothDashboardViewModel : ViewModel() {
     fun startWatchLive() {
         MonitorGraph.engine.startDeepCapture(SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)
         MonitorGraph.ensureRunning()
-        _state.value = _state.value.copy(deepCaptureActive = true)
     }
 }

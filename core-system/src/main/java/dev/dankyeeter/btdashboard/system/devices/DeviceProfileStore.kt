@@ -95,6 +95,9 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
                     putOpt("compensationProfileId", p.compensationProfileId)
                     putOpt("mediaVolumePercent", p.mediaVolumePercent)
                     putOpt("absoluteVolumeEnabled", p.absoluteVolumeEnabled)
+                    put("absoluteVolumeSystemDefault", p.absoluteVolumeSystemDefault)
+                    put("developerOptions", JSONObject(p.developerOptions.toMap()))
+                    putOpt("codecPreference", p.codecPreference?.let(::encodeCodec))
                     put("autoApply", p.autoApply)
                     put("lastSeenAtMillis", p.lastSeenAtMillis)
                 },
@@ -125,6 +128,9 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
                     } else {
                         o.optBoolean("absoluteVolumeEnabled")
                     },
+                    absoluteVolumeSystemDefault = o.optBoolean("absoluteVolumeSystemDefault", false),
+                    developerOptions = o.optJSONObject("developerOptions").toStringMap(),
+                    codecPreference = parseCodec(o.optJSONObject("codecPreference")),
                     autoApply = o.optBoolean("autoApply", true),
                     lastSeenAtMillis = o.optLong("lastSeenAtMillis"),
                 ).sanitized()
@@ -137,6 +143,49 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
 
     private fun JSONObject.optNullableString(key: String): String? =
         if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
+
+    /**
+     * The codec wish as a nested object rather than five flat keys.
+     *
+     * Flat keys would have made "no codec preference at all" and "a preference
+     * whose fields all happen to be zero" indistinguishable on the way back in,
+     * and those mean different things: one leaves the stack alone, the other
+     * asks it to renegotiate.
+     */
+    private fun encodeCodec(preference: CodecPreference): JSONObject = JSONObject().apply {
+        put("codec", preference.codec)
+        put("sampleRateHz", preference.sampleRateHz)
+        put("bitsPerSample", preference.bitsPerSample)
+        put("channelMode", preference.channelMode)
+        put("ldacQuality", preference.ldacQuality)
+    }
+
+    /**
+     * Missing or unreadable degrades to "no preference", never to a guess.
+     *
+     * [DeviceProfile.sanitized] then drops anything the registry no longer
+     * recognises, so a value that survives parsing is still checked before it
+     * can reach the Bluetooth stack.
+     */
+    private fun parseCodec(o: JSONObject?): CodecPreference? {
+        if (o == null) return null
+        val codec = o.optString("codec").takeIf { it.isNotBlank() } ?: return null
+        return CodecPreference(
+            codec = codec,
+            sampleRateHz = o.optInt("sampleRateHz"),
+            bitsPerSample = o.optInt("bitsPerSample"),
+            channelMode = o.optInt("channelMode"),
+            ldacQuality = o.optLong("ldacQuality"),
+        )
+    }
+
+    /** Missing or malformed developer options degrade to none, never to a crash. */
+    private fun JSONObject?.toStringMap(): Map<String, String> {
+        if (this == null) return emptyMap()
+        return keys().asSequence().mapNotNull { key ->
+            optString(key).takeIf { it.isNotBlank() }?.let { key to it }
+        }.toMap()
+    }
 
     private companion object {
         const val TAG = "DeviceProfileStore"

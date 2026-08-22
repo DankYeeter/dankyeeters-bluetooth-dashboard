@@ -9,6 +9,9 @@ android {
 
     defaultConfig {
         minSdk = 31
+        // The acoustic verification runs on a real device: it plays a tone,
+        // records it back through the microphone and measures the difference.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
                 // Oboe is consumed as a Gradle prefab package; C++17 for the engine.
@@ -43,4 +46,8 @@ dependencies {
     implementation(libs.oboe)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
 }

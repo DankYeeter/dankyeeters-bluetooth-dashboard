@@ -23,6 +23,16 @@ interface AbsoluteVolumeController {
     fun isEnabled(): Boolean?
 
     fun setEnabled(enabled: Boolean): Boolean
+
+    /**
+     * Deletes the key so Android's own default applies again.
+     *
+     * Not the same as `setEnabled(true)`: writing the "enabled" value pins a
+     * value the app chose, while an absent key is the state the phone shipped
+     * in. It also clears a value some other writer left behind, which is the
+     * only way out once anything has touched the setting.
+     */
+    fun clear(): Boolean
 }
 
 /**
@@ -43,17 +53,37 @@ class DeviceProfileApplier(
     private val volume: MediaVolumeController,
     private val compensation: CompensationApplier,
     private val absoluteVolume: AbsoluteVolumeController,
+    private val secureSettings: SecureSettingsController,
+    /**
+     * Defaulted so the four callers that predate codec support — and every
+     * existing test — keep compiling and keep behaving identically: without a
+     * helper installed, a codec wish reports that it could not be attempted.
+     */
+    private val codec: CodecPreferenceController = UnavailableCodecPreferenceController,
 ) {
 
     suspend fun onDeviceConnected(address: String?): ApplyResult {
         val key = DeviceKey.fromAddress(address) ?: return ApplyResult.UnknownAddress
         val profile = profiles.profileFor(key) ?: return ApplyResult.NoProfile(key)
         if (!profile.autoApply) return ApplyResult.AutoApplyDisabled(profile)
-        return ApplyResult.Applied(profile, applyNow(profile))
+        return ApplyResult.Applied(profile, applyNow(profile, address))
     }
 
-    /** Applies a profile regardless of [DeviceProfile.autoApply] (manual "Apply now"). */
-    suspend fun applyNow(profile: DeviceProfile): List<ProfileAction> = buildList {
+    /**
+     * Applies a profile regardless of [DeviceProfile.autoApply] (manual "Apply now").
+     *
+     * @param address the raw address, when the caller has one. Everything else
+     *   in a profile is global and needs no device, but a codec is set *on* a
+     *   `BluetoothDevice`, so without an address that one step cannot be
+     *   attempted — and says so instead of being skipped silently. This class
+     *   otherwise never sees a raw address (it hashes to a [DeviceKey]
+     *   immediately), which is why the address is a parameter of this call
+     *   rather than a field.
+     */
+    suspend fun applyNow(
+        profile: DeviceProfile,
+        address: String? = null,
+    ): List<ProfileAction> = buildList {
         profile.compensationProfileId?.let { id ->
             if (compensation.apply(id)) {
                 add(ProfileAction.CompensationApplied(id))
@@ -71,19 +101,135 @@ class DeviceProfileApplier(
             }
         }
 
-        profile.absoluteVolumeEnabled?.let { enabled ->
-            when {
+        when {
+            // Checked before the on/off wish: "hand it back" is a decision
+            // about the setting as a whole and outranks a stale value beside it.
+            profile.absoluteVolumeSystemDefault -> when {
                 !absoluteVolume.isWritable() ->
                     add(ProfileAction.Skipped("absolute volume", "WRITE_SECURE_SETTINGS is not granted"))
 
-                absoluteVolume.isEnabled() == enabled ->
-                    add(ProfileAction.AbsoluteVolumeSet(enabled))
-
-                absoluteVolume.setEnabled(enabled) ->
-                    add(ProfileAction.AbsoluteVolumeSet(enabled))
+                absoluteVolume.clear() ->
+                    add(ProfileAction.AbsoluteVolumeReset)
 
                 else ->
-                    add(ProfileAction.Skipped("absolute volume", "the setting could not be written"))
+                    add(ProfileAction.Skipped("absolute volume", "the setting could not be reset"))
+            }
+
+            else -> profile.absoluteVolumeEnabled?.let { enabled ->
+                when {
+                    !absoluteVolume.isWritable() ->
+                        add(ProfileAction.Skipped("absolute volume", "WRITE_SECURE_SETTINGS is not granted"))
+
+                    absoluteVolume.isEnabled() == enabled ->
+                        add(ProfileAction.AbsoluteVolumeSet(enabled))
+
+                    absoluteVolume.setEnabled(enabled) ->
+                        add(ProfileAction.AbsoluteVolumeSet(enabled))
+
+                    else ->
+                        add(ProfileAction.Skipped("absolute volume", "the setting could not be written"))
+                }
+            }
+        }
+
+        profile.developerOptions.forEach { (key, value) ->
+            val option = BluetoothDeveloperOptions.byKey(key)
+            when {
+                option == null ->
+                    add(ProfileAction.Skipped(key, "this app no longer offers that option"))
+
+                !secureSettings.isWritable() ->
+                    add(ProfileAction.Skipped(option.label, "WRITE_SECURE_SETTINGS is not granted"))
+
+                // "Use System Default" is a delete, not a write: an unset key
+                // is the state a fresh phone is in, and the stack falls back to
+                // its own default. It also undoes values other writers left.
+                value == BluetoothDeveloperOptions.USE_SYSTEM_DEFAULT -> when {
+                    secureSettings.read(key) == null -> add(
+                        ProfileAction.DeveloperOptionSet(
+                            key = key,
+                            value = value,
+                            needsBluetoothRestart = false,
+                            alreadySet = true,
+                        ),
+                    )
+
+                    secureSettings.clear(key) -> add(
+                        ProfileAction.DeveloperOptionSet(
+                            key = key,
+                            value = value,
+                            needsBluetoothRestart = option.needsBluetoothRestart,
+                            alreadySet = false,
+                        ),
+                    )
+
+                    else -> add(
+                        ProfileAction.Skipped(
+                            option.label,
+                            "the key could not be cleared — it still holds a value",
+                        ),
+                    )
+                }
+
+                secureSettings.read(key) == value -> add(
+                    ProfileAction.DeveloperOptionSet(
+                        key = key,
+                        value = value,
+                        needsBluetoothRestart = false,
+                        alreadySet = true,
+                    ),
+                )
+
+                secureSettings.write(key, value) -> add(
+                    ProfileAction.DeveloperOptionSet(
+                        key = key,
+                        value = value,
+                        needsBluetoothRestart = option.needsBluetoothRestart,
+                        alreadySet = false,
+                    ),
+                )
+
+                // The only evidence available that a build ignores a key. Said
+                // plainly rather than reported as success.
+                else -> add(
+                    ProfileAction.Skipped(
+                        option.label,
+                        "the value did not stick \u2014 this Android build may not support it",
+                    ),
+                )
+            }
+        }
+
+        // Last on purpose. It is the only privileged *write* in this list, and
+        // renegotiating the codec briefly interrupts the stream - so everything
+        // that can be done without disturbing playback is done first.
+        profile.codecPreference?.let { preference ->
+            when {
+                address == null -> add(
+                    ProfileAction.Skipped(
+                        "codec",
+                        "the device address is not known here, so the codec cannot be set \u2014 " +
+                            "connect the device and try again",
+                    ),
+                )
+
+                !codec.isAvailable() -> add(
+                    ProfileAction.Skipped(
+                        "codec",
+                        "the privileged helper is not running, so the codec can be neither " +
+                            "set nor checked",
+                    ),
+                )
+
+                else -> when (val outcome = codec.apply(address, preference)) {
+                    is CodecApplyOutcome.Applied -> add(ProfileAction.CodecSet(outcome.observed))
+
+                    is CodecApplyOutcome.NotObserved ->
+                        add(ProfileAction.CodecNotObserved(outcome.observed, outcome.detail))
+
+                    is CodecApplyOutcome.Unavailable ->
+                        add(ProfileAction.Skipped("codec", outcome.reason))
+                }
             }
         }
     }

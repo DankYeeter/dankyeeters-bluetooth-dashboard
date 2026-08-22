@@ -3,10 +3,11 @@ package dev.dankyeeter.btdashboard.ui
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
-import dev.dankyeeter.btdashboard.ui.screens.dashboard.DashboardScreen
+import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.screens.eq.EqScreen
 import dev.dankyeeter.btdashboard.ui.screens.hearing.HearingTestScreen
 import dev.dankyeeter.btdashboard.ui.screens.monitor.MonitorScreen
+import dev.dankyeeter.btdashboard.ui.screens.settings.SettingsScreen
 import dev.dankyeeter.btdashboard.ui.screens.wizard.SetupWizardScreen
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import org.junit.Rule
@@ -44,15 +45,16 @@ class ScreenSmokeTest {
     }
 
     @Test
-    fun `dashboard composes`() = assertComposes {
-        DashboardScreen(onOpenOnboarding = {})
-    }
+    fun `bluetooth screen composes`() = assertComposes { BluetoothScreen() }
+
+    @Test
+    fun `settings screen composes`() = assertComposes { SettingsScreen() }
 
     @Test
     fun `eq screen composes`() = assertComposes { EqScreen() }
 
     @Test
-    fun `hearing test intro composes`() = assertComposes { HearingTestScreen() }
+    fun `sound profiling intro composes`() = assertComposes { HearingTestScreen() }
 
     @Test
     fun `monitor screen composes`() = assertComposes { MonitorScreen() }

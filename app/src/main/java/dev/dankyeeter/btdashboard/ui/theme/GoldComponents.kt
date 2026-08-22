@@ -40,7 +40,7 @@ fun GoldCard(
     val metallic = LocalGoldAccents.current
     Card(
         modifier = modifier.fillMaxWidth(),
-        border = if (metallic) Gold.border else null,
+        border = if (metallic) LocalMetalPalette.current.border else null,
         colors = CardDefaults.cardColors(),
     ) {
         content()
@@ -60,7 +60,7 @@ fun GoldTitle(
     if (LocalGoldAccents.current) {
         // `TextStyle.brush` paints the glyphs themselves, so the sheen follows
         // the letterforms instead of sitting behind them as a background.
-        Text(text, modifier = modifier, style = style.copy(brush = Gold.vertical))
+        Text(text, modifier = modifier, style = style.copy(brush = LocalMetalPalette.current.vertical))
     } else {
         Text(text, modifier = modifier, style = style)
     }
@@ -74,7 +74,7 @@ fun GoldRule(modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(Gold.horizontal),
+            .background(LocalMetalPalette.current.horizontal),
     )
 }
 
@@ -106,13 +106,17 @@ fun GoldButton(
             containerColor = Color.Transparent,
             contentColor = Color.Black,
             disabledContainerColor = Color.Transparent,
-            disabledContentColor = Gold.Deep,
+            disabledContentColor = LocalMetalPalette.current.deep,
         ),
         contentPadding = PaddingValues(0.dp),
     ) {
         Box(
             Modifier
-                .background(if (enabled) Gold.fill else SolidColor(Gold.Shadow), ButtonShape)
+                .background(
+                    if (enabled) LocalMetalPalette.current.fill
+                    else SolidColor(LocalMetalPalette.current.shadow),
+                    ButtonShape,
+                )
                 .padding(ButtonDefaults.ContentPadding),
             contentAlignment = Alignment.Center,
         ) {
@@ -134,7 +138,7 @@ fun GoldOutlinedButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        border = if (metallic && enabled) Gold.border else null,
+        border = if (metallic && enabled) LocalMetalPalette.current.border else null,
         content = content,
     )
 }

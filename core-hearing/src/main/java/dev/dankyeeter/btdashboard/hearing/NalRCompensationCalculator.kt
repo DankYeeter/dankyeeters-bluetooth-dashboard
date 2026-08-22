@@ -129,7 +129,7 @@ class NalRCompensationCalculator(
         points.firstOrNull { it.frequencyHz == frequencyHz }?.let { return it.thresholdDb }
         if (points.isEmpty()) return 0.0
         val sorted = points.sortedBy { it.frequencyHz }
-        return logInterpolate(
+        return logInterpolateMonotone(
             xs = sorted.map { it.frequencyHz.toDouble() },
             ys = sorted.map { it.thresholdDb },
             x = frequencyHz.toDouble(),
@@ -137,10 +137,16 @@ class NalRCompensationCalculator(
     }
 
     /**
-     * Step 6. Inside 250–8000 Hz: log-frequency interpolation of the prescribed
-     * gains. Outside: the edge value scaled by [EDGE_BAND_FACTOR] — there is no
-     * audiometric data down there or up there, so we never extrapolate a full
-     * gain.
+     * Step 6. Inside 250–8000 Hz: monotone log-frequency interpolation of the
+     * prescribed gains. Outside: the edge value scaled by [EDGE_BAND_FACTOR] —
+     * there is no audiometric data down there or up there, so we never
+     * extrapolate a full gain.
+     *
+     * The interpolator is [logInterpolateMonotone] rather than a straight line
+     * between test frequencies. At the ten octave bands the two agree exactly,
+     * because those centres *are* test frequencies and nothing is interpolated;
+     * the difference shows at 20 and 31 bands, where the notch region falls
+     * between measured points.
      */
     private fun mapToBands(
         gainsAtTestFrequencies: List<Double>,
@@ -154,7 +160,7 @@ class NalRCompensationCalculator(
             when {
                 f < low -> gainsAtTestFrequencies.first() * EDGE_BAND_FACTOR
                 f > high -> gainsAtTestFrequencies.last() * EDGE_BAND_FACTOR
-                else -> logInterpolate(xs, gainsAtTestFrequencies, f)
+                else -> logInterpolateMonotone(xs, gainsAtTestFrequencies, f)
             }
         }
     }
@@ -166,8 +172,53 @@ class NalRCompensationCalculator(
         /** Scaling for bands outside the measured range (step 6). */
         const val EDGE_BAND_FACTOR: Double = 0.5
 
-        /** Inter-band slope ceiling; our bands are exactly one octave apart. */
+        /**
+         * Inter-band slope ceiling.
+         *
+         * **This is a house heuristic, not a clinical constant.** COMPENSATION.md
+         * lists it beside the +12 dB cap, which makes it read like a prescribed
+         * limit; it is not. No published work validates any particular
+         * inter-band gain-slope ceiling, so there is nothing to cite here and
+         * the number cannot be defended by appeal to the literature
+         * (RESEARCH_COMPENSATION.md section 6).
+         *
+         * What can honestly be said is that two facts bracket it. NAL-R itself
+         * only ever prescribes 0.31 x the audiogram's own slope, so even a
+         * 20 dB/octave ski-slope loss asks for about 6 dB/octave of gain — the
+         * cap sits right at the edge of what the prescription can legitimately
+         * want, and it will shave a genuinely steep mild loss a little. And
+         * smoothness is worth something in its own right: response ripples
+         * beyond about +/-5 dB measurably lower rated sound quality even for
+         * normal-hearing listeners.
+         *
+         * If the matched-loudness A/B ever shows the cap flattening a notch
+         * correction that was really measured, ~8 dB/octave is still inside
+         * NAL-R's own slope logic (a 25 dB/octave audiogram). Move it for that
+         * reason, with the listening test behind it — not because a curve looks
+         * better on the preview chart.
+         */
         const val MAX_SLOPE_DB_PER_OCTAVE: Double = 6.0
+
+        /**
+         * Threshold above which a band is flagged as a **possible** cochlear
+         * dead region — a region with no functioning inner hair cells, where a
+         * tone is heard (if at all) by spreading onto neighbouring places, and
+         * where amplification adds level and distortion rather than timbre.
+         *
+         * Vinay & Moore 2007 found a dead region present at >= 59 % of the
+         * frequencies whose threshold exceeded 70 dB HL. That is a prevalence
+         * figure and nothing more. The test that actually decides the question,
+         * TEN(HL), needs calibrated presentation levels no consumer headphone
+         * can produce, so this app can never report that a band *is* dead — and
+         * just as importantly can never report that it is not. The flag exists
+         * only to decide when the UI is obliged to say "cannot check"; see
+         * RESEARCH_COMPENSATION.md sections 5 and 8 for the wording that is and
+         * is not allowed.
+         *
+         * Below the line there is deliberately no logic at all: for a mild or
+         * moderate loss a false alarm costs more than the warning is worth.
+         */
+        const val DEAD_REGION_FLAG_DB: Double = 70.0
 
         /** 3-point moving average; the ends average over the two values there. */
         fun movingAverage3(values: List<Double>): List<Double> = values.indices.map { i ->
@@ -236,6 +287,33 @@ data class EarCompensation(
     val insertionGainDb: List<Double>,
     /** Final gains at the active layout's band centres. */
     val bandGainsDb: List<Double>,
+) {
+    /**
+     * Test frequencies whose device-corrected threshold crosses
+     * [NalRCompensationCalculator.DEAD_REGION_FLAG_DB].
+     *
+     * The device-corrected value is the right input: the raw threshold still
+     * contains the headphone's own response, and the published prevalence
+     * figure is about the ear. Read the constant before putting any of these
+     * numbers on screen — this list is a reason to say "cannot check", never a
+     * finding.
+     */
+    val possibleDeadRegionFrequenciesHz: List<Int>
+        get() = TEST_FREQUENCIES_HZ.filterIndexed { i, _ ->
+            (correctedThresholdsDb.getOrNull(i) ?: 0.0) >
+                NalRCompensationCalculator.DEAD_REGION_FLAG_DB
+        }
+}
+
+/**
+ * The most-boosted band of a [CompensationResult]: what the strength slider is
+ * doing right now, as a dB figure at a frequency rather than a percentage.
+ */
+data class PeakBand(
+    /** Centre of the band carrying the largest gain, in Hz. */
+    val centerHz: Float,
+    /** That gain, in dB. Always positive — see [CompensationResult.peakBand]. */
+    val gainDb: Double,
 )
 
 /** Result of [NalRCompensationCalculator.computeDetailed]. */
@@ -255,8 +333,55 @@ data class CompensationResult(
     val severeLossWarning: Boolean
         get() = left.ptaDb > SEVERE_LOSS_PTA_DB || right.ptaDb > SEVERE_LOSS_PTA_DB
 
+    /**
+     * Every frequency either ear flags under
+     * [NalRCompensationCalculator.DEAD_REGION_FLAG_DB], ascending. Empty in the
+     * ordinary case, which is the case this app is built for.
+     *
+     * Merged across ears on purpose: the warning it drives is about what the
+     * app cannot determine, and that is equally true whichever ear produced the
+     * threshold.
+     */
+    val possibleDeadRegionFrequenciesHz: List<Int>
+        get() = (left.possibleDeadRegionFrequenciesHz + right.possibleDeadRegionFrequenciesHz)
+            .distinct()
+            .sorted()
+
+    /**
+     * The loudest band across both ears, or null when the curve lifts nothing
+     * worth naming.
+     *
+     * Read off the *computed* curve rather than derived from the strength
+     * percentage, because the two part company wherever it matters: at the
+     * 12 dB cap, at the slope limiter, and outside the measured range where
+     * gains are held at half weight. A read-out that only restates the slider
+     * position would be decoration; this one can be checked against the band
+     * list below it.
+     *
+     * Null rather than a "+0.0 dB" is deliberate — at strength 0, or for an ear
+     * the prescription asks nothing of, the honest UI says nothing rather than
+     * announcing that nothing happens with a number.
+     */
+    val peakBand: PeakBand?
+        get() {
+            val centres = eq.centersHz
+            // Per band, whichever ear is louder: "up to" is a statement about
+            // the curve as a whole, and the pre-gain is computed the same way.
+            val loudest = left.bandGainsDb.zip(right.bandGainsDb) { l, r -> maxOf(l, r) }
+            val index = loudest.indices.maxByOrNull { loudest[it] } ?: return null
+            if (index >= centres.size || loudest[index] < READ_OUT_FLOOR_DB) return null
+            return PeakBand(centerHz = centres[index], gainDb = loudest[index])
+        }
+
     companion object {
         /** PLAN/COMPENSATION.md: above this the app shows a "see a professional" notice. */
         const val SEVERE_LOSS_PTA_DB: Double = 60.0
+
+        /**
+         * Below this the peak read-out stays silent. Set so that anything shown
+         * rounds to at least +0.1 dB: a line reading "lifts up to +0.0 dB" is
+         * an unfinished-looking way of saying "off".
+         */
+        private const val READ_OUT_FLOOR_DB: Double = 0.05
     }
 }

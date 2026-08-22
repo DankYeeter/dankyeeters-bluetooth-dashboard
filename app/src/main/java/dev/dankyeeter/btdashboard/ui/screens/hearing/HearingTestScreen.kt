@@ -16,14 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,9 +37,13 @@ import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import java.text.DateFormat
 import java.util.Date
-import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
+import dev.dankyeeter.btdashboard.ui.theme.Panel
+import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
+import dev.dankyeeter.btdashboard.ui.theme.Pill
+import dev.dankyeeter.btdashboard.ui.theme.PillTone
+import dev.dankyeeter.btdashboard.ui.theme.Readout
 
 /**
  * Hearing-test flow: plain-text intro, optional fit check, a distraction-free
@@ -72,95 +72,116 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
     ) { granted -> viewModel.startTest(runAmbientCheck = granted) }
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Hearing test", style = MaterialTheme.typography.headlineMedium)
+        Text("Hearing test", style = MaterialTheme.typography.displayMedium)
 
-        Text(
-            "This is a modified Hughson-Westlake pure-tone test at 250 to 8000 Hz, one ear at a time. " +
-                "It takes about six to eight minutes for both ears. You will hear short beeps that get " +
-                "quieter and louder; press the big button whenever you think you hear one, even faintly. " +
-                "Some intervals are deliberately silent — pressing during those only makes the result worse.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-            "Before you start:\n" +
-                "• Sit in a quiet room. Background noise masks the quietest tones.\n" +
-                "• Use the listening mode you normally use (ANC on, transparency or off) and keep it " +
-                "for the whole test — and for the EQ afterwards.\n" +
-                "• Set the media volume to your usual listening level. It is locked while the test runs.\n" +
-                "• Put the earphones in as you always do, then run the fit check.\n" +
-                "• Do three or more runs. The app uses the per-frequency median of your runs.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        GoldTitle("Your headphones")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = state.formFactor == DeviceFormFactor.IN_EAR,
-                onClick = { viewModel.setFormFactor(DeviceFormFactor.IN_EAR) },
-                label = { Text("In-ear / IEM") },
-            )
-            FilterChip(
-                selected = state.formFactor == DeviceFormFactor.OVER_EAR,
-                onClick = { viewModel.setFormFactor(DeviceFormFactor.OVER_EAR) },
-                label = { Text("Over-ear") },
+        Panel {
+            PanelHeader("What happens")
+            Text(
+                "This is a modified Hughson-Westlake pure-tone test at 250 to 8000 Hz, one ear at a time. " +
+                    "It takes about six to eight minutes for both ears. You will hear short beeps that get " +
+                    "quieter and louder; press the big button whenever you think you hear one, even faintly. " +
+                    "Some intervals are deliberately silent — pressing during those only makes the result worse.",
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
-        Text(
-            if (state.formFactor.fitCheckMandatory) {
-                "In-ears change their bass response completely with the seal, so the fit check is required."
-            } else {
-                "Over-ears are less sensitive to placement, so the fit check is optional here."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+
+        Panel {
+            // "Before you start:" was the first line of the block below. As the
+            // panel's own eyebrow it stops competing with the bullets it
+            // introduces — same words, one level up.
+            PanelHeader("Before you start")
+            Text(
+                "• Sit in a quiet room. Background noise masks the quietest tones.\n" +
+                    "• Use the listening mode you normally use (ANC on, transparency or off) and keep it " +
+                    "for the whole test — and for the EQ afterwards.\n" +
+                    "• Set the media volume to your usual listening level. It is locked while the test runs.\n" +
+                    "• Put the earphones in as you always do, then run the fit check.\n" +
+                    "• Do three or more runs. The app uses the per-frequency median of your runs.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
+        Panel {
+            PanelHeader(
+                "Your headphones",
+                trailing = {
+                    if (state.fitCheckPassed) Pill("Fit check ✓", tone = PillTone.ACCENT)
+                },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = state.formFactor == DeviceFormFactor.IN_EAR,
+                    onClick = { viewModel.setFormFactor(DeviceFormFactor.IN_EAR) },
+                    label = { Text("In-ear / IEM") },
+                )
+                FilterChip(
+                    selected = state.formFactor == DeviceFormFactor.OVER_EAR,
+                    onClick = { viewModel.setFormFactor(DeviceFormFactor.OVER_EAR) },
+                    label = { Text("Over-ear") },
+                )
+            }
+            Text(
+                if (state.formFactor.fitCheckMandatory) {
+                    "In-ears change their bass response completely with the seal, so the fit check is required."
+                } else {
+                    "Over-ears are less sensitive to placement, so the fit check is optional here."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         state.message?.let { message ->
-            Card {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(message, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = viewModel::dismissMessage) { Text("Dismiss") }
-                }
+            Panel {
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = viewModel::dismissMessage) { Text("Dismiss") }
             }
         }
 
-        OutlinedButton(
-            onClick = viewModel::startFitCheck,
-            enabled = !state.busy,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (state.fitCheckPassed) "Fit check ✓ — run again" else "Run fit check (about 20 s)") }
+        Panel {
+            PanelHeader("Run it")
+            GoldOutlinedButton(
+                onClick = viewModel::startFitCheck,
+                enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (state.fitCheckPassed) "Fit check ✓ — run again" else "Run fit check (about 20 s)") }
 
-        Button(
-            onClick = {
-                if (viewModel.needsMicPermission) {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                } else {
-                    viewModel.startTest()
-                }
-            },
-            enabled = !state.busy && !state.fitCheckRequired,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Start hearing test") }
+            GoldButton(
+                onClick = {
+                    if (viewModel.needsMicPermission) {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        viewModel.startTest()
+                    }
+                },
+                enabled = !state.busy && !state.fitCheckRequired,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Start hearing test") }
 
-        if (state.fitCheckRequired) {
+            if (state.fitCheckRequired) {
+                Pill("Run the fit check first.", tone = PillTone.WARN)
+            }
             Text(
-                "Run the fit check first.",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error,
+                "The microphone is used once, before the run, to estimate the room noise. Nothing is " +
+                    "recorded or stored, and the app has no internet permission.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            "The microphone is used once, before the run, to estimate the room noise. Nothing is " +
-                "recorded or stored, and the app has no internet permission.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         if (state.runs.isNotEmpty()) {
-            GoldOutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
-                Text("Your runs (${state.runs.size})")
+            Panel {
+                PanelHeader("Stored runs")
+                Readout(
+                    value = state.runs.size.toString(),
+                    caption = if (state.runs.size == 1) "run" else "runs",
+                )
+                GoldOutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
+                    Text("Your runs (${state.runs.size})")
+                }
             }
         }
     }
@@ -172,6 +193,12 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
  * Distraction-free: black background, no navigation, one large response button.
  * The screen deliberately shows neither the current level nor the frequency —
  * that would bias the listener into pressing when a tone is "due".
+ *
+ * Deliberately outside the app's panel/metal design system, and the only screen
+ * that is. Panels, accents and gradients all exist to be looked at; here the
+ * listener is supposed to be listening, and a gold-rimmed surface in the corner
+ * of the eye is a distraction with a measurable cost — a missed faint tone is a
+ * wrong threshold. Black ground, white type, one circular button.
  */
 @Composable
 private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewModel) {
@@ -240,7 +267,7 @@ private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewMode
                 shape = CircleShape,
                 modifier = Modifier.size(220.dp),
             ) {
-                GoldTitle("I hear it", style = MaterialTheme.typography.headlineSmall)
+                Text("I hear it", style = MaterialTheme.typography.displayMedium)
             }
 
             Column(
@@ -268,44 +295,56 @@ private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewMode
 @Composable
 private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Run finished", style = MaterialTheme.typography.headlineMedium)
+        Text("Run finished", style = MaterialTheme.typography.displayMedium)
+
         state.message?.let {
-            Card { Text(it, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium) }
+            Panel { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
-        state.lastReliability?.let {
-            Text(it.summary, style = MaterialTheme.typography.bodySmall)
+
+        // Only drawn when there is something in it: an empty panel with a
+        // header is a promise of information the screen does not have.
+        if (state.lastReliability != null || state.lastRun?.ambientNoiseDbA != null) {
+            Panel {
+                PanelHeader("This run")
+                state.lastReliability?.let {
+                    Text(it.summary, style = MaterialTheme.typography.bodySmall)
+                }
+                state.lastRun?.ambientNoiseDbA?.let {
+                    Text(
+                        "Room noise before the run: about ${it.toInt()} dB (uncalibrated estimate).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
-        state.lastRun?.ambientNoiseDbA?.let {
+
+        Panel {
+            PanelHeader("Your hearing")
+            AudiogramChart(runs = state.runs, active = state.audiogram)
+            AudiogramLegend()
+
             Text(
-                "Room noise before the run: about ${it.toInt()} dB (uncalibrated estimate).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                when (state.runs.size) {
+                    1 -> "One run stored. Two more make the median meaningful."
+                    2 -> "Two runs stored. One more and the median is on solid ground."
+                    else -> "${state.runs.size} runs stored — the thick curve is the per-frequency median."
+                },
+                style = MaterialTheme.typography.bodyMedium,
             )
-        }
-
-        AudiogramChart(runs = state.runs, active = state.audiogram)
-        AudiogramLegend()
-
-        Text(
-            when (state.runs.size) {
-                1 -> "One run stored. Two more make the median meaningful."
-                2 -> "Two runs stored. One more and the median is on solid ground."
-                else -> "${state.runs.size} runs stored — the thick curve is the per-frequency median."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        state.audiogram?.let { audiogram ->
-            val hollow = (audiogram.left + audiogram.right).count { !it.converged }
-            if (hollow > 0) {
-                Text(
-                    "$hollow point(s) did not converge and are drawn hollow: the tone was either " +
-                        "inaudible at the loudest allowed level or still audible at the quietest one.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            state.audiogram?.let { audiogram ->
+                val hollow = (audiogram.left + audiogram.right).count { !it.converged }
+                if (hollow > 0) {
+                    Text(
+                        "$hollow point(s) did not converge and are drawn hollow: the tone was either " +
+                            "inaudible at the loudest allowed level or still audible at the quietest one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -323,18 +362,21 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
 @Composable
 private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewModel) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Your runs", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "All runs are overlaid; the thick curve is the median that feeds the compensation. " +
-                "Delete a run that went wrong (a bad seal, a noisy room, a distracted moment) and retake it.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Text("Your runs", style = MaterialTheme.typography.displayMedium)
 
-        AudiogramChart(runs = state.runs, active = state.audiogram)
-        AudiogramLegend()
+        Panel {
+            PanelHeader("All runs overlaid")
+            Text(
+                "All runs are overlaid; the thick curve is the median that feeds the compensation. " +
+                    "Delete a run that went wrong (a bad seal, a noisy room, a distracted moment) and retake it.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            AudiogramChart(runs = state.runs, active = state.audiogram)
+            AudiogramLegend()
+        }
 
         state.runs.sortedByDescending { it.timestampMillis }.forEach { run ->
             RunRow(run = run, onDelete = { viewModel.deleteRun(run.id) })
@@ -349,23 +391,28 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
 
 @Composable
 private fun RunRow(run: AudiogramRun, onDelete: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                    .format(Date(run.timestampMillis)),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Medium,
-            )
+    // One run per panel, with its timestamp as the eyebrow: the date is what
+    // tells two runs apart, and everything else on the row is about that date.
+    Panel(contentPadding = 16) {
+        PanelHeader(
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                .format(Date(run.timestampMillis)),
+        )
+        // Delete sits beside the counts rather than in the header's trailing
+        // slot: that slot is sized for a pill, and a full button next to an
+        // 11 sp eyebrow makes the header taller than the row it labels.
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 "${run.left.size} left / ${run.right.size} right points" +
                     (run.ambientNoiseDbA?.let { " · room ≈ ${it.toInt()} dB" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = onDelete, label = { Text("Delete") })
-            }
+            GoldOutlinedButton(onClick = onDelete) { Text("Delete") }
         }
     }
 }

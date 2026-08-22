@@ -26,19 +26,39 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <queries>
-        <package android:name="moe.shizuku.privileged.api" />
-    </queries>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
     <application>
-        <!-- Required by the Shizuku API for permission handshakes. -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
+        <!--
+          stopWithTask="false" is the whole point: swiping the app out of
+          Recents must not stop the equalizer. Only "Force stop" does.
+
+          Type connectedDevice, because that is what this is — the service
+          exists to keep a correction attached for a connected Bluetooth
+          headphone and to re-apply its profile when it reconnects.
+        -->
+        <service
+            android:name="dev.dankyeeter.btdashboard.system.service.EqForegroundService"
             android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:stopWithTask="false" />
+
+        <!--
+          The second, and in practice the more reliable, way the service comes
+          up: BOOT_COMPLETED is throttled and can take minutes, while a
+          headphone connecting is both immediate and the moment the EQ starts
+          mattering. exported="true" because the sender is the system.
+        -->
+        <receiver
+            android:name="dev.dankyeeter.btdashboard.system.service.BluetoothConnectReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name="dev.dankyeeter.btdashboard.system.boot.BootReceiver"
@@ -55,9 +75,17 @@
           ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION let us attach to their
           session. Tidal does not do this reliably — hence the Shizuku path.
         -->
+        <!--
+          Off by default on purpose. These broadcasts fire on every track
+          change of every well-behaved player, and in global-EQ mode (the
+          common case) the delivery was dropped on the first line of
+          onReceive — after the system had already woken this process for it.
+          EqController enables the component only while session mode is
+          genuinely in use.
+        -->
         <receiver
             android:name="dev.dankyeeter.btdashboard.system.attach.AudioEffectSessionReceiver"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.media.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION" />

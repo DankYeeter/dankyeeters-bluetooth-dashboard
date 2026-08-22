@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.ui.screens.wizard
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,18 +12,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -30,17 +29,20 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
+import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
 import dev.dankyeeter.btdashboard.system.setup.SetupStepState
 import dev.dankyeeter.btdashboard.system.setup.SetupStepStatus
-import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
-import dev.dankyeeter.btdashboard.system.shizuku.ShizukuState
 import dev.dankyeeter.btdashboard.ui.screens.devices.CopyableCommand
-import dev.dankyeeter.btdashboard.ui.theme.GoldCard
-import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
+import dev.dankyeeter.btdashboard.ui.theme.Panel
+import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
+import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
+import dev.dankyeeter.btdashboard.ui.theme.Pill
+import dev.dankyeeter.btdashboard.ui.theme.PillTone
 
 /**
  * The one guided flow that asks for everything the app needs, in order.
@@ -49,19 +51,19 @@ import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
  *
  * 1. **Every step re-checks live.** Status is recomputed on resume and on
  *    demand, so a permission granted in Settings turns the step green without
- *    a restart, and a Shizuku service that died turns it back.
+ *    a restart, and a shell that died turns it back.
  * 2. **Every step can be skipped.** Only Bluetooth access is marked required,
  *    and even that is not enforced — the app degrades instead of blocking. A
  *    wizard that traps the user on a step they cannot complete right now
- *    (Shizuku needs a computer!) would be worse than one they can leave.
+ *    (shell access needs a computer!) would be worse than one they can leave.
  */
 @Composable
 fun SetupWizardScreen(
     onDone: () -> Unit,
     viewModel: SetupWizardViewModel = viewModel(),
 ) {
-    val steps by viewModel.steps.collectAsState()
-    val index by viewModel.currentIndex.collectAsState()
+    val steps by viewModel.steps.collectAsStateWithLifecycle()
+    val index by viewModel.currentIndex.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Re-check on every resume: the user just came back from Settings.
@@ -74,27 +76,27 @@ fun SetupWizardScreen(
     }
 
     val current = steps.getOrNull(index) ?: steps.firstOrNull() ?: return
+    val done = steps.count { it.status == SetupStepStatus.DONE }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        GoldTitle("Setup", style = MaterialTheme.typography.headlineSmall)
+        Text("Setup", style = MaterialTheme.typography.displayMedium)
         Text(
-            "Step ${index + 1} of ${viewModel.stepCount} · " +
-                "${steps.count { it.status == SetupStepStatus.DONE }} done",
+            "Step ${index + 1} of ${viewModel.stepCount} · $done done",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.outline,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         LinearProgressIndicator(
             progress = { (index + 1f) / viewModel.stepCount },
             modifier = Modifier.fillMaxWidth(),
         )
 
-        StepCard(state = current, viewModel = viewModel)
+        StepPanel(state = current, viewModel = viewModel)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (index > 0) GoldOutlinedButton(onClick = viewModel::previous) { Text("Back") }
@@ -108,14 +110,25 @@ fun SetupWizardScreen(
             }
         }
 
-        HorizontalDivider()
-
         // The whole checklist stays visible: a wizard that hides where you are
         // in the sequence is just a series of modal dialogs.
-        Text("All steps", style = MaterialTheme.typography.titleSmall)
-        steps.forEachIndexed { i, state ->
-            TextButton(onClick = { viewModel.goTo(i) }) {
-                Text("${state.status.marker()} ${state.step.title}")
+        Panel {
+            PanelHeader(
+                "All steps",
+                trailing = {
+                    Pill(
+                        "$done of ${viewModel.stepCount}",
+                        tone = if (done == viewModel.stepCount) PillTone.ACCENT else PillTone.NEUTRAL,
+                    )
+                },
+            )
+            steps.forEachIndexed { i, state ->
+                if (i > 0) PanelDivider()
+                StepListRow(
+                    state = state,
+                    current = i == index,
+                    onClick = { viewModel.goTo(i) },
+                )
             }
         }
 
@@ -123,63 +136,102 @@ fun SetupWizardScreen(
     }
 }
 
-private fun SetupStepStatus.marker(): String = when (this) {
-    SetupStepStatus.DONE -> "✓"
-    SetupStepStatus.PENDING -> "•"
-    SetupStepStatus.SKIPPED -> "–"
-    SetupStepStatus.BLOCKED -> "!"
+/** One line of the checklist. The whole row is the target, not just the text. */
+@Composable
+private fun StepListRow(state: SetupStepState, current: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            state.step.title,
+            style = MaterialTheme.typography.bodyMedium,
+            // Where you are, marked by lifting this row out of the secondary
+            // text colour rather than by adding a marker glyph — the pill on
+            // the right is already carrying one piece of state per row, and a
+            // second symbol competing with it is what made the old list of
+            // "✓ / • / – / !" text buttons hard to scan.
+            color = if (current) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        Pill(state.status.label(), tone = state.status.tone())
+    }
 }
 
-private fun SetupStepStatus.describe(): String = when (this) {
-    SetupStepStatus.DONE -> "Done."
-    SetupStepStatus.PENDING -> "Not set up yet."
+private fun SetupStepStatus.label(): String = when (this) {
+    SetupStepStatus.DONE -> "Done"
+    SetupStepStatus.PENDING -> "Not set up"
+    SetupStepStatus.SKIPPED -> "Skipped"
+    SetupStepStatus.BLOCKED -> "Blocked"
+}
+
+private fun SetupStepStatus.tone(): PillTone = when (this) {
+    SetupStepStatus.DONE -> PillTone.ACCENT
+    SetupStepStatus.PENDING, SetupStepStatus.SKIPPED -> PillTone.NEUTRAL
+    SetupStepStatus.BLOCKED -> PillTone.WARN
+}
+
+/**
+ * The extra sentence a status needs, or null when the pill already said it.
+ * "Skipped" and "Blocked" both leave an obvious question open; "Done" and
+ * "Not set up" do not, and repeating them under the pill is noise.
+ */
+private fun SetupStepStatus.note(): String? = when (this) {
     SetupStepStatus.SKIPPED -> "Skipped — you can still set it up here."
     SetupStepStatus.BLOCKED -> "Not available right now."
+    SetupStepStatus.DONE, SetupStepStatus.PENDING -> null
 }
 
 @Composable
-private fun StepCard(state: SetupStepState, viewModel: SetupWizardViewModel) {
-    GoldCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(state.step.title, style = MaterialTheme.typography.titleMedium)
-            Text(
-                "${state.status.marker()} ${state.status.describe()}",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (state.status == SetupStepStatus.DONE) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-            )
-            Text(state.step.rationale, style = MaterialTheme.typography.bodySmall)
-
-            if (state.status != SetupStepStatus.DONE) {
-                when (state.step) {
-                    SetupStep.BLUETOOTH -> PermissionAction(
-                        viewModel,
-                        arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN),
-                        "Allow Bluetooth access",
-                    )
-
-                    SetupStep.MICROPHONE -> PermissionAction(
-                        viewModel,
-                        arrayOf(Manifest.permission.RECORD_AUDIO),
-                        "Allow the microphone",
-                    )
-
-                    SetupStep.NOTIFICATIONS -> PermissionAction(
-                        viewModel,
-                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                        "Allow notifications",
-                    )
-
-                    SetupStep.SHIZUKU -> ShizukuAction()
-                    SetupStep.SECURE_SETTINGS -> SecureSettingsAction()
-                }
-            }
-
-            GoldOutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
+private fun StepPanel(state: SetupStepState, viewModel: SetupWizardViewModel) {
+    Panel {
+        PanelHeader(
+            state.step.title,
+            trailing = { Pill(state.status.label(), tone = state.status.tone()) },
+        )
+        state.status.note()?.let {
+            Text(it, style = MaterialTheme.typography.labelLarge)
         }
+        Text(
+            state.step.rationale,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (state.status != SetupStepStatus.DONE) {
+            PanelDivider()
+            when (state.step) {
+                SetupStep.BLUETOOTH -> PermissionAction(
+                    viewModel,
+                    arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN),
+                    "Allow Bluetooth access",
+                )
+
+                SetupStep.MICROPHONE -> PermissionAction(
+                    viewModel,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    "Allow the microphone",
+                )
+
+                SetupStep.NOTIFICATIONS -> PermissionAction(
+                    viewModel,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    "Allow notifications",
+                )
+
+                SetupStep.SHELL_ACCESS -> ShellAccessAction()
+                SetupStep.SECURE_SETTINGS -> SecureSettingsAction()
+            }
+        }
+
+        GoldOutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
     }
 }
 
@@ -199,63 +251,48 @@ private fun PermissionAction(
             "If Android does not show a dialog, the permission was denied permanently — " +
                 "grant it in Settings → Apps → this app → Permissions.",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 /**
- * Reuses the three-state Shizuku content from the existing onboarding stepper:
- * not installed → not running → not authorized. Each state gets exactly one
- * next action, because "install, pair and authorize Shizuku" as a single
- * instruction is where people give up.
+ * The one route to shell access: the app's own helper.
+ *
+ * Shizuku used to be listed alongside it and was removed on Daniel's explicit
+ * decision — one access mechanism, owned by this project, and nothing else.
  */
 @Composable
-private fun ShizukuAction() {
+private fun ShellAccessAction() {
     val context = LocalContext.current
-    val manager = SystemGraph.shizuku
-    val state by manager.state.collectAsState()
+    val helper by PrivilegedConnection.service.collectAsStateWithLifecycle()
+    val helperRunning = helper != null
+    // Keyed on the connection: accepting a hand-over spends the token that was
+    // in the command, so the line shown after a connect must be a fresh one.
+    val adbCommand = remember(context, helperRunning) {
+        PrivilegedBootstrap(context).adbCommand()
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        when (state) {
-            ShizukuState.NotInstalled -> {
-                Text(
-                    "Shizuku is not installed. There is no Play Store link in this " +
-                        "project — download the APK from the official GitHub releases " +
-                        "page and sideload it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                CopyableCommand(context, ShizukuManager.SHIZUKU_RELEASES_URL)
-            }
-
-            ShizukuState.InstalledNotRunning -> Text(
-                "Shizuku is installed but not running:\n" +
-                    "1. Settings → System → Developer options → Wireless debugging: on\n" +
-                    "2. In Shizuku: \"Pair device with pairing code\", enter the code " +
-                    "wireless debugging shows\n" +
-                    "3. Tap \"Start\" in Shizuku\n\n" +
-                    "This has to be redone after every reboot, because Android turns " +
-                    "wireless debugging off at boot. Shizuku's own start-on-boot option " +
-                    "helps where the OS allows it.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            ShizukuState.NotAuthorized, ShizukuState.PermissionDenied -> Button(
-                onClick = { manager.requestPermission() },
-            ) { Text("Authorize this app in Shizuku") }
-
-            is ShizukuState.Ready -> Text(
-                "Shizuku is ready — the EQ can attach globally.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            is ShizukuState.Error -> Text(
-                "Shizuku could not be reached: ${(state as ShizukuState.Error).message}. " +
-                    "The app keeps working in session mode, which only reaches players " +
-                    "that broadcast their audio session.",
-                style = MaterialTheme.typography.bodySmall,
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("App helper", style = MaterialTheme.typography.titleSmall)
+            Pill(
+                if (helperRunning) "Running" else "Not running",
+                tone = if (helperRunning) PillTone.ACCENT else PillTone.WARN,
             )
         }
+        Text(
+            "The app's own helper needs no second app. One ADB command from a computer, " +
+                "once per boot; it runs as uid 2000 — shell level, not root. Full " +
+                "explanation on the System access screen in Settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        CopyableCommand(context, adbCommand)
     }
 }
 
@@ -267,6 +304,7 @@ private fun SecureSettingsAction() {
             "Connect the phone to a computer with ADB (or run it from a paired " +
                 "wireless-debugging shell) and execute:",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         CopyableCommand(context, SystemGraph.secureSettings.adbGrantCommand())
     }

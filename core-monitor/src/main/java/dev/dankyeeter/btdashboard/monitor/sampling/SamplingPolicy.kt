@@ -7,6 +7,17 @@ data class MonitorConditions(
     val nowMs: Long,
     val isPlaying: Boolean,
     val isScreenOn: Boolean,
+    /**
+     * Whether a screen that actually *shows* link data is in the foreground.
+     *
+     * The screen being on is not the same thing. `MonitorGraph.ensureRunning()`
+     * runs from `Application.onCreate` and the process is kept alive by the EQ
+     * service, so "screen on" is true for every minute the phone is awake — in
+     * a browser, in a game, on the lock screen — and none of those minutes have
+     * a reader for the numbers a poll would produce. Set by
+     * `MonitorGraph.setUiVisible()`.
+     */
+    val uiVisible: Boolean = false,
     /** Set by the dashboard's "watch live" action and by diagnostic soaks. */
     val deepCaptureUntilMs: Long = 0L,
     /** Set by the anomaly detector after a bitrate/RSSI drop. */
@@ -20,9 +31,9 @@ enum class SamplingMode(val intervalMs: Long) {
     BURST(5_000L),
     /** Normal playback with the screen on. */
     ACTIVE(30_000L),
-    /** Playback in the pocket, or idle with the screen on. */
+    /** Playback in the pocket, or idle with the monitor UI on screen. */
     BACKGROUND(60_000L),
-    /** Nothing to measure: no playback, screen off. Events stay armed. */
+    /** Nothing to measure, or nobody looking. Events stay armed. */
     STOPPED(0L),
 }
 
@@ -51,10 +62,15 @@ object SamplingPolicy {
                 SamplingDecision.Poll(SamplingMode.ACTIVE, "playing, screen on")
             isPlaying ->
                 SamplingDecision.Poll(SamplingMode.BACKGROUND, "playing, screen off")
-            isScreenOn ->
-                SamplingDecision.Poll(SamplingMode.BACKGROUND, "idle, screen on")
+            // "Screen on" alone is not a reason to poll. It used to be, and it
+            // cost roughly 200 full sample runs a day — each one a codec query
+            // plus a `dumpsys bluetooth_manager` through the helper — for a
+            // reading nothing was playing into and nobody was looking at.
+            // Someone has to actually be on the monitor or dashboard screen.
+            isScreenOn && uiVisible ->
+                SamplingDecision.Poll(SamplingMode.BACKGROUND, "idle, monitor on screen")
             else ->
-                SamplingDecision.Stopped("no playback and screen off")
+                SamplingDecision.Stopped("nothing playing and no monitor screen open")
         }
     }
 

@@ -5,9 +5,11 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import dev.dankyeeter.btdashboard.system.SystemGraph
+import androidx.compose.ui.graphics.Color
+import dev.dankyeeter.btdashboard.system.persist.AccentChoice
 import dev.dankyeeter.btdashboard.system.persist.AppearanceChoice
 import dev.dankyeeter.btdashboard.ui.BtDashboardApp
 import dev.dankyeeter.btdashboard.ui.screens.hearing.VolumeKeyLock
@@ -22,9 +24,15 @@ class MainActivity : ComponentActivity() {
             // Collected here rather than inside the nav host: the theme wraps
             // every screen, so a change has to recompose the whole tree.
             val appearance by SystemGraph.appearanceStore.choice
-                .collectAsState(initial = AppearanceChoice.SYSTEM)
+                .collectAsStateWithLifecycle(initialValue = AppearanceChoice.SYSTEM)
 
-            BtDashboardTheme(theme = appearance.toAppTheme()) {
+            val accentArgb by SystemGraph.appearanceStore.accentArgb
+                .collectAsStateWithLifecycle(initialValue = AccentChoice.GOLD.argb)
+
+            BtDashboardTheme(
+                theme = appearance.toAppTheme(),
+                accent = Color(accentArgb),
+            ) {
                 BtDashboardApp()
             }
         }
@@ -46,11 +54,6 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-    override fun onResume() {
-        super.onResume()
-        // Shizuku can be started/stopped while we are backgrounded.
-        SystemGraph.shizuku.refresh()
-    }
 }
 
 /** The persisted preference in :core-system, expressed as the UI's theme enum. */

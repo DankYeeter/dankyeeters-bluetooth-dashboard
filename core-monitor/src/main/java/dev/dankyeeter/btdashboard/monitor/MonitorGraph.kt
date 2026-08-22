@@ -12,6 +12,8 @@ import dev.dankyeeter.btdashboard.monitor.data.InMemoryMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.MonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
+import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
+import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.ShellDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.effects.AudioManagerPlayingAppsSource
 import dev.dankyeeter.btdashboard.monitor.effects.AudioPlaybackWatcher
@@ -20,11 +22,14 @@ import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqScanner
 import dev.dankyeeter.btdashboard.monitor.effects.PackageManagerAppSource
 import dev.dankyeeter.btdashboard.monitor.effects.ShellProcessResolver
 import dev.dankyeeter.btdashboard.monitor.link.BluetoothBroadcastSource
+import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
-import dev.dankyeeter.btdashboard.monitor.link.ShizukuQualityReportSource
+import dev.dankyeeter.btdashboard.monitor.link.ReflectiveQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
-import dev.dankyeeter.btdashboard.monitor.shell.ShizukuShellRunner
+import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
+import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
+import dev.dankyeeter.btdashboard.monitor.shell.UnavailableShellRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,14 +54,66 @@ object MonitorGraph {
     private var _candidates: EqCandidateScanner? = null
     private var _playbackWatcher: AudioPlaybackWatcher? = null
     private var _screenOn: MutableStateFlow<Boolean>? = null
+    private var _dumpsys: CachedDumpsysLinkSource? = null
 
-    private val shell by lazy { ShizukuShellRunner() }
+    /**
+     * Whether a screen showing link data is in the foreground. Only the
+     * sampler reads it, and only to decide whether idle polling is worth
+     * anything; the event sources are unaffected and stay armed either way.
+     */
+    private val _uiVisible = MutableStateFlow(false)
+
+    @Volatile
+    private var installedShell: ShellRunner? = null
+
+    /**
+     * Replaces the shell identity provider.
+     *
+     * The app installs its own privileged helper here at startup; without it
+     * everything shell-based degrades to "cannot check". This module cannot
+     * reach into :app to choose, and should not — every consumer only ever
+     * sees [ShellRunner].
+     */
+    fun installShellRunner(runner: ShellRunner) {
+        installedShell = runner
+    }
+
+    /**
+     * A stable object that resolves the shell identity on **every call**.
+     *
+     * This indirection is the whole point, and removing it reintroduces a bug
+     * that is invisible in testing: the consumers below — `codecSource`,
+     * `foreignEqScanner`, `engine` — are built once and cached, so whatever
+     * [ShellRunner] they are handed at construction is the one they keep for
+     * the life of the process. Returning the *currently best* runner from a
+     * getter therefore froze the answer at first access.
+     *
+     * That is exactly backwards for the case that matters. The privileged
+     * helper cannot be running at app start: it dies on reboot and is started
+     * afterwards over ADB. So the first access always found nothing, and the
+     * helper — once it did connect — was never picked up at all.
+     *
+     * Handing out this delegate instead means the decision is made per command,
+     * not once. It is safe to capture precisely because it holds no choice of
+     * its own.
+     */
+    val shell: ShellRunner = object : ShellRunner {
+
+        override val isAvailable: Boolean
+            get() = current().isAvailable
+
+        override suspend fun run(command: List<String>): ShellResult = current().run(command)
+
+        private fun current(): ShellRunner =
+            installedShell?.takeIf { it.isAvailable } ?: UnavailableShellRunner
+    }
 
     /**
      * The monitor outlives any single screen: a ViewModel scope would stop
      * sampling the moment the user leaves the Monitor tab. This is a plain
-     * app-lifetime scope — the sampler idles to zero work by itself when the
-     * screen is off and nothing is playing (see SamplingPolicy).
+     * app-lifetime scope — the sampler idles to zero work by itself whenever
+     * nothing is playing and no screen is showing the numbers (see
+     * SamplingPolicy and [setUiVisible]).
      */
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -80,6 +137,20 @@ object MonitorGraph {
     }
 
     /**
+     * The one `dumpsys bluetooth_manager` reader in the process.
+     *
+     * Sharing it is the point, not a convenience: the collector and the codec
+     * source both need the dump within microseconds of each other, and every
+     * separately constructed `ShellDumpsysLinkSource` used to mean another
+     * exec-plus-parse. See [CachedDumpsysLinkSource] for what one costs.
+     */
+    val dumpsysSource: DumpsysLinkSource
+        get() = synchronized(lock) { cachedDumpsys() }
+
+    private fun cachedDumpsys(): CachedDumpsysLinkSource =
+        _dumpsys ?: CachedDumpsysLinkSource(ShellDumpsysLinkSource(shell)).also { _dumpsys = it }
+
+    /**
      * The A2DP system API first, `dumpsys` under the shell identity second.
      * Without the fallback the codec reads as "unknown" on stock Android for
      * every app that does not hold BLUETOOTH_PRIVILEGED — which is all of them.
@@ -91,14 +162,14 @@ object MonitorGraph {
                 _a2dp = a2dp
                 FallbackCodecStatusSource(
                     primary = a2dp,
-                    dumpsys = ShellDumpsysLinkSource(shell),
+                    dumpsys = cachedDumpsys(),
                 ).also { _codecSource = it }
             }
         }
 
     val qualityReportSource: QualityReportSource
         get() = synchronized(lock) {
-            _bqr ?: ShizukuQualityReportSource(ctx()).also { _bqr = it }
+            _bqr ?: ReflectiveQualityReportSource(ctx()).also { _bqr = it }
         }
 
     val foreignEqScanner: ForeignEqScanner
@@ -199,15 +270,44 @@ object MonitorGraph {
                 eventSource = BluetoothBroadcastSource(ctx()),
                 collector = LinkSampleCollector(
                     codecSource = codecSource,
-                    dumpsysSource = ShellDumpsysLinkSource(shell),
+                    dumpsysSource = cachedDumpsys(),
                     qualityReportSource = qualityReportSource,
                 ),
                 screenOn = screenState(),
+                uiVisible = _uiVisible,
             ).also { _engine = it }
         }
+
+    /**
+     * Which source the collector would use right now. Used before the first
+     * sample exists, so a cold screen does not claim there is no source.
+     */
+    fun collectorSource(): LinkDataSource = when {
+        qualityReportSource.availability.value.isActive -> LinkDataSource.QUALITY_REPORT
+        dumpsysSource.isAvailable -> LinkDataSource.DUMPSYS
+        codecSource.isProfileAvailable -> LinkDataSource.CODEC_API
+        else -> LinkDataSource.NONE
+    }
 
     /** Starts the monitor if it is not already running. Idempotent. */
     fun ensureRunning() {
         engine.start(monitorScope)
+    }
+
+    /**
+     * Told by a screen that displays link data whether it is on screen.
+     *
+     * This is the whole difference between "the phone is awake" and "someone
+     * is looking at the numbers". Without it the sampler polled every 60 s for
+     * as long as the display was on — around 200 full runs a day, each one a
+     * codec query plus a `dumpsys` through the helper, with nothing playing and
+     * no screen to draw the result on.
+     *
+     * Deliberately not tied to process lifetime: `ensureRunning()` is called
+     * from `Application.onCreate` and the process is kept alive by the EQ
+     * service, so the app being *alive* proves nothing about anyone watching.
+     */
+    fun setUiVisible(visible: Boolean) {
+        _uiVisible.value = visible
     }
 }

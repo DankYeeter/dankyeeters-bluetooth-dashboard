@@ -13,19 +13,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,6 +42,18 @@ import dev.dankyeeter.btdashboard.monitor.effects.EqCandidate
 import dev.dankyeeter.btdashboard.ui.theme.GoldCard
 import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Headphones
+import dev.dankyeeter.btdashboard.ui.theme.Panel
+import dev.dankyeeter.btdashboard.ui.theme.Pill
+import dev.dankyeeter.btdashboard.ui.theme.PillTone
+import dev.dankyeeter.btdashboard.ui.theme.Readout
+import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
 
 /**
  * Codec dashboard section: connected devices, the negotiated codec as a badge,
@@ -55,7 +67,7 @@ fun BluetoothCodecSection(
     onWatchLive: () -> Unit,
     viewModel: BluetoothDashboardViewModel = viewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // The beacon scan lives with the device list now that battery is shown on
@@ -76,87 +88,132 @@ fun BluetoothCodecSection(
         }
     }
 
-    GoldCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.Bluetooth, contentDescription = null)
-                    GoldTitle("Bluetooth audio")
-                }
-                TextButton(onClick = viewModel::refresh) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
-                    Text(" Refresh")
-                }
-            }
+    Panel {
+        // No refresh affordance: the list is push-based now, so a button here
+        // would only teach the user to distrust what the screen says.
+        PanelHeader("Bluetooth audio")
 
+            // The panel keeps its shape whether or not anything is connected.
+            // Collapsing to a single line of prose made an idle screen look
+            // broken, and hid where the values were going to appear.
             when {
-                state.loading -> Text("Reading codec status…", style = MaterialTheme.typography.bodySmall)
+                state.loading -> WaitingDeviceRow("Reading codec status…")
 
-                !state.profileAvailable -> Text(
+                !state.profileAvailable -> WaitingDeviceRow(
                     "The Bluetooth audio profile is not reachable. Codec details need " +
                         "the Bluetooth permission and a connected A2DP device.",
-                    style = MaterialTheme.typography.bodySmall,
                 )
 
-                state.rows.isEmpty() -> Text(
-                    "No Bluetooth audio device connected.",
-                    style = MaterialTheme.typography.bodySmall,
+                state.rows.isEmpty() -> WaitingDeviceRow(
+                    "Connect a headphone and this fills in by itself.",
                 )
 
                 else -> state.rows.forEach { row -> DeviceRow(row) }
             }
 
-            if (state.rows.isNotEmpty()) {
-                GoldOutlinedButton(onClick = {
+            // Present but disabled rather than absent: a control that appears
+            // and disappears makes the screen feel like it is rearranging
+            // itself, and hides that the capture exists at all.
+            GoldOutlinedButton(
+                enabled = state.rows.isNotEmpty(),
+                onClick = {
                     viewModel.startWatchLive()
                     onWatchLive()
-                }) {
-                    Icon(Icons.Filled.GraphicEq, contentDescription = null)
-                    Text("  Watch live (10 s capture)")
-                }
+                },
+            ) {
+                Icon(Icons.Filled.GraphicEq, contentDescription = null)
+                Text("  Watch live (10 s capture)")
             }
-        }
     }
 }
 
+/**
+ * The device row's skeleton, with the numbers still missing.
+ *
+ * Deliberately the same shape as [DeviceRow] rather than a sentence: a screen
+ * with nothing connected should read as one waiting for a value, not one that
+ * failed. It also shows *where* the codec will appear before it exists, which
+ * is what makes the automatic fill-in legible as an event rather than a jump.
+ */
+@Composable
+private fun WaitingDeviceRow(note: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "No device",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Readout(value = "—")
+            }
+            Icon(
+                Icons.Filled.Headphones,
+                contentDescription = null,
+                modifier = Modifier.size(30.dp),
+                tint = MaterialTheme.colorScheme.outline,
+            )
+        }
+        Text(
+            note,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DeviceRow(row: DeviceCodecRow) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(row.device.name, style = MaterialTheme.typography.titleSmall)
+    // The codec is the answer this screen exists to give, so it is the largest
+    // thing on it. Everything else — name, state, battery — is support around
+    // that number rather than a row of equal-weight text.
+    val parts = row.codecBadge.split(" · ")
+    val codecName = parts.firstOrNull().orEmpty()
+    val detail = parts.drop(1).joinToString(" · ").ifBlank { null }
 
-        // The badge gets its own line. Sharing one with the device name meant a
-        // long codec string ("aptX HD · 48 kHz · 24 bit") and a long device name
-        // fought over the same width, and both lost.
-        AssistChip(
-            onClick = {},
-            enabled = row.codecKnown,
-            label = { Text(row.codecBadge) },
-            leadingIcon = { Icon(Icons.Filled.GraphicEq, contentDescription = null) },
-        )
-
-        val state = buildList {
-            if (row.device.isActive) add("active")
-            if (row.device.isPlaying) add("playing")
-            row.beacon?.let { beacon ->
-                // Battery belongs to the device, so it goes on the device's line.
-                beacon.leftBatteryPercent?.let { add("L $it%" + if (beacon.leftCharging) "⚡" else "") }
-                beacon.rightBatteryPercent?.let { add("R $it%" + if (beacon.rightCharging) "⚡" else "") }
-                beacon.caseBatteryPercent?.let { add("case $it%" + if (beacon.caseCharging) "⚡" else "") }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    row.device.name,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Readout(
+                    value = if (row.codecKnown) codecName else "Unknown",
+                    caption = detail,
+                )
             }
-        }.joinToString(" · ")
-        if (state.isNotEmpty()) {
-            Text(
-                state,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+            Icon(
+                Icons.Filled.Headphones,
+                contentDescription = null,
+                modifier = Modifier.size(30.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (row.device.isActive) Pill("Active", tone = PillTone.ACCENT)
+            if (row.device.isPlaying) Pill("Playing", tone = PillTone.ACCENT)
+            row.beacon?.let { beacon ->
+                beacon.leftBatteryPercent?.let {
+                    Pill("L $it%" + if (beacon.leftCharging) " ⚡" else "")
+                }
+                beacon.rightBatteryPercent?.let {
+                    Pill("R $it%" + if (beacon.rightCharging) " ⚡" else "")
+                }
+                beacon.caseBatteryPercent?.let {
+                    Pill("Case $it%" + if (beacon.caseCharging) " ⚡" else "")
+                }
+            }
         }
 
         // Honest degradation: say why the codec is unknown instead of hiding it.
@@ -164,7 +221,7 @@ private fun DeviceRow(row: DeviceCodecRow) {
             Text(
                 it,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -173,73 +230,82 @@ private fun DeviceRow(row: DeviceCodecRow) {
 /** Foreign-EQ warning surface with app attribution (PLAN.md, promoted to v1). */
 @Composable
 fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val scan = state.foreignEq
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
-    GoldCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Filled.Warning, contentDescription = null)
-                GoldTitle("Other equalizers")
-            }
+    // Collapsed by default and led by a count. This is a "check when something
+    // sounds wrong" surface, not a daily read: expanded by default it was the
+    // longest thing on the screen and buried the controls the user came for.
+    val attached = scan?.warnings?.size ?: 0
+    val vendors = scan?.vendorApps?.size ?: 0
+    val total = attached + vendors
 
-            when {
-                scan == null -> Text(
-                    "Another equalizer stacking on top of ours silently undoes the " +
-                        "compensation curve. Run a check to see what else is attached.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
-                !scan.available -> Text(
-                    scan.unavailableReason ?: "Check unavailable.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
-                else -> {
-                    if (scan.warnings.isEmpty()) {
-                        Text(
-                            "No other equalizer is attached to the phone's audio.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        scan.warnings.forEach { warning ->
-                            Text(warning.message, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "Session ${warning.sessionId} — set that app's EQ to flat, " +
-                                    "or disable it while using ours.",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
+    Panel {
+        PanelHeader(
+            "Other equalizers",
+            trailing = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    when {
+                        scan == null -> Pill("Not checked")
+                        !scan.available -> Pill("Unavailable", tone = PillTone.WARN)
+                        total == 0 -> Pill("None found", tone = PillTone.ACCENT)
+                        else -> Pill("$total", tone = PillTone.WARN)
                     }
-
-                    // The honest half. A companion app's EQ runs in the headphone
-                    // itself and never enters Android's audio path, so the scan
-                    // above is structurally blind to it — saying "all clear"
-                    // without this would be a false all-clear.
-                    scan.vendorApps.forEach { app ->
-                        HorizontalDivider()
-                        Text(
-                            "${app.appLabel} is installed.",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            "Its equalizer runs inside the headphones, not on the phone, so " +
-                                "no app on Android can read it — this check included. If you " +
-                                "set a curve there it stacks on top of ours. Set it flat in " +
-                                "the ${app.vendor} app before running a hearing test.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (expanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
+            },
+        )
+
+        Text(
+            when {
+                scan == null ->
+                    "Another equalizer stacking on top of this one silently undoes the curve."
+                !scan.available -> scan.unavailableReason ?: "Check unavailable."
+                total == 0 -> "Nothing else is shaping your audio."
+                else -> "$total app(s) could be shaping your audio as well."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        if (expanded) {
+            PanelDivider()
+
+            scan?.warnings?.forEach { warning ->
+                Text(warning.message, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Session ${warning.sessionId} — set that app's EQ to flat, " +
+                        "or disable it while using ours.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+
+            // A companion app's EQ runs in the headphone itself and never enters
+            // Android's audio path, so the scan above is structurally blind to
+            // it. Saying "all clear" without this would be a false all-clear.
+            scan?.vendorApps?.forEach { app ->
+                Text("${app.appLabel} is installed.", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Its equalizer runs inside the headphones, not on the phone, so no app " +
+                        "on Android can read it — this check included. If you set a curve " +
+                        "there it stacks on top of this one.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
             }
 
             TextButton(onClick = viewModel::scanForeignEq) { Text("Check now") }
-
-            HorizontalDivider()
+            PanelDivider()
             EqCandidateList(viewModel)
         }
     }
@@ -256,7 +322,7 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
  */
 @Composable
 private fun EqCandidateList(viewModel: BluetoothDashboardViewModel) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val scan = state.eqCandidates
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current

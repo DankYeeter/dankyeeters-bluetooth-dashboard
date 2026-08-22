@@ -6,6 +6,7 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
+import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.CalibrationPreset
 import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
@@ -43,6 +44,18 @@ data class CompensationUiState(
 ) {
     val preset: CalibrationPreset?
         get() = presets.firstOrNull { it.id == presetId }
+
+    /** True while the generated profile is active, i.e. the curve is read-only. */
+    val adjustedReferenceActive: Boolean
+        get() = activeProfileId == AdjustedReference.ID
+
+    /** Whether enough runs exist for the generated curve to stand on anything. */
+    val adjustedReferenceReady: Boolean
+        get() = runCount >= AdjustedReference.REQUIRED_RUNS
+
+    /** How many more runs are needed; zero once [adjustedReferenceReady]. */
+    val runsStillNeeded: Int
+        get() = (AdjustedReference.REQUIRED_RUNS - runCount).coerceAtLeast(0)
 }
 
 class EqViewModel : ViewModel() {
@@ -77,6 +90,8 @@ class EqViewModel : ViewModel() {
             store.settings.collect { loaded ->
                 _settings.value = loaded
                 _compensation.value = _compensation.value.withAppliedFlag(loaded)
+                settingsLoaded = true
+                syncGeneratedCurve()
             }
         }
         viewModelScope.launch {
@@ -89,6 +104,7 @@ class EqViewModel : ViewModel() {
                 update {
                     it.copy(audiogram = audiogram, runCount = runs.size, presetId = presetId)
                 }
+                syncGeneratedCurve()
             }
         }
         viewModelScope.launch {
@@ -110,13 +126,27 @@ class EqViewModel : ViewModel() {
             }
         }
         viewModelScope.launch {
-            store.activeProfileId.collect { id -> update { it.copy(activeProfileId = id) } }
+            store.activeProfileId.collect { id ->
+                update { it.copy(activeProfileId = id) }
+                syncGeneratedCurve()
+            }
         }
     }
 
     // ---- manual band editing -------------------------------------------------
 
+    /**
+     * Whether the active profile owns its own curve.
+     *
+     * Checked here rather than only in the UI on purpose. Disabled sliders are
+     * a hint to the user; this is the actual rule, and it holds for every other
+     * caller — a restored state, a future automation, a stale recomposition
+     * arriving after the profile switched.
+     */
+    private fun curveIsGenerated(): Boolean = _compensation.value.adjustedReferenceActive
+
     fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) {
+        if (curveIsGenerated()) return
         compensationDrivesTheEq = false
         val cur = _settings.value
         val updated = when (ear) {
@@ -129,6 +159,7 @@ class EqViewModel : ViewModel() {
 
     /** Edits both ears together — the common case before a hearing test exists. */
     fun setLinkedBandGain(bandIndex: Int, gainDb: Float) {
+        if (curveIsGenerated()) return
         compensationDrivesTheEq = false
         val cur = _settings.value
         val updated = cur.copy(
@@ -164,8 +195,14 @@ class EqViewModel : ViewModel() {
      * Changes how many bands the EQ has. The curve is resampled onto the new
      * centres rather than reset, so trying a finer layout is free: nothing the
      * user tuned, and no compensation curve, is lost by looking.
+     *
+     * Refused while the generated profile is in force, for the same reason its
+     * band sliders are: on the octave grid the measured 3 kHz and 6 kHz
+     * thresholds reach no band at all ([AdjustedReference.LAYOUT]), so this
+     * control would quietly turn a measurement into a worse measurement.
      */
     fun setBandLayout(layout: EqBandLayout) {
+        if (curveIsGenerated()) return
         val current = _settings.value
         if (current.layout == layout) return
         commit(current.withLayout(layout))
@@ -183,13 +220,14 @@ class EqViewModel : ViewModel() {
 
     fun setIntensity(value: Float) = update { it.copy(intensity = value.coerceIn(0f, 1f)) }
 
-    fun resetIntensity() = setIntensity(DEFAULT_INTENSITY)
-
     /**
      * True once the live EQ came from the compensation flow rather than from
      * manual band edits; lets the intensity slider keep the curve live.
      */
     private var compensationDrivesTheEq: Boolean = false
+
+    /** True once the persisted EQ has arrived; see [syncGeneratedCurve]. */
+    private var settingsLoaded: Boolean = false
 
     /** Writes the previewed curve into the live EQ and persists it. */
     fun applyCompensation() {
@@ -206,6 +244,27 @@ class EqViewModel : ViewModel() {
      */
     fun applyCompensationIfActive() {
         if (compensationDrivesTheEq) applyCompensation()
+    }
+
+    /**
+     * Switches to [AdjustedReference].
+     *
+     * Nothing is read from the profile store, because the generated profile is
+     * not kept there: it *is* the current aggregate of the runs. That is what
+     * makes it impossible for it to fall behind a re-test — there is no saved
+     * copy that could go stale.
+     *
+     * Refused below the run threshold rather than shown with a thin curve: a
+     * median of one run is not a reference.
+     */
+    fun selectAdjustedReference() {
+        if (!_compensation.value.adjustedReferenceReady) return
+        // Move the EQ onto the generated curve's own band grid *before*
+        // applying, so what gets committed is the curve computed there rather
+        // than a ten-band one stretched afterwards.
+        useGeneratedLayout()
+        applyCompensation()
+        viewModelScope.launch { store.setActiveProfileId(AdjustedReference.ID) }
     }
 
     /**
@@ -272,11 +331,51 @@ class EqViewModel : ViewModel() {
             calibrationPresetId = next.presetId,
             intensity = next.intensity,
             partialFactor = DEFAULT_PARTIAL_FACTOR,
-            // The prescription is mapped onto whatever layout is active, so a
-            // 31-band EQ gets a 31-band curve instead of a stretched 10-band one.
-            layout = _settings.value.layout,
+            layout = layoutFor(next),
         )
         _compensation.value = next.copy(result = result).withAppliedFlag(_settings.value)
+    }
+
+    private fun layoutFor(state: CompensationUiState): EqBandLayout =
+        compensationLayoutFor(state, _settings.value.layout)
+
+    /** Moves the EQ onto [AdjustedReference.LAYOUT]; no-op once it is there. */
+    private fun useGeneratedLayout() {
+        val current = _settings.value
+        if (current.layout == AdjustedReference.LAYOUT) return
+        commit(current.withLayout(AdjustedReference.LAYOUT))
+    }
+
+    /**
+     * Keeps the generated profile's promise while it is the active one: that it
+     * *is* the current aggregate of the runs, with no saved copy in between
+     * that could go stale.
+     *
+     * Two things can break that promise behind the user's back. A run added or
+     * deleted elsewhere changes the median, and until now only the preview
+     * followed — the EQ kept playing the old curve while the card claimed
+     * "median of N runs". And a profile selected by an earlier build sits on the
+     * ten-band grid, where two of the eight measured thresholds reach no band;
+     * recomputing it here is that migration, and it happens once.
+     *
+     * Deliberately not routed through [applyCompensation]: this is a
+     * correction, not a user action, so it must not silently cancel an A/B
+     * comparison or switch the EQ on behind them.
+     */
+    private fun syncGeneratedCurve() {
+        // Ordering guard, not an optimisation. Both flows come off the same
+        // DataStore and neither promises to arrive first; writing while
+        // _settings still holds the FLAT placeholder would save that placeholder
+        // over the curve that is still being read from disk. Every collector
+        // calls this, so whichever one arrives last does the work.
+        if (!settingsLoaded) return
+        if (!_compensation.value.adjustedReferenceActive) return
+        if (_compensation.value.result == null) return
+        useGeneratedLayout()
+        if (_compensation.value.applied) return
+        val generated = _compensation.value.result?.eq ?: return
+        compensationDrivesTheEq = true
+        commit(generated.copy(enabled = _settings.value.enabled))
     }
 
     private fun CompensationUiState.withAppliedFlag(live: EqSettings): CompensationUiState {
@@ -314,3 +413,19 @@ class EqViewModel : ViewModel() {
 
 private fun List<Float>.replaceAt(index: Int, value: Float): List<Float> =
     toMutableList().also { it[index] = value }
+
+/**
+ * Which band grid the prescription is mapped onto: [live] normally, so a
+ * 31-band EQ gets a 31-band curve instead of a stretched 10-band one — and
+ * [AdjustedReference.LAYOUT] whenever the generated profile is the active one,
+ * because there the grid is part of the measurement rather than a preference.
+ *
+ * A free function so the rule can be tested without an Android graph behind it.
+ * It is the whole of the fix for the 3 kHz / 6 kHz blindness on the UI side;
+ * the two call sites that switch the EQ's own layout only make the live EQ
+ * agree with what this already decided.
+ */
+internal fun compensationLayoutFor(
+    state: CompensationUiState,
+    live: EqBandLayout,
+): EqBandLayout = if (state.adjustedReferenceActive) AdjustedReference.LAYOUT else live

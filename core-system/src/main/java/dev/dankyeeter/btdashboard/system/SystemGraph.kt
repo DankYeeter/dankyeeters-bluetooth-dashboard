@@ -4,12 +4,19 @@ import android.content.Context
 import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizerFactory
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
+import dev.dankyeeter.btdashboard.system.attach.AudioEffectSessionReceiver
 import dev.dankyeeter.btdashboard.system.attach.EqController
 import dev.dankyeeter.btdashboard.system.attach.GlobalAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.attach.SessionAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate
+import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
+import dev.dankyeeter.btdashboard.system.devices.CodecPreference
+import dev.dankyeeter.btdashboard.system.devices.CodecPreferenceController
 import dev.dankyeeter.btdashboard.system.devices.DeviceConnectionWatcher
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfileApplier
+import dev.dankyeeter.btdashboard.system.devices.GlobalSettingsController
+import dev.dankyeeter.btdashboard.system.devices.SecureSettingsController
+import dev.dankyeeter.btdashboard.system.devices.UnavailableCodecPreferenceController
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
 import dev.dankyeeter.btdashboard.system.devices.EqCompensationApplier
 import dev.dankyeeter.btdashboard.system.devices.SystemMediaVolumeController
@@ -17,7 +24,6 @@ import dev.dankyeeter.btdashboard.system.persist.EqSettingsStore
 import dev.dankyeeter.btdashboard.system.persist.AppearanceStore
 import dev.dankyeeter.btdashboard.system.setup.SetupStore
 import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsGate
-import dev.dankyeeter.btdashboard.system.shizuku.ShizukuManager
 
 /**
  * Minimal process-wide wiring. Deliberately hand-rolled instead of a DI
@@ -28,7 +34,6 @@ object SystemGraph {
     @Volatile private var appContext: Context? = null
 
     private val lock = Any()
-    private var _shizuku: ShizukuManager? = null
     private var _store: EqSettingsStore? = null
     private var _controller: EqController? = null
     private var _secureSettings: SecureSettingsGate? = null
@@ -46,11 +51,6 @@ object SystemGraph {
 
     private fun ctx(): Context =
         requireNotNull(appContext) { "SystemGraph.init() must be called from Application.onCreate" }
-
-    val shizuku: ShizukuManager
-        get() = synchronized(lock) {
-            _shizuku ?: ShizukuManager(ctx()).also { _shizuku = it }
-        }
 
     val secureSettings: SecureSettingsGate
         get() = synchronized(lock) {
@@ -73,8 +73,13 @@ object SystemGraph {
             _controller ?: run {
                 val factory = DynamicsProcessingEqualizerFactory()
                 EqController(
-                    global = GlobalAttachmentStrategy(factory, shizuku),
+                    global = GlobalAttachmentStrategy(factory),
                     session = SessionAttachmentStrategy(factory),
+                    // The manifest session receiver only earns its wake-ups in
+                    // session mode; the controller flips it to match.
+                    setSessionReceiverEnabled = { enabled ->
+                        AudioEffectSessionReceiver.setComponentEnabled(ctx(), enabled)
+                    },
                 ).also { _controller = it }
             }
         }
@@ -91,6 +96,50 @@ object SystemGraph {
             _absoluteVolume ?: AbsoluteVolumeGate(ctx(), secureSettings).also { _absoluteVolume = it }
         }
 
+    @Volatile
+    private var installedCodec: CodecPreferenceController? = null
+
+    /**
+     * Installs the codec controller, in the same style as
+     * `MonitorGraph.installShellRunner`.
+     *
+     * Only `:app` can build one — it needs the privileged helper's Binder, and
+     * this module deliberately knows nothing about that. Until one is
+     * installed, [codecPreferences] answers "cannot check" rather than "no".
+     */
+    fun installCodecPreferenceController(controller: CodecPreferenceController) {
+        installedCodec = controller
+    }
+
+    /**
+     * Forwards to whatever `:app` installed, resolved on every call.
+     *
+     * Capturing the controller when the applier is first built would freeze
+     * whichever one existed at that moment — and the applier is built lazily by
+     * whoever touches it first, which is not guaranteed to be after
+     * `Application.onCreate` has finished wiring. One field read per call
+     * removes that ordering requirement entirely.
+     */
+    private val codecPreferences = object : CodecPreferenceController {
+        override fun isAvailable(): Boolean = installedCodec?.isAvailable() == true
+
+        override suspend fun apply(address: String, preference: CodecPreference): CodecApplyOutcome =
+            (installedCodec ?: UnavailableCodecPreferenceController).apply(address, preference)
+    }
+
+    private var _globalSettings: SecureSettingsController? = null
+
+    /**
+     * Also what the profile editor reads live values through. Cached like every
+     * other field here — the getter used to build a fresh controller per call,
+     * and the profile editor calls it once per developer option per refresh.
+     */
+    val globalSettings: SecureSettingsController
+        get() = synchronized(lock) {
+            _globalSettings
+                ?: GlobalSettingsController(ctx(), secureSettings).also { _globalSettings = it }
+        }
+
     val deviceProfileApplier: DeviceProfileApplier
         get() = synchronized(lock) {
             _applier ?: DeviceProfileApplier(
@@ -102,12 +151,15 @@ object SystemGraph {
                     controller = eqController,
                 ),
                 absoluteVolume = absoluteVolume,
+                secureSettings = globalSettings,
+                codec = codecPreferences,
             ).also { _applier = it }
         }
 
     val deviceConnectionWatcher: DeviceConnectionWatcher
         get() = synchronized(lock) {
             _watcher ?: DeviceConnectionWatcher(
+                onConnected = { eqController.ensureAttached() },
                 context = ctx(),
                 store = deviceProfiles,
                 applier = deviceProfileApplier,

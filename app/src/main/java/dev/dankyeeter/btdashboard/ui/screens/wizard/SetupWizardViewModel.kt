@@ -45,7 +45,6 @@ class SetupWizardViewModel(application: Application) : AndroidViewModel(applicat
     val stepCount: Int = SetupStep.entries.size
 
     fun refresh() {
-        SystemGraph.shizuku.refresh()
         tick.value += 1
     }
 

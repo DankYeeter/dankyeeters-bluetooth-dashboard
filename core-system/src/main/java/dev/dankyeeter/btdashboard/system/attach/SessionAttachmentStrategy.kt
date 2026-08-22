@@ -30,7 +30,7 @@ class SessionAttachmentStrategy(
             equalizers.isEmpty() -> AttachmentStatus.Unavailable(
                 "No app has announced an audio session yet. Players that do not " +
                     "broadcast their session (such as Tidal) require the global " +
-                    "attachment via Shizuku."
+                    "attachment through the privileged helper."
             )
             else -> AttachmentStatus.ActiveSessions(equalizers.keys.toSet())
         }

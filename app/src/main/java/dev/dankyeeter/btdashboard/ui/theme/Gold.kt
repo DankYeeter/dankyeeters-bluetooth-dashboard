@@ -4,7 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ProvidableCompositionLocal
-import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -45,8 +45,7 @@ object Gold {
      * rounded edges, and the asymmetry between them (a bright one at 38% and a
      * weaker one at 82%) is what stops the gradient reading as a printed ramp.
      */
-    val horizontal: Brush
-        get() = Brush.linearGradient(
+    val horizontal: Brush = Brush.linearGradient(
             0.00f to Shadow,
             0.12f to Deep,
             0.30f to Base,
@@ -59,8 +58,7 @@ object Gold {
         )
 
     /** Top-to-bottom sheen, for text and anything read as an engraved surface. */
-    val vertical: Brush
-        get() = Brush.verticalGradient(
+    val vertical: Brush = Brush.verticalGradient(
             0.00f to Pale,
             0.22f to Warm,
             0.44f to Highlight,
@@ -70,8 +68,7 @@ object Gold {
         )
 
     /** Filled controls: bright at the top, falling into shadow like a cast ingot. */
-    val fill: Brush
-        get() = Brush.verticalGradient(
+    val fill: Brush = Brush.verticalGradient(
             0.00f to Warm,
             0.18f to Highlight,
             0.42f to Base,
@@ -80,7 +77,23 @@ object Gold {
         )
 
     /** Faint metal edge for card outlines. */
-    val border: BorderStroke get() = BorderStroke(1.dp, horizontal)
+    val border: BorderStroke = BorderStroke(1.dp, horizontal)
+
+    /**
+     * The hand-tuned stops as a [MetalPalette], so the default accent travels
+     * through the same path as a chosen one. Deliberately the literal values
+     * rather than `MetalPalette.from(Base)`: the derivation approximates these
+     * to within a tenth of a channel, and the original should not shift
+     * slightly just because it now goes through a formula.
+     */
+    val asPalette: MetalPalette = MetalPalette(
+        shadow = Shadow,
+        deep = Deep,
+        base = Base,
+        warm = Warm,
+        pale = Pale,
+        highlight = Highlight,
+    )
 }
 
 /**
@@ -88,9 +101,29 @@ object Gold {
  * Material You the accent belongs to the wallpaper, and painting gold over it
  * would fight the system palette rather than follow it.
  */
-val LocalGoldAccents: ProvidableCompositionLocal<Boolean> = compositionLocalOf { false }
+val LocalGoldAccents: ProvidableCompositionLocal<Boolean> = staticCompositionLocalOf { false }
+
+/**
+ * The metal currently being painted.
+ *
+ * Defaults to the hand-tuned [Gold] so nothing that does not care has to think
+ * about it. A chosen accent replaces it wholesale, which is why every component
+ * reads its brushes from here rather than from [Gold] directly — a component
+ * that keeps reaching for the constant would stay gold while the rest of the
+ * app changed colour.
+ */
+val LocalMetalPalette: ProvidableCompositionLocal<MetalPalette> =
+    staticCompositionLocalOf { Gold.asPalette }
 
 @Composable
-fun ProvideGoldAccents(enabled: Boolean, content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalGoldAccents provides enabled, content = content)
+fun ProvideGoldAccents(
+    enabled: Boolean,
+    palette: MetalPalette = Gold.asPalette,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(
+        LocalGoldAccents provides enabled,
+        LocalMetalPalette provides palette,
+        content = content,
+    )
 }

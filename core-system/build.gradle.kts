@@ -23,8 +23,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     api(libs.androidx.datastore.preferences)
 
-    api(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

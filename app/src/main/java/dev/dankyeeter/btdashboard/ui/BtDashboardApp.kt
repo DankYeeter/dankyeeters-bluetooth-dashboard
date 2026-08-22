@@ -2,10 +2,11 @@ package dev.dankyeeter.btdashboard.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,26 +26,29 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.dankyeeter.btdashboard.system.SystemGraph
-import dev.dankyeeter.btdashboard.ui.screens.dashboard.DashboardScreen
+import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesScreen
 import dev.dankyeeter.btdashboard.ui.screens.eq.EqScreen
 import dev.dankyeeter.btdashboard.ui.screens.hearing.HearingTestScreen
 import dev.dankyeeter.btdashboard.ui.screens.monitor.MonitorScreen
-import dev.dankyeeter.btdashboard.ui.screens.onboarding.ShizukuOnboardingScreen
+import dev.dankyeeter.btdashboard.ui.screens.onboarding.SystemAccessScreen
 import dev.dankyeeter.btdashboard.ui.screens.settings.SettingsScreen
 import dev.dankyeeter.btdashboard.ui.screens.wizard.SetupWizardScreen
 
 enum class Destination(val route: String, val label: String, val icon: ImageVector) {
-    DASHBOARD("dashboard", "Dashboard", Icons.Filled.Speaker),
+    /** What the headphone is doing right now, plus its own settings. */
+    BLUETOOTH("bluetooth", "Bluetooth", Icons.Filled.Bluetooth),
     EQ("eq", "EQ", Icons.Filled.Equalizer),
-    HEARING("hearing", "Hearing Test", Icons.Filled.Hearing),
-    MONITOR("monitor", "Monitor", Icons.Filled.Insights),
+    /** The hearing test. Named for what it produces, not for what it measures. */
+    PROFILING("profiling", "Sound Profiling", Icons.Filled.Hearing),
+    MONITORING("monitoring", "Monitoring", Icons.Filled.Insights),
+    /** App-level: setup, backup, how-tos, appearance. */
+    SETTINGS("settings", "Settings", Icons.Filled.Settings),
 }
 
 const val ROUTE_ONBOARDING = "onboarding"
 const val ROUTE_WIZARD = "wizard"
 const val ROUTE_DEVICE_PROFILES = "device_profiles"
-const val ROUTE_SETTINGS = "settings"
 
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD)
@@ -74,7 +78,7 @@ fun BtDashboardApp() {
                             selected = currentRoute == dest.route,
                             onClick = {
                                 navController.navigate(dest.route) {
-                                    popUpTo(Destination.DASHBOARD.route) { saveState = true }
+                                    popUpTo(Destination.BLUETOOTH.route) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
@@ -89,7 +93,7 @@ fun BtDashboardApp() {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = Destination.DASHBOARD.route,
+            startDestination = Destination.BLUETOOTH.route,
             modifier = Modifier.padding(padding),
         ) {
             appGraph(
@@ -98,16 +102,15 @@ fun BtDashboardApp() {
                     // Popping the wizard on a fresh install would leave an empty
                     // back stack; fall back to the dashboard in that case.
                     if (!navController.popBackStack()) {
-                        navController.navigate(Destination.DASHBOARD.route) {
-                            popUpTo(Destination.DASHBOARD.route) { inclusive = true }
+                        navController.navigate(Destination.BLUETOOTH.route) {
+                            popUpTo(Destination.BLUETOOTH.route) { inclusive = true }
                         }
                     }
                 },
                 // "Watch live" starts deep capture and jumps to the timeline.
-                onWatchLive = { navController.navigate(Destination.MONITOR.route) },
+                onWatchLive = { navController.navigate(Destination.MONITORING.route) },
                 onOpenWizard = { navController.navigate(ROUTE_WIZARD) },
                 onOpenDeviceProfiles = { navController.navigate(ROUTE_DEVICE_PROFILES) },
-                onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
             )
         }
     }
@@ -119,22 +122,20 @@ private fun NavGraphBuilder.appGraph(
     onWatchLive: () -> Unit = {},
     onOpenWizard: () -> Unit = {},
     onOpenDeviceProfiles: () -> Unit = {},
-    onOpenSettings: () -> Unit = {},
 ) {
-    composable(Destination.DASHBOARD.route) {
-        DashboardScreen(
-            onOpenOnboarding = onOpenOnboarding,
+    composable(Destination.BLUETOOTH.route) {
+        BluetoothScreen(
             onWatchLive = onWatchLive,
-            onOpenWizard = onOpenWizard,
             onOpenDeviceProfiles = onOpenDeviceProfiles,
-            onOpenSettings = onOpenSettings,
         )
     }
     composable(Destination.EQ.route) { EqScreen() }
-    composable(Destination.HEARING.route) { HearingTestScreen() }
-    composable(Destination.MONITOR.route) { MonitorScreen() }
-    composable(ROUTE_ONBOARDING) { ShizukuOnboardingScreen(onDone = onBack) }
+    composable(Destination.PROFILING.route) { HearingTestScreen() }
+    composable(Destination.MONITORING.route) { MonitorScreen() }
+    composable(Destination.SETTINGS.route) {
+        SettingsScreen(onOpenWizard = onOpenWizard, onOpenOnboarding = onOpenOnboarding)
+    }
+    composable(ROUTE_ONBOARDING) { SystemAccessScreen(onDone = onBack) }
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }
     composable(ROUTE_DEVICE_PROFILES) { DeviceProfilesScreen(onBack = onBack) }
-    composable(ROUTE_SETTINGS) { SettingsScreen(onBack = onBack) }
 }

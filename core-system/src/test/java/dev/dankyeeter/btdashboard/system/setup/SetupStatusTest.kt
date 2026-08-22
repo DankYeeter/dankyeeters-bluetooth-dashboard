@@ -58,11 +58,11 @@ class SetupStatusTest {
 
     @Test
     fun `an unreachable step is blocked, not silently pending`() {
-        val states = SetupStatus.evaluate(FakeEnvironment(unreachable = setOf(SetupStep.SHIZUKU)), emptySet())
+        val states = SetupStatus.evaluate(FakeEnvironment(unreachable = setOf(SetupStep.SHELL_ACCESS)), emptySet())
 
-        assertEquals(SetupStepStatus.BLOCKED, states.single { it.step == SetupStep.SHIZUKU }.status)
+        assertEquals(SetupStepStatus.BLOCKED, states.single { it.step == SetupStep.SHELL_ACCESS }.status)
         // Blocked still counts as outstanding — the user should know about it.
-        assertTrue(SetupStatus.outstanding(states).any { it.step == SetupStep.SHIZUKU })
+        assertTrue(SetupStatus.outstanding(states).any { it.step == SetupStep.SHELL_ACCESS })
     }
 
     @Test

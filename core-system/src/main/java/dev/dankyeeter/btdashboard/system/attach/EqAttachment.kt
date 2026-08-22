@@ -38,7 +38,7 @@ interface EqAttachmentStrategy : AutoCloseable {
     override fun close() = deactivate()
 }
 
-enum class AttachmentKind { GLOBAL_SHIZUKU, SESSION_BROADCAST }
+enum class AttachmentKind { GLOBAL, SESSION_BROADCAST }
 
 sealed interface AttachmentStatus {
     data object Inactive : AttachmentStatus

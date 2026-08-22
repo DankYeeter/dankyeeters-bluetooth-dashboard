@@ -4,6 +4,7 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatusSource
 import dev.dankyeeter.btdashboard.monitor.codec.CodecController
+import dev.dankyeeter.btdashboard.monitor.codec.NoOpCodecController
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 
@@ -136,7 +137,7 @@ class DeviceDiagnosticRunner(
             }
         }
 
-        val cyclingResults = cycleCodecs(address)
+        val cyclingResults = cycleCodecs(address, restoreTo = negotiated)
         record(DiagnosticStep.CODEC_CYCLING, cyclingResults.first)
 
         val samples = soak(address, soakDurationMs, soakIntervalMs)
@@ -167,25 +168,70 @@ class DeviceDiagnosticRunner(
         return report
     }
 
-    /** @return the step outcome plus the best codec that actually held, if any. */
-    private suspend fun cycleCodecs(address: String): Pair<StepOutcome, CodecFamily?> {
+    /**
+     * Tries every offered codec, then puts the link back the way it was found.
+     *
+     * [restoreTo] is not a nicety. `setCodecConfigPreference` pins the codec it
+     * sets at `CODEC_PRIORITY_HIGHEST`, so without a restore the diagnostic
+     * silently leaves the headphone on whichever codec happened to be last in
+     * the list — observed on a Focal Bathys: a run ended with the device pinned
+     * to AAC at priority 1000000, and every later connection kept choosing AAC
+     * over the aptX HD it would otherwise negotiate. A read-only check that
+     * degrades the thing it measured is worse than no check.
+     *
+     * The restore is best-effort and deliberately not part of the verdict: if
+     * it fails the cycling result is still true, and the detail says the link
+     * was left elsewhere so nobody has to guess why their headphones sound
+     * different afterwards.
+     *
+     * @return the step outcome plus the best codec that actually held, if any.
+     */
+    private suspend fun cycleCodecs(
+        address: String,
+        restoreTo: CodecFamily?,
+    ): Pair<StepOutcome, CodecFamily?> {
         val available = codecController.availableCodecs(address)
         if (available.isEmpty()) {
-            return StepOutcome.Skipped(
-                "Codec switching needs privileged access we do not have yet — " +
-                    "verify on-device before enabling",
-            ) to null
+            // Two very different situations produce an empty list, and saying
+            // "no privileged access" for both sent a real debugging session
+            // down the wrong path for hours: the helper was running the whole
+            // time and the list was empty for its own reasons.
+            val reason = if (codecController === NoOpCodecController) {
+                "the privileged helper is not running, so no codec can be set or checked"
+            } else {
+                "the helper is running but reported no selectable codecs for this device"
+            }
+            return StepOutcome.Skipped("Codec switching skipped — $reason") to null
         }
         val accepted = mutableListOf<CodecFamily>()
         for (codec in available) {
             val applied = codecController.selectCodec(address, codec)
             if (applied == codec) accepted += codec
         }
+
+        // Put it back before reporting. Only when something was actually
+        // changed, and only to a codec the device offered — restoring to a
+        // family that is not in `available` would just pin the wrong one.
+        val restored = when {
+            accepted.isEmpty() -> null
+            restoreTo == null -> null
+            accepted.last() == restoreTo -> restoreTo
+            restoreTo !in available -> null
+            else -> codecController.selectCodec(address, restoreTo)
+        }
+        val restoreNote = when {
+            accepted.isEmpty() -> ""
+            restoreTo == null -> " — the codec before the run was unknown, so the link was left on ${accepted.last().displayName}"
+            restored == restoreTo -> " — restored to ${restoreTo.displayName}"
+            else -> " — could not restore ${restoreTo.displayName}; the link is on ${accepted.last().displayName}"
+        }
+
         return if (accepted.isEmpty()) {
             StepOutcome.Warned("None of the ${available.size} offered codecs could be applied") to null
         } else {
-            StepOutcome.Passed("Applied: ${accepted.joinToString { it.displayName }}") to
-                accepted.maxByOrNull { CODEC_PREFERENCE.indexOf(it) }
+            StepOutcome.Passed(
+                "Applied: ${accepted.joinToString { it.displayName }}$restoreNote",
+            ) to accepted.maxByOrNull { CODEC_PREFERENCE.indexOf(it) }
         }
     }
 

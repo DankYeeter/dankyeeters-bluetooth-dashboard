@@ -37,5 +37,33 @@ class AudioEffectSessionReceiver : BroadcastReceiver() {
         @Volatile
         @JvmStatic
         var strategy: SessionAttachmentStrategy? = null
+
+        /**
+         * Enables or disables the manifest component to match [strategy].
+         *
+         * These broadcasts fire on every track change of every well-behaved
+         * player on the phone, and a manifest receiver means each one wakes
+         * this process. In global mode — the common case on this device — the
+         * first line of [onReceive] then drops the delivery, so the process
+         * was started for nothing, all day long. Session mode is the only
+         * consumer, so the component is switched on exactly then.
+         *
+         * DONT_KILL_APP: this runs from inside the running app; the default
+         * behaviour of killing the package on a component change would end
+         * the EQ service that just made the call.
+         */
+        fun setComponentEnabled(context: Context, enabled: Boolean) {
+            runCatching {
+                context.packageManager.setComponentEnabledSetting(
+                    android.content.ComponentName(context, AudioEffectSessionReceiver::class.java),
+                    if (enabled) {
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    } else {
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    },
+                    android.content.pm.PackageManager.DONT_KILL_APP,
+                )
+            }.onFailure { Log.w(TAG, "could not toggle the session receiver", it) }
+        }
     }
 }

@@ -48,17 +48,16 @@ class UnavailableQualityReportSource(reason: String) : QualityReportSource {
 }
 
 /**
- * Best-effort BQR registration under Shizuku's shell identity.
+ * Best-effort BQR registration, attempted reflectively from the app uid.
  *
  * ### What this code actually does
  * `BluetoothAdapter.registerBluetoothQualityReportReadyCallback(Executor,
  * BluetoothQualityReportReadyCallback)` is `@SystemApi` + `@RequiresPermission
  * (BLUETOOTH_PRIVILEGED)`. It is resolved reflectively and invoked with a
  * dynamic proxy for the callback interface. The permission check happens in the
- * Bluetooth server process against the *calling uid*, and our calls run under
- * the app uid even when Shizuku is available — a Shizuku binder only makes the
- * shell uid available to code we hand to Shizuku's own process, and the AOSP
- * adapter API has no such indirection.
+ * Bluetooth server process against the *calling uid*, and this call runs under
+ * the app uid — no shell identity in this project (the privileged helper
+ * included) reaches into an in-process API call.
  *
  * So this is expected to fail with SecurityException on stock Android 13-15,
  * and the class reports that as a clean [QualityReportAvailability.Unavailable]
@@ -70,7 +69,7 @@ class UnavailableQualityReportSource(reason: String) : QualityReportSource {
  *
  * **Needs on-device verification** on Android 17 / Pixel 11 Pro — see PLAN.md.
  */
-class ShizukuQualityReportSource(
+class ReflectiveQualityReportSource(
     private val context: Context,
 ) : QualityReportSource {
 
@@ -79,11 +78,35 @@ class ShizukuQualityReportSource(
     )
     override val availability: StateFlow<QualityReportAvailability> = state
 
+    /**
+     * `start()` is called from `MonitorViewModel.init`, i.e. every time the
+     * Monitor destination builds a ViewModel — a config change is enough. Each
+     * successful registration would hand the Bluetooth stack a *new* proxy, and
+     * there is no unregister path here (see [stop]), so the callbacks would
+     * accumulate for the life of the process and every report would arrive once
+     * per registration.
+     *
+     * Registering only once is therefore the contract, not an optimisation.
+     * **This cannot be observed on the current device**: registration fails with
+     * SecurityException on stock Android 13-15, so today the guard is never
+     * reached and the leak has never happened. It is the build where the call
+     * *succeeds* that this protects, which is the one the class exists for.
+     */
     override suspend fun start(): QualityReportAvailability {
+        if (state.value.isActive) return state.value
         state.value = attemptRegistration()
         return state.value
     }
 
+    /**
+     * Marks the source inactive. It does **not** unregister: the hidden API has
+     * an `unregisterBluetoothQualityReportReadyCallback` counterpart, but the
+     * proxy handed to `register` is not kept anywhere to pass back to it, and
+     * inventing that plumbing against a call that has never succeeded on any
+     * device here would be untested code guarding an untested path. Recorded
+     * rather than hidden: whoever makes registration work must add the unlink
+     * in the same change, or the callback outlives every consumer.
+     */
     override suspend fun stop() {
         state.value = QualityReportAvailability.Unavailable("stopped")
     }
@@ -139,6 +162,6 @@ class ShizukuQualityReportSource(
     }
 
     private companion object {
-        const val TAG = "ShizukuBqrSource"
+        const val TAG = "BqrSource"
     }
 }
