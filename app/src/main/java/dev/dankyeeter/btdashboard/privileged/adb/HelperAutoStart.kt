@@ -88,6 +88,9 @@ class HelperAutoStart(private val context: Context) {
 
     /** Runs [attempt] and writes the verdict where a bug report can find it. */
     suspend fun attemptAndLog(): Outcome = attempt().also { outcome ->
+        // Reported alongside the outcome because the next step - pairing -
+        // stands or falls with it, and the answer is cheap to ask for.
+        AdbPairingCapability.log()
         when (outcome) {
             is Outcome.Broken -> Log.w(TAG, "auto-start failed at ${outcome.step}: ${outcome.detail}")
             else -> Log.i(TAG, "auto-start outcome: $outcome")
