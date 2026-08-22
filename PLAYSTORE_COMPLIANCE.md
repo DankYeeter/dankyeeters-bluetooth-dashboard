@@ -64,3 +64,52 @@ Realistischer Weg. Zwei im Code sichtbare Gründe:
 Für beide Flavors bleiben: B2, B3, R3–R7. Der Bezahlaspekt öffnet **keine**
 QAP-Ausnahme (Kategorien sind funktions-, nicht preisbezogen), erhöht nur die
 Erwartung an Sorgfalt (Lizenz-Attribution, Verbraucher-/Erstattungsrecht).
+
+---
+
+# Nachtrag (22. August, abends): Session-Ernte
+
+Neue Funktion, neue Prüfung. Die App liest über den privilegierten Helfer
+`dumpsys audio`, um die Audio-Session-IDs laufender Player zu erfahren — nötig,
+weil Android sie einer normalen App bewusst verbirgt (`getSessionId()` liefert
+0) und weil Tidal seine Session nie ankündigt.
+
+## Einordnung
+
+**R4 — `dumpsys audio` liest Fremd-App-Zustand.** Das ist der heikelste Punkt
+der Funktion, und er soll hier nicht kleingeredet werden: die Anonymisierung
+fremder Session-IDs ist eine bewusste Plattform-Entscheidung, und wir umgehen
+sie. Vier Umstände relativieren das, keiner hebt es auf:
+
+- Es geht **nur** über den Helfer, den der Nutzer selbst per ADB startet. Ohne
+  ihn passiert nichts; die Funktion fehlt einfach.
+- Der Parser (`PlaybackSessionParser`) behält **ausschließlich Integer-IDs**.
+  Paketname, Metadaten und Inhalt werden verworfen, bevor irgendetwas die
+  Funktion verlässt — nachprüfbar, es ist eine reine Funktion über Text.
+- Nichts wird gespeichert und nichts gesendet. Die App hat **kein**
+  INTERNET-Permission.
+- Der Befehl ist rein lesend und steht namentlich auf der Helfer-Whitelist
+  (`PrivilegedProtocol.ALLOWED`), die ein Test auf ihre Größe festnagelt.
+
+**Bewertung für den Store:** kein *eigener* harter Blocker, aber es verschärft
+**R1**. Ein Reviewer, der den Helfer akzeptiert, wird auch das hier
+akzeptieren; wer den Helfer beanstandet, beanstandet beides. Die Funktion steht
+und fällt also mit der Flavor-Trennung, nicht mit sich selbst.
+
+**Data Safety (B2):** die Ernte ändert die Antwort nicht — es werden keine
+personenbezogenen Daten erhoben, verarbeitet oder übertragen. Eine
+Session-ID ist eine prozesslokale Ganzzahl ohne Bezug zur Person. Trotzdem
+gehört in die Store-Beschreibung ein ehrlicher Satz, dass die App im
+Helfer-Modus systemweite Wiedergabezustände liest, um den Equalizer
+anzuwenden.
+
+## Empfehlung, unverändert
+
+Store-Flavor **ohne** Helfer und **ohne** QUERY_ALL_PACKAGES; die Ernte gehört
+in den Sideload-Flavor. Damit ist die Store-Version unstrittig und verliert
+genau die Fähigkeiten, die ohne Helfer ohnehin nicht funktionieren würden.
+
+Wichtig für die Erwartung: der Store-Flavor kann über Bluetooth dann **nur**
+Player korrigieren, die ihre Session ankündigen — der globale Pfad ist dort
+gemessen wirkungslos (siehe HANDOVER). Tidal wäre in der Store-Version also
+nicht abgedeckt, in der Sideload-Version schon.
