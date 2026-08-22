@@ -160,11 +160,23 @@ internal object Ed25519 {
 
     fun subtract(a: Point, b: Point): Point = add(a, negate(b))
 
-    /** Double-and-add. Not constant-time; see the class note on why that is allowed here. */
+    /**
+     * Double-and-add, with the scalar taken **as given**.
+     *
+     * Deliberately no reduction modulo [L] first. That reduction is harmless
+     * for points of prime order and wrong for everything else: SPAKE2
+     * multiplies its private key by 8 precisely so that any small-order
+     * component of the peer's point is wiped out, and reducing the scalar
+     * afterwards would undo that and hand a torsion component straight into
+     * the shared secret. Callers that want the reduction can do it themselves.
+     *
+     * Not constant-time; see the class note on why that is allowed here.
+     */
     fun scalarMultiply(scalar: BigInteger, point: Point): Point {
+        require(scalar.signum() >= 0) { "negative scalar" }
         var result = IDENTITY
         var addend = point
-        var k = scalar.mod(L)
+        var k = scalar
         while (k.signum() > 0) {
             if (k.testBit(0)) result = add(result, addend)
             addend = add(addend, addend)
