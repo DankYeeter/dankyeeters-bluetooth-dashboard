@@ -11,17 +11,23 @@ import org.junit.Test
 /**
  * The fallback that exists because an attached equaliser can still be silent.
  *
- * Measured over Bluetooth on a Pixel: an 18 dB cut on the output mix moved the
- * sound by 0,4 dB, while the same cut on a track's own session moved it by 7 to
- * 10 dB. Spatial Audio routes through a SPATIALIZER thread that does not pass
- * the output-mix effect chain — and reports nothing wrong while doing it. The
- * global attach "succeeds", so the controller cannot learn this from the
- * strategy's own status; it has to ask beforehand.
+ * Measured over Bluetooth on a Pixel with an 18 dB cut: on the output mix the
+ * sound moved by 0,2 dB on every band, on a track's own session by 6 to 9 dB,
+ * against a measured noise floor of about 3 dB. The global attach nevertheless
+ * *succeeds* - it reports itself active, its gains read back correctly, and it
+ * does nothing. So the controller cannot learn this from the strategy's own
+ * status; it has to ask beforehand.
  *
- * These tests pin that decision, because the failure it prevents is invisible:
- * the app would look attached and correct nothing.
+ * Spatial Audio was the first suspect and the wrong one: the A2DP route runs
+ * through a SPATIALIZER output thread, which looked conclusive, but switching
+ * Spatial Audio off changed nothing over three further runs. The rule that
+ * matches the measurements is about the **route**, not the spatializer - hence
+ * [OutputMixReachGate] and this test's name.
+ *
+ * These cases are pinned because the failure they prevent is invisible: the app
+ * would look attached and correct nothing.
  */
-class EqControllerSpatializerTest {
+class EqControllerReachTest {
 
     private val settings = EqSettings.FLAT.copy(enabled = true)
 
@@ -37,7 +43,7 @@ class EqControllerSpatializerTest {
     }
 
     @Test
-    fun `falls back to session mode when the spatializer bypasses the output mix`() {
+    fun `falls back to session mode when the output mix cannot be heard`() {
         // The point of the test: global would have reported success if asked.
         val global = FakeGlobal(AttachmentStatus.ActiveGlobal(sessionId = 0))
         val controller = controller(global, globalReaches = false)
@@ -73,9 +79,9 @@ class EqControllerSpatializerTest {
         controller.apply(settings)
         assertFalse(global.activated)
 
-        // Route moved back to the speaker: the spatializer disengages and the
-        // wider attach point becomes available again. A gate consulted only
-        // once would leave the user in session mode forever.
+        // Route moved back to the speaker, where the output mix demonstrably
+        // works. A gate consulted only once would leave the user in session
+        // mode forever.
         reaches = true
         controller.apply(settings)
         assertTrue("global reach must be reclaimed once it works again", global.activated)

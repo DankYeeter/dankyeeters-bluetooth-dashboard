@@ -14,11 +14,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * for well-behaved players.
  *
  * @param globalAttachReachesOutput asked before every global attach. Attaching
- *   to the output mix succeeds even when the spatializer has taken the route
- *   over, and then does nothing at all — see [SpatializerGate]. Trusting the
- *   attach means shipping a silent EQ; asking first means falling back to
- *   session mode, which reaches fewer players but is audible. Defaults to
- *   "yes" so tests and callers that do not care are unaffected.
+ *   to the output mix succeeds over Bluetooth and then does nothing at all -
+ *   measured, see [OutputMixReachGate]. Trusting the attach means shipping a
+ *   silent EQ; asking first means falling back to session mode, which reaches
+ *   fewer players but is audible. Defaults to "yes" so tests and callers that
+ *   do not care are unaffected.
  * @param setSessionHarvestEnabled runs alongside the receiver, and for the same
  *   reason: players that never broadcast (Tidal) can only be reached by reading
  *   their session id through the privileged helper. Both are off in global mode
@@ -33,8 +33,8 @@ import kotlinx.coroutines.flow.asStateFlow
 class EqController(
     // The interface, not the concrete class: the only thing this needs from the
     // global path is the strategy contract, and a seam here is what lets the
-    // spatializer fallback be tested without an audio HAL. [session] stays
-    // concrete because the broadcast receiver calls its session callbacks.
+    // fallback be tested without an audio HAL. [session] stays concrete because
+    // the broadcast receiver calls its session callbacks.
     private val global: EqAttachmentStrategy,
     private val session: SessionAttachmentStrategy,
     private val globalAttachReachesOutput: () -> Boolean = { true },
@@ -56,8 +56,8 @@ class EqController(
             return
         }
 
-        // Ask before attaching, not after: a global attach that the spatializer
-        // bypasses still reports success, so its own status cannot be trusted
+        // Ask before attaching, not after: a global attach that never reaches
+        // the output still reports success, so its own status cannot be trusted
         // to notice.
         val globalIsInaudibleHere = !globalAttachReachesOutput()
         val globalStatus = if (!globalIsInaudibleHere) {
@@ -121,12 +121,12 @@ class EqController(
             return
         }
 
-        // A live attachment is not necessarily the *right* attachment. Connecting
-        // Bluetooth to a phone that was playing through its speaker engages the
-        // spatializer, and the global effect that was audible a second ago goes
-        // silent without changing its status by one field. Checking only for a
-        // dead attachment would sail straight past that: the effect is alive, it
-        // just stopped reaching anyone. The reverse matters too - unplugging
+        // A live attachment is not necessarily the *right* attachment. Connect
+        // Bluetooth to a phone that was playing through its speaker and the
+        // global effect that was audible a second ago goes silent, without
+        // changing its status by one field. Checking only for a dead attachment
+        // would sail straight past that: the effect is alive, it just stopped
+        // reaching anyone. The reverse matters too - unplugging
         // should win the wider reach back instead of leaving the user in session
         // mode until they next touch a slider.
         val wrongModeForThisRoute = when (current.kind) {
