@@ -167,6 +167,21 @@ class EqController(
         return attached
     }
 
+    /**
+     * Writes the current settings to whatever is attached, changing nothing.
+     *
+     * Exists because an effect can be attached and silently switched off, and
+     * the app has no way to find out - see [PlaybackSessionHarvester].
+     * Re-applying is the only reliable repair.
+     */
+    fun reassertCurrentSettings() {
+        if (!settings.enabled) return
+        // Re-applying settings is not enough - the effect has to be built again.
+        // See SessionAttachmentStrategy.reattachAll for why.
+        if (active === session) session.reattachAll() else active?.update(settings)
+        active?.let { _status.value = it.status }
+    }
+
     fun deactivate() {
         global.deactivate()
         session.deactivate()

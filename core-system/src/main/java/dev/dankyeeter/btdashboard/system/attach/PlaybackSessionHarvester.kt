@@ -56,6 +56,8 @@ class PlaybackSessionHarvester(
     private val runPrivileged: suspend (List<String>) -> String?,
     /** Returns whether every session was actually attached; false means retry. */
     private val onSessionsChanged: (Set<Int>) -> Boolean,
+    /** Re-applies the current settings to whatever is attached. See [SETTLE_MS]. */
+    private val reassertSettings: () -> Unit = {},
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -156,7 +158,35 @@ class PlaybackSessionHarvester(
         // session - and treating a failed attempt as done would leave the EQ
         // inert until the set of players happened to change again. Leaving
         // lastReported alone turns the next playback event into a free retry.
-        if (onSessionsChanged(sessions)) lastReported = sessions
+        if (!onSessionsChanged(sessions)) return
+        lastReported = sessions
+        if (sessions.isNotEmpty()) scheduleSettleCheck()
+    }
+
+    /**
+     * Applies the settings a second time, a moment after attaching.
+     *
+     * Attaching to a player that started while the phone was still booting
+     * leaves the effect present but **switched off** in AudioFlinger - measured
+     * repeatedly on the device. The app cannot see this: `setEnabled` reports
+     * success, `getEnabled` reads back true, and `hasControl` is true, all while
+     * the chain says otherwise. The client-side view is simply not the truth.
+     *
+     * Since the state cannot be read, it is re-asserted. A later playback event
+     * already fixed it by accident - pausing and resuming was the workaround -
+     * so this is that same repair, done deliberately and without waiting for the
+     * user to press something.
+     *
+     * The cost is one extra settings write per attach, on a path that runs when
+     * music starts. Nothing polls, and nothing runs if nothing attached.
+     */
+    private fun scheduleSettleCheck() {
+        pending?.cancel()
+        pending = scope.launch {
+            delay(SETTLE_MS)
+            Log.i(TAG, "re-asserting settings after attach")
+            reassertSettings()
+        }
     }
 
     private companion object {
@@ -167,5 +197,12 @@ class PlaybackSessionHarvester(
          * out the burst turns them into one helper call instead of four.
          */
         const val DEBOUNCE_MS = 400L
+
+        /**
+         * Long enough to clear the startup race that leaves a fresh effect
+         * disabled, short enough that nobody listens to uncorrected audio for
+         * meaningfully long.
+         */
+        const val SETTLE_MS = 2_500L
     }
 }

@@ -3255,3 +3255,36 @@ the system-wide equalizer through..."*.
 Ich hatte die Spatializer-These vorschnell als "die Antwort" verkauft, bevor die
 Messkette validiert war. Der A/A-Test haette vor jeder Schlussfolgerung stehen
 muessen; er existiert jetzt und ist die Bedingung fuer alle weiteren Aussagen.
+
+## Erst-Attach geloest: ein frischer Effekt, kein erneutes Anwenden
+
+**Symptom.** Nach einem Kaltstart haengt der EQ an Tidals Session, wirkt aber
+nicht. AudioFlinger zeigt `Registered=y, Enabled=n`, waehrend die App
+`setEnabled` erfolgreich meldet, `getEnabled` true zurueckliest und
+`hasControl` true ist. Die App kann den Fehler also nicht sehen.
+
+**Zwei Messfehler auf dem Weg, beide meine.** Erstens habe ich lange nur die
+erste Trefferzeile im `dumpsys` gelesen — auf der Session liegen aber mehrere
+Effekte, darunter eine "Decibel Spatializer Library", und ein `-A40`-Fenster
+greift in die Nachbarkette. Zweitens gehoerte eine der abgelesenen Zeilen zu
+Session `-0001`, nicht zu 8009. Erst eine Auswertung, die jede Effekt-ID mit
+*ihrer eigenen* Flag-Zeile paart, war belastbar. Danach war der Fehler
+reproduzierbar: 2 von 3 Kaltstarts.
+
+**Was nicht half.** Ein `setEnabled` mit Rueckleseprüfung und Wiederholung — die
+Rueckgabe luegt. Und ein erneutes Anwenden der Einstellungen auf dasselbe
+Effekt-Objekt: gemessen ueber drei Kaltstarts, blieb `Enabled=n`.
+
+**Was half.** Ein *frisch erzeugter* Effekt auf derselben Session. Das steckte
+die ganze Zeit im Workaround: Pause/Play reparierte es, und was Pause wirklich
+tut, ist den Effekt zu schliessen und beim Fortsetzen neu anzulegen.
+
+**Fix.** `SessionAttachmentStrategy.reattachAll()` schliesst und baut jeden
+angehaengten Effekt neu. Der Harvester ruft das 2,5 s nach einem erfolgreichen
+Attach einmalig auf (`SETTLE_MS`). Kosten: eine Luecke von Millisekunden in der
+Korrektur, einmal, direkt nach dem Anhaengen. Verifiziert: 3 von 3 Kaltstarts
+`Enabled=y`.
+
+Die Lebenslauf-Logs in `SessionAttachmentStrategy` und `DynamicsProcessingEqualizer`
+bleiben drin — sie feuern einmal pro Attach und waren das einzige Mittel, das
+diesen Fehler sichtbar gemacht hat.

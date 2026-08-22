@@ -149,6 +149,7 @@ object SystemGraph {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             runPrivileged = { command -> installedShell?.invoke(command) },
             onSessionsChanged = { sessions -> eqController.onHarvestedSessions(sessions) },
+            reassertSettings = { eqController.reassertCurrentSettings() },
         )
     }
 
