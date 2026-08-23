@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.security.interfaces.RSAPublicKey
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPair
@@ -71,6 +74,70 @@ class AdbKeyStore(context: Context) {
     fun publicKeyBase64(): String =
         Base64.encodeToString(keyPair().public.encoded, Base64.NO_WRAP)
 
+    /**
+     * The public key in the shape `adbd` stores in its trusted list.
+     *
+     * **Not** the standard `SubjectPublicKeyInfo` that [publicKeyBase64]
+     * returns. adb carries its own packed structure, inherited from a
+     * bootloader-era Montgomery implementation, and stores base64 of *that*
+     * followed by a space and a name:
+     *
+     * ```
+     * uint32  len       modulus length in 32-bit words (64 for RSA-2048)
+     * uint32  n0inv     -1 / n[0] mod 2^32
+     * uint32  n[64]     modulus, little-endian words
+     * uint32  rr[64]    R^2 mod n, with R = 2^2048
+     * int32   exponent  65537
+     * ```
+     *
+     * Everything is little-endian. `n0inv` and `rr` are precomputed Montgomery
+     * helpers that adb could derive but stores instead - they must be right,
+     * because the daemon reads them rather than recomputing.
+     *
+     * Sending an X.509 blob here does not fail loudly: the daemon happily
+     * writes the line into `adb_keys` and then never matches it against the
+     * certificate we present, so pairing "succeeds" and every later connection
+     * is refused as untrusted.
+     *
+     * The trailing name is what a person sees when reviewing trusted keys.
+     */
+    fun adbFormatPublicKey(name: String = DEFAULT_KEY_NAME): String {
+        val modulus = (keyPair().public as RSAPublicKey).modulus
+        val words = modulus.bitLength().let { (it + 31) / 32 }
+        require(words == RSA_WORDS) { "expected a $KEY_SIZE-bit key, got ${modulus.bitLength()}" }
+
+        val buffer = ByteBuffer.allocate(4 + 4 + RSA_WORDS * 4 * 2 + 4)
+            .order(ByteOrder.LITTLE_ENDIAN)
+
+        buffer.putInt(RSA_WORDS)
+
+        // n0inv = -(n mod 2^32)^-1 mod 2^32, as an unsigned 32-bit value.
+        val base = BigInteger.ONE.shiftLeft(32)
+        val n0 = modulus.mod(base)
+        buffer.putInt(base.subtract(n0.modInverse(base)).toInt())
+
+        putLittleEndianWords(buffer, modulus)
+
+        // rr = R^2 mod n, R = 2^(32 * words)
+        val rr = BigInteger.ONE.shiftLeft(32 * RSA_WORDS * 2).mod(modulus)
+        putLittleEndianWords(buffer, rr)
+
+        buffer.putInt(EXPONENT)
+
+        val encoded = Base64.encodeToString(buffer.array(), Base64.NO_WRAP)
+        return "$encoded $name"
+    }
+
+    /** Writes [value] as exactly [RSA_WORDS] little-endian 32-bit words. */
+    private fun putLittleEndianWords(buffer: ByteBuffer, value: BigInteger) {
+        var remaining = value
+        val mask = BigInteger.ONE.shiftLeft(32) - BigInteger.ONE
+        repeat(RSA_WORDS) {
+            buffer.putInt(remaining.and(mask).toLong().toInt())
+            remaining = remaining.shiftRight(32)
+        }
+    }
+
     /** Forgets the identity; the next connection will need pairing again. */
     fun clear() = synchronized(this) {
         privateFile.delete()
@@ -128,6 +195,13 @@ class AdbKeyStore(context: Context) {
     private companion object {
         const val TAG = "AdbKeyStore"
         const val KEY_SIZE = 2048
+
+        /** 2048-bit modulus as 32-bit words; adb's structure is fixed-width. */
+        const val RSA_WORDS = KEY_SIZE / 32
+        const val EXPONENT = 65537
+
+        /** Shown next to the key when someone reviews the trusted list. */
+        const val DEFAULT_KEY_NAME = "btdashboard@android"
         const val SIGNATURE_ALGORITHM = "SHA256withRSA"
         const val SUBJECT = "CN=BT Dashboard"
 
