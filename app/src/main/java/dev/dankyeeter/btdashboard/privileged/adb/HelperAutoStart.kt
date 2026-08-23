@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.privileged.adb
 
 import android.content.Context
 import android.util.Log
+import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,8 +28,8 @@ class HelperAutoStart(private val context: Context) {
         /** Reached adbd; it does not know this app's key yet. Pairing is next. */
         data class NeedsPairing(val endpoint: String, val detail: String) : Outcome
 
-        /** adbd accepted the key. Running the helper command comes next. */
-        data class Connected(val endpoint: String) : Outcome
+        /** adbd accepted the key and the helper command ran. */
+        data class Started(val endpoint: String, val output: String) : Outcome
 
         /** Something broke before a verdict was possible. */
         data class Broken(val step: String, val detail: String) : Outcome
@@ -69,9 +70,12 @@ class HelperAutoStart(private val context: Context) {
             }
 
             when (val result = client.connect(endpoint)) {
-                is AdbTlsClient.Result.Connected -> {
-                    result.session.close()
-                    return@withContext Outcome.Connected(endpoint.toString())
+                is AdbTlsClient.Result.Connected -> result.session.use { session ->
+                    // The whole point of the exercise: adbd trusts us, so the
+                    // helper can be started from the phone itself.
+                    val output = AdbShell.execute(session.input, session.output, helperCommand())
+                        ?: return@withContext Outcome.Broken("shell", "stream did not open")
+                    return@withContext Outcome.Started(endpoint.toString(), output)
                 }
 
                 // Reaching the trust decision means this endpoint was the live
@@ -96,6 +100,15 @@ class HelperAutoStart(private val context: Context) {
             else -> Log.i(TAG, "auto-start outcome: $outcome")
         }
     }
+
+    /**
+     * The command that brings the helper up, minted fresh.
+     *
+     * Asking [PrivilegedBootstrap] rather than assembling it here: the token
+     * rotates, and a copy of the command would keep working right up until it
+     * quietly did not.
+     */
+    private fun helperCommand(): String = PrivilegedBootstrap(context).deviceShellCommand()
 
     private fun Throwable.describe() = "${javaClass.simpleName}: $message"
 

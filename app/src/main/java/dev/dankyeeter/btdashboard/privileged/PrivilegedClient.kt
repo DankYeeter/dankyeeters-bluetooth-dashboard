@@ -146,14 +146,29 @@ class PrivilegedBootstrap(context: Context) {
         return adbCommand()
     }
 
-    private fun command(token: String): String = buildString {
-        append("adb shell 'CLASSPATH=$(pm path ")
+    private fun command(token: String): String = "adb shell '" + shellCommand(token) + "'"
+
+    /**
+     * The same command without the `adb shell '...'` wrapper.
+     *
+     * The app can now open a shell on its own phone and run this itself. There
+     * is no `adb` on that path, and the surrounding quotes would become part of
+     * the command rather than protecting it.
+     *
+     * Deliberately next to [command] rather than in the ADB client: the two
+     * must stay identical in substance, and the surest way to let them drift is
+     * to keep them in different files.
+     */
+    fun deviceShellCommand(): String = shellCommand(sessionToken())
+
+    private fun shellCommand(token: String): String = buildString {
+        append("CLASSPATH=$(pm path ")
         append(packageName)
         append(" | grep base.apk | cut -d: -f2) nohup app_process /system/bin ")
         append("--nice-name=${PrivilegedContract.HELPER_PROCESS_NAME} ")
         append("dev.dankyeeter.btdashboard.privileged.PrivilegedServer ")
         append(token)
-        append(" >/dev/null 2>&1 &'")
+        append(" >/dev/null 2>&1 &")
     }
 
     /**
