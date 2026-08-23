@@ -53,3 +53,53 @@ nicht blind.
 - Ob die Shell-Identität BQR/setCodecConfigPreference auf dem 17-Mainline-Stack
   noch erreicht.
 - Ob die greylist-Reflection durch targetSdk 37 hart blockiert wird.
+
+---
+
+# Zweite Pruefung (22. August, abends): ADB Wi-Fi 2.0
+
+Anlass ist der Helferstart ohne PC, den es bei der ersten Pruefung noch nicht
+gab. Er haengt vollstaendig am drahtlosen Debugging, und genau daran ruehrt
+Android 17.
+
+## Was sich aendert
+
+**ADB Wi-Fi 2.0**, zusammen mit adb 37.0.0. Der alte Unterbau wurde durch eine
+neue Rust-Bibliothek (~4000 Zeilen) ersetzt. Fuer den Nutzer sichtbar:
+
+- **Automatische Wiederverbindung in vertrauenswuerdigen Netzen.** Das Geraet
+  verbindet sich von allein wieder, sobald es in ein bekanntes WLAN kommt.
+- **Netzerkennung ueber SSID *und* BSSID** statt nur BSSID, damit Umgebungen
+  mit mehreren Zugangspunkten die Verbindung nicht mehr zerreissen.
+
+## Was das fuer uns heisst
+
+**Ueberwiegend gut.** Das groesste Alltagsproblem unseres Selbststarts ist, dass
+das drahtlose Debugging sich abschaltet - heute mehrfach beobachtet, unter
+anderem sobald ein USB-Kabel mit aktivem Debugging steckt und immer dann, wenn
+kein WLAN verbunden ist. Genau diese Reibung adressiert 17. Der Helferstart
+wird dort also *zuverlaessiger*, nicht schwieriger.
+
+**Ein Risiko bleibt, und es ist ernstzunehmen.** Eine Neuimplementierung ist
+die klassische Gelegenheit fuer Protokollabweichungen, und unsere Kopplung ist
+handgebaut. Zwei Dinge sprechen dagegen, dass es bricht: die Kopplung nutzt
+weiterhin SPAKE2, und ein Android-17-Geraet muss sich weiterhin mit aelteren
+adb-Versionen koppeln lassen - das erzwingt Abwaertskompatibilitaet auf der
+Leitung.
+
+**Zu pruefen, sobald ein 17-Geraet oder -Emulator erreichbar ist:**
+Kopplung durchfuehren und den Helfer starten. Bricht etwas, dann am ehesten im
+Paketkopf oder in der Nutzlast, nicht in der Kryptografie.
+
+## Unabhaengige Referenz
+
+`MuntashirAkon/spake2-java` ist eine SPAKE2-Implementierung in Java, die
+nachweislich mit drahtlosem Debugging arbeitet. Zwei Dinge wert: sie belegt,
+dass der Weg in reinem Java traegt, und sie ist eine zweite Quelle, gegen die
+sich unsere Ableitung vergleichen laesst, falls die Kopplung am Geraet
+scheitert und die Ursache nicht offensichtlich ist.
+
+Quellen:
+- https://www.androidauthority.com/android-17-adb-wi-fi-2-0-3678411/
+- https://developer.android.com/tools/adb
+- https://github.com/MuntashirAkon/spake2-java
