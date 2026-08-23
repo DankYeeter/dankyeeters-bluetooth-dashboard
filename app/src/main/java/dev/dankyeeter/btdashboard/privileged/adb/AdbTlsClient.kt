@@ -79,6 +79,27 @@ class AdbTlsClient(
         }
     }
 
+    /**
+     * A bare TLS socket to the **pairing** port.
+     *
+     * The pairing service speaks TLS from the first byte - no `CNXN`, no
+     * `STLS`, none of the ADB preamble that [connect] performs. Sending that
+     * preamble here produces a handshake failure that reads like a broken
+     * connection, so the two paths stay separate rather than sharing a flag.
+     *
+     * Certificates are exchanged but not verified on either side; the six-digit
+     * code is what establishes trust, a few messages later.
+     */
+    fun openPairingTls(endpoint: AdbPortDiscovery.Endpoint, timeoutMs: Int = TIMEOUT_MS): SSLSocket? {
+        if (endpoint.connectHost != AdbPortDiscovery.LOOPBACK) return null
+        return runCatching {
+            val socket = Socket()
+            socket.connect(InetSocketAddress(endpoint.connectHost, endpoint.port), timeoutMs)
+            socket.soTimeout = timeoutMs
+            upgrade(socket, endpoint).also { it.startHandshake() }
+        }.onFailure { Log.w(TAG, "pairing TLS failed", it) }.getOrNull()
+    }
+
     private fun handshake(socket: Socket, endpoint: AdbPortDiscovery.Endpoint): Result {
         val out: OutputStream = socket.getOutputStream()
         val input: InputStream = socket.getInputStream()

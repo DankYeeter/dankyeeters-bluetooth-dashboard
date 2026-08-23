@@ -42,6 +42,25 @@ class SetupStore(context: Context) {
         appContext.setupDataStore.edit { it[KEY_COMPLETED] = completed }
     }
 
+    /**
+     * Whether the user has been told that the app opens a connection to this
+     * phone's own debugging service, and agreed to it.
+     *
+     * Asked once and remembered, because it is an explanation rather than a
+     * permission: the app had no INTERNET permission for its whole life, and
+     * that was a structural guarantee. Starting the helper without a computer
+     * needs a socket, Android gates every socket behind that permission - so
+     * the guarantee became a promise, and the user should hear that from the
+     * app rather than from a permission list.
+     */
+    val localConnectionAccepted: Flow<Boolean> = prefs.map { it[KEY_LOCAL_CONNECTION] ?: false }
+
+    suspend fun isLocalConnectionAccepted(): Boolean = localConnectionAccepted.first()
+
+    suspend fun setLocalConnectionAccepted(accepted: Boolean) {
+        appContext.setupDataStore.edit { it[KEY_LOCAL_CONNECTION] = accepted }
+    }
+
     suspend fun setSkipped(stepId: String, skipped: Boolean) {
         appContext.setupDataStore.edit { store ->
             val current = store[KEY_SKIPPED] ?: emptySet()
@@ -56,6 +75,7 @@ class SetupStore(context: Context) {
 
     private companion object {
         val KEY_COMPLETED = booleanPreferencesKey("setup_wizard_completed")
+        val KEY_LOCAL_CONNECTION = booleanPreferencesKey("local_connection_accepted")
         val KEY_SKIPPED = stringSetPreferencesKey("setup_skipped_steps")
     }
 }

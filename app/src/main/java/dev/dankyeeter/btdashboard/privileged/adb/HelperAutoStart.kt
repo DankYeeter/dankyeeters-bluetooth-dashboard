@@ -31,6 +31,9 @@ class HelperAutoStart(private val context: Context) {
         /** adbd accepted the key and the helper command ran. */
         data class Started(val endpoint: String, val output: String) : Outcome
 
+        /** The six-digit code did not match. The one failure a user can fix. */
+        data object WrongCode : Outcome
+
         /** Something broke before a verdict was possible. */
         data class Broken(val step: String, val detail: String) : Outcome
     }
@@ -99,6 +102,43 @@ class HelperAutoStart(private val context: Context) {
             is Outcome.Broken -> Log.w(TAG, "auto-start failed at ${outcome.step}: ${outcome.detail}")
             else -> Log.i(TAG, "auto-start outcome: $outcome")
         }
+    }
+
+    /**
+     * Pairs with the six-digit code, then starts the helper.
+     *
+     * The pairing service is only advertised while the user has Android's
+     * pairing dialog open, so [Outcome.NoService] here usually means the dialog
+     * was closed rather than anything being wrong - worth saying differently in
+     * the UI than a genuine failure.
+     */
+    suspend fun pairThenStart(code: String): Outcome = withContext(Dispatchers.IO) {
+        val endpoints = runCatching {
+            AdbPortDiscovery(context).findAll(AdbPortDiscovery.SERVICE_PAIRING)
+        }.getOrElse { return@withContext Outcome.Broken("discovery", it.describe()) }
+
+        val endpoint = endpoints.firstOrNull { it.looksLikeThisDevice() }
+            ?: return@withContext Outcome.NoService
+
+        val keys = AdbKeyStore(context)
+        val socket = AdbTlsClient(keys).openPairingTls(endpoint)
+            ?: return@withContext Outcome.Broken("pairing-tls", "could not reach $endpoint")
+
+        val paired = socket.use {
+            AdbPairingClient(keys).pair(it.inputStream, it.outputStream, code)
+        }
+        when (paired) {
+            is AdbPairingClient.Result.WrongCode -> return@withContext Outcome.WrongCode
+            is AdbPairingClient.Result.Failed ->
+                return@withContext Outcome.Broken("pairing", paired.detail)
+
+            AdbPairingClient.Result.Paired -> Unit
+        }
+
+        // Trusted now, so the ordinary path can do the rest. Deliberately a
+        // fresh attempt rather than reusing the pairing socket: pairing and
+        // command execution are different services on different ports.
+        attempt()
     }
 
     /**
