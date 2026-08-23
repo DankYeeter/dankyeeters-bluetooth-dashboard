@@ -9,6 +9,9 @@ navigationCompose = "2.8.5"
 datastore = "1.1.1"
 oboe = "1.9.3"
 junit = "4.13.2"
+# CC0, so nothing follows it into the app. Used only to cross-check our own
+# Ed25519 arithmetic in tests - see Ed25519DifferentialTest.
+eddsa = "0.3.0"
 coroutines = "1.9.0"
 serialization = "1.7.3"
 room = "2.6.1"
@@ -34,6 +37,7 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 oboe = { module = "com.google.oboe:oboe", version.ref = "oboe" }
 junit = { module = "junit:junit", version.ref = "junit" }
+eddsa = { module = "net.i2p.crypto:eddsa", version.ref = "eddsa" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }

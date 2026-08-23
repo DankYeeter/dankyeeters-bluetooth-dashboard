@@ -53,12 +53,15 @@ internal class AdbPairingClient(
         output: OutputStream,
         code: String,
         clearLowBits: Boolean = true,
+        role: Spake2.Role = Spake2.Role.ALICE,
     ): Result = runCatching {
         val spake2 = Spake2(
-            // Alice is the initiator, and the pairing client is the side that
-            // speaks first. The role decides which of M and N masks our value,
-            // so getting it backwards yields a key the daemon does not share.
-            role = Spake2.Role.ALICE,
+            // The role decides which of M and N masks our value and the order
+            // of the transcript, so getting it backwards yields a key the
+            // daemon does not share - with no other symptom. Which role the
+            // pairing client takes is not something the wire reveals, so the
+            // caller tries both.
+            role = role,
             clearLowBits = clearLowBits,
             myName = CLIENT_NAME,
             theirName = SERVER_NAME,

@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.privileged.adb
 import android.content.Context
 import android.util.Log
 import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
+import dev.dankyeeter.btdashboard.privileged.adb.crypto.Spake2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -149,25 +150,34 @@ class HelperAutoStart(private val context: Context) {
         val client = AdbTlsClient(keys)
         val pairing = AdbPairingClient(keys)
 
-        // Both password-scalar conventions, in turn.
+        // Every combination the protocol leaves open, in turn.
         //
-        // BoringSSL changed how it derives this scalar - see Spake2 - and which
-        // convention a given adbd follows cannot be read off the device. Both
-        // produce a valid-looking exchange and a key the other side does not
-        // share, so the failure is indistinguishable from a mistyped code.
-        // Asking the daemon twice costs a second and answers the question the
-        // only way it can be answered.
+        // Two unknowns, neither visible on the wire: which password-scalar
+        // convention this adbd follows (BoringSSL changed it - see Spake2), and
+        // which SPAKE2 role the pairing client takes. Both produce a
+        // valid-looking exchange and a key the other side does not share, so
+        // every wrong combination is indistinguishable from a mistyped code.
+        //
+        // Four attempts cost about a quarter of a second between them and
+        // answer the question the only way it can be answered. Once the device
+        // has said which combination works, this loop can shrink to it.
         var lastResult: AdbPairingClient.Result? = null
-        for (clearLowBits in listOf(true, false)) {
+        val combinations = listOf(
+            true to Spake2.Role.ALICE,
+            false to Spake2.Role.ALICE,
+            true to Spake2.Role.BOB,
+            false to Spake2.Role.BOB,
+        )
+        for ((clearLowBits, role) in combinations) {
             // A fresh connection each time: the pairing server closes the
             // stream once it has rejected an exchange.
             val socket = client.openPairingTls(endpoint)
                 ?: return@withContext Outcome.Broken("pairing-tls", "could not reach $endpoint")
 
             val result = socket.use {
-                pairing.pair(it.inputStream, it.outputStream, code, clearLowBits)
+                pairing.pair(it.inputStream, it.outputStream, code, clearLowBits, role)
             }
-            Log.i(TAG, "pairing with clearLowBits=$clearLowBits: $result")
+            Log.i(TAG, "pairing as $role clearLowBits=$clearLowBits: $result")
             lastResult = result
             if (result is AdbPairingClient.Result.Paired) break
         }

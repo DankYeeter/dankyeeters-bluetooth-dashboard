@@ -107,6 +107,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
 
+    // Reference arithmetic for the differential test only; never shipped.
+    testImplementation(libs.eddsa)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
