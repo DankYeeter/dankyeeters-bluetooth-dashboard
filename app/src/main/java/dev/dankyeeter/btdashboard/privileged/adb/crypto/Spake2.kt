@@ -43,6 +43,15 @@ internal class Spake2(
     private val theirName: ByteArray,
     password: ByteArray,
     random: SecureRandom = SecureRandom(),
+    /**
+     * Whether to clear the bottom three bits of the password scalar.
+     *
+     * BoringSSL changed this, and which behaviour a given `adbd` has cannot be
+     * read off the device - so the caller tries both rather than guessing. See
+     * the scalar's own documentation for what the change was and why it is not
+     * the no-op it looks like.
+     */
+    private val clearLowBits: Boolean = true,
 ) {
 
     enum class Role { ALICE, BOB }
@@ -73,6 +82,7 @@ internal class Spake2(
      */
     private val passwordScalar: BigInteger = run {
         var w = passwordHash.toBigIntegerLittleEndian().mod(Ed25519.L)
+        if (!clearLowBits) return@run w
         // Sequential, and each test is on the updated value: L is odd, so
         // adding it flips bit 0; 2L then flips bit 1; 4L flips bit 2.
         var order = Ed25519.L

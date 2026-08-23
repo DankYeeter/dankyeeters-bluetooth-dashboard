@@ -146,16 +146,36 @@ class HelperAutoStart(private val context: Context) {
             ?: return@withContext Outcome.NoService
 
         val keys = AdbKeyStore(context)
-        val socket = AdbTlsClient(keys).openPairingTls(endpoint)
-            ?: return@withContext Outcome.Broken("pairing-tls", "could not reach $endpoint")
+        val client = AdbTlsClient(keys)
+        val pairing = AdbPairingClient(keys)
 
-        val paired = socket.use {
-            AdbPairingClient(keys).pair(it.inputStream, it.outputStream, code)
+        // Both password-scalar conventions, in turn.
+        //
+        // BoringSSL changed how it derives this scalar - see Spake2 - and which
+        // convention a given adbd follows cannot be read off the device. Both
+        // produce a valid-looking exchange and a key the other side does not
+        // share, so the failure is indistinguishable from a mistyped code.
+        // Asking the daemon twice costs a second and answers the question the
+        // only way it can be answered.
+        var lastResult: AdbPairingClient.Result? = null
+        for (clearLowBits in listOf(true, false)) {
+            // A fresh connection each time: the pairing server closes the
+            // stream once it has rejected an exchange.
+            val socket = client.openPairingTls(endpoint)
+                ?: return@withContext Outcome.Broken("pairing-tls", "could not reach $endpoint")
+
+            val result = socket.use {
+                pairing.pair(it.inputStream, it.outputStream, code, clearLowBits)
+            }
+            Log.i(TAG, "pairing with clearLowBits=$clearLowBits: $result")
+            lastResult = result
+            if (result is AdbPairingClient.Result.Paired) break
         }
-        when (paired) {
-            is AdbPairingClient.Result.WrongCode -> return@withContext Outcome.WrongCode
+
+        when (lastResult) {
+            is AdbPairingClient.Result.WrongCode, null -> return@withContext Outcome.WrongCode
             is AdbPairingClient.Result.Failed ->
-                return@withContext Outcome.Broken("pairing", paired.detail)
+                return@withContext Outcome.Broken("pairing", lastResult.detail)
 
             AdbPairingClient.Result.Paired -> Unit
         }

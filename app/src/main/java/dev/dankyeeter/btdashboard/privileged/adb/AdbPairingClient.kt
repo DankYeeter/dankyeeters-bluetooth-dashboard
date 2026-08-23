@@ -48,14 +48,20 @@ internal class AdbPairingClient(
         data class Failed(val detail: String) : Result
     }
 
-    fun pair(input: InputStream, output: OutputStream, code: String): Result = runCatching {
+    fun pair(
+        input: InputStream,
+        output: OutputStream,
+        code: String,
+        clearLowBits: Boolean = true,
+    ): Result = runCatching {
         val spake2 = Spake2(
             // Alice is the initiator, and the pairing client is the side that
             // speaks first. The role decides which of M and N masks our value,
             // so getting it backwards yields a key the daemon does not share.
             role = Spake2.Role.ALICE,
-            myName = CLIENT_NAME.toByteArray(Charsets.UTF_8),
-            theirName = SERVER_NAME.toByteArray(Charsets.UTF_8),
+            clearLowBits = clearLowBits,
+            myName = CLIENT_NAME,
+            theirName = SERVER_NAME,
             password = code.toByteArray(Charsets.UTF_8),
         )
 
@@ -97,7 +103,22 @@ internal class AdbPairingClient(
 
     private companion object {
         const val TAG = "AdbPairing"
-        const val CLIENT_NAME = "adb pair client"
-        const val SERVER_NAME = "adb pair server"
+
+        /**
+         * The role names, **with their trailing NUL** - and that byte is the
+         * whole point of this comment.
+         *
+         * adb declares them as C character arrays and passes `sizeof(...)` as
+         * the length. For a string literal that count includes the terminator,
+         * so the daemon feeds **16** bytes into the key derivation, not 15.
+         *
+         * The names are length-prefixed into the final hash, so one byte of
+         * difference produces an entirely different key - and the only symptom
+         * is that neither side can decrypt the other's payload, which the
+         * protocol reports as a wrong pairing code. Two evenings were spent
+         * looking for that in the arithmetic.
+         */
+        val CLIENT_NAME = "adb pair client\u0000".toByteArray(Charsets.UTF_8)
+        val SERVER_NAME = "adb pair server\u0000".toByteArray(Charsets.UTF_8)
     }
 }
