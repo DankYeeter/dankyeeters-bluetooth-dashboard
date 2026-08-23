@@ -21,6 +21,15 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
         // Test-only. spake2-java is LGPL-3.0 and must never ship in the app -
         // the exchangeability the licence requires cannot be honoured in a
         // statically built APK. As a comparison in a unit test it is not

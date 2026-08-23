@@ -12,8 +12,6 @@ junit = "4.13.2"
 # CC0, so nothing follows it into the app. Used only to cross-check our own
 # Ed25519 arithmetic in tests - see Ed25519DifferentialTest.
 eddsa = "0.3.0"
-# LGPL-3.0 - test scope only, never shipped. See settings.gradle.kts.
-spake2 = "1.0.0"
 coroutines = "1.9.0"
 serialization = "1.7.3"
 room = "2.6.1"
@@ -40,7 +38,6 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 oboe = { module = "com.google.oboe:oboe", version.ref = "oboe" }
 junit = { module = "junit:junit", version.ref = "junit" }
 eddsa = { module = "net.i2p.crypto:eddsa", version.ref = "eddsa" }
-spake2 = { module = "com.github.MuntashirAkon.spake2-java:java", version = "2.0.0" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }

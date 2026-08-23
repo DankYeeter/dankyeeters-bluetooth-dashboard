@@ -109,7 +109,6 @@ dependencies {
 
     // Reference arithmetic for the differential test only; never shipped.
     testImplementation(libs.eddsa)
-    testImplementation(libs.spake2)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
