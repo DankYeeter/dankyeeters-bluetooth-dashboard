@@ -161,23 +161,38 @@ class HelperAutoStart(private val context: Context) {
         // Four attempts cost about a quarter of a second between them and
         // answer the question the only way it can be answered. Once the device
         // has said which combination works, this loop can shrink to it.
+        // Every combination the protocol leaves open, in turn.
+        //
+        // Three unknowns, none of them visible on the wire: the password-scalar
+        // convention (BoringSSL changed it), the SPAKE2 role of the pairing
+        // client, and whether the role names carry their C terminator. Each
+        // wrong combination produces a valid-looking exchange and a key the
+        // other side does not share - indistinguishable from a mistyped code.
+        //
+        // Eight attempts cost about half a second between them. That is the
+        // only way left to answer questions the source did not settle, and the
+        // log names the winner so this can shrink to one.
         var lastResult: AdbPairingClient.Result? = null
-        val combinations = listOf(
-            true to Spake2.Role.ALICE,
-            false to Spake2.Role.ALICE,
-            true to Spake2.Role.BOB,
-            false to Spake2.Role.BOB,
-        )
-        for ((clearLowBits, role) in combinations) {
+        val combinations = sequence {
+            for (nulNames in listOf(true, false)) {
+                for (role in listOf(Spake2.Role.ALICE, Spake2.Role.BOB)) {
+                    for (clearLowBits in listOf(true, false)) {
+                        yield(Triple(nulNames, role, clearLowBits))
+                    }
+                }
+            }
+        }
+
+        for ((nulNames, role, clearLowBits) in combinations) {
             // A fresh connection each time: the pairing server closes the
             // stream once it has rejected an exchange.
             val socket = client.openPairingTls(endpoint)
                 ?: return@withContext Outcome.Broken("pairing-tls", "could not reach $endpoint")
 
             val result = socket.use {
-                pairing.pair(it.inputStream, it.outputStream, code, clearLowBits, role)
+                pairing.pair(it.inputStream, it.outputStream, code, clearLowBits, role, nulNames)
             }
-            Log.i(TAG, "pairing as $role clearLowBits=$clearLowBits: $result")
+            Log.i(TAG, "pairing as $role clearLowBits=$clearLowBits nulNames=$nulNames: $result")
             lastResult = result
             if (result is AdbPairingClient.Result.Paired) break
         }

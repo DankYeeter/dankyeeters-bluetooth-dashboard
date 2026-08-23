@@ -54,6 +54,7 @@ internal class AdbPairingClient(
         code: String,
         clearLowBits: Boolean = true,
         role: Spake2.Role = Spake2.Role.ALICE,
+        nulTerminatedNames: Boolean = true,
     ): Result = runCatching {
         val spake2 = Spake2(
             // The role decides which of M and N masks our value and the order
@@ -63,8 +64,8 @@ internal class AdbPairingClient(
             // caller tries both.
             role = role,
             clearLowBits = clearLowBits,
-            myName = CLIENT_NAME,
-            theirName = SERVER_NAME,
+            myName = name(CLIENT_NAME, nulTerminatedNames),
+            theirName = name(SERVER_NAME, nulTerminatedNames),
             password = code.toByteArray(Charsets.UTF_8),
         )
 
@@ -104,24 +105,23 @@ internal class AdbPairingClient(
         Result.Failed("${t.javaClass.simpleName}: ${t.message}")
     }
 
+    /**
+     * The role name, with or without its terminator.
+     *
+     * adb passes `sizeof()` of a C string literal, which counts the NUL - so 16
+     * bytes, not 15. That reading comes from source and looks right, but it has
+     * not been confirmed against a working exchange, and the names are
+     * length-prefixed into the key derivation where one byte changes
+     * everything. Until the device says which is right, both are tried.
+     */
+    private fun name(text: String, nulTerminated: Boolean): ByteArray =
+        (if (nulTerminated) text + '\u0000' else text).toByteArray(Charsets.UTF_8)
+
     private companion object {
         const val TAG = "AdbPairing"
 
-        /**
-         * The role names, **with their trailing NUL** - and that byte is the
-         * whole point of this comment.
-         *
-         * adb declares them as C character arrays and passes `sizeof(...)` as
-         * the length. For a string literal that count includes the terminator,
-         * so the daemon feeds **16** bytes into the key derivation, not 15.
-         *
-         * The names are length-prefixed into the final hash, so one byte of
-         * difference produces an entirely different key - and the only symptom
-         * is that neither side can decrypt the other's payload, which the
-         * protocol reports as a wrong pairing code. Two evenings were spent
-         * looking for that in the arithmetic.
-         */
-        val CLIENT_NAME = "adb pair client\u0000".toByteArray(Charsets.UTF_8)
-        val SERVER_NAME = "adb pair server\u0000".toByteArray(Charsets.UTF_8)
+        /** The terminator is added, or not, by [name] - see the note there. */
+        const val CLIENT_NAME = "adb pair client"
+        const val SERVER_NAME = "adb pair server"
     }
 }

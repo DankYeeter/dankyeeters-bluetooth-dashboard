@@ -141,11 +141,16 @@ class PairingCodeReceiver : BroadcastReceiver() {
             try {
                 val outcome = HelperAutoStart(appContext).pairThenStart(code)
                 Log.i(TAG, "pairing outcome: $outcome")
-                // Only clear the prompt once there is nothing left to ask for.
-                // A wrong code leaves it up, because Android has already shown
-                // the user a fresh one to try.
                 if (outcome is HelperAutoStart.Outcome.Started) {
                     PairingCodeNotification.dismiss(appContext)
+                } else {
+                    // Post it again. Android removes a direct-reply
+                    // notification once the reply is delivered and waits for
+                    // the app to put something back; without this the prompt
+                    // simply vanishes on a failed attempt, and the user has to
+                    // go back to the app to get another - while Android has
+                    // already shown them a fresh code they could have typed.
+                    PairingCodeNotification.show(appContext)
                 }
             } finally {
                 pending.finish()
