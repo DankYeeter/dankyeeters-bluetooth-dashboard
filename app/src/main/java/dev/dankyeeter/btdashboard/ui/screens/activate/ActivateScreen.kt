@@ -20,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,6 +48,7 @@ fun ActivateScreen(
     state: ActivateState,
     onActivate: () -> Unit,
     onSubmitCode: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     onDisclosureAccepted: () -> Unit,
     onDone: () -> Unit,
 ) {
@@ -84,6 +87,7 @@ fun ActivateScreen(
 
                 is ActivateState.NeedsCode -> PairingCodeEntry(
                     error = state.wrongCode,
+                    onOpenSettings = onOpenSettings,
                     onSubmit = onSubmitCode,
                 )
 
@@ -104,22 +108,48 @@ fun ActivateScreen(
     }
 }
 
+/**
+ * Two taps, six digits, done - and no hunting in between.
+ *
+ * The friction here is switching apps, so everything that can be removed is.
+ * The button goes straight to Developer options instead of describing where to
+ * find them, the keyboard is already up and numeric when the user comes back,
+ * and the sixth digit submits by itself.
+ *
+ * What cannot be removed: the code has to be read off Android's own dialog and
+ * typed. No app can generate it, read it, or reach it through the clipboard -
+ * that is precisely the barrier stopping an app from granting itself shell
+ * access, so the two switches are the floor, not an oversight.
+ */
 @Composable
-private fun PairingCodeEntry(error: Boolean, onSubmit: (String) -> Unit) {
+private fun PairingCodeEntry(
+    error: Boolean,
+    onOpenSettings: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
     var code by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+
+    // Coming back from Settings with a code in mind, the last thing anyone
+    // wants is to tap a field first.
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     Text(
-        "In Developer options, open Wireless debugging and tap " +
-            "\"Pair device with pairing code\". Type the six digits here and " +
-            "leave that screen open.",
+        "Open Wireless debugging, tap \"Pair device with pairing code\", and " +
+            "type the six digits here. Leave that screen open while you do.",
         style = MaterialTheme.typography.bodyMedium,
         textAlign = TextAlign.Center,
     )
     OutlinedTextField(
         value = code,
-        // Digits only, and never more than six: the field is not a place to
+        // Digits only, never more than six: the field is not a place to
         // discover that a typo was possible.
-        onValueChange = { entered -> code = entered.filter(Char::isDigit).take(CODE_LENGTH) },
+        onValueChange = { entered ->
+            code = entered.filter(Char::isDigit).take(CODE_LENGTH)
+            // The sixth digit is unambiguous - there is nothing left to confirm,
+            // so confirming it would only be another tap.
+            if (code.length == CODE_LENGTH) onSubmit(code)
+        },
         singleLine = true,
         isError = error,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -128,14 +158,12 @@ private fun PairingCodeEntry(error: Boolean, onSubmit: (String) -> Unit) {
         } else {
             null
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focus),
     )
-    Button(
-        onClick = { onSubmit(code) },
-        enabled = code.length == CODE_LENGTH,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text("Pair")
+    Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+        Text("Open Wireless debugging")
     }
 }
 

@@ -12,6 +12,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.ui.platform.LocalContext
 import android.util.Log
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,6 +60,16 @@ const val ROUTE_DEVICE_PROFILES = "device_profiles"
 
 /** Must match [dev.dankyeeter.btdashboard.system.boot.OpenRoute.ACTIVATE]. */
 const val ROUTE_ACTIVATE = "activate"
+
+/**
+ * Settings' own extra for "scroll to this entry and highlight it".
+ *
+ * Not public API, and it fails harmlessly: an unrecognised extra leaves the
+ * user on the Developer options list, which is where they were going anyway.
+ * The alternative is a paragraph explaining where to scroll.
+ */
+private const val SETTINGS_HIGHLIGHT_KEY = ":settings:fragment_args_key"
+private const val WIRELESS_DEBUGGING_KEY = "toggle_adb_wireless"
 
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD, ROUTE_ACTIVATE)
@@ -166,10 +179,21 @@ private fun NavGraphBuilder.appGraph(
     composable(ROUTE_ACTIVATE) {
         val viewModel: ActivateViewModel = viewModel()
         val state by viewModel.state.collectAsStateWithLifecycle()
+        val context = LocalContext.current
         ActivateScreen(
             state = state,
             onActivate = viewModel::activate,
             onSubmitCode = viewModel::submitCode,
+            // Straight to Developer options, with the wireless debugging entry
+            // asked for by name. Describing where to find it would be one more
+            // thing to read while holding a six-digit number in your head.
+            onOpenSettings = {
+                val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                    .putExtra(SETTINGS_HIGHLIGHT_KEY, WIRELESS_DEBUGGING_KEY)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { context.startActivity(intent) }
+                    .onFailure { Log.w("BtDashboardApp", "cannot open developer options", it) }
+            },
             onDisclosureAccepted = viewModel::onDisclosureAccepted,
             onDone = onBack,
         )
