@@ -45,14 +45,44 @@ class HelperAutoStart(private val context: Context) {
      * scope, which turned the first real attempt into NetworkOnMainThread.
      */
     suspend fun attempt(): Outcome = withContext(Dispatchers.IO) {
-        val endpoints = runCatching { AdbPortDiscovery(context).findAll() }
-            .getOrElse { return@withContext Outcome.Broken("discovery", it.describe()) }
-        if (endpoints.isEmpty()) return@withContext Outcome.NoService
+        // Switch the door open before knocking on it. Wireless debugging keeps
+        // closing itself - no Wi-Fi, or a USB cable plugged in - and asking the
+        // user to go and re-enable it before every Activate would make "one tap
+        // after a reboot" untrue.
+        WirelessDebuggingSwitch(context).enable()
 
         val keys = AdbKeyStore(context)
         runCatching { keys.certificate() }
             .onFailure { return@withContext Outcome.Broken("certificate", it.describe()) }
         val client = AdbTlsClient(keys)
+
+        // Verdicts reached while discovery is still running. Handing each
+        // endpoint to the client the moment it resolves is what keeps the wait
+        // short: the usual case answers in well under a second, and the
+        // discovery window only bounds how long a *hopeless* case takes.
+        var earlyVerdict: Outcome? = null
+        val endpoints = runCatching {
+            AdbPortDiscovery(context).findAll { endpoint ->
+                if (!endpoint.looksLikeThisDevice()) return@findAll false
+                when (val result = client.connect(endpoint)) {
+                    is AdbTlsClient.Result.Connected -> {
+                        earlyVerdict = startHelper(endpoint, result)
+                        true
+                    }
+
+                    is AdbTlsClient.Result.Untrusted -> {
+                        earlyVerdict = Outcome.NeedsPairing(endpoint.toString(), result.detail)
+                        true
+                    }
+
+                    // A dead port is not a verdict; keep listening.
+                    is AdbTlsClient.Result.Failed -> false
+                }
+            }
+        }.getOrElse { return@withContext Outcome.Broken("discovery", it.describe()) }
+
+        earlyVerdict?.let { return@withContext it }
+        if (endpoints.isEmpty()) return@withContext Outcome.NoService
 
         // Every announcement gets a turn. Stale records outlive the port they
         // describe - measured: adbd was on 35485 while mDNS still offered
@@ -73,13 +103,8 @@ class HelperAutoStart(private val context: Context) {
             }
 
             when (val result = client.connect(endpoint)) {
-                is AdbTlsClient.Result.Connected -> result.session.use { session ->
-                    // The whole point of the exercise: adbd trusts us, so the
-                    // helper can be started from the phone itself.
-                    val output = AdbShell.execute(session.input, session.output, helperCommand())
-                        ?: return@withContext Outcome.Broken("shell", "stream did not open")
-                    return@withContext Outcome.Started(endpoint.toString(), output)
-                }
+                is AdbTlsClient.Result.Connected ->
+                    return@withContext startHelper(endpoint, result)
 
                 // Reaching the trust decision means this endpoint was the live
                 // one; no later candidate can do better.
@@ -139,6 +164,18 @@ class HelperAutoStart(private val context: Context) {
         // fresh attempt rather than reusing the pairing socket: pairing and
         // command execution are different services on different ports.
         attempt()
+    }
+
+    /**
+     * The payoff: adbd trusts us, so the helper starts from the phone itself.
+     */
+    private fun startHelper(
+        endpoint: AdbPortDiscovery.Endpoint,
+        connected: AdbTlsClient.Result.Connected,
+    ): Outcome = connected.session.use { session ->
+        val output = AdbShell.execute(session.input, session.output, helperCommand())
+            ?: return Outcome.Broken("shell", "stream did not open")
+        Outcome.Started(endpoint.toString(), output)
     }
 
     /**

@@ -50,8 +50,38 @@ internal class Spake2(
     /** SHA-512 of the code, kept whole: it goes into the final transcript. */
     private val passwordHash: ByteArray = sha512(password)
 
-    /** The same hash reduced into the scalar field. */
-    private val passwordScalar: BigInteger = passwordHash.toBigIntegerLittleEndian().mod(Ed25519.L)
+    /**
+     * The same hash reduced into the scalar field, with its bottom three bits
+     * cleared.
+     *
+     * The clearing is not tidiness, it is required for interoperability, and
+     * leaving it out is why the first real pairing attempt against `adbd`
+     * failed with a key mismatch.
+     *
+     * BoringSSL's SPAKE2 was meant to multiply this scalar by eight to clear
+     * the cofactor and, through a copy-paste error, did not - which leaked
+     * three bits of the password. The fix could not simply add the missing
+     * multiplication without breaking every existing peer, so it clears those
+     * bits by **adding multiples of the group order** instead: the value stays
+     * congruent modulo L while its low bits go to zero.
+     *
+     * That is only a no-op for points of prime order, and M and N are not -
+     * they are derived by hashing, so they carry a torsion component that
+     * multiples of L do *not* annihilate. Skipping this therefore produces a
+     * mask that differs from the daemon's, a shared secret that differs, and a
+     * failure that looks exactly like a mistyped code.
+     */
+    private val passwordScalar: BigInteger = run {
+        var w = passwordHash.toBigIntegerLittleEndian().mod(Ed25519.L)
+        // Sequential, and each test is on the updated value: L is odd, so
+        // adding it flips bit 0; 2L then flips bit 1; 4L flips bit 2.
+        var order = Ed25519.L
+        for (bit in 0..2) {
+            if (w.testBit(bit)) w = w.add(order)
+            order = order.shiftLeft(1)
+        }
+        w
+    }
 
     private val privateKey: BigInteger = run {
         val bytes = ByteArray(64).also(random::nextBytes)

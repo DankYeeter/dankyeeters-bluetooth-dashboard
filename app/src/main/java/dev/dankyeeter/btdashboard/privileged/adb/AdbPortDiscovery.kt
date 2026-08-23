@@ -50,6 +50,12 @@ class AdbPortDiscovery(private val context: Context) {
     suspend fun findAll(
         serviceType: String = SERVICE_CONNECT,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        /**
+         * Called for each endpoint the moment it resolves. Return true to stop
+         * looking - the caller has what it needs and nobody should watch a
+         * spinner for the rest of the window.
+         */
+        onEach: (Endpoint) -> Boolean = { false },
     ): List<Endpoint> {
         val manager = context.getSystemService(NsdManager::class.java) ?: return emptyList()
         val collected = LinkedHashSet<Endpoint>()
@@ -71,7 +77,12 @@ class AdbPortDiscovery(private val context: Context) {
                 // The announcement carries only a name; the port arrives with
                 // the resolve below.
                 resolve(manager, info) { endpoint ->
-                    synchronized(collected) { collected += endpoint }
+                    val isNew = synchronized(collected) { collected.add(endpoint) }
+                    // Try it straight away rather than at the end of the window.
+                    // A dead loopback port refuses in milliseconds, so the cost
+                    // of an early attempt is nothing and the saving is the whole
+                    // remaining wait.
+                    if (isNew && onEach(endpoint)) found.complete(endpoint)
                 }
             }
 
@@ -169,7 +180,18 @@ class AdbPortDiscovery(private val context: Context) {
          * looking at a button they just pressed. Long enough for a local
          * announcement, short enough not to feel broken.
          */
-        const val DEFAULT_TIMEOUT_MS = 5_000L
+        /**
+         * Lowered from 5 s, and the reason it was ever 5 s is worth keeping in
+         * mind: a stale announcement can arrive before the live one, so the
+         * first answer is not necessarily the right one.
+         *
+         * Waiting out the full window solved that by making everyone wait, and
+         * five seconds of a spinner after pressing a button is a long time. The
+         * caller now tries candidates as they arrive and stops at the first
+         * that reaches a verdict, so the window only bounds the *worst* case
+         * instead of setting the price for every case.
+         */
+        const val DEFAULT_TIMEOUT_MS = 2_500L
 
         /** The only address this client ever connects to. */
         const val LOOPBACK = "127.0.0.1"
