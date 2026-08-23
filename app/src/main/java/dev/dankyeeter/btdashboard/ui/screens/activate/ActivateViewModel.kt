@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.privileged.adb.HelperAutoStart
+import dev.dankyeeter.btdashboard.privileged.adb.PairingCodeNotification
 import dev.dankyeeter.btdashboard.system.setup.SetupStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,7 +80,16 @@ class ActivateViewModel(application: Application) : AndroidViewModel(application
         _state.value = when (outcome) {
             is HelperAutoStart.Outcome.Started -> ActivateState.Done
 
-            is HelperAutoStart.Outcome.NeedsPairing -> ActivateState.NeedsCode()
+            is HelperAutoStart.Outcome.NeedsPairing -> {
+                // The code cannot be typed here, and that is not a preference.
+                // Android publishes the pairing service only while its own
+                // dialog is in the foreground - measured - so a user who comes
+                // back to this screen to type has already killed the thing they
+                // were about to pair with. The notification shade is the one
+                // place that overlays without displacing.
+                PairingCodeNotification.show(getApplication())
+                ActivateState.NeedsCode()
+            }
 
             is HelperAutoStart.Outcome.WrongCode -> ActivateState.NeedsCode(wrongCode = true)
 

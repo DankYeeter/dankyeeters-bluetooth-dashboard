@@ -112,5 +112,14 @@
             android:enabled="true"
             android:exported="true" />
 
+        <!--
+            Receives the pairing code typed into the notification. Not exported:
+            the only sender is a PendingIntent this app created, and nothing
+            outside has business starting a pairing attempt.
+        -->
+        <receiver
+            android:name=".privileged.adb.PairingCodeReceiver"
+            android:exported="false" />
+
     </application>
 </manifest>
