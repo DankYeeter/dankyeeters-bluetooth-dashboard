@@ -3665,3 +3665,49 @@ Emission korrigiert - im Test tat es das nicht.
 
 Beides gehört vor den Doppelstart. Fund 1 betrifft eine Entscheidung von heute,
 Fund 2 verhindert die Erstinbetriebnahme auf jedem neuen Gerät.
+
+---
+
+## Naechster Umbau: ein Zustand statt drei  (Daniels Entwurf, 24. August)
+
+Beschlossen, noch nicht gebaut. Der Zustand der App ergibt sich kuenftig aus
+**drei Faellen, live berechnet** - nicht aus einem gespeicherten Haekchen:
+
+1. **Voller Setup-Prozess**, wenn irgendein Pflichtschritt gerade nicht erfuellt
+   ist. Vier Schritte statt fuenf: Bluetooth, Mikrofon, Benachrichtigungen, und
+   als letzter **Kopplung und Helfer in einem**.
+2. **Nur der Activate-Knopf**, wenn die Berechtigungen sitzen und nur der Helfer
+   fehlt.
+3. **Gar nichts**, wenn alles steht - dann startet die App normal.
+
+### Warum kein gespeichertes Flag
+
+Android entzieht Berechtigungen ungenutzter Apps von selbst, und der Nutzer kann
+Benachrichtigungen jederzeit abschalten. Ein gespeichertes "Setup erledigt"
+waere dann falsch, waehrend genau die Berechtigung fehlt, in die der
+Kopplungscode getippt wird - die App waere still kaputt. Die Live-Rechnung gibt
+es bereits in `AndroidSetupEnvironment`; sie muss nur die Eintrittsbedingung
+werden statt nur die Anzeige.
+
+Sobald alles erfuellt ist, ist das Setup **nirgends** zu sehen und lebt als
+Eintrag in den Einstellungen weiter. Daniels Wunsch, woertlich: "ich muss die
+setup schritte nirgends sehen sobald die rechte erteilt sind."
+
+### Shell-Zugriff und WRITE_SECURE_SETTINGS werden ein Schritt
+
+Sie sind physisch eine Handlung: koppeln, Helfer startet, Helfer erteilt die
+Berechtigung. Die Trennung war ein Ueberbleibsel aus der Zeit, als beides je
+einen ADB-Befehl vom Rechner brauchte.
+
+### Kein Migrationsaufwand
+
+Daniel deinstalliert die App auf dem Pixel 8 vor dem naechsten Test. Gespeicherte
+Schritt-Bezeichner aus der alten Fassung muessen also **nicht** beruecksichtigt
+werden. Anspruch: eine Fassung, die auf **Android 16 und 17** frisch installiert
+funktioniert - beide Geraete stehen dafuer zur Verfuegung.
+
+### Nicht vergessen
+
+Nach dem Erst-Setup braucht ein Neustart **nichts**: die Aktivierung laeuft von
+selbst, bewiesen am 24. August. Der Activate-Knopf ist der Rueckfall, nicht der
+Normalweg - die Oberflaeche sollte ihn entsprechend selten zeigen.
