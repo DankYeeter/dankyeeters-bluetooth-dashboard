@@ -34,6 +34,7 @@ import dev.dankyeeter.btdashboard.system.boot.ActivationSteps
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
+import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
@@ -61,6 +62,7 @@ fun ActivateScreen(
     onOpenSettings: () -> Unit,
     onDisclosureAccepted: () -> Unit,
     onDone: () -> Unit,
+    onOpenWifiSettings: () -> Unit = {},
 ) {
     val service by PrivilegedConnection.service.collectAsStateWithLifecycle()
 
@@ -95,6 +97,7 @@ fun ActivateScreen(
             onActivate = onActivate,
             onSubmitCode = onSubmitCode,
             onOpenSettings = onOpenSettings,
+            onOpenWifiSettings = onOpenWifiSettings,
         )
     }
 }
@@ -113,6 +116,15 @@ fun ActivateActions(
     onActivate: () -> Unit,
     onSubmitCode: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenWifiSettings: () -> Unit = {},
+    /**
+     * Whether the procedure is on screen from the start.
+     *
+     * True where this is by definition the first run - the last step of the
+     * setup process - and false at the gate, where every later activation is a
+     * single tap and a numbered list would be noise.
+     */
+    helpExpanded: Boolean = false,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -143,11 +155,31 @@ fun ActivateActions(
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
                 )
-                Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
-                    Text("Try again")
+                // The way out comes first, and it is a button.
+                //
+                // This screen used to end here with "Try again" under a
+                // sentence telling the user to go and switch something on in
+                // Developer options. The app knows where that switch is and
+                // can open it - leaving the person to find it was the app
+                // describing a destination it could have opened.
+                when (state.fix) {
+                    ActivateFix.WIRELESS_DEBUGGING ->
+                        Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open wireless debugging")
+                        }
+
+                    ActivateFix.WIFI ->
+                        Button(onClick = onOpenWifiSettings, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open Wi-Fi settings")
+                        }
+
+                    ActivateFix.NONE -> Unit
                 }
-                // Offered here already open: a failed attempt is the one
-                // moment the steps are worth reading.
+                // Second, because the fix above has to happen before another
+                // attempt can do anything.
+                GoldOutlinedButton(onClick = onActivate) { Text("Try again") }
+                // Open already: a failed attempt is the one moment the steps
+                // are worth reading.
                 ActivationHelp(initiallyExpanded = true)
             }
 
@@ -178,6 +210,7 @@ private class ActivateWiring(
     val onActivate: () -> Unit,
     val onSubmitCode: (String) -> Unit,
     val onOpenSettings: () -> Unit,
+    val onOpenWifiSettings: () -> Unit,
     val onDisclosureAccepted: () -> Unit,
     val onDisclosureDismissed: () -> Unit,
 )
@@ -201,6 +234,12 @@ private fun rememberActivateWiring(): ActivateWiring {
             runCatching { context.startActivity(intent) }
                 .onFailure { Log.w("ActivateScreen", "cannot open developer options", it) }
         },
+        onOpenWifiSettings = {
+            val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { context.startActivity(intent) }
+                .onFailure { Log.w("ActivateScreen", "cannot open Wi-Fi settings", it) }
+        },
         onDisclosureAccepted = viewModel::onDisclosureAccepted,
         onDisclosureDismissed = viewModel::dismissDisclosure,
     )
@@ -218,6 +257,7 @@ fun ActivateRoute(onDone: () -> Unit) {
         onActivate = wiring.onActivate,
         onSubmitCode = wiring.onSubmitCode,
         onOpenSettings = wiring.onOpenSettings,
+        onOpenWifiSettings = wiring.onOpenWifiSettings,
         onDisclosureAccepted = wiring.onDisclosureAccepted,
         onDone = onDone,
     )
@@ -243,6 +283,10 @@ fun ActivateStep() {
         onActivate = wiring.onActivate,
         onSubmitCode = wiring.onSubmitCode,
         onOpenSettings = wiring.onOpenSettings,
+        onOpenWifiSettings = wiring.onOpenWifiSettings,
+        // First run by definition: this is the setup process, and the helper
+        // has never come up on this phone.
+        helpExpanded = true,
     )
 }
 

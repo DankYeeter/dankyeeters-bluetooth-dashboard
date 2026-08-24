@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.ui
 
 import android.util.Log
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
@@ -11,7 +12,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
@@ -59,6 +62,26 @@ const val ROUTE_ACTIVATE = "activate"
 
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD, ROUTE_ACTIVATE)
+
+/**
+ * What the Scaffold gives every other screen, for the two that render in front
+ * of it.
+ *
+ * The theme sets colours but no [Surface], so outside the Scaffold there is
+ * nothing carrying a background or a content colour - and Compose's default
+ * content colour is black. On the dark theme that made the setup title black
+ * on near-black: legible only if you knew it was there. Found on the first
+ * screen of a fresh install on the Pixel 11.
+ */
+@Composable
+private fun GateSurface(content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        content()
+    }
+}
 
 /**
  * @param requestedRoute a screen asked for from outside the app, e.g. by the
@@ -118,11 +141,11 @@ fun BtDashboardApp(
     // after a rotation must not be able to flash the setup over a finished app
     // for the frame before the effect runs.
     if (phase == SetupPhase.FULL_SETUP || (inSetup && phase != SetupPhase.READY)) {
-        SetupWizardScreen(onDone = { inSetup = false })
+        GateSurface { SetupWizardScreen(onDone = { inSetup = false }) }
         return
     }
     if (phase == SetupPhase.ACTIVATION_ONLY) {
-        ActivateRoute(onDone = {})
+        GateSurface { ActivateRoute(onDone = {}) }
         return
     }
 

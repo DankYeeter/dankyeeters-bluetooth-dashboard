@@ -23,9 +23,30 @@ sealed interface ActivateState {
     /** adbd wants the six-digit code. [wrongCode] after a rejected attempt. */
     data class NeedsCode(val wrongCode: Boolean = false) : ActivateState
 
-    data class Failed(val reason: String) : ActivateState
+    data class Failed(val reason: String, val fix: ActivateFix = ActivateFix.NONE) : ActivateState
 
     data object Done : ActivateState
+}
+
+/**
+ * What the user can do about a failure, as something the screen can act on
+ * rather than something it can only say.
+ *
+ * The reason text used to carry the whole instruction - "turn on Wireless
+ * debugging in Developer options" - and left the person to find it. The app
+ * knows where that switch lives and can open it; a sentence that describes a
+ * destination the app could have opened is a sentence that should have been a
+ * button.
+ */
+enum class ActivateFix {
+    /** Nothing useful to offer. The reason has to carry it alone. */
+    NONE,
+
+    /** Developer options, with the wireless debugging entry asked for by name. */
+    WIRELESS_DEBUGGING,
+
+    /** Wi-Fi settings: wireless debugging cannot come up without a network. */
+    WIFI,
 }
 
 /**
@@ -112,19 +133,20 @@ class ActivateViewModel(application: Application) : AndroidViewModel(application
                 ActivateState.Failed(
                     "Android stopped offering pairing. Open \"Pair device with " +
                         "pairing code\" again and leave it open.",
+                    ActivateFix.WIRELESS_DEBUGGING,
                 )
             } else {
                 ActivateState.Failed(
-                    "Turn on Wireless debugging in Developer options, then try " +
-                        "again. It needs a Wi-Fi connection and switches itself " +
-                        "off while a USB cable is plugged in.",
+                    "Wireless debugging is off. It also switches itself off while " +
+                        "a USB cable is plugged in.",
+                    ActivateFix.WIRELESS_DEBUGGING,
                 )
             }
 
             // Named plainly, because it is the one failure with a five-second
             // fix. Anything vaguer sends the user looking for a bug in the app.
             HelperAutoStart.Outcome.NoWifi ->
-                ActivateState.Failed("Connect to Wi-Fi first — this needs it.")
+                ActivateState.Failed("Connect to Wi-Fi first — this needs it.", ActivateFix.WIFI)
 
             is HelperAutoStart.Outcome.Broken ->
                 ActivateState.Failed("Could not reach the debugging service (${outcome.step}).")

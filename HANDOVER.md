@@ -3827,3 +3827,71 @@ wer die Blockliste oder den Helferstart nachvollziehen will, braucht genau diese
 Verweise.
 
 571 Tests gruen. Am Geraet aendert sich nichts davon ausser den zwei Meldungen.
+
+---
+
+## Geraetetest Pixel 11 Pro, Android 17  (24. August, 22:30-23:00)
+
+Frische Installation, vorher deinstalliert. Android 17, SDK 37, gebootet mit
+4-KB-Seiten (`getconf PAGE_SIZE` = 4096) - die Warnung von heute Mittag kam also
+aus der Ausrichtungspruefung selbst, nicht aus dem Seitenmodus des Geraets.
+
+### Bewiesen
+
+- **Der Setup-Prozess kommt.** "Step 1 of 4", vier Schritte, `Pairing and
+  helper` als einer. Der Fehler vom Nachmittag - frische Installation landet
+  sofort im Gate - ist weg.
+- **Keine 16-KB-Warnung**, weder als Dialog noch im Log.
+- **Insets stimmen**: nichts liegt unter Status- oder Gestenleiste.
+- **Live-Pruefung greift**: jede erteilte Berechtigung schaltet den Schritt
+  sofort auf `Done`, ohne Neustart.
+- **Nur das Mikrofon zeigt "Skip"**, Benachrichtigungen nicht.
+- **Die Klinke haelt**: als mit der Benachrichtigungs-Berechtigung die letzte
+  Pflicht erfuellt war und die Phase auf `ACTIVATION_ONLY` sprang, blieb der
+  Prozess offen statt zu verschwinden.
+- **Schritt 4 zeigt beide Zeilen getrennt**: `App helper: Not running` und
+  `Secure settings: Not granted`, darunter derselbe Activate-Knopf wie im Gate.
+
+### Gefunden und behoben: schwarze Schrift auf dunklem Grund
+
+Die Ueberschrift "Setup" war pures Schwarz (0,0,0) auf #1f1f1f. Ursache ist
+nicht der Text: **`BtDashboardTheme` setzt nur `MaterialTheme`, kein `Surface`**.
+Die Inhaltsfarbe kommt sonst ueberall vom Scaffold - und die beiden
+Gate-Bildschirme rendern davor, wo Composes Voreinstellung Schwarz ist. Das
+betraf den Activate-Bildschirm, seit es ihn gibt; dort fiel es nur kaum auf,
+weil seine Knoepfe ihre Farbe selbst mitbringen. Behoben mit `GateSurface`,
+am Geraet nachgeprueft.
+
+### Kein Fehler: der Rücksprung auf Schritt 1
+
+Sah nach einem Zustandsverlust aus - kein Prozesstod, kein Neustart der
+Activity, gleiche PID. Daniel hatte in der Schrittliste auf "Bluetooth access"
+getippt, und genau das tut die Zeile.
+
+### Offen: die Kopplung scheiterte, und die App liess ihn allein
+
+Wireless Debugging war aus, also `Outcome.NoService`. Die Meldung war korrekt
+("Turn on Wireless debugging in Developer options"), aber sie **beschrieb ein
+Ziel, das die App selbst haette oeffnen koennen**. Daniels Einwand woertlich:
+"das muss aber teil vom activate sein. oder mich zumindest da hin leiten."
+
+Gebaut, **noch nicht am Geraet geprueft**:
+
+- `ActivateState.Failed` traegt jetzt ein `ActivateFix` - eine Handlung, keine
+  Beschreibung. `WIRELESS_DEBUGGING` oeffnet die Entwickleroptionen mit dem
+  Eintrag namentlich angefragt, `WIFI` die WLAN-Einstellungen.
+- Der Fehlerbildschirm zeigt diesen Knopf **vor** "Try again": der naechste
+  Versuch kann nichts ausrichten, bevor der Schalter umgelegt ist.
+- Im letzten Setup-Schritt steht die Anleitung von Anfang an offen. Dort ist es
+  per Definition das erste Mal; im Gate bleibt sie zugeklappt, weil jede
+  spaetere Aktivierung ein Tipp ist.
+
+### Was der naechste Durchlauf zeigen muss
+
+1. Activate ohne Wireless Debugging -> Knopf erscheint, fuehrt in die
+   Entwickleroptionen.
+2. Wireless Debugging an -> Activate -> Kopplungs-Notification kommt.
+3. Code eintippen -> Helfer laeuft, `Secure settings: Granted`, Setup
+   verschwindet von selbst.
+4. Danach: laeuft genau **ein** Helfer? Der unbekannte Startpfad ist weiterhin
+   offen.
