@@ -152,7 +152,9 @@ class BootReceiver : BroadcastReceiver() {
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .setContentTitle(status.title())
             .setContentText(SHORT_TEXT)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(status.longText()))
+            // No expandable style. With the steps gone there is nothing behind
+            // the chevron, and an expander that opens onto a repeat of the line
+            // above it is worse than none.
             // Belt and braces with the channel: the channel governs on this
             // minSdk, but `setSilent` also suppresses the one-off alert a
             // re-post would otherwise be allowed to make.
@@ -309,23 +311,3 @@ private fun AttachmentStatus.title(): String = when (this) {
  * say why it is there.
  */
 private const val SHORT_TEXT = "Tap Activate to restore it."
-
-private fun AttachmentStatus.longText(): String = buildString {
-    append(
-        when (this@longText) {
-            is AttachmentStatus.ActiveSessions ->
-                "The EQ is running in session mode only: it reaches players that announce " +
-                    "their audio session and nothing else."
-
-            is AttachmentStatus.Unavailable -> reason
-            AttachmentStatus.Inactive -> "The EQ is not attached to anything."
-            // Never posted for this case; kept so the `when` cannot go stale.
-            is AttachmentStatus.ActiveGlobal -> "The EQ is attached to the output mix."
-        },
-    )
-    append(
-        "\n\nSystem-wide reach needs shell-level access, and nothing on an unrooted " +
-            "phone can bring that back on its own after a reboot. Settings → System " +
-            "access has the one ADB command to run from a computer.",
-    )
-}
