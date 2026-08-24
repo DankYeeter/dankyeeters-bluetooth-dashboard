@@ -308,14 +308,22 @@ private fun ShellAccessAction() {
                 tone = if (helperRunning) PillTone.ACCENT else PillTone.WARN,
             )
         }
+        // No command to copy any more, and nothing to do on this screen.
+        //
+        // This step used to hand out an ADB command to run from a computer,
+        // once per boot. The app starts the helper itself now - it pairs with
+        // the phone's own debugging service and needs no second machine - so an
+        // instruction here would describe a detour nobody has to take.
+        //
+        // The step stays because its status is worth seeing: whether a helper
+        // is attached is the difference between a working app and a gate.
         Text(
-            "The app's own helper needs no second app. One ADB command from a computer, " +
-                "once per boot; it runs as uid 2000 — shell level, not root. Full " +
-                "explanation on the System access screen in Settings.",
+            "Needed to equalise players that hide their audio session, like " +
+                "Tidal. Set up on the next screen, by the phone itself. " +
+                "Wireless debugging is switched back off straight afterwards.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        CopyableCommand(context, adbCommand)
     }
 }
 
@@ -323,12 +331,13 @@ private fun ShellAccessAction() {
 private fun SecureSettingsAction() {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Also no longer a job for the user: the helper grants this permission
+        // to the app itself, the first time it connects.
         Text(
-            "Connect the phone to a computer with ADB (or run it from a paired " +
-                "wireless-debugging shell) and execute:",
+            "This is what lets the app close wireless debugging again on its " +
+                "own. Granted once, by the helper.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        CopyableCommand(context, SystemGraph.secureSettings.adbGrantCommand())
     }
 }
