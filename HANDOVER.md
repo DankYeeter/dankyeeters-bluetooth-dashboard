@@ -3592,9 +3592,18 @@ Helfer-PID vorhanden, Berechtigung gehalten, kein Kopplungscode). Ebenfalls
 bestätigt: der Helfer überlebt ein abgeschaltetes Wireless Debugging, und der
 Boot-Restore läuft nur noch einmal.
 
-**Nicht erledigt:** Wireless Debugging wird nicht geschlossen. Das ist jetzt
-der wichtigste offene Punkt, denn damit erreicht die Sicherheitsabsicht ihr
-Ziel nicht.
+**Nachgereicht und am Gerät bewiesen:** Wireless Debugging schließt sich jetzt
+von selbst. Der Auslöser ist nicht mehr das Ende der Aktivierung - eine Stelle,
+die oft gar nicht erreicht wird - sondern das Ereignis "ein Helfer ist
+verbunden", genau wie bei der Berechtigungsvergabe. Damit ist gleichgültig, wer
+den Helfer gestartet hat, und der unten beschriebene unbekannte Startpfad
+blockiert nichts mehr.
+
+Der Beweis war der Test selbst: nach dem App-Start meldete adb `device offline`
+und das Gerät verschwand aus `adb devices`. Genau das soll passieren.
+
+**Weiterhin offen, jetzt aber ohne Folgen:** der unbekannte Pfad, der den
+Helfer vor der Aktivierung startet. Er kostet einen VM-Start pro Aktivierung.
 
 Die Messung sagt genau, wo es hängt, aber nicht warum:
 

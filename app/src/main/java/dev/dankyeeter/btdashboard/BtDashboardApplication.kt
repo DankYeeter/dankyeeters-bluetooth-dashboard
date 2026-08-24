@@ -15,6 +15,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import android.util.Log
+import dev.dankyeeter.btdashboard.privileged.adb.WirelessDebuggingSwitch
+import kotlinx.coroutines.delay
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.service.EqForegroundService
 
@@ -36,6 +39,9 @@ class BtDashboardApplication : Application() {
      * helper already attached, and returns.
      */
     private val activation = Mutex()
+
+    /** Long enough for a just-started helper's launching shell to let go. */
+    private val HELPER_SETTLE_MS = 6_000L
 
     override fun onCreate() {
         super.onCreate()
@@ -76,8 +82,33 @@ class BtDashboardApplication : Application() {
         // that check is a local permission read, not a call into the helper.
         appScope.launch {
             PrivilegedConnection.service.collect { service ->
-                if (service != null) {
-                    PrivilegedBootstrap(this@BtDashboardApplication).grantSecureSettings()
+                if (service == null) return@collect
+                val app = this@BtDashboardApplication
+                val granted = PrivilegedBootstrap(app).grantSecureSettings()
+
+                // And close the door behind it.
+                //
+                // This used to sit at the end of the activation, which turned
+                // out to be a place that is often not reached: something starts
+                // a helper before the activation runs, the activation sees one
+                // already attached and returns early, and everything after that
+                // point was skipped. Wireless debugging then stayed open
+                // indefinitely - the opposite of why any of this exists.
+                //
+                // Hung on the helper being *connected* instead, for the same
+                // reason the grant is: every route ends here, and it does not
+                // matter which one was taken. A helper is attached, so adbd has
+                // done its job and the port is nothing but exposure.
+                //
+                // The pause lets the activation finish first. The helper is
+                // detached from the shell that started it, so it survives adbd
+                // going away - but the shell may still be inside its start-up
+                // grace period, and cutting that short is a race worth not
+                // having.
+                if (granted) {
+                    delay(HELPER_SETTLE_MS)
+                    val closed = WirelessDebuggingSwitch(app).disable()
+                    Log.i("BtDashboard", "wireless debugging closed: $closed")
                 }
             }
         }
