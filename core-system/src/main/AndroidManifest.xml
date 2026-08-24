@@ -3,12 +3,14 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Deliberately NO android.permission.INTERNET. This app is fully
-      self-contained; nothing is ever sent anywhere.
+      INTERNET is declared in the app module, not here, and it is not what it
+      looks like: it exists so the app can reach the debugging service on this
+      same phone over 127.0.0.1 and start its helper without a computer. The
+      user is told before the first connection.
 
-      WRITE_SECURE_SETTINGS cannot be granted at runtime; the user grants it
-      via ADB (or Shizuku). We only declare it so the grant sticks, and detect
-      its absence to show instructions.
+      WRITE_SECURE_SETTINGS cannot be granted at runtime. The helper grants it
+      to the app the moment it attaches; from a computer, `pm grant` does the
+      same. We only declare it so the grant sticks, and detect its absence.
     -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
@@ -73,7 +75,7 @@
         <!--
           Session mode (no-privilege fallback): apps that broadcast
           ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION let us attach to their
-          session. Tidal does not do this reliably — hence the Shizuku path.
+          session. Tidal does not do this reliably — hence the helper path.
         -->
         <!--
           Off by default on purpose. These broadcasts fire on every track

@@ -24,7 +24,7 @@ import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
-import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsState
+import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 import dev.dankyeeter.btdashboard.ui.screens.devices.CopyableCommand
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton

@@ -104,7 +104,7 @@ class FallbackCodecStatusSourceTest {
     @Test
     fun `does not fall back when the shell identity is unavailable`() = runTest {
         val primary = FakeCodecStatusSource(
-            statuses = mutableMapOf(realAddress to CodecReadResult.Unsupported("no Shizuku")),
+            statuses = mutableMapOf(realAddress to CodecReadResult.Unsupported("no shell identity")),
         )
         val dumpsys = FakeDumpsysLinkSource(bathysDump(), isAvailable = false)
         val source = FallbackCodecStatusSource(primary, dumpsys)

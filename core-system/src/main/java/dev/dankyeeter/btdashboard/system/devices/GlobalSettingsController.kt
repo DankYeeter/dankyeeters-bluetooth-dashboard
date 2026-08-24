@@ -3,8 +3,8 @@ package dev.dankyeeter.btdashboard.system.devices
 import android.content.Context
 import android.provider.Settings
 import android.util.Log
-import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsGate
-import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsState
+import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
+import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 
 /**
  * [SecureSettingsController] on `Settings.Global`.

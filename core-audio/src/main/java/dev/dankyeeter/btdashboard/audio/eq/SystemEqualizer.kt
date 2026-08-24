@@ -10,7 +10,7 @@ package dev.dankyeeter.btdashboard.audio.eq
  * mixer. Oboe/NDK is used only for the hearing-test tone generator.
  *
  * An instance is bound to exactly one audio session id. Session `0` means
- * "global output mix" and requires the elevated attach path (Shizuku), see
+ * "global output mix" and requires the elevated attach path (the helper), see
  * :core-system.
  */
 interface SystemEqualizer : AutoCloseable {
@@ -41,7 +41,7 @@ interface SystemEqualizer : AutoCloseable {
 
 /**
  * Creates [SystemEqualizer] instances. :core-system owns the decision *which*
- * session to attach to (session mode vs. global via Shizuku); this factory only
+ * session to attach to (session mode vs. global via the helper); this factory only
  * knows how to build an effect for a given session id.
  */
 interface SystemEqualizerFactory {

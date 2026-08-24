@@ -3796,3 +3796,34 @@ Prozess wieder, auch wenn der Helfer laeuft.
    Automatik im Normalfall gar nichts.
 4. Weiterhin offen und unberuehrt: der unbekannte Pfad, der den Helfer vor der
    Aktivierung startet.
+
+---
+
+## Shizuku ist auch namentlich weg  (24. August, spaet)
+
+Der letzte Rest war Text. Das Paket `system.shizuku` heisst jetzt
+`system.secure` - es enthielt immer nur `SecureSettingsGate` und
+`SecureSettingsState`, die mit Shizuku nie etwas zu tun hatten; die Datei sagte
+das selbst und bat um eine Umbenennung im Ganzen statt stueckweise. Dazu die
+toten ProGuard-Regeln fuer `rikka.shizuku.**`.
+
+**Zwei davon waren keine Kommentare, sondern Fehler:** zwei Meldungen fuer den
+Nutzer nannten Shizuku als Ursache - *"Shizuku is not ready - other equalizers
+cannot be detected"* und *"no shell identity - Shizuku not ready"*. Sie
+schickten jemanden los, eine App zu installieren, die dieses Projekt nicht mehr
+benutzt. Jetzt heisst es dort "the helper".
+
+Ebenfalls berichtigt, weil es beim Lesen auffiel: der Manifest-Kommentar in
+`core-system` behauptete weiterhin *"Deliberately NO
+android.permission.INTERNET"*. Die Berechtigung ist seit dem 23. August drin,
+fuer die Loopback-Verbindung zum Debugging-Dienst. Der Kommentar sagt jetzt,
+warum sie existiert.
+
+**Absichtlich stehen geblieben** sind 15 Nennungen: Shizuku als *Vorbild*
+(`PrivilegedServer` - dieselbe Mechanik, `app_process` unter uid 2000, die
+Provider-Adressierung) und als ausdrueckliche Historie (`GlobalAttachmentStrategy`,
+`ShellRunner`, `SystemAccessScreen`, `BootReceiver`). Das ist Wissen, kein Rest -
+wer die Blockliste oder den Helferstart nachvollziehen will, braucht genau diese
+Verweise.
+
+571 Tests gruen. Am Geraet aendert sich nichts davon ausser den zwei Meldungen.

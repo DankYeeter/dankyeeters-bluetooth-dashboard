@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.map
 
 /**
  * Reads the codec through the A2DP system API, and falls back to
- * `dumpsys bluetooth_manager` under Shizuku's shell identity when that fails.
+ * `dumpsys bluetooth_manager` under the helper's shell identity when that fails.
  *
  * The fallback is not a nicety: `BluetoothA2dp.getCodecStatus()` is a hidden
  * `@SystemApi` behind BLUETOOTH_PRIVILEGED, so on stock Android it reliably

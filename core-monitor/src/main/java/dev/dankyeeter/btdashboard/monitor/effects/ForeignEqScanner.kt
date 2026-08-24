@@ -21,7 +21,7 @@ data class ForeignEqScanResult(
 
 /**
  * Runs `dumpsys media.audio_flinger`, parses the effect chains and attributes
- * them to apps. Needs Shizuku's shell identity: a normal app may not dump
+ * them to apps. Needs the helper's shell identity: a normal app may not dump
  * audio_flinger. Without it the dashboard shows "cannot check" rather than a
  * false all-clear.
  */
@@ -47,7 +47,7 @@ class ForeignEqScanner(
         if (!shell.isAvailable) {
             return ForeignEqScanResult(
                 available = false,
-                unavailableReason = "Shizuku is not ready — other equalizers cannot be detected",
+                unavailableReason = "the helper is not running — other equalizers cannot be detected",
             )
         }
         val result = shell.run(listOf("dumpsys", "media.audio_flinger"))

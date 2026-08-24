@@ -8,7 +8,7 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.setup.SetupEnvironment
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
-import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsState
+import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 
 /**
  * The real, live answer to "is this step done?".

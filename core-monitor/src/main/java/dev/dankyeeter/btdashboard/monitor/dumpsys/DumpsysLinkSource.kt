@@ -14,7 +14,7 @@ class ShellDumpsysLinkSource(private val shell: ShellRunner) : DumpsysLinkSource
 
     override suspend fun snapshot(): DumpsysSnapshot {
         if (!shell.isAvailable) {
-            return DumpsysSnapshot(warnings = listOf("no shell identity — Shizuku not ready"))
+            return DumpsysSnapshot(warnings = listOf("no shell identity — the helper is not running"))
         }
         val result = shell.run(listOf("dumpsys", "bluetooth_manager"))
         if (!result.isSuccess && result.stdout.isBlank()) {

@@ -7,7 +7,7 @@ import dev.dankyeeter.btdashboard.audio.eq.EqSettings
  *
  * Two strategies, tried in order of reach:
  *  1. [GlobalAttachmentStrategy] — attach to session 0 (the global output mix)
- *     with elevated privileges obtained through Shizuku. This is the only path
+ *     with elevated privileges obtained through the helper. This is the only path
  *     that reaches Tidal reliably, and it is what Wavelet-style apps do.
  *  2. [SessionAttachmentStrategy] — no-privilege fallback: attach to the
  *     sessions that apps announce via

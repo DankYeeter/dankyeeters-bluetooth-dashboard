@@ -100,7 +100,7 @@ class PackageManagerAppSource(private val context: Context) : InstalledAppSource
  * One caveat, stated rather than hidden: `AudioPlaybackConfiguration.getClientUid()`
  * is a system API. A normal app gets the configuration objects but not, on the
  * public surface, the uid inside them — so the uid is read reflectively, in the
- * same spirit as `ShizukuShellRunner`, and when the field is not reachable the
+ * same spirit as the shell-backed runner, and when the field is not reachable the
  * whole overlay reports "unavailable" instead of pretending nothing is playing.
  */
 class AudioManagerPlayingAppsSource(private val context: Context) : PlayingAppsSource {

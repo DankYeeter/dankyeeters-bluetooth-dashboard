@@ -3,6 +3,3 @@
     native <methods>;
 }
 
-# Shizuku API uses reflection against hidden framework classes.
--keep class rikka.shizuku.** { *; }
--dontwarn rikka.shizuku.**

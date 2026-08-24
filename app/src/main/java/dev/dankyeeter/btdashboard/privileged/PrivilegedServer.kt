@@ -506,9 +506,11 @@ private class PrivilegedService(
             // reason for is indistinguishable from a broken helper.
             return PrivilegedProtocol.encodeError("not on the whitelist: ${argv.firstOrNull()}")
         }
-        // Logged so it is provable which shell identity actually served a
-        // command — with Shizuku installed as a fallback, a successful result
-        // alone does not say which one produced it.
+        // Logged so it is provable that a command really ran as the helper.
+        // The log dates from when a second shell identity was installable
+        // alongside it and a successful result did not say which one had
+        // served the call; it stays because it is still the only place that
+        // shows what the helper was actually asked to do.
         println("privileged helper: exec " + argv.joinToString(" "))
         return execute(argv)
     }

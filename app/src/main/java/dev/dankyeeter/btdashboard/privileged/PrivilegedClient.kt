@@ -298,8 +298,9 @@ class PrivilegedBootstrap(context: Context) {
  *
  * The helper is not started from here and cannot be: only ADB can put a process
  * on the shell uid. This class uses the connection if [PrivilegedProvider]
- * accepted one, and reports itself unavailable otherwise so `MonitorGraph`
- * falls back to Shizuku.
+ * accepted one, and reports itself unavailable otherwise - which is the end of
+ * the line now that it is the only shell identity in the project. Everything
+ * downstream degrades to "cannot check" rather than to a second provider.
  */
 class PrivilegedShellRunner(
     context: Context,

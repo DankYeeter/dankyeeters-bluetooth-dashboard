@@ -20,7 +20,8 @@ import org.robolectric.annotation.Config
  * One smoke test per top-level screen: does it compose at all?
  *
  * These are deliberately shallow. Every screen here reaches into Bluetooth,
- * Shizuku, DataStore or the audio effect framework on first composition, and
+ * the privileged helper, DataStore or the audio effect framework on first
+ * composition, and
  * the failure mode that actually bites in this project is a screen that throws
  * before drawing anything — a missing permission path, a null service, a graph
  * that was never initialised. Asserting on rendered text would tie the tests to

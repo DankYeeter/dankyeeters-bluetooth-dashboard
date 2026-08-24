@@ -43,7 +43,7 @@ data class BluetoothDashboardState(
     /**
      * "These apps could have their own EQ." Separate from [foreignEq] because
      * it answers a different question and, unlike the audio_flinger scan, needs
-     * no Shizuku at all — it must still work when the shell identity does not.
+     * no helper at all — it must still work when the shell identity does not.
      */
     val eqCandidates: EqCandidateScan? = null,
     val candidatesScanning: Boolean = false,

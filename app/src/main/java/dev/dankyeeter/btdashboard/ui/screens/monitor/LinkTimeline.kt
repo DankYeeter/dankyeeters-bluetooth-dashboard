@@ -50,7 +50,7 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
  *  - **Codec** — which codec was negotiated, and when it changed;
  *  - **Sample rate** — the other half of the codec story;
  *  - **Signal** — RSSI, drawn *only* when something really provides it (BQR
- *    under Shizuku), so its absence costs no screen space and makes no claim;
+ *    under the helper), so its absence costs no screen space and makes no claim;
  *  - **Events** — connect, disconnect, takeover, interruption.
  *
  * Stretches the sampler slept through are greyed across every lane. A lane

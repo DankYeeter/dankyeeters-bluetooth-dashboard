@@ -29,7 +29,7 @@ import dev.dankyeeter.btdashboard.system.devices.SystemMediaVolumeController
 import dev.dankyeeter.btdashboard.system.persist.EqSettingsStore
 import dev.dankyeeter.btdashboard.system.persist.AppearanceStore
 import dev.dankyeeter.btdashboard.system.setup.SetupStore
-import dev.dankyeeter.btdashboard.system.shizuku.SecureSettingsGate
+import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
 
 /**
  * Minimal process-wide wiring. Deliberately hand-rolled instead of a DI
