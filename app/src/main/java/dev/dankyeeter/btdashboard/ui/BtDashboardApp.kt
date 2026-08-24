@@ -104,12 +104,27 @@ fun BtDashboardApp(
     // notification to put the code into - gating it would lock the user out of
     // the thing that opens the gate.
     val helper by PrivilegedConnection.service.collectAsStateWithLifecycle()
-    val wizardDone by SystemGraph.setupStore.wizardCompleted.collectAsStateWithLifecycle(
-        initialValue = true,
-    )
-    if (wizardDone && helper == null) {
-        ActivateRoute(onDone = {})
-        return
+    // Null until the stored value actually arrives, and deliberately not
+    // `true`.
+    //
+    // Assuming "wizard done" while the answer was still on its way meant a
+    // freshly installed app went straight to the gate and never ran the wizard
+    // at all - so the runtime permissions were never asked for, including the
+    // one for notifications, which is where the pairing code has to be typed.
+    // The app was unusable on a new phone in exactly the way this ordering was
+    // built to prevent. Found on a second device; the first had run the wizard
+    // weeks earlier, so it could not show there.
+    //
+    // Deciding nothing until the value is known costs a frame and cannot be
+    // wrong.
+    val wizardDone by SystemGraph.setupStore.wizardCompleted
+        .collectAsStateWithLifecycle(initialValue = null)
+    when {
+        wizardDone == null -> return
+        wizardDone == true && helper == null -> {
+            ActivateRoute(onDone = {})
+            return
+        }
     }
 
     val navController = rememberNavController()

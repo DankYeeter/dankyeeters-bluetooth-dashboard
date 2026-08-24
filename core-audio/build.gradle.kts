@@ -15,8 +15,26 @@ android {
         externalNativeBuild {
             cmake {
                 // Oboe is consumed as a Gradle prefab package; C++17 for the engine.
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                // 16 KB page alignment.
+                //
+                // Newer Pixels run with 16 KB memory pages, and Android 17
+                // refuses to treat a 4 KB-aligned library as compatible - it
+                // says so in a dialog on first launch, and Google Play requires
+                // the alignment outright. Found on a Pixel 11 Pro; the older
+                // device runs 4 KB pages and could never have shown it.
+                //
+                // The flag is what NDK r27 does by default; setting it
+                // explicitly keeps the result independent of which NDK happens
+                // to be installed.
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                )
                 cppFlags += listOf("-std=c++17", "-fno-exceptions", "-Wall")
+                // Belt and braces: older NDKs ignore the argument above, and a
+                // silently 4 KB-aligned library is exactly the failure that
+                // only shows up on hardware nobody tested on.
+                arguments += listOf("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384")
             }
         }
         ndk {
