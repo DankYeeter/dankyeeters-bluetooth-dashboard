@@ -172,7 +172,12 @@ class HelperAutoStart(private val context: Context) {
                 // Guarded on [granted] because without the permission the call
                 // fails silently and would leave the port up while the log said
                 // nothing.
-                if (granted) debugging.disable()
+                // Logged rather than done silently: whether this line is even
+                // reached has already been the open question twice. A boot
+                // floods logcat and the early entries are gone by the time
+                // anyone looks, so the answer has to be in a line of our own.
+                val closed = if (granted) debugging.disable() else false
+                Log.i(TAG, "wireless debugging closed after activation: $closed (granted=$granted)")
                 verdict
             } else {
                 Outcome.Broken(

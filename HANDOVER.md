@@ -3581,3 +3581,39 @@ verschwindet jetzt, sobald der Helfer sich meldet.
   Millisekunden ab.
 - Bei langen Wartezeiten sperrt sich der Bildschirm — Tipp-Befehle laufen dann
   ins Leere, ohne zu scheitern.
+
+---
+
+## Nach zwei echten Neustarts (24. August, abends)
+
+**Bewiesen:** Die automatische Aktivierung läuft. Nach einem Neustart steht der
+Helfer ohne jedes Zutun (`BtDashBoot: automatic activation after boot: true`,
+Helfer-PID vorhanden, Berechtigung gehalten, kein Kopplungscode). Ebenfalls
+bestätigt: der Helfer überlebt ein abgeschaltetes Wireless Debugging, und der
+Boot-Restore läuft nur noch einmal.
+
+**Nicht erledigt:** Wireless Debugging wird nicht geschlossen. Das ist jetzt
+der wichtigste offene Punkt, denn damit erreicht die Sicherheitsabsicht ihr
+Ziel nicht.
+
+Die Messung sagt genau, wo es hängt, aber nicht warum:
+
+- Im Log steht **keine einzige** `HelperAutoStart`-Zeile - weder die
+  Grant-Meldung noch die eigens dafür eingebaute
+  `wireless debugging closed after activation`.
+- `automatic activation after boot: true` stammt folglich aus der Abkürzung
+  `if (PrivilegedConnection.isConnected) true` in `BtDashboardApplication`.
+- Es war also **schon ein Helfer verbunden**, bevor die Aktivierung lief.
+
+Der lange als harmlos abgetane Doppelstart ist damit die Blockade: irgendein
+Pfad startet den Helfer vor der Aktivierung, die Aktivierung steigt sofort aus,
+und alles was hinter ihr liegt - Vergabe *und* Schließen - wird übersprungen.
+
+**Nächster Schritt:** diesen Pfad finden. `AdbPortDiscovery` und
+`deviceShellCommand()` haben laut Suche nur `HelperAutoStart` als Aufrufer, das
+passt also nicht zusammen und eine der beiden Annahmen ist falsch. Ein Log
+gleich zu Beginn von `attempt()` und eines in `PrivilegedProvider.accept()`
+(mit `Thread.currentThread().stackTrace`) beantwortet es in einem Durchlauf.
+
+Achtung beim Nachstellen: ein Boot flutet logcat, und die frühen Zeilen sind
+nach wenigen Minuten weg. Entweder sofort auslesen oder `logcat -G 16M` setzen.
