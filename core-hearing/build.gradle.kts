@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "dev.dankyeeter.btdashboard.hearing"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig { minSdk = 31 }
 
     compileOptions {

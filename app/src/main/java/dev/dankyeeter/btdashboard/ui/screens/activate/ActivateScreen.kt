@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -69,6 +72,16 @@ fun ActivateScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // This screen is drawn outside the Scaffold - it replaces the whole
+            // app while the helper is missing - so nothing else keeps it clear
+            // of the status and gesture bars. Since targetSdk 36 the app cannot
+            // opt out of edge-to-edge, so it has to say where its content is
+            // allowed to live.
+            //
+            // safeDrawing rather than systemBars because of the pairing-code
+            // field below: it also holds the keyboard's inset, and a code field
+            // hidden behind the keyboard is a dead end.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {

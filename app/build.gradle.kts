@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "dev.dankyeeter.btdashboard"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Instrumented tests live here now: the ADB reachability probe has to
@@ -16,7 +16,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         applicationId = "dev.dankyeeter.btdashboard"
         minSdk = 31
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 3
         versionName = "0.3.0"
         // English-only app: no translated resources are shipped.

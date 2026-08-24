@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
@@ -104,6 +107,12 @@ fun SetupWizardScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // Same reason as on the Activate screen: the wizard runs in front
+            // of the Scaffold, so it carries its own insets. Without this the
+            // "Setup" title sits under the status bar and the Next button under
+            // the gesture bar - on a fresh install, which is the only time this
+            // screen is ever seen.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
