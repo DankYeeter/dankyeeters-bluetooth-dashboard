@@ -28,9 +28,30 @@ class AndroidSetupEnvironment(context: Context) : SetupEnvironment {
 
         SetupStep.MICROPHONE -> granted(Manifest.permission.RECORD_AUDIO)
         SetupStep.NOTIFICATIONS -> granted(Manifest.permission.POST_NOTIFICATIONS)
-        SetupStep.SHELL_ACCESS -> PrivilegedConnection.isConnected
-        SetupStep.SECURE_SETTINGS -> SystemGraph.secureSettings.state() == SecureSettingsState.GRANTED
+        // A connected helper, and not "helper connected *and* the permission
+        // granted".
+        //
+        // The helper grants WRITE_SECURE_SETTINGS to the app itself the moment
+        // it attaches, so the two are one event with a few milliseconds between
+        // them - and asking for both here would make the step flicker back to
+        // "not done" in that gap, which is when the gate would throw the user
+        // out of an app that is in fact working.
+        //
+        // The permission is not swept under the carpet: [secureSettingsGranted]
+        // reports it separately, and the step shows it as its own line. If the
+        // grant failed, the user sees that it failed rather than being sent
+        // through pairing again for a helper that is already running.
+        SetupStep.HELPER -> PrivilegedConnection.isConnected
     }
+
+    /**
+     * Whether the helper has managed to grant the app WRITE_SECURE_SETTINGS.
+     *
+     * Only reported, never gated on - see above. Without it the app cannot
+     * close wireless debugging again by itself.
+     */
+    fun secureSettingsGranted(): Boolean =
+        SystemGraph.secureSettings.state() == SecureSettingsState.GRANTED
 
     override fun isReachable(step: SetupStep): Boolean = true
 

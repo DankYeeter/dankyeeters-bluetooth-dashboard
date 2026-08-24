@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.ui
 
+import android.util.Log
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
@@ -12,15 +13,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import android.content.Intent
-import android.provider.Settings
-import androidx.compose.ui.platform.LocalContext
-import android.util.Log
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
-import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateScreen
-import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateViewModel
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,7 +27,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import dev.dankyeeter.btdashboard.system.SystemGraph
+import dev.dankyeeter.btdashboard.system.setup.SetupPhase
+import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateRoute
 import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesScreen
 import dev.dankyeeter.btdashboard.ui.screens.eq.EqScreen
@@ -43,6 +37,7 @@ import dev.dankyeeter.btdashboard.ui.screens.monitor.MonitorScreen
 import dev.dankyeeter.btdashboard.ui.screens.onboarding.SystemAccessScreen
 import dev.dankyeeter.btdashboard.ui.screens.settings.SettingsScreen
 import dev.dankyeeter.btdashboard.ui.screens.wizard.SetupWizardScreen
+import dev.dankyeeter.btdashboard.ui.screens.wizard.rememberSetupPhase
 
 enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     /** What the headphone is doing right now, plus its own settings. */
@@ -62,16 +57,6 @@ const val ROUTE_DEVICE_PROFILES = "device_profiles"
 /** Must match [dev.dankyeeter.btdashboard.system.boot.OpenRoute.ACTIVATE]. */
 const val ROUTE_ACTIVATE = "activate"
 
-/**
- * Settings' own extra for "scroll to this entry and highlight it".
- *
- * Not public API, and it fails harmlessly: an unrecognised extra leaves the
- * user on the Developer options list, which is where they were going anyway.
- * The alternative is a paragraph explaining where to scroll.
- */
-private const val SETTINGS_HIGHLIGHT_KEY = ":settings:fragment_args_key"
-private const val WIRELESS_DEBUGGING_KEY = "toggle_adb_wireless"
-
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD, ROUTE_ACTIVATE)
 
@@ -86,68 +71,73 @@ fun BtDashboardApp(
     requestedRoute: String? = null,
     onRouteHandled: () -> Unit = {},
 ) {
-    // The gate.
+    // The gate: three faces, and which one is live is worked out on the spot.
     //
-    // Almost nothing in this app works without the privileged helper: the codec
-    // controls, the Bluetooth settings and - decisively - equalising players
-    // that never announce their audio session all go through it. Showing those
-    // screens without it would mean showing controls that quietly do nothing.
+    // 1. Something required is missing - the whole setup process, from the top.
+    // 2. Permissions are in place and only the helper is gone - the Activate
+    //    button alone. This is the state after a reboot, and it would be an
+    //    insult to walk someone through four steps to reach one tap.
+    // 3. Everything is in place - none of this is anywhere to be seen, and the
+    //    setup lives on as an entry in Settings.
     //
-    // So there is no in-between state, no banner and no greyed-out tabs: either
-    // the helper is there and the app works, or the only thing on screen is the
-    // way to get it. This also covers the helper dying mid-session, which the
-    // flow reports on its own - the app falls back here rather than waiting for
-    // the next reboot.
+    // Nothing about that is remembered. Android revokes the permissions of
+    // unused apps by itself and the user can switch notifications off at any
+    // time; a stored "setup done" would keep claiming otherwise, and the
+    // permission it would be lying about is the one the pairing code is typed
+    // into. It is also how a fresh install used to skip its own setup: the flag
+    // had to be guessed while it was being read, and the guess was "done".
     //
-    // The setup wizard deliberately sits *in front* of this rather than behind
-    // it. It is where notification access is granted, and pairing needs a
-    // notification to put the code into - gating it would lock the user out of
-    // the thing that opens the gate.
-    val helper by PrivilegedConnection.service.collectAsStateWithLifecycle()
-    // Null until the stored value actually arrives, and deliberately not
-    // `true`.
+    // Why the helper gates the app at all: the codec controls, the Bluetooth
+    // settings and - decisively - equalising players that never announce their
+    // audio session all go through it. There is no in-between state, no banner
+    // and no greyed-out tabs. This also covers the helper dying mid-session.
+    val phase = rememberSetupPhase()
+
+    // Once the process is on screen it stays there until the user is done with
+    // it, even as its own steps start reporting green.
     //
-    // Assuming "wizard done" while the answer was still on its way meant a
-    // freshly installed app went straight to the gate and never ran the wizard
-    // at all - so the runtime permissions were never asked for, including the
-    // one for notifications, which is where the pairing code has to be typed.
-    // The app was unusable on a new phone in exactly the way this ordering was
-    // built to prevent. Found on a second device; the first had run the wizard
-    // weeks earlier, so it could not show there.
-    //
-    // Deciding nothing until the value is known costs a frame and cannot be
-    // wrong.
-    val wizardDone by SystemGraph.setupStore.wizardCompleted
-        .collectAsStateWithLifecycle(initialValue = null)
-    when {
-        wizardDone == null -> return
-        wizardDone == true && helper == null -> {
-            ActivateRoute(onDone = {})
-            return
+    // Without this, granting the last required permission would rip the screen
+    // away mid-flow - the phase flips to ACTIVATION_ONLY the instant it is
+    // granted, and the optional step the user had not reached yet would never
+    // be offered. The live state decides whether the process *opens*; the
+    // person decides when it closes.
+    var inSetup by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(phase) {
+        when (phase) {
+            SetupPhase.FULL_SETUP -> inSetup = true
+            // Everything is in place, so the process closes itself. Daniel's
+            // rule for it: the setup steps are to be nowhere in sight once the
+            // permissions are granted. Making the last one a tap on "Done"
+            // would be one step too many, and it would be the pointless one.
+            SetupPhase.READY -> inSetup = false
+            SetupPhase.ACTIVATION_ONLY -> Unit
         }
+    }
+
+    // The condition decides, not the effect above: a saved `inSetup` restored
+    // after a rotation must not be able to flash the setup over a finished app
+    // for the frame before the effect runs.
+    if (phase == SetupPhase.FULL_SETUP || (inSetup && phase != SetupPhase.READY)) {
+        SetupWizardScreen(onDone = { inSetup = false })
+        return
+    }
+    if (phase == SetupPhase.ACTIVATION_ONLY) {
+        ActivateRoute(onDone = {})
+        return
     }
 
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
-    // An outside request wins over the first-run check below: someone who just
-    // tapped "Activate" asked for this screen deliberately.
+    // A screen asked for from outside - today the boot notification's
+    // "Activate" button. It is a deliberate request, so it wins over whatever
+    // the app would otherwise have opened on.
     LaunchedEffect(requestedRoute) {
         val route = requestedRoute ?: return@LaunchedEffect
         runCatching { navController.navigate(route) }
             .onFailure { Log.w("BtDashboardApp", "cannot open requested route $route", it) }
         onRouteHandled()
-    }
-
-    // First launch opens the wizard exactly once. "Completed" only records that
-    // it was seen — the live status is always recomputed, never trusted from here.
-    var firstRunChecked by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (firstRunChecked) return@LaunchedEffect
-        firstRunChecked = true
-        val completed = runCatching { SystemGraph.setupStore.isWizardCompleted() }.getOrDefault(true)
-        if (!completed) navController.navigate(ROUTE_WIZARD)
     }
 
     Scaffold(
@@ -220,35 +210,4 @@ private fun NavGraphBuilder.appGraph(
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }
     composable(ROUTE_ACTIVATE) { ActivateRoute(onDone = onBack) }
     composable(ROUTE_DEVICE_PROFILES) { DeviceProfilesScreen(onBack = onBack) }
-}
-
-/**
- * The activation screen, wired up.
- *
- * Shared by the navigation route and by the gate below, which must show exactly
- * the same thing: two copies would drift, and the copy the user actually sees
- * depends on how they arrived.
- */
-@Composable
-private fun ActivateRoute(onDone: () -> Unit) {
-    val viewModel: ActivateViewModel = viewModel()
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    ActivateScreen(
-        state = state,
-        onActivate = viewModel::activate,
-        onSubmitCode = viewModel::submitCode,
-        // Straight to Developer options, with the wireless debugging entry
-        // asked for by name. Describing where to find it would be one more
-        // thing to read while holding a six-digit number in your head.
-        onOpenSettings = {
-            val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-                .putExtra(SETTINGS_HIGHLIGHT_KEY, WIRELESS_DEBUGGING_KEY)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            runCatching { context.startActivity(intent) }
-                .onFailure { Log.w("BtDashboardApp", "cannot open developer options", it) }
-        },
-        onDisclosureAccepted = viewModel::onDisclosureAccepted,
-        onDone = onDone,
-    )
 }

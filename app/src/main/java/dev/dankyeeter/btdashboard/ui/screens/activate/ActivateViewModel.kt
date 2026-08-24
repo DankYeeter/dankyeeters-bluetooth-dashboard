@@ -57,6 +57,18 @@ class ActivateViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * "Not now" on the disclosure, from a surface that cannot be left.
+     *
+     * The gate closes itself when it is dismissed, but the same dialog also
+     * appears inside the setup process, where there is nowhere to go - and a
+     * dialog whose only two buttons are "Continue" and nothing at all is a
+     * trap. This puts the screen back where it was.
+     */
+    fun dismissDisclosure() {
+        _state.value = ActivateState.Idle
+    }
+
     fun onDisclosureAccepted() {
         viewModelScope.launch {
             setupStore.setLocalConnectionAccepted(true)

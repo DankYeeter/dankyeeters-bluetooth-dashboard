@@ -36,13 +36,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
+import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateStep
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
 import dev.dankyeeter.btdashboard.system.setup.SetupStepState
 import dev.dankyeeter.btdashboard.system.setup.SetupStepStatus
-import dev.dankyeeter.btdashboard.ui.screens.devices.CopyableCommand
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -58,11 +57,13 @@ import dev.dankyeeter.btdashboard.ui.theme.PillTone
  *
  * 1. **Every step re-checks live.** Status is recomputed on resume and on
  *    demand, so a permission granted in Settings turns the step green without
- *    a restart, and a shell that died turns it back.
- * 2. **Every step can be skipped.** Only Bluetooth access is marked required,
- *    and even that is not enforced — the app degrades instead of blocking. A
- *    wizard that traps the user on a step they cannot complete right now
- *    (shell access needs a computer!) would be worse than one they can leave.
+ *    a restart, and a helper that died turns it back. Nothing here is
+ *    remembered, so nothing here can be stale.
+ * 2. **Only what is optional can be skipped.** The microphone is; Bluetooth
+ *    and notifications are not, because the app cannot do its job without the
+ *    first and cannot even finish this process without the second - the
+ *    pairing code is typed into a notification. Offering "Skip anyway" for
+ *    those was an empty offer.
  */
 @Composable
 fun SetupWizardScreen(
@@ -137,8 +138,12 @@ fun SetupWizardScreen(
             } else {
                 GoldButton(onClick = { viewModel.finish(onDone) }) { Text("Finish") }
             }
-            TextButton(onClick = { viewModel.skip(current.step) }) {
-                Text(if (current.step.optional) "Skip" else "Skip anyway")
+            // Only what is genuinely optional can be waved away. The other
+            // steps used to offer "Skip anyway", and it was an empty offer:
+            // the app does not work without them, so skipping only moved the
+            // dead end one screen further on.
+            if (current.step.optional) {
+                TextButton(onClick = { viewModel.skip(current.step) }) { Text("Skip") }
             }
         }
 
@@ -164,7 +169,6 @@ fun SetupWizardScreen(
             }
         }
 
-        TextButton(onClick = { viewModel.finish(onDone) }) { Text("Close setup") }
     }
 }
 
@@ -258,8 +262,7 @@ private fun StepPanel(state: SetupStepState, viewModel: SetupWizardViewModel) {
                     "Allow notifications",
                 )
 
-                SetupStep.SHELL_ACCESS -> ShellAccessAction()
-                SetupStep.SECURE_SETTINGS -> SecureSettingsAction()
+                SetupStep.HELPER -> HelperAction()
             }
         }
 
@@ -289,21 +292,26 @@ private fun PermissionAction(
 }
 
 /**
- * The one route to shell access: the app's own helper.
+ * The last step: pairing and the helper, which are one action.
  *
- * Shizuku used to be listed alongside it and was removed on Daniel's explicit
- * decision — one access mechanism, owned by this project, and nothing else.
+ * The phone pairs with its own debugging service, that starts the helper, and
+ * the helper grants the app WRITE_SECURE_SETTINGS. There is nothing for the
+ * user to do between those, so there is nothing to split into two steps - that
+ * division was a leftover from when each half was an ADB command typed on a
+ * computer.
+ *
+ * The activation control is the same one the gate shows, not a copy of it.
  */
 @Composable
-private fun ShellAccessAction() {
+private fun HelperAction() {
     val context = LocalContext.current
     val helper by PrivilegedConnection.service.collectAsStateWithLifecycle()
     val helperRunning = helper != null
-    // Keyed on the connection: accepting a hand-over spends the token that was
-    // in the command, so the line shown after a connect must be a fresh one.
-    val adbCommand = remember(context, helperRunning) {
-        PrivilegedBootstrap(context).adbCommand()
-    }
+
+    // Re-read whenever the helper changes: the grant happens the instant a
+    // helper attaches, so that is exactly when this answer goes out of date.
+    val environment = remember(context) { AndroidSetupEnvironment(context) }
+    val secureSettings = remember(helperRunning) { environment.secureSettingsGranted() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -317,36 +325,24 @@ private fun ShellAccessAction() {
                 tone = if (helperRunning) PillTone.ACCENT else PillTone.WARN,
             )
         }
-        // No command to copy any more, and nothing to do on this screen.
+        // Reported, not gated on.
         //
-        // This step used to hand out an ADB command to run from a computer,
-        // once per boot. The app starts the helper itself now - it pairs with
-        // the phone's own debugging service and needs no second machine - so an
-        // instruction here would describe a detour nobody has to take.
-        //
-        // The step stays because its status is worth seeing: whether a helper
-        // is attached is the difference between a working app and a gate.
-        Text(
-            "Needed to equalise players that hide their audio session, like " +
-                "Tidal. Set up on the next screen, by the phone itself. " +
-                "Wireless debugging is switched back off straight afterwards.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun SecureSettingsAction() {
-    val context = LocalContext.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Also no longer a job for the user: the helper grants this permission
-        // to the app itself, the first time it connects.
-        Text(
-            "This is what lets the app close wireless debugging again on its " +
-                "own. Granted once, by the helper.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // The step counts as done when a helper is attached, because that is
+        // the thing the user acted on. The permission arrives milliseconds
+        // later on its own - but if it ever does not, saying so here is the
+        // difference between a known limp and a silent one: without it the app
+        // cannot close wireless debugging again by itself.
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Secure settings", style = MaterialTheme.typography.titleSmall)
+            Pill(
+                if (secureSettings) "Granted" else "Not granted",
+                tone = if (secureSettings) PillTone.ACCENT else PillTone.NEUTRAL,
+            )
+        }
+        ActivateStep()
     }
 }

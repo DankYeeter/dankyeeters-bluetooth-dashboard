@@ -34,6 +34,11 @@ import dev.dankyeeter.btdashboard.system.boot.ActivationSteps
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
+import android.content.Intent
+import android.provider.Settings
+import android.util.Log
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
  * One button, and only what the moment needs after that.
@@ -85,47 +90,160 @@ fun ActivateScreen(
             .padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            when (state) {
-                is ActivateState.Idle, is ActivateState.Disclosure -> {
-                    Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
-                        Text("Activate")
-                    }
-                    ActivationHelp()
+        ActivateActions(
+            state = state,
+            onActivate = onActivate,
+            onSubmitCode = onSubmitCode,
+            onOpenSettings = onOpenSettings,
+        )
+    }
+}
+
+/**
+ * The activation itself, without any framing.
+ *
+ * Two places show this: the gate, which is the whole screen while the helper is
+ * missing, and the last step of the setup process, where it sits inside a
+ * panel with the other steps. They must be the same thing - a second copy would
+ * drift, and which copy the user sees would depend on how they arrived.
+ */
+@Composable
+fun ActivateActions(
+    state: ActivateState,
+    onActivate: () -> Unit,
+    onSubmitCode: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        when (state) {
+            is ActivateState.Idle, is ActivateState.Disclosure -> {
+                Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
+                    Text("Activate")
                 }
-
-                is ActivateState.Working -> {
-                    CircularProgressIndicator()
-                    Text(state.step, style = MaterialTheme.typography.bodyLarge)
-                }
-
-                is ActivateState.NeedsCode -> PairingCodeEntry(
-                    error = state.wrongCode,
-                    onOpenSettings = onOpenSettings,
-                    onSubmit = onSubmitCode,
-                )
-
-                is ActivateState.Failed -> {
-                    Text(
-                        state.reason,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                    )
-                    Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
-                        Text("Try again")
-                    }
-                    // Offered here already open: a failed attempt is the one
-                    // moment the steps are worth reading.
-                    ActivationHelp(initiallyExpanded = true)
-                }
-
-                is ActivateState.Done -> Unit
+                ActivationHelp()
             }
+
+            is ActivateState.Working -> {
+                CircularProgressIndicator()
+                Text(state.step, style = MaterialTheme.typography.bodyLarge)
+            }
+
+            is ActivateState.NeedsCode -> PairingCodeEntry(
+                error = state.wrongCode,
+                onOpenSettings = onOpenSettings,
+                onSubmit = onSubmitCode,
+            )
+
+            is ActivateState.Failed -> {
+                Text(
+                    state.reason,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
+                Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
+                    Text("Try again")
+                }
+                // Offered here already open: a failed attempt is the one
+                // moment the steps are worth reading.
+                ActivationHelp(initiallyExpanded = true)
+            }
+
+            is ActivateState.Done -> Unit
         }
     }
+}
+
+/**
+ * Settings' own extra for "scroll to this entry and highlight it".
+ *
+ * Not public API, and it fails harmlessly: an unrecognised extra leaves the
+ * user on the Developer options list, which is where they were going anyway.
+ * The alternative is a paragraph explaining where to scroll.
+ */
+private const val SETTINGS_HIGHLIGHT_KEY = ":settings:fragment_args_key"
+private const val WIRELESS_DEBUGGING_KEY = "toggle_adb_wireless"
+
+/**
+ * Everything an activation surface needs, wired to the view model once.
+ *
+ * The two surfaces below differ in framing, not in behaviour - which view
+ * model, and which intent opens Developer options, has no business existing
+ * twice.
+ */
+private class ActivateWiring(
+    val state: ActivateState,
+    val onActivate: () -> Unit,
+    val onSubmitCode: (String) -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onDisclosureAccepted: () -> Unit,
+    val onDisclosureDismissed: () -> Unit,
+)
+
+@Composable
+private fun rememberActivateWiring(): ActivateWiring {
+    val viewModel: ActivateViewModel = viewModel()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    return ActivateWiring(
+        state = state,
+        onActivate = viewModel::activate,
+        onSubmitCode = viewModel::submitCode,
+        // Straight to Developer options, with the wireless debugging entry
+        // asked for by name. Describing where to find it would be one more
+        // thing to read while holding a six-digit number in your head.
+        onOpenSettings = {
+            val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                .putExtra(SETTINGS_HIGHLIGHT_KEY, WIRELESS_DEBUGGING_KEY)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { context.startActivity(intent) }
+                .onFailure { Log.w("ActivateScreen", "cannot open developer options", it) }
+        },
+        onDisclosureAccepted = viewModel::onDisclosureAccepted,
+        onDisclosureDismissed = viewModel::dismissDisclosure,
+    )
+}
+
+/**
+ * Activation as the whole screen: the gate, and the route the boot
+ * notification opens.
+ */
+@Composable
+fun ActivateRoute(onDone: () -> Unit) {
+    val wiring = rememberActivateWiring()
+    ActivateScreen(
+        state = wiring.state,
+        onActivate = wiring.onActivate,
+        onSubmitCode = wiring.onSubmitCode,
+        onOpenSettings = wiring.onOpenSettings,
+        onDisclosureAccepted = wiring.onDisclosureAccepted,
+        onDone = onDone,
+    )
+}
+
+/**
+ * The same activation inside the last step of the setup process.
+ *
+ * No `onDone` here, because there is nothing to dismiss: a helper reporting in
+ * changes what the live setup state says, and the process moves on by itself.
+ */
+@Composable
+fun ActivateStep() {
+    val wiring = rememberActivateWiring()
+    if (wiring.state is ActivateState.Disclosure) {
+        LocalConnectionDisclosure(
+            onAccept = wiring.onDisclosureAccepted,
+            onDismiss = wiring.onDisclosureDismissed,
+        )
+    }
+    ActivateActions(
+        state = wiring.state,
+        onActivate = wiring.onActivate,
+        onSubmitCode = wiring.onSubmitCode,
+        onOpenSettings = wiring.onOpenSettings,
+    )
 }
 
 /**

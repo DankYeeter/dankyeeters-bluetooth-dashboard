@@ -17,12 +17,16 @@ import java.io.IOException
 private val Context.setupDataStore: DataStore<Preferences> by preferencesDataStore(name = "setup_state")
 
 /**
- * Remembers that the first-run wizard has been walked through, and which steps
- * the user chose to skip.
+ * Remembers the two things about setup that the OS cannot be asked about:
+ * which optional steps the user waved away, and whether the local-connection
+ * disclosure has been accepted.
  *
- * "Completed" only means "seen"; it is not a claim that everything is granted.
- * The live status is always recomputed from the OS, so the wizard can never
- * show a stale green tick.
+ * Everything else is read from the system on the spot. There used to be a
+ * "wizard completed" flag here as well, and it was the wrong shape: it went on
+ * claiming the setup was done while Android quietly revoked a permission, and
+ * on a fresh install it decided the question before its own value had arrived.
+ * Whether the setup is needed is now derived from the live state - see
+ * [SetupStatus.phase].
  */
 class SetupStore(context: Context) {
 
@@ -31,16 +35,7 @@ class SetupStore(context: Context) {
     private val prefs: Flow<Preferences> = appContext.setupDataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
 
-    /** False on a fresh install → the wizard opens by itself once. */
-    val wizardCompleted: Flow<Boolean> = prefs.map { it[KEY_COMPLETED] ?: false }
-
     val skippedStepIds: Flow<Set<String>> = prefs.map { it[KEY_SKIPPED] ?: emptySet() }
-
-    suspend fun isWizardCompleted(): Boolean = wizardCompleted.first()
-
-    suspend fun setWizardCompleted(completed: Boolean) {
-        appContext.setupDataStore.edit { it[KEY_COMPLETED] = completed }
-    }
 
     /**
      * Whether the user has been told that the app opens a connection to this
@@ -74,7 +69,6 @@ class SetupStore(context: Context) {
     }
 
     private companion object {
-        val KEY_COMPLETED = booleanPreferencesKey("setup_wizard_completed")
         val KEY_LOCAL_CONNECTION = booleanPreferencesKey("local_connection_accepted")
         val KEY_SKIPPED = stringSetPreferencesKey("setup_skipped_steps")
     }

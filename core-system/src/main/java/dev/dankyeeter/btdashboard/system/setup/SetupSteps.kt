@@ -1,21 +1,42 @@
 package dev.dankyeeter.btdashboard.system.setup
 
 /**
- * Everything the app needs from the user or the OS, in the order the first-run
- * wizard asks for it.
+ * What a step being unmet actually costs. This, not a stored flag, is what
+ * decides which of the three faces of the app the user gets.
+ */
+enum class SetupNeed {
+    /**
+     * Missing means the app cannot work at all, and the whole setup process
+     * opens until it is granted.
+     */
+    REQUIRED,
+
+    /** Asked once inside the process. Never blocks anything, ever. */
+    OPTIONAL,
+
+    /**
+     * Missing means the app shows the Activate button alone — not the whole
+     * process. This is the ordinary state after a reboot, and walking someone
+     * through four steps to reach the one tap they need would be an insult.
+     */
+    ACTIVATION,
+}
+
+/**
+ * Everything the app needs from the user or the OS, in the order the setup
+ * process asks for it.
  *
- * The order is deliberate: cheap runtime dialogs first, Settings round-trips
- * next, and the ADB/Shizuku work — the only steps that need a computer — last,
- * so the user gets a working app before hitting the part that cannot be
- * finished on the phone alone.
+ * The order is deliberate: the cheap runtime dialogs come first and the pairing
+ * last, because pairing is the only step that leaves the app — and it is the
+ * one that needs [NOTIFICATIONS] to already be granted, since the six-digit
+ * code is typed into a notification.
  */
 enum class SetupStep(
     val id: String,
     val title: String,
     /** Why we ask. Every entry says what breaks without it — no vague pleading. */
     val rationale: String,
-    /** True when the app is still useful without it. Drives the "Skip" copy. */
-    val optional: Boolean,
+    val need: SetupNeed,
 ) {
     BLUETOOTH(
         id = "bluetooth",
@@ -23,44 +44,46 @@ enum class SetupStep(
         rationale = "Needed to see which headphone is connected, read its codec, and " +
             "apply that device's profile. Without it the dashboard and the link " +
             "monitor stay empty.",
-        optional = false,
+        need = SetupNeed.REQUIRED,
     ),
     MICROPHONE(
         id = "microphone",
         title = "Microphone",
         rationale = "Used only for the ambient-noise check before a hearing test — a " +
             "few seconds of level measurement so you find out that the room is too " +
-            "loud before the test, not after. Nothing is recorded, nothing is stored, " +
-            "and the app has no INTERNET permission to send anything anywhere.",
-        optional = true,
+            "loud before the test, not after. Nothing is recorded and nothing is " +
+            "stored.",
+        need = SetupNeed.OPTIONAL,
     ),
+    // Required since the app started pairing itself: Android's pairing code is
+    // typed into a notification, so without this permission the last step below
+    // cannot be finished at all. It used to be optional, back when the helper
+    // was started with an ADB command from a computer.
     NOTIFICATIONS(
         id = "notifications",
         title = "Notifications",
-        rationale = "Lets the app tell you when the EQ has gone inactive after a " +
-            "reboot. Without it the EQ can be silently off and you would not know.",
-        optional = true,
+        rationale = "The pairing code is typed into a notification, so the last step " +
+            "here cannot be finished without this. Afterwards the app uses them for " +
+            "one thing only: telling you when the equaliser has gone inactive.",
+        need = SetupNeed.REQUIRED,
     ),
-    // The id stays "shizuku" although Shizuku itself is gone: SetupStore keys
-    // done/skipped state by this string, and renaming it would silently reopen
-    // the step on every phone that already completed it.
-    SHELL_ACCESS(
-        id = "shizuku",
-        title = "Shell access",
-        rationale = "Reading what the Bluetooth stack negotiated, and setting codecs, " +
-            "needs a shell-level identity. This app brings its own helper for that — " +
-            "started once per boot with a single ADB command. No third-party app " +
-            "involved.",
-        optional = true,
+    // One step, because it is one action: the phone pairs with its own
+    // debugging service, that starts the helper, and the helper grants the app
+    // WRITE_SECURE_SETTINGS. Splitting it in two was a leftover from the time
+    // when each half needed its own ADB command from a computer.
+    HELPER(
+        id = "helper",
+        title = "Pairing and helper",
+        rationale = "The helper is what reads what the Bluetooth stack negotiated, " +
+            "sets codecs, and equalises players that hide their audio session. The " +
+            "phone pairs with its own debugging service to start it — no computer, " +
+            "no second app. Wireless debugging is switched back off straight after.",
+        need = SetupNeed.ACTIVATION,
     ),
-    SECURE_SETTINGS(
-        id = "secure_settings",
-        title = "WRITE_SECURE_SETTINGS",
-        rationale = "Only needed for the absolute-volume toggle. It can never be " +
-            "granted from inside an app; you run one ADB command from a computer. " +
-            "Everything else works without it.",
-        optional = true,
-    ),
+    ;
+
+    /** True when the app is still useful without it. Drives the "Skip" copy. */
+    val optional: Boolean get() = need == SetupNeed.OPTIONAL
 }
 
 /** Live status of one step. */
@@ -71,21 +94,40 @@ enum class SetupStepStatus {
     /** Not met, and the user has not skipped it. */
     PENDING,
 
-    /** Not met, but explicitly skipped — the wizard stops nagging. */
+    /** Not met, but explicitly skipped — the process stops nagging. */
     SKIPPED,
 
     /**
-     * Not met and not reachable on this device/build (e.g. Shizuku's binder is
-     * gone). Counted as outstanding but the wizard says so instead of offering
-     * a button that would do nothing.
+     * Not met and not reachable on this device/build. Counted as outstanding
+     * but the UI says so instead of offering a button that would do nothing.
      */
     BLOCKED,
 }
 
 /**
- * What the wizard reads. Implemented against Android in the app module and
- * against plain values in the tests, so the counting rules below can be
- * verified without an emulator.
+ * Which face of the app the current state calls for.
+ *
+ * Derived on every look rather than remembered. Android revokes the
+ * permissions of unused apps by itself and the user can switch notifications
+ * off at any moment — a stored "setup done" would then be a lie in exactly the
+ * place that hurts, because it is the notification the pairing code is typed
+ * into. A live answer cannot go stale.
+ */
+enum class SetupPhase {
+    /** Something required is missing: the whole process, from the top. */
+    FULL_SETUP,
+
+    /** Permissions are in place and only the helper is gone: one button. */
+    ACTIVATION_ONLY,
+
+    /** Nothing to show. The setup lives on as an entry in Settings. */
+    READY,
+}
+
+/**
+ * What the setup process reads. Implemented against Android in the app module
+ * and against plain values in the tests, so the rules below can be verified
+ * without an emulator.
  */
 interface SetupEnvironment {
     fun isSatisfied(step: SetupStep): Boolean
@@ -119,15 +161,32 @@ object SetupStatus {
             SetupStepState(step, status)
         }
 
+    /**
+     * The entry condition of the whole app.
+     *
+     * Deliberately reads the environment rather than the step list: skipping
+     * must not be able to open the door. A user can skip the microphone; a
+     * skipped Bluetooth permission is still a missing Bluetooth permission.
+     */
+    fun phase(environment: SetupEnvironment): SetupPhase = when {
+        SetupStep.entries.any { it.need == SetupNeed.REQUIRED && !environment.isSatisfied(it) } ->
+            SetupPhase.FULL_SETUP
+
+        SetupStep.entries.any { it.need == SetupNeed.ACTIVATION && !environment.isSatisfied(it) } ->
+            SetupPhase.ACTIVATION_ONLY
+
+        else -> SetupPhase.READY
+    }
+
     /** Steps still worth showing a badge for: pending or blocked, never skipped. */
     fun outstanding(states: List<SetupStepState>): List<SetupStepState> =
         states.filter { it.status == SetupStepStatus.PENDING || it.status == SetupStepStatus.BLOCKED }
 
     /** Whether any *required* step is still unmet — skipping cannot clear these. */
     fun hasUnmetRequirements(states: List<SetupStepState>): Boolean =
-        states.any { !it.step.optional && it.status != SetupStepStatus.DONE }
+        states.any { it.step.need == SetupNeed.REQUIRED && it.status != SetupStepStatus.DONE }
 
-    /** Copy for the dashboard card. Null when there is nothing to say. */
+    /** Copy for the settings card. Null when there is nothing to say. */
     fun summary(states: List<SetupStepState>): String? {
         val count = outstanding(states).size
         return when {

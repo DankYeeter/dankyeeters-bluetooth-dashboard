@@ -3711,3 +3711,88 @@ funktioniert - beide Geraete stehen dafuer zur Verfuegung.
 Nach dem Erst-Setup braucht ein Neustart **nichts**: die Aktivierung laeuft von
 selbst, bewiesen am 24. August. Der Activate-Knopf ist der Rueckfall, nicht der
 Normalweg - die Oberflaeche sollte ihn entsprechend selten zeigen.
+
+---
+
+## SDK 36 und ein Zustand statt drei  (24. August, spaet)
+
+Beides gebaut. **Nichts davon ist am Geraet geprueft** - kein Telefon war
+angesteckt.
+
+### Ein Build fuer beide Telefone, kein zweiter Zweig
+
+`compileSdk`/`targetSdk` 35 -> 36, `minSdk` bleibt 31. Das ist keine
+Geraetevariante: ein APK laeuft weiter von Android 12 bis 17, und wo sich die
+Versionen wirklich unterscheiden, entscheidet `Build.VERSION.SDK_INT` zur
+Laufzeit. AGP 8.7.3 -> 8.9.3, Gradle 8.10.2 -> 8.11.1, Build-Tools 36.0.0
+nachinstalliert - die kleinste Kombination, die API 36 baut. Kotlin, KSP und
+alle Bibliotheken unveraendert.
+
+Durchgesehen, was `targetSdk 36` an Verhalten mitbringt, weil es dann auf
+*beiden* Geraeten gilt:
+
+- Predictive Back war schon deklariert.
+- Erzwungenes Edge-to-Edge greift, weil `enableEdgeToEdge()` ohnehin gerufen
+  wird - aber **Wizard und Activate-Gate rendern vor dem Scaffold** und hatten
+  deshalb gar keine Insets. Der Wizard-Titel lag unter der Statusleiste, der
+  Weiter-Knopf unter der Gestenleiste, und das Feld fuer den Kopplungscode
+  konnte hinter der Tastatur verschwinden. Beide ziehen jetzt `safeDrawing`;
+  `systemBars` haette die Tastatur nicht abgedeckt.
+
+Die 16-KB-Ausrichtung wurde nach dem Toolchain-Wechsel neu gemessen: alle
+64-Bit-Bibliotheken weiterhin 16 KB. Das eine 4-KB-`libc++_shared` liegt in
+`armeabi-v7a`, wo es keine 16-KB-Seiten gibt.
+
+Noch offen aus `ANDROID17_READINESS.md`: der Reflection-Audit-Test gegen die
+neue compileSdk, der FGS-Fehlerpfad, die `resolveContentProvider`-Deprecation.
+Alle drei sind Absicherung, keine Blockade.
+
+### Der Zustand ergibt sich jetzt, statt gespeichert zu sein
+
+`SetupStatus.phase()` beantwortet live, welches Gesicht die App zeigt:
+`FULL_SETUP`, `ACTIVATION_ONLY`, `READY`. Es gibt nichts zu laden und nichts
+abzuwarten - eine Berechtigung ist eine synchrone Frage an das System, und der
+Helfer ist ein `StateFlow`, der die Antwort schon hat.
+
+**Damit ist der Fehler vom Pixel 11 strukturell weg.** Er entstand, weil das
+gespeicherte `wizardCompleted` geraten werden musste, solange es noch gelesen
+wurde. Es gibt jetzt keinen Wert mehr, den man raten koennte: `wizardCompleted`
+ist aus `SetupStore` entfernt.
+
+Fuenf Schritte sind vier. `SHELL_ACCESS` und `SECURE_SETTINGS` sind ein
+Schritt - koppeln, Helfer startet, Helfer erteilt die Berechtigung ist *eine*
+Handlung. Der Schritt gilt als erledigt, sobald ein Helfer haengt; ob
+`WRITE_SECURE_SETTINGS` durchkam, steht als eigene Zeile daneben. Beides zur
+Bedingung zu machen haette den Schritt in den Millisekunden dazwischen
+zurueckspringen lassen - und genau dann wirft das Gate den Nutzer aus einer App,
+die laeuft.
+
+**Benachrichtigungen sind jetzt Pflicht.** Der Kopplungscode wird in eine
+Notification getippt, also ist der letzte Schritt ohne sie nicht zu Ende zu
+bringen. Nur das Mikrofon ist noch ueberspringbar; "Skip anyway" bei den
+anderen war ein leeres Angebot.
+
+Zwei Feinheiten, die im Betrieb sonst weh tun:
+
+- Ist der Prozess einmal offen, bleibt er offen, bis der Nutzer fertig ist -
+  sonst reisst die zuletzt erteilte Pflichtberechtigung den Bildschirm mitten im
+  Ablauf weg, und der optionale Schritt dahinter wird nie gefragt.
+- Sobald alles steht, schliesst er sich von selbst. Daniels Regel: die
+  Setup-Schritte sind nirgends zu sehen, sobald die Rechte erteilt sind.
+
+Die Aktivierung existiert einmal (`ActivateActions`) und wird an zwei Stellen
+gezeigt: als ganzer Bildschirm im Gate und im letzten Schritt des Prozesses.
+
+571 Tests gruen, darunter sieben neue fuer die drei Faelle - einer davon fuer
+den Fall, den Android selbst herstellt: eine entzogene Berechtigung oeffnet den
+Prozess wieder, auch wenn der Helfer laeuft.
+
+### Was am Geraet zu pruefen ist
+
+1. **Pixel 11 Pro, frische Installation**: kommt der Setup-Prozess, und liegt
+   nichts mehr unter Status- oder Gestenleiste?
+2. **Pixel 8 Pro, nach Deinstallation**: derselbe Durchlauf auf Android 16.
+3. **Nach einem Neustart**: nur der Activate-Knopf - und nach der bewiesenen
+   Automatik im Normalfall gar nichts.
+4. Weiterhin offen und unberuehrt: der unbekannte Pfad, der den Helfer vor der
+   Aktivierung startet.
