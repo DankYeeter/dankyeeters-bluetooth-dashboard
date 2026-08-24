@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
 import dev.dankyeeter.btdashboard.system.service.EqForegroundService
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,6 +61,23 @@ class BootReceiver : BroadcastReceiver() {
             else -> return
         }
 
+        // Once per process, whichever boot action arrives first.
+        //
+        // The filter lists BOOT_COMPLETED *and* LOCKED_BOOT_COMPLETED, and a
+        // boot delivers both - once before the user unlocks and once after. The
+        // restore below then ran twice, which was visible on the device as two
+        // privileged helpers starting seconds apart, the second one retiring
+        // the first.
+        //
+        // Both actions are still wanted: which of them arrives depends on
+        // whether this receiver is direct-boot aware, and dropping one would
+        // trade a duplicate for a silence. Taking the first and ignoring the
+        // rest keeps that choice open.
+        if (!restoreStarted.compareAndSet(false, true)) {
+            Log.i(TAG, "boot restore already running; ignoring ${intent.action}")
+            return
+        }
+
         val pending = goAsync()
         SystemGraph.init(context)
 
@@ -75,6 +93,29 @@ class BootReceiver : BroadcastReceiver() {
                 // exemptions that may start a foreground service from the
                 // background, which is exactly why the restore lives here.
                 EqForegroundService.start(context)
+
+                // Try to bring the helper up without asking anybody.
+                //
+                // This is the point of the whole activation stack: the pairing
+                // key survives a reboot, and once the app holds
+                // WRITE_SECURE_SETTINGS it can open wireless debugging, use it
+                // and close it again on its own. When that works the user never
+                // learns a reboot happened - which is the actual requirement,
+                // since settings that only apply when you remember to ask for
+                // them are settings you cannot rely on.
+                //
+                // It is attempted before the status check below, so the
+                // notification reports what is true *after* the attempt rather
+                // than announcing a problem that has already been solved.
+                // Whether a helper is already running is a question only the
+                // app side can answer, so it is asked there rather than
+                // duplicated here against a type this module cannot see.
+                SystemGraph.activateHelper?.let { activate ->
+                    val activated = runCatching { activate() }
+                        .onFailure { Log.w(TAG, "automatic activation failed", it) }
+                        .getOrDefault(false)
+                    Log.i(TAG, "automatic activation after boot: $activated")
+                }
 
                 val controller = SystemGraph.eqController
                 controller.apply(settings)
@@ -101,9 +142,7 @@ class BootReceiver : BroadcastReceiver() {
      * The EQ came back with full reach, so any notice left over from an earlier
      * boot is now a lie. Cheap to cancel, and nothing else ever clears it.
      */
-    private fun clearStaleNotice(context: Context) {
-        runCatching { NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID) }
-    }
+    private fun clearStaleNotice(context: Context) = dismissNotice(context)
 
     private fun notifyReducedReach(context: Context, status: AttachmentStatus) {
         val manager = NotificationManagerCompat.from(context)
@@ -212,7 +251,28 @@ class BootReceiver : BroadcastReceiver() {
         manager.createNotificationChannel(channel)
     }
 
-    private companion object {
+    companion object {
+
+        /**
+         * Guards against the second boot broadcast. Static, because a receiver
+         * is a fresh object for every delivery - an instance field would reset
+         * exactly when it was needed.
+         */
+        private val restoreStarted = AtomicBoolean(false)
+
+        /**
+         * Takes the "EQ is off" notice down.
+         *
+         * Called from the boot check, and - the case that was missing - the
+         * moment the privileged helper actually connects. Someone who activates
+         * from inside the app never touches the notification, so nothing
+         * dismissed it: the shade went on saying the EQ was off while it was
+         * running, which is worse than saying nothing at all.
+         */
+        fun dismissNotice(context: Context) {
+            runCatching { NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID) }
+        }
+
         const val TAG = "BootReceiver"
 
         /** Was IMPORTANCE_DEFAULT, i.e. audible. Deleted on first run of the new code. */

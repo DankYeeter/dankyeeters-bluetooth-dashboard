@@ -24,7 +24,12 @@ import javax.net.ssl.SSLContext
 object AdbPairingCapability {
 
     fun report(): String = buildString {
-        append("pskKeyManager=")
+        // First, because without it nothing else here matters: pairing derives
+        // its password from TLS-exported keying material, and the platform
+        // blocks that call outright. See [TlsExporter].
+        append("tlsExporter=")
+        append(if (TlsExporter.isAvailable()) "yes" else "NO")
+        append(" pskKeyManager=")
         append(
             runCatching { Class.forName("com.android.org.conscrypt.PSKKeyManager").simpleName }
                 .getOrElse { "absent" },

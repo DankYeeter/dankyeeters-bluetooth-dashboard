@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.privileged
 
 import android.content.Context
 import android.content.SharedPreferences
+import dev.dankyeeter.btdashboard.privileged.adb.WirelessDebuggingSwitch
 import android.util.Log
 import dev.dankyeeter.btdashboard.monitor.codec.CodecController
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
@@ -66,6 +67,55 @@ class PrivilegedBootstrap(context: Context) {
         .getSharedPreferences("privileged", Context.MODE_PRIVATE)
 
     private val packageName: String = context.applicationContext.packageName
+
+    private val appContext: Context = context.applicationContext
+
+    /**
+     * Asks the helper for `WRITE_SECURE_SETTINGS`, unless the app already has it.
+     *
+     * This is what turns a helper that must be summoned into an app that can
+     * look after itself: with the permission the app switches wireless
+     * debugging on for the seconds an activation takes and off again
+     * afterwards, and can do it after a reboot without anyone tapping anything.
+     *
+     * Called on every connect and cheap when it has already happened - the
+     * check below is a local permission read, not a call into the helper.
+     *
+     * @return true if the app holds the permission when this returns.
+     */
+    suspend fun grantSecureSettings(): Boolean = withContext(Dispatchers.IO) {
+        if (WirelessDebuggingSwitch(appContext).canEnable()) {
+            Log.i("PrivilegedBootstrap", "secure settings: already granted")
+            return@withContext true
+        }
+
+        // Both of these used to return silently, which is why a grant that
+        // never happened looked exactly like one that did: no helper call, no
+        // log line, no permission, and nothing to say which of the two reasons
+        // it was.
+        val service = PrivilegedConnection.service.value ?: run {
+            Log.w("PrivilegedBootstrap", "secure settings: no helper attached")
+            return@withContext false
+        }
+        val token = activeToken() ?: run {
+            Log.w("PrivilegedBootstrap", "secure settings: helper attached but no active token")
+            return@withContext false
+        }
+
+        val granted = runCatching { service.grantSecureSettings(token) }
+            .onFailure { Log.w("PrivilegedBootstrap", "the helper could not grant the permission", it) }
+            .getOrNull()
+            ?.let { PrivilegedProtocol.decodeError(it) == null }
+            ?: false
+
+        // Asked again rather than trusting the reply: `pm grant` reports
+        // success for a permission it did not actually change on some builds,
+        // and the only answer that matters is whether the app can write the
+        // setting now.
+        val holds = WirelessDebuggingSwitch(appContext).canEnable()
+        Log.i("PrivilegedBootstrap", "secure settings grant: reported=$granted effective=$holds")
+        holds
+    }
 
     /** Which of the two tokens a hand-over presented. */
     sealed interface TokenMatch {
@@ -161,14 +211,47 @@ class PrivilegedBootstrap(context: Context) {
      */
     fun deviceShellCommand(): String = shellCommand(sessionToken())
 
+    /**
+     * How long the launching shell waits before letting go.
+     *
+     * Long enough for the runtime to come up and hand its binder to the app,
+     * short enough that a user watching a spinner does not notice. It is not a
+     * correctness guarantee - `setsid` is - but it removes the race that made
+     * the failure look like a rejected token.
+     */
+    private val helperStartGraceSeconds = 3
+
     private fun shellCommand(token: String): String = buildString {
         append("CLASSPATH=$(pm path ")
         append(packageName)
-        append(" | grep base.apk | cut -d: -f2) nohup app_process /system/bin ")
+        // `setsid` puts the helper in its own session, out of the shell's
+        // process group. When the app closes the adb stream, the daemon tears
+        // that group down - and `nohup` only blocks SIGHUP, not the kill that
+        // follows. Measured: the helper was dying 36 ms after being started,
+        // before it had produced a single line of output.
+        append(" | grep base.apk | cut -d: -f2) nohup setsid app_process /system/bin ")
         append("--nice-name=${PrivilegedContract.HELPER_PROCESS_NAME} ")
         append("dev.dankyeeter.btdashboard.privileged.PrivilegedServer ")
         append(token)
-        append(" >/dev/null 2>&1 &")
+        // Kept rather than discarded to /dev/null.
+        //
+        // The helper is started through a shell that is closed immediately
+        // afterwards, so anything it prints - including the reason it gave up -
+        // has nowhere to go. That cost a full debugging round once already: the
+        // start looked successful from the app's side while the helper was
+        // exiting on the far end and saying why to nobody.
+        //
+        // Truncating rather than appending: only the most recent start can
+        // explain the state the helper is in now, and an ever-growing file in
+        // a world-readable directory is not worth the history.
+        append(" >")
+        append(PrivilegedContract.HELPER_LOG_PATH)
+        // The trailing wait keeps the shell - and with it the daemon's service
+        // - alive while the runtime starts. Leaving on the same breath as the
+        // launch is what killed it: `app_process` needs to boot a VM, which
+        // takes far longer than the shell takes to exit.
+        append(" 2>&1 & sleep ")
+        append(helperStartGraceSeconds)
     }
 
     /**

@@ -47,6 +47,16 @@ object PrivilegedContract {
     const val HELPER_PROCESS_NAME: String = "btdash_privileged"
 
     /**
+     * Where the helper's own output goes.
+     *
+     * It is started through a shell that closes straight away, so its stdout
+     * and stderr would otherwise be thrown away - and that is exactly where it
+     * says why it gave up. `/data/local/tmp` because the helper runs as shell,
+     * which can write there and cannot write into the app's own storage.
+     */
+    const val HELPER_LOG_PATH: String = "/data/local/tmp/btdash_helper.log"
+
+    /**
      * The app this helper serves.
      *
      * Only a fallback: the helper normally learns the uid to trust by resolving

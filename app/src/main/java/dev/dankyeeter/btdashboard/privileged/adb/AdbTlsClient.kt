@@ -167,7 +167,10 @@ class AdbTlsClient(
     }
 
     private fun upgrade(socket: Socket, endpoint: AdbPortDiscovery.Endpoint): SSLSocket {
-        val context = SSLContext.getInstance("TLSv1.3")
+        // Built with the bundled Conscrypt, not the platform default: pairing
+        // has to export keying material from this socket, and only a socket
+        // this provider created will give it up. See [TlsExporter].
+        val context = SSLContext.getInstance("TLSv1.3", TlsExporter.provider)
         context.init(arrayOf(keyManager()), arrayOf(AcceptAnyServer), null)
         val tls = context.socketFactory.createSocket(
             socket,

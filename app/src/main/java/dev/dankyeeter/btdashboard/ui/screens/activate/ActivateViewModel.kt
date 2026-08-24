@@ -109,6 +109,11 @@ class ActivateViewModel(application: Application) : AndroidViewModel(application
                 )
             }
 
+            // Named plainly, because it is the one failure with a five-second
+            // fix. Anything vaguer sends the user looking for a bug in the app.
+            HelperAutoStart.Outcome.NoWifi ->
+                ActivateState.Failed("Connect to Wi-Fi first — this needs it.")
+
             is HelperAutoStart.Outcome.Broken ->
                 ActivateState.Failed("Could not reach the debugging service (${outcome.step}).")
         }

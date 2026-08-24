@@ -237,8 +237,14 @@ class PrivilegedProtocolTest {
         // The security note that came with codec control: until it, every
         // operation was read-only. If this list ever grows, it should be
         // because somebody meant it to.
+        //
+        // `grantSecureSettings` was meant. It is the widest thing in here - it
+        // permanently raises what the *app* may do, rather than changing a
+        // setting - and it is deliberately a named operation instead of a
+        // `pm grant` entry on the exec whitelist, which would have smuggled a
+        // privilege change through the door marked read-only.
         assertEquals(
-            listOf("setCodecPreference", "shutdown"),
+            listOf("grantSecureSettings", "setCodecPreference", "shutdown"),
             PrivilegedProtocol.WRITE_OPERATIONS.map { it.aidlName }.sorted(),
         )
         assertEquals(

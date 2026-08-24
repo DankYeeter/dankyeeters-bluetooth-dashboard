@@ -550,6 +550,35 @@ private class PrivilegedService(
         ).encoded()
     }
 
+    /**
+     * Hands the app the one permission that lets it work without this helper.
+     *
+     * `WRITE_SECURE_SETTINGS` is `signature|privileged|development`, and the
+     * *development* flag is what makes this possible at all: development
+     * permissions can be granted from a shell, which is what this process is.
+     *
+     * ## Why it is worth doing
+     *
+     * Wireless debugging is the door this helper came through, and it stays
+     * open for as long as the app cannot close it. With this permission the app
+     * can turn it on for the few seconds an activation needs and turn it off
+     * again - so the pairing and connect ports exist only while they are being
+     * used, instead of all day.
+     *
+     * ## What is fixed and why
+     *
+     * Both the package and the permission are constants here. Neither is a
+     * parameter, because a caller able to choose them would have a way to grant
+     * any development permission to any installed package, using a helper whose
+     * whole design is a short list of things it will do.
+     */
+    override fun grantSecureSettings(token: String?): String {
+        refuse(token, PrivilegedOperation.GRANT_SECURE_SETTINGS)?.let { return it }
+        val command = listOf("pm", "grant", PrivilegedContract.APP_PACKAGE, SECURE_SETTINGS)
+        println("privileged helper: " + command.joinToString(" "))
+        return execute(command)
+    }
+
     override fun shutdown(token: String?) {
         if (refuse(token, PrivilegedOperation.SHUTDOWN) != null) return
         Process.killProcess(Process.myPid())
@@ -598,6 +627,9 @@ private class PrivilegedService(
      * addresses down anywhere — not even into a log that goes to /dev/null.
      */
     private fun tail(address: String): String = address.takeLast(5)
+
+    /** The only permission [grantSecureSettings] will ever hand out. */
+    private val SECURE_SETTINGS = "android.permission.WRITE_SECURE_SETTINGS"
 
     private fun execute(command: List<String>): String = runCatching {
         val process = ProcessBuilder(command).redirectErrorStream(false).start()

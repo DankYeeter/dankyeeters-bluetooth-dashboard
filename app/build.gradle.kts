@@ -80,6 +80,17 @@ androidComponents {
 }
 
 dependencies {
+    // Conscrypt, bundled rather than borrowed from the platform.
+    //
+    // Pairing needs RFC 5705 keying material exported from the TLS connection,
+    // and the platform copy of Conscrypt has exactly that method - but it is
+    // `domain=core-platform, api=blocked`, so reflection is refused outright
+    // rather than merely warned about. Measured on device, not assumed.
+    //
+    // Bundling costs a few megabytes of native library and makes the exporter
+    // a public, supported API that no future Android release can withdraw.
+    implementation(libs.conscrypt.android)
+
     implementation(project(":core-audio"))
     implementation(project(":core-hearing"))
     implementation(project(":core-system"))
@@ -118,3 +129,27 @@ dependencies {
     // Supplies the empty activity the Compose test rule hosts screens in.
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
+
+/**
+ * Keeps the bundled Conscrypt off the unit-test classpath.
+ *
+ * Robolectric runs on the host JVM, where `libconscrypt_jni.so` does not exist,
+ * so any test whose class graph reaches Conscrypt dies with an
+ * `UnsatisfiedLinkError` that has nothing to do with what it was testing. On
+ * the device the library is present and this exclusion does not apply.
+ *
+ * The exporter it exists for is exercised on the device, not here - a host JVM
+ * has no adbd to pair with, so there is nothing lost by leaving it out.
+ *
+ * Only the `conscrypt-android` artifact is excluded, not the whole group:
+ * Robolectric installs an `OpenSSLProvider` while setting up every test, and it
+ * needs its own host-native build of Conscrypt to do so. Excluding the group
+ * trades one failure for another.
+ *
+ * The configuration is named `debugUnitTestRuntimeClasspath` - it does not begin
+ * with "test", which is what made an earlier attempt at this silently match
+ * nothing at all.
+ */
+configurations
+    .matching { it.name.endsWith("UnitTestRuntimeClasspath") }
+    .configureEach { exclude(group = "org.conscrypt", module = "conscrypt-android") }

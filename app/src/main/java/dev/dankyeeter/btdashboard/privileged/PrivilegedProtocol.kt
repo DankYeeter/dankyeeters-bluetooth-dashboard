@@ -91,6 +91,16 @@ object PrivilegedProtocol {
          * Stops the helper. Counted as mutating: it ends the privileged
          * process, which is the largest state change on offer here.
          */
+        /**
+         * Deliberately its own operation rather than a whitelist entry.
+         *
+         * `pm grant` could have gone into [ALLOWED] and travelled through
+         * [EXEC] with two lines of change. That would have put a command which
+         * permanently widens this app's privileges behind the door marked
+         * read-only - the exact confusion this enum exists to prevent.
+         */
+        GRANT_SECURE_SETTINGS("grantSecureSettings", mutates = true),
+
         SHUTDOWN("shutdown", mutates = true),
         ;
 

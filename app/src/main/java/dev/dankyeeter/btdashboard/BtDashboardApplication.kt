@@ -6,13 +6,81 @@ import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodecController
 import dev.dankyeeter.btdashboard.privileged.PrivilegedShellRunner
+import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
+import dev.dankyeeter.btdashboard.privileged.adb.HelperAutoStart
+import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.service.EqForegroundService
 
 class BtDashboardApplication : Application() {
+
+    /**
+     * Lives as long as the process. Used for the two things below that have to
+     * outlast whatever started them: the permission grant, and serialising
+     * activation attempts.
+     */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * One activation at a time, process-wide.
+     *
+     * Two callers arriving together used to start two helpers, and the second
+     * helper's first act was to retire the first - a whole runtime booted and
+     * thrown away. Serialising them means the second caller waits, finds a
+     * helper already attached, and returns.
+     */
+    private val activation = Mutex()
+
     override fun onCreate() {
         super.onCreate()
         SystemGraph.init(this)
+
+        // The seam that lets a reboot fix itself.
+        //
+        // `:core-system` runs the boot restore but cannot reach the ADB stack,
+        // which lives here. Installed on every process start, including the one
+        // BOOT_COMPLETED creates - Application.onCreate always runs before any
+        // receiver in the same process, so the boot receiver never finds this
+        // null.
+        //
+        // Returns quickly when a helper is already attached: this is called
+        // from a path that also runs on ordinary launches, and re-pairing
+        // something that already works would be a slow way to change nothing.
+        SystemGraph.activateHelper = {
+            activation.withLock {
+                if (PrivilegedConnection.isConnected) {
+                    true
+                } else {
+                    HelperAutoStart(this).attempt() is HelperAutoStart.Outcome.Started
+                }
+            }
+        }
+
+        // Ask for WRITE_SECURE_SETTINGS whenever a helper turns up.
+        //
+        // Hung on the *arrival of a helper* rather than on the code path that
+        // started one, which is the mistake this replaces: the grant sat at the
+        // end of `HelperAutoStart`, a helper reached the app by some other
+        // route first, and the grant was skipped every single time while
+        // everything around it reported success.
+        //
+        // There is more than one way a helper appears - an activation, a
+        // surviving helper reattaching after the app restarts, a reconnect -
+        // and all of them end here. Cheap when the permission is already held:
+        // that check is a local permission read, not a call into the helper.
+        appScope.launch {
+            PrivilegedConnection.service.collect { service ->
+                if (service != null) {
+                    PrivilegedBootstrap(this@BtDashboardApplication).grantSecureSettings()
+                }
+            }
+        }
         HearingGraph.init(this)
         MonitorGraph.init(this)
         // Our own privileged helper, when it is running. Everything shell-based

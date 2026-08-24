@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.system
 
 import android.content.Context
+import dev.dankyeeter.btdashboard.system.boot.BootReceiver
 import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizerFactory
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
@@ -132,8 +133,26 @@ object SystemGraph {
      * EQ waits for the next playback event - and if music was already playing,
      * that event never comes.
      */
+    /**
+     * How this module asks the app to bring the privileged helper up.
+     *
+     * The activation client lives in `:app` - it needs the ADB stack, the key
+     * store and the pairing code - and `:core-system` cannot depend on it. The
+     * app installs this at startup; anything here that needs a helper and finds
+     * none calls it and takes what it gets.
+     *
+     * Null until the app sets it, and null in tests, where nothing should be
+     * opening network ports on its own.
+     */
+    @Volatile
+    var activateHelper: (suspend () -> Boolean)? = null
+
     fun onPrivilegedHelperConnected() {
         sessionHarvester.onPrivilegedHelperConnected()
+        // The boot notice says the EQ is off and offers to fix it. Both have
+        // just stopped being true. It is only ever dismissed by being tapped,
+        // so activating from inside the app used to leave it standing.
+        runCatching { BootReceiver.dismissNotice(ctx()) }
     }
 
     /**

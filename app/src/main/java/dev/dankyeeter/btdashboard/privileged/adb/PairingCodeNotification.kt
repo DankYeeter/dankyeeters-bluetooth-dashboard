@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import dev.dankyeeter.btdashboard.system.boot.ActivationSteps
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import kotlinx.coroutines.CoroutineScope
@@ -79,16 +80,13 @@ object PairingCodeNotification {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle("Enter the pairing code")
-            .setContentText(
-                "Open Wireless debugging → \"Pair device with pairing code\", " +
-                    "then swipe down and type the six digits here.",
-            )
+            // Collapsed: one line. Expanded: the whole procedure, from
+            // developer options onward, shared with the boot notification and
+            // the Activate screen so the three cannot drift apart.
+            .setContentText("Type the six digits here.")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    "Open Wireless debugging → \"Pair device with pairing code\". " +
-                        "Leave that screen open, swipe down, and type the six " +
-                        "digits here — the code stops working the moment you " +
-                        "leave Android's pairing screen.",
+                    ActivationSteps.FULL_FOR_PAIRING,
                 ),
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)

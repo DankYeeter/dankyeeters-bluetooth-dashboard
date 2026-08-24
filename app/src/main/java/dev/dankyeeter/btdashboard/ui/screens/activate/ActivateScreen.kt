@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import dev.dankyeeter.btdashboard.system.boot.ActivationSteps
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
@@ -75,10 +77,12 @@ fun ActivateScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             when (state) {
-                is ActivateState.Idle, is ActivateState.Disclosure ->
+                is ActivateState.Idle, is ActivateState.Disclosure -> {
                     Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
                         Text("Activate")
                     }
+                    ActivationHelp()
+                }
 
                 is ActivateState.Working -> {
                     CircularProgressIndicator()
@@ -100,6 +104,9 @@ fun ActivateScreen(
                     Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
                         Text("Try again")
                     }
+                    // Offered here already open: a failed attempt is the one
+                    // moment the steps are worth reading.
+                    ActivationHelp(initiallyExpanded = true)
                 }
 
                 is ActivateState.Done -> Unit
@@ -200,3 +207,30 @@ private fun LocalConnectionDisclosure(onAccept: () -> Unit, onDismiss: () -> Uni
 }
 
 private const val CODE_LENGTH = 6
+
+/**
+ * The setup procedure, folded away.
+ *
+ * Every later activation is one tap, so putting these on the face of the screen
+ * would mean showing a numbered list to someone who needs none of it. Collapsed
+ * it is a single quiet line; the person who is stuck taps it.
+ *
+ * The text is [ActivationSteps], shared with both notifications - a procedure
+ * described in three places is a procedure that will eventually be described
+ * three different ways.
+ */
+@Composable
+private fun ActivationHelp(initiallyExpanded: Boolean = false) {
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+
+    TextButton(onClick = { expanded = !expanded }) {
+        Text(if (expanded) "Hide steps" else "Show steps")
+    }
+    if (expanded) {
+        Text(
+            ActivationSteps.FULL_IN_APP,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}

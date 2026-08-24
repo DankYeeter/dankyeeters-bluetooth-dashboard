@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import android.util.Log
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateScreen
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateViewModel
 import androidx.compose.runtime.Composable
@@ -85,6 +86,32 @@ fun BtDashboardApp(
     requestedRoute: String? = null,
     onRouteHandled: () -> Unit = {},
 ) {
+    // The gate.
+    //
+    // Almost nothing in this app works without the privileged helper: the codec
+    // controls, the Bluetooth settings and - decisively - equalising players
+    // that never announce their audio session all go through it. Showing those
+    // screens without it would mean showing controls that quietly do nothing.
+    //
+    // So there is no in-between state, no banner and no greyed-out tabs: either
+    // the helper is there and the app works, or the only thing on screen is the
+    // way to get it. This also covers the helper dying mid-session, which the
+    // flow reports on its own - the app falls back here rather than waiting for
+    // the next reboot.
+    //
+    // The setup wizard deliberately sits *in front* of this rather than behind
+    // it. It is where notification access is granted, and pairing needs a
+    // notification to put the code into - gating it would lock the user out of
+    // the thing that opens the gate.
+    val helper by PrivilegedConnection.service.collectAsStateWithLifecycle()
+    val wizardDone by SystemGraph.setupStore.wizardCompleted.collectAsStateWithLifecycle(
+        initialValue = true,
+    )
+    if (wizardDone && helper == null) {
+        ActivateRoute(onDone = {})
+        return
+    }
+
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -176,27 +203,37 @@ private fun NavGraphBuilder.appGraph(
     }
     composable(ROUTE_ONBOARDING) { SystemAccessScreen(onDone = onBack) }
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }
-    composable(ROUTE_ACTIVATE) {
-        val viewModel: ActivateViewModel = viewModel()
-        val state by viewModel.state.collectAsStateWithLifecycle()
-        val context = LocalContext.current
-        ActivateScreen(
-            state = state,
-            onActivate = viewModel::activate,
-            onSubmitCode = viewModel::submitCode,
-            // Straight to Developer options, with the wireless debugging entry
-            // asked for by name. Describing where to find it would be one more
-            // thing to read while holding a six-digit number in your head.
-            onOpenSettings = {
-                val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-                    .putExtra(SETTINGS_HIGHLIGHT_KEY, WIRELESS_DEBUGGING_KEY)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                runCatching { context.startActivity(intent) }
-                    .onFailure { Log.w("BtDashboardApp", "cannot open developer options", it) }
-            },
-            onDisclosureAccepted = viewModel::onDisclosureAccepted,
-            onDone = onBack,
-        )
-    }
+    composable(ROUTE_ACTIVATE) { ActivateRoute(onDone = onBack) }
     composable(ROUTE_DEVICE_PROFILES) { DeviceProfilesScreen(onBack = onBack) }
+}
+
+/**
+ * The activation screen, wired up.
+ *
+ * Shared by the navigation route and by the gate below, which must show exactly
+ * the same thing: two copies would drift, and the copy the user actually sees
+ * depends on how they arrived.
+ */
+@Composable
+private fun ActivateRoute(onDone: () -> Unit) {
+    val viewModel: ActivateViewModel = viewModel()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    ActivateScreen(
+        state = state,
+        onActivate = viewModel::activate,
+        onSubmitCode = viewModel::submitCode,
+        // Straight to Developer options, with the wireless debugging entry
+        // asked for by name. Describing where to find it would be one more
+        // thing to read while holding a six-digit number in your head.
+        onOpenSettings = {
+            val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                .putExtra(SETTINGS_HIGHLIGHT_KEY, WIRELESS_DEBUGGING_KEY)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { context.startActivity(intent) }
+                .onFailure { Log.w("BtDashboardApp", "cannot open developer options", it) }
+        },
+        onDisclosureAccepted = viewModel::onDisclosureAccepted,
+        onDone = onDone,
+    )
 }

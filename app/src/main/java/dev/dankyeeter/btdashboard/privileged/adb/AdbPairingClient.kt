@@ -48,25 +48,31 @@ internal class AdbPairingClient(
         data class Failed(val detail: String) : Result
     }
 
+    /**
+     * Runs one pairing exchange.
+     *
+     * [channelBinding] is the TLS-exported material adb appends to the code -
+     * see [TlsExporter]. It is a required argument rather than something this
+     * class fetches itself, because the bytes belong to the very socket whose
+     * streams are passed in, and taking them from anywhere else would silently
+     * produce a key the daemon does not share.
+     */
     fun pair(
         input: InputStream,
         output: OutputStream,
         code: String,
-        clearLowBits: Boolean = true,
-        role: Spake2.Role = Spake2.Role.ALICE,
-        nulTerminatedNames: Boolean = true,
+        channelBinding: ByteArray,
     ): Result = runCatching {
         val spake2 = Spake2(
-            // The role decides which of M and N masks our value and the order
-            // of the transcript, so getting it backwards yields a key the
-            // daemon does not share - with no other symptom. Which role the
-            // pairing client takes is not something the wire reveals, so the
-            // caller tries both.
-            role = role,
-            clearLowBits = clearLowBits,
-            myName = name(CLIENT_NAME, nulTerminatedNames),
-            theirName = name(SERVER_NAME, nulTerminatedNames),
-            password = code.toByteArray(Charsets.UTF_8),
+            // `pairing_auth.cpp` gives the client `kClientRole`, which is
+            // Alice; the role decides both the mask and the transcript order.
+            role = Spake2.Role.ALICE,
+            // adb passes `sizeof(kClientName)` for a char array literal, so the
+            // terminator is part of the name.
+            myName = name(CLIENT_NAME),
+            theirName = name(SERVER_NAME),
+            // The six digits alone are not the password.
+            password = code.toByteArray(Charsets.UTF_8) + channelBinding,
         )
 
         val ourSpake = AdbPairingPacket(AdbPairingPacket.TYPE_SPAKE2_MSG, spake2.myMessage)
@@ -81,7 +87,7 @@ internal class AdbPairingClient(
 
         val keyMaterial = spake2.computeKey(theirSpake.payload)
             ?: return Result.Failed("peer sent a SPAKE2 message that is not a curve point")
-        PairingTrace.keyDerived(role.name, clearLowBits, nulTerminatedNames, keyMaterial)
+        PairingTrace.keyDerived(keyMaterial)
         val cipher = AdbPairingCipher(keyMaterial)
 
         val ourInfo = AdbPeerInfo.encodeRsaPublicKey(keyStore.adbFormatPublicKey())
@@ -122,8 +128,8 @@ internal class AdbPairingClient(
      * length-prefixed into the key derivation where one byte changes
      * everything. Until the device says which is right, both are tried.
      */
-    private fun name(text: String, nulTerminated: Boolean): ByteArray =
-        (if (nulTerminated) text + '\u0000' else text).toByteArray(Charsets.UTF_8)
+    private fun name(text: String): ByteArray =
+        (text + '\u0000').toByteArray(Charsets.UTF_8)
 
     private companion object {
         const val TAG = "AdbPairing"

@@ -47,12 +47,11 @@ internal object PairingTrace {
             "len=${packet.payload.size} ${packet.payload.preview()}")
     }
 
-    fun keyDerived(role: String, clearLowBits: Boolean, nulNames: Boolean, key: ByteArray) {
+    fun keyDerived(key: ByteArray) {
         if (!enabled) return
         // A fingerprint, not the key: enough to see whether two runs agree,
         // useless to anyone reading the log afterwards.
-        Log.i(TAG, "key $role clearLowBits=$clearLowBits nulNames=$nulNames " +
-            "fp=${key.fingerprint()}")
+        Log.i(TAG, "key fp=${key.fingerprint()}")
     }
 
     fun note(message: String) {

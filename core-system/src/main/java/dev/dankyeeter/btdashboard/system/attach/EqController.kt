@@ -207,9 +207,7 @@ class EqController(
          * a setting that cannot help would have been worse than saying little.
          */
         const val NO_GLOBAL_REACH_REASON =
-            "Over Bluetooth this phone does not pass the system-wide equalizer " +
-                "through, so only apps that announce their audio session can be " +
-                "corrected - and none has yet. On the phone speaker the equalizer " +
-                "reaches everything."
+            "Over Bluetooth this phone equalises only apps that announce their " +
+                "audio session, and none has yet."
     }
 }

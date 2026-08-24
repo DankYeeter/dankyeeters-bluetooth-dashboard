@@ -67,6 +67,31 @@ class WirelessDebuggingSwitch(private val context: Context) {
         }
     }
 
+    /**
+     * Closes the door again.
+     *
+     * While wireless debugging is on, the pairing and connect ports are open to
+     * anything on the same network. An activation needs them for a few seconds;
+     * leaving them up for the rest of the day buys nothing.
+     *
+     * The running helper is unaffected: it was detached from the shell that
+     * started it and speaks to the app over Binder, so adbd going away is not
+     * something it can notice.
+     *
+     * @return true if wireless debugging is off afterwards.
+     */
+    fun disable(): Boolean {
+        if (!isEnabled()) return true
+        if (!canEnable()) return false
+
+        runCatching { Settings.Global.putInt(context.contentResolver, SETTING, 0) }
+            .onFailure { Log.w(TAG, "could not switch wireless debugging off", it) }
+
+        return (!isEnabled()).also {
+            Log.i(TAG, if (it) "wireless debugging is off" else "it stayed on")
+        }
+    }
+
     private companion object {
         const val TAG = "WirelessDebugging"
         const val SETTING = "adb_wifi_enabled"

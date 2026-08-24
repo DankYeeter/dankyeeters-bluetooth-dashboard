@@ -14,7 +14,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import dev.dankyeeter.btdashboard.system.SystemGraph
-import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,20 +67,12 @@ class EqForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         SystemGraph.init(applicationContext)
-        // The notification is the one place EQ state is visible without
-        // opening anything, so it follows the live status instead of freezing
-        // on whatever was true at start. Event-driven: this collector only
-        // runs when the status actually changes, which is rare.
-        scope.launch {
-            SystemGraph.eqController.status.collect { status ->
-                if (foregrounded) startForegroundHonestly(status)
-            }
-        }
+        // No status collector here any more. It existed to keep the
+        // notification's text in step with the attachment state; now that the
+        // notification says one fixed thing, following the status would only
+        // re-post an identical notification every time the EQ re-attached.
     }
 
-    /** Set once the first startForeground succeeded; guards the collector above. */
-    @Volatile
-    private var foregrounded = false
 
     /** Whether the one-time restore already ran in this service instance. */
     @Volatile
@@ -91,8 +82,7 @@ class EqForegroundService : Service() {
         // Promoted before any slow work: Android gives a service a few seconds
         // to call startForeground and kills the process if it misses that, and
         // reading DataStore is exactly the kind of work that could miss it.
-        startForegroundHonestly(SystemGraph.eqController.status.value)
-        foregrounded = true
+        startForegroundQuietly()
 
         // start() is called on every Bluetooth connect, so restarts are the
         // common case, not the exception. Everything below is idempotent and
@@ -126,22 +116,23 @@ class EqForegroundService : Service() {
     }
 
     /**
-     * The notification says what the EQ *actually* reaches, not that a service
-     * is running.
+     * Promotes the service with the quietest notification Android will accept.
      *
-     * "BT Dashboard is running" would be the placeholder every app posts and
-     * nobody reads. This is the one place the user sees EQ state without
-     * opening anything, so it carries the real status — including when that
-     * status is "session only", which is the case worth noticing.
+     * This used to report live EQ state - what it was attached to, how many
+     * sessions it had caught, why it had caught none. That is genuinely useful
+     * information and it is now in the app, where someone who wants it can go
+     * and look. In the shade it was a running commentary nobody asked for, and
+     * it occasionally claimed the EQ was adjusted when it was not.
      */
-    private fun startForegroundHonestly(status: AttachmentStatus) {
+    private fun startForegroundQuietly() {
         ensureChannel()
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
-            .setContentTitle(status.serviceTitle())
-            .setContentText(status.serviceText())
-            .setStyle(NotificationCompat.BigTextStyle().bigText(status.serviceText()))
+            .setContentTitle(SERVICE_TITLE)
+            // No body and no expandable style on purpose. An empty content text
+            // still reserves the line, and an empty BigTextStyle leaves a panel
+            // that opens onto nothing.
             .setSilent(true)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -263,24 +254,16 @@ class EqForegroundService : Service() {
 }
 
 /**
- * Daniel's wording. One line that covers both halves of what the service is
- * doing — the correction curve *and* the per-device Bluetooth settings — so the
- * shade does not imply the EQ is the only thing being kept alive.
+ * The only thing this notification says.
+ *
+ * Android will not run a foreground service without one, so it cannot be
+ * removed - but it can stop commentating. It used to change with the attachment
+ * state ("EQ not attached", "Starting…", a sentence about how many sessions were
+ * caught), which meant the shade reported on the app's internals all day to a
+ * user who had not asked. Anyone who wants that opens the app.
+ *
+ * A fixed string also removes the risk of the notification claiming something
+ * untrue: the old title said the EQ was adjusted in states where it was not.
  */
-private const val SERVICE_TITLE = "EQ and Bluetooth adjusted"
+private const val SERVICE_TITLE = "BT Dashboard"
 
-private fun AttachmentStatus.serviceTitle(): String = when (this) {
-    is AttachmentStatus.ActiveGlobal, is AttachmentStatus.ActiveSessions -> SERVICE_TITLE
-    is AttachmentStatus.Unavailable -> "EQ not attached"
-    AttachmentStatus.Inactive -> "Starting…"
-}
-
-private fun AttachmentStatus.serviceText(): String = when (this) {
-    is AttachmentStatus.ActiveGlobal ->
-        "Attached to the output mix, so it reaches every app."
-    is AttachmentStatus.ActiveSessions ->
-        "Attached to ${sessionIds.size} audio session(s). Players that do not " +
-            "announce their session are not corrected."
-    is AttachmentStatus.Unavailable -> reason
-    AttachmentStatus.Inactive -> "Restoring your saved settings."
-}

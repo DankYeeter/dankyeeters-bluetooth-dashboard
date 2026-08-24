@@ -84,5 +84,15 @@ interface IPrivilegedService {
     );
 
     /** Stops the helper. The app offers this so a stale helper can be replaced. */
+    /**
+     * Grants this app WRITE_SECURE_SETTINGS, once.
+     *
+     * Takes neither a package nor a permission name on purpose: both are fixed
+     * in the helper. A method that accepted them would be a way to grant any
+     * development permission to any package, which is a far larger thing than
+     * what this is for.
+     */
+    String grantSecureSettings(String token);
+
     void shutdown(String token);
 }
