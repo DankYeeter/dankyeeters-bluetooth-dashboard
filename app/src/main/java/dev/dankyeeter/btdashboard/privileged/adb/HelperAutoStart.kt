@@ -72,13 +72,7 @@ class HelperAutoStart(private val context: Context) {
         // closing itself - no Wi-Fi, or a USB cable plugged in - and asking the
         // user to go and re-enable it before every Activate would make "one tap
         // after a reboot" untrue.
-        //
-        // Whether *we* opened it is worth remembering: it decides whether we
-        // are allowed to close it again at the end. Someone who switched
-        // wireless debugging on themselves - for their own machine, say - would
-        // not thank an equaliser for switching it back off underneath them.
         val debugging = WirelessDebuggingSwitch(context)
-        val alreadyOpen = debugging.isEnabled()
         if (!debugging.enable() && debugging.canEnable()) {
             // We were allowed to write the setting and Android still refused to
             // bring wireless debugging up. In practice that means one thing:
@@ -160,15 +154,25 @@ class HelperAutoStart(private val context: Context) {
                 val granted = PrivilegedBootstrap(context).grantSecureSettings()
                 Log.i(TAG, "secure settings after activation: $granted")
 
-                // Door shut. The helper is detached and talks over Binder, so
-                // it does not care that adbd is gone; what goes away is a
-                // pairing port and a connect port standing open on the network
-                // for the rest of the day.
+                // Door shut, whoever opened it.
                 //
-                // Only what this app opened, and only once it may actually
-                // close it - asking without the permission would silently fail
-                // and leave the port up while the log said nothing.
-                if (!alreadyOpen && granted) debugging.disable()
+                // This used to close only what the app itself had opened, so as
+                // not to switch off something the user had switched on. That
+                // rule turned out to close nothing at all: wireless debugging
+                // survives a reboot on this device, so it is essentially always
+                // already on when an activation runs, and the port stayed open
+                // permanently - the opposite of the point.
+                //
+                // The cost is real and was accepted deliberately: an adb
+                // session running over Wi-Fi from a computer is cut when an
+                // activation happens. It happened twice during development. The
+                // trade is a port open for seconds instead of days, on a phone
+                // with one user who asked for exactly that.
+                //
+                // Guarded on [granted] because without the permission the call
+                // fails silently and would leave the port up while the log said
+                // nothing.
+                if (granted) debugging.disable()
                 verdict
             } else {
                 Outcome.Broken(

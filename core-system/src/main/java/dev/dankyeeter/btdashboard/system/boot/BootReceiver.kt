@@ -110,25 +110,31 @@ class BootReceiver : BroadcastReceiver() {
                 // Whether a helper is already running is a question only the
                 // app side can answer, so it is asked there rather than
                 // duplicated here against a type this module cannot see.
-                SystemGraph.activateHelper?.let { activate ->
-                    val activated = runCatching { activate() }
+                val activated = SystemGraph.activateHelper?.let { activate ->
+                    runCatching { activate() }
                         .onFailure { Log.w(TAG, "automatic activation failed", it) }
                         .getOrDefault(false)
-                    Log.i(TAG, "automatic activation after boot: $activated")
-                }
+                } ?: false
+                Log.i(TAG, "automatic activation after boot: $activated")
 
                 val controller = SystemGraph.eqController
                 controller.apply(settings)
 
-                // Reporting the *outcome*, not which provider happened to be
-                // up. An earlier version stayed quiet whenever the shell
-                // provider reported ready, which meant a global attach that failed for
-                // any other reason (a build that refuses the effect, say) went
-                // unmentioned — a false all-clear in the one place the app
-                // exists to be honest about.
-                when (val status = controller.status.value) {
-                    is AttachmentStatus.ActiveGlobal -> clearStaleNotice(context)
-                    else -> notifyReducedReach(context, status)
+                // The notification exists for one purpose: to tell the user
+                // that activation needs them. With a helper running there is
+                // nothing for them to do, so there is nothing to say.
+                //
+                // It used to report the attachment status instead, which
+                // produced "EQ is off" right after a *successful* automatic
+                // activation - the EQ simply had no music to attach to a few
+                // seconds into a boot. Observed on the device: helper up,
+                // permission granted, nothing wrong, and a notification saying
+                // otherwise. Reporting the state of an idle audio pipeline is
+                // not the same as reporting a problem.
+                if (activated) {
+                    clearStaleNotice(context)
+                } else {
+                    notifyReducedReach(context, controller.status.value)
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to restore EQ after boot", t)
@@ -275,7 +281,10 @@ class BootReceiver : BroadcastReceiver() {
             runCatching { NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID) }
         }
 
-        const val TAG = "BootReceiver"
+        // Not "BootReceiver": that is also the name of Android's own class in
+        // system_server, and filtering logcat by it buries our three lines
+        // under the platform's fsck and DropBox chatter. Cost real time once.
+        const val TAG = "BtDashBoot"
 
         /** Was IMPORTANCE_DEFAULT, i.e. audible. Deleted on first run of the new code. */
         const val LEGACY_CHANNEL_ID = "eq_status"
