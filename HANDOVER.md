@@ -3626,3 +3626,42 @@ gleich zu Beginn von `attempt()` und eines in `PrivilegedProvider.accept()`
 
 Achtung beim Nachstellen: ein Boot flutet logcat, und die frühen Zeilen sind
 nach wenigen Minuten weg. Entweder sofort auslesen oder `logcat -G 16M` setzen.
+
+---
+
+## Zweites Gerät: Pixel 11 Pro, Android 17 (24. August, abends)
+
+Erstinstallation auf einem Telefon, das die App nie gesehen hat. Zwei Funde,
+beide auf dem Pixel 8 prinzipiell unsichtbar.
+
+### 1. Nicht 16-KB-kompatibel  (Play-Store-Hindernis)
+
+Android 17 meldet beim Start: *"This app isn't 16 KB-compatible. ELF alignment
+check failed."* Neuere Pixel laufen mit 16-KB-Speicherseiten; Google Play
+verlangt ausgerichtete native Bibliotheken. Betroffen:
+
+- `libbtdashboard_audio.so` - unser eigener NDK-Code
+- `libconscrypt_jni.so` - **heute eingebaut**, Conscrypt 2.5.2 stammt von 2021
+- `liboboe.so`, `libc++_shared.so`, `libandroidx.graphics.path.so`,
+  `libdatastore_shared_counter.so`
+
+Richtung: eigene Bibliothek über `-Wl,-z,max-page-size=16384` bzw. neueres NDK;
+für Conscrypt und AndroidX aktuellere Versionen suchen. **Falls es keine
+ausgerichtete Conscrypt gibt, steht die Entscheidung Play Store gegen
+TLS-Exporter erneut an** - und damit die ganze Kopplung ohne PC.
+
+### 2. Der Setup-Wizard wird auf einem frischen Gerät übersprungen
+
+Die App zeigt sofort den Activate-Gate. Der Wizard erteilt aber die
+Laufzeitberechtigungen, **darunter die für Benachrichtigungen** - und ohne die
+kann der Kopplungscode nicht entgegengenommen werden, weil er in einer
+Notification eingetippt wird. Der Gate war ausdrücklich so gebaut, dass der
+Wizard davor liegt.
+
+Verdacht: in `BtDashboardApp` wird `wizardCompleted` mit `initialValue = true`
+gesammelt. Der Gate gewinnt damit sofort, und der NavHost, der zum Wizard
+navigieren würde, wird nie gerendert. Zu prüfen, ob sich das nach der ersten
+Emission korrigiert - im Test tat es das nicht.
+
+Beides gehört vor den Doppelstart. Fund 1 betrifft eine Entscheidung von heute,
+Fund 2 verhindert die Erstinbetriebnahme auf jedem neuen Gerät.
