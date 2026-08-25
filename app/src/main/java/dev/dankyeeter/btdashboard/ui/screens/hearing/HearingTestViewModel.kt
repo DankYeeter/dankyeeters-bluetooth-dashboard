@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -45,6 +46,8 @@ data class HearingUiState(
     /** Free-text banner: ambient warning, fit warning, abort reason, errors. */
     val message: String? = null,
     val volumeLockedNotice: Boolean = false,
+    /** Ids of the runs that feed the curve. Empty means "the three newest". */
+    val selectedRunIds: Set<String> = emptySet(),
     val presenting: HearingTestState.Presenting? = null,
     val fitResult: FitCheckResult? = null,
     val fitCheckPassed: Boolean = false,
@@ -83,10 +86,15 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
 
     init {
         viewModelScope.launch {
-            store.runs.collect { runs ->
+            // All runs are shown; only the chosen ones are averaged. Those are
+            // two different questions and used to have one answer.
+            combine(store.runs, store.selectedRuns, store.selectedRunIds) { all, chosen, ids ->
+                Triple(all, chosen, ids)
+            }.collect { (all, chosen, ids) ->
                 _state.value = _state.value.copy(
-                    runs = runs,
-                    audiogram = if (runs.isEmpty()) null else aggregator.aggregate(runs),
+                    runs = all,
+                    selectedRunIds = ids,
+                    audiogram = if (chosen.isEmpty()) null else aggregator.aggregate(chosen),
                 )
             }
         }
@@ -187,6 +195,10 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                 message = "Test cancelled.",
             )
         }
+    }
+
+    fun setRunSelected(id: String, selected: Boolean) {
+        viewModelScope.launch { store.setRunSelected(id, selected) }
     }
 
     fun deleteRun(id: String) {

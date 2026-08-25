@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
@@ -14,6 +15,7 @@ import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import dev.dankyeeter.btdashboard.hearing.fit.FitBaseline
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
@@ -43,7 +45,48 @@ class AudiogramStore(context: Context) {
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs -> parseBaseline(prefs[KEY_FIT_BASELINE]) }
 
+    /**
+     * Which runs the personal curve is built from. Empty means "not chosen".
+     */
+    val selectedRunIds: Flow<Set<String>> = appContext.hearingDataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { prefs -> prefs[KEY_SELECTED] ?: emptySet() }
+
+    /**
+     * The runs that actually feed the compensation: at most three.
+     *
+     * Three because a single run carries one lapse in attention and the median
+     * of three is the smallest aggregate that can outvote it. More runs are
+     * kept - they are worth having, and worth comparing - but averaging a
+     * dozen sessions from different weeks would blur exactly the change one
+     * would want to see.
+     */
+    val selectedRuns: Flow<List<AudiogramRun>> = combine(runs, selectedRunIds) { all, chosen ->
+        selectionOf(all, chosen)
+    }
+
     suspend fun currentRuns(): List<AudiogramRun> = runs.first()
+
+    suspend fun currentSelectedRuns(): List<AudiogramRun> = selectedRuns.first()
+
+    /**
+     * Adds or removes one run from the selection.
+     *
+     * Selecting a fourth is refused rather than silently dropping one of the
+     * others: which three count decides what the equaliser does, and a set that
+     * rearranges itself behind the user's back is not a choice.
+     */
+    suspend fun setRunSelected(id: String, selected: Boolean) {
+        appContext.hearingDataStore.edit { prefs ->
+            val current = prefs[KEY_SELECTED] ?: emptySet()
+            val next = when {
+                !selected -> current - id
+                current.size >= MAX_SELECTED -> current
+                else -> current + id
+            }
+            prefs[KEY_SELECTED] = next
+        }
+    }
 
     suspend fun currentFitBaseline(): FitBaseline = fitBaseline.first()
 
@@ -168,10 +211,29 @@ class AudiogramStore(context: Context) {
         }.toMap()
     }
 
-    private companion object {
-        const val TAG = "AudiogramStore"
-        const val MAX_RUNS = 20
-        val KEY_RUNS = stringPreferencesKey("audiogram_runs_json")
-        val KEY_FIT_BASELINE = stringPreferencesKey("fit_baseline_json")
+    companion object {
+        /** The most runs the compensation is ever built from. */
+        const val MAX_SELECTED = 3
+
+        /**
+         * Resolves a stored selection against the runs that still exist.
+         *
+         * Nothing chosen means the three most recent, so the app works before
+         * anyone has thought about this and after a deleted run leaves the
+         * selection empty. Ids that no longer exist are ignored rather than
+         * remembered, and the cap is enforced here as well as at the point of
+         * choosing - a stored set from an older build cannot smuggle in a
+         * fourth.
+         */
+        fun selectionOf(all: List<AudiogramRun>, chosen: Set<String>): List<AudiogramRun> {
+            val explicit = all.filter { it.id in chosen }
+            return if (explicit.isEmpty()) all.takeLast(MAX_SELECTED) else explicit.takeLast(MAX_SELECTED)
+        }
+
+        private const val TAG = "AudiogramStore"
+        private const val MAX_RUNS = 20
+        private val KEY_RUNS = stringPreferencesKey("audiogram_runs_json")
+        private val KEY_FIT_BASELINE = stringPreferencesKey("fit_baseline_json")
+        private val KEY_SELECTED = stringSetPreferencesKey("audiogram_selected_ids")
     }
 }

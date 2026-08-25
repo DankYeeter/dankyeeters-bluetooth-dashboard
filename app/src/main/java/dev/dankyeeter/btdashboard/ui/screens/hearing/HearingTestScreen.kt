@@ -19,11 +19,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.remember
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import java.text.DateFormat
 import java.util.Date
@@ -380,16 +383,42 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
         Panel {
             PanelHeader("All runs overlaid")
             Text(
-                "All runs are overlaid; the thick curve is the median that feeds the compensation. " +
-                    "Delete a run that went wrong (a bad seal, a noisy room, a distracted moment) and retake it.",
+                "All runs are overlaid; the thick curve is the median of the runs you have " +
+                    "chosen, and that median is what the equaliser corrects for. Up to three " +
+                    "count — one run carries a lapse in attention, three outvote it. Keep " +
+                    "testing and swap which three are used; nothing is lost by trying.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             AudiogramChart(runs = state.runs, active = state.audiogram)
             AudiogramLegend()
         }
 
+        // Which runs count, resolved the same way the store resolves it: an
+        // empty selection means the three newest, so the screen never shows a
+        // different set than the equaliser is using.
+        val counted = remember(state.runs, state.selectedRunIds) {
+            AudiogramStore.selectionOf(state.runs, state.selectedRunIds).map { it.id }.toSet()
+        }
+        val full = counted.size >= AudiogramStore.MAX_SELECTED
+
         state.runs.sortedByDescending { it.timestampMillis }.forEach { run ->
-            RunRow(run = run, onDelete = { viewModel.deleteRun(run.id) })
+            RunRow(
+                run = run,
+                counted = run.id in counted,
+                // A fourth is refused rather than pushing one of the others
+                // out: which three count decides what the EQ does, and a set
+                // that rearranges itself behind your back is not a choice.
+                selectable = run.id in counted || !full,
+                onCountedChange = { viewModel.setRunSelected(run.id, it) },
+                onDelete = { viewModel.deleteRun(run.id) },
+            )
+        }
+        if (full) {
+            Text(
+                "Three runs are in use — take one out to put another in.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         if (state.runs.isNotEmpty()) {
@@ -400,14 +429,42 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
 }
 
 @Composable
-private fun RunRow(run: AudiogramRun, onDelete: () -> Unit) {
+private fun RunRow(
+    run: AudiogramRun,
+    counted: Boolean,
+    selectable: Boolean,
+    onCountedChange: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
     // One run per panel, with its timestamp as the eyebrow: the date is what
     // tells two runs apart, and everything else on the row is about that date.
     Panel(contentPadding = 16) {
         PanelHeader(
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                 .format(Date(run.timestampMillis)),
+            trailing = {
+                Pill(
+                    if (counted) "In the curve" else "Not used",
+                    tone = if (counted) PillTone.ACCENT else PillTone.NEUTRAL,
+                )
+            },
         )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Use for the curve",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Switch(
+                checked = counted,
+                onCheckedChange = onCountedChange,
+                enabled = selectable,
+            )
+        }
         // Delete sits beside the counts rather than in the header's trailing
         // slot: that slot is sized for a pill, and a full button next to an
         // 11 sp eyebrow makes the header taller than the row it labels.

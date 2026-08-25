@@ -95,7 +95,7 @@ class EqViewModel : ViewModel() {
             }
         }
         viewModelScope.launch {
-            audiogramStore.runs.collect { runs ->
+            audiogramStore.selectedRuns.collect { runs ->
                 val audiogram = if (runs.isEmpty()) null else HearingGraph.aggregator.aggregate(runs)
                 // Adopt the preset the test was actually run with; mixing a
                 // curve measured through one device with another device's

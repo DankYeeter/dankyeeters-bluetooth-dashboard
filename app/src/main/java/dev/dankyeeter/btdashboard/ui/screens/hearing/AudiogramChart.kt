@@ -38,6 +38,19 @@ import kotlin.math.log10
  * curve as a thick one, which is exactly the overlay view the multi-run
  * workflow needs. Points that did not converge are drawn hollow so a
  * floor/ceiling artefact is never mistaken for a real measurement.
+ *
+ * ## The reference line
+ *
+ * A dashed line marks what even hearing would look like: the same threshold at
+ * every frequency. It is placed at the best frequency this person actually
+ * measured, and the gap below it is how much each other frequency falls short.
+ *
+ * It is deliberately *not* a clinical 0 dB HL line. This scale is the app's
+ * own attenuation in dBFS and the output is uncalibrated - where absolute
+ * normal hearing sits depends on how loud this particular headphone plays at a
+ * given digital level, which the app does not know. Drawing an absolute line
+ * anyway would be a medical-looking claim with nothing behind it. The relative
+ * shape, on the other hand, is exactly what the compensation works from.
  */
 @Composable
 fun AudiogramChart(
@@ -71,7 +84,66 @@ fun AudiogramChart(
             if (showLeft) drawCurve(plot, it.left, leftColor, 3.dp.toPx(), true)
             if (showRight) drawCurve(plot, it.right, rightColor, 3.dp.toPx(), true)
         }
+
+        // Drawn last so it sits on top of the curves it is meant to be read
+        // against, and only from points that converged - a threshold that hit
+        // the floor says nothing about how well someone hears.
+        referenceLevel(active, runs, showLeft, showRight)?.let { level ->
+            drawReferenceLine(plot, level, labelColor, measurer)
+        }
     }
+}
+
+/**
+ * The best converged threshold on screen, or null when nothing converged.
+ *
+ * "Best" is the quietest tone that was still heard, which on this axis is the
+ * smallest number. Ignoring the hollow points matters: a run that hit the
+ * floor everywhere - the app could not go quieter - would otherwise place the
+ * line at an invented level and make the hearing look even.
+ */
+private fun referenceLevel(
+    active: Audiogram?,
+    runs: List<AudiogramRun>,
+    showLeft: Boolean,
+    showRight: Boolean,
+): Double? {
+    val points = buildList {
+        if (active != null) {
+            if (showLeft) addAll(active.left)
+            if (showRight) addAll(active.right)
+        } else {
+            runs.forEach { run ->
+                if (showLeft) addAll(run.left)
+                if (showRight) addAll(run.right)
+            }
+        }
+    }
+    return points.filter { it.converged }.minOfOrNull { it.thresholdDb }
+}
+
+private fun DrawScope.drawReferenceLine(
+    plot: PlotArea,
+    levelDb: Double,
+    labelColor: Color,
+    measurer: TextMeasurer,
+) {
+    val y = plot.yFor(levelDb)
+    drawLine(
+        color = labelColor.copy(alpha = 0.8f),
+        start = Offset(plot.left, y),
+        end = Offset(plot.right, y),
+        strokeWidth = 1.5.dp.toPx(),
+        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
+    )
+    val layout = measurer.measure(
+        "even hearing",
+        TextStyle(fontSize = 9.sp, color = labelColor),
+    )
+    drawText(
+        layout,
+        topLeft = Offset(plot.right - layout.size.width, y - layout.size.height - 2.dp.toPx()),
+    )
 }
 
 @Composable
@@ -84,7 +156,7 @@ fun AudiogramLegend(modifier: Modifier = Modifier) {
         LegendEntry(MaterialTheme.colorScheme.primary, "Left")
         LegendEntry(MaterialTheme.colorScheme.tertiary, "Right")
         Text(
-            "thin = single runs · thick = median",
+            "thin = single runs · thick = median · dashed = even hearing",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

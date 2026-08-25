@@ -26,7 +26,10 @@ class BackupRepository(context: Context) {
         try {
             val document = BackupMapper.buildDocument(
                 runs = HearingGraph.audiogramStore.currentRuns(),
-                audiogram = HearingGraph.audiogramStore.currentRuns()
+                // Every run is backed up, but the stored curve is the one the
+                // app actually uses - the median of the chosen runs, not of
+                // all of them.
+                audiogram = HearingGraph.audiogramStore.currentSelectedRuns()
                     .takeIf { it.isNotEmpty() }
                     ?.let { HearingGraph.aggregator.aggregate(it) },
                 profiles = HearingGraph.profileStore.current(),
