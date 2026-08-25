@@ -43,6 +43,7 @@ import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import java.text.DateFormat
 import java.util.Date
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -84,28 +85,39 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         Text("Hearing test", style = MaterialTheme.typography.displayMedium)
 
         Panel {
-            PanelHeader("What happens")
+            // One sentence on the surface; the method lives behind the
+            // question mark. Whoever opens this screen wants to run a test,
+            // not read about Hughson and Westlake first.
+            ExplainedHeader(
+                "What happens",
+                explanation = "A modified Hughson-Westlake pure-tone test at 250 to 8000 Hz, one " +
+                    "ear at a time. The beeps step quieter and louder around your threshold. " +
+                    "Some intervals are deliberately silent — pressing during those only makes " +
+                    "the result worse, so press only when you actually hear something, however " +
+                    "faint.",
+            )
             Text(
-                "This is a modified Hughson-Westlake pure-tone test at 250 to 8000 Hz, one ear at a time. " +
-                    "It takes about six to eight minutes for both ears. You will hear short beeps that get " +
-                    "quieter and louder; press the big button whenever you think you hear one, even faintly. " +
-                    "Some intervals are deliberately silent — pressing during those only makes the result worse.",
+                "Short beeps, one ear at a time — press whenever you hear one. " +
+                    "Six to eight minutes.",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
 
         Panel {
-            // "Before you start:" was the first line of the block below. As the
-            // panel's own eyebrow it stops competing with the bullets it
-            // introduces — same words, one level up.
-            PanelHeader("Before you start")
+            ExplainedHeader(
+                "Before you start",
+                explanation = "Quiet matters because background noise masks exactly the tones " +
+                    "being measured. Keep the listening mode you always use — ANC changes what " +
+                    "reaches your ear, so a curve measured with it on fits only listening with " +
+                    "it on. The volume is locked during the run so every tone keeps the level " +
+                    "it was measured at. And one run carries one lapse in attention; the median " +
+                    "of three outvotes it.",
+            )
             Text(
-                "• Sit in a quiet room. Background noise masks the quietest tones.\n" +
-                    "• Use the listening mode you normally use (ANC on, transparency or off) and keep it " +
-                    "for the whole test — and for the EQ afterwards.\n" +
-                    "• Set the media volume to your usual listening level. It is locked while the test runs.\n" +
-                    "• Put the earphones in as you always do, then run the fit check.\n" +
-                    "• Do three or more runs. The app uses the per-frequency median of your runs.",
+                "• A quiet room\n" +
+                    "• Your usual listening mode and volume\n" +
+                    "• Earphones in as always, then the fit check\n" +
+                    "• Three runs",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -171,8 +183,7 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
                 Pill("Run the fit check first.", tone = PillTone.WARN)
             }
             Text(
-                "The microphone is used once, before the run, to estimate the room noise. Nothing is " +
-                    "recorded or stored, and the app has no internet permission.",
+                "The microphone measures room noise once, before the run. Nothing is recorded.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -381,12 +392,17 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
         Text("Your runs", style = MaterialTheme.typography.displayMedium)
 
         Panel {
-            PanelHeader("All runs overlaid")
+            ExplainedHeader(
+                "All runs overlaid",
+                explanation = "Every run is drawn thin; the thick curve is the median of the " +
+                    "runs you chose, and that median is what the equaliser corrects for. " +
+                    "Three at most, because one run carries a lapse in attention and the " +
+                    "median of three outvotes it — while averaging a dozen sessions from " +
+                    "different weeks would blur the very change you would want to see. Keep " +
+                    "testing and swap which three count; nothing is lost by trying.",
+            )
             Text(
-                "All runs are overlaid; the thick curve is the median of the runs you have " +
-                    "chosen, and that median is what the equaliser corrects for. Up to three " +
-                    "count — one run carries a lapse in attention, three outvote it. Keep " +
-                    "testing and swap which three are used; nothing is lost by trying.",
+                "The thick curve is the median of the runs you chose — up to three count.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             AudiogramChart(runs = state.runs, active = state.audiogram)
