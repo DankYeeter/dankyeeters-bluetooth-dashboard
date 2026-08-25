@@ -64,4 +64,39 @@ class AudiogramSelectionTest {
             AudiogramStore.selectionOf(emptyList(), setOf("a")).map { it.id },
         )
     }
+    // ---- device binding ----------------------------------------------------
+
+    private fun runOn(id: String, at: Long, device: String?) =
+        run(id, at).copy(deviceAddressHash = device)
+
+    @Test
+    fun `only runs from the connected device count`() {
+        val mixed = listOf(runOn("f1", 1, "focal"), runOn("n1", 2, "noble"), runOn("f2", 3, "focal"))
+
+        assertEquals(
+            listOf("f1", "f2"),
+            AudiogramStore.selectionOf(mixed, emptySet(), deviceKey = "focal").map { it.id },
+        )
+    }
+
+    /** Legacy runs carry no device; locking them out would strand data nobody can re-attribute. */
+    @Test
+    fun `a run without a recorded device stays usable everywhere`() {
+        val mixed = listOf(runOn("old", 1, null), runOn("n1", 2, "noble"))
+
+        assertEquals(
+            listOf("old"),
+            AudiogramStore.selectionOf(mixed, emptySet(), deviceKey = "focal").map { it.id },
+        )
+    }
+
+    @Test
+    fun `choosing a foreign run explicitly still cannot smuggle it in`() {
+        val mixed = listOf(runOn("f1", 1, "focal"), runOn("n1", 2, "noble"))
+
+        assertEquals(
+            listOf("f1"),
+            AudiogramStore.selectionOf(mixed, setOf("n1"), deviceKey = "focal").map { it.id },
+        )
+    }
 }

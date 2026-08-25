@@ -197,7 +197,7 @@ class BackupCodecTest {
     @Test
     fun `a run without an id is dropped with a warning`() {
         val raw = BackupCodec.encode(
-            document().let { it.copy(hearingRuns = it.hearingRuns + BackupRun("", 1L, null, "generic_uncalibrated")) },
+            document().let { it.copy(hearingRuns = it.hearingRuns + BackupRun("", 1L, null, calibrationPresetId = "generic_uncalibrated")) },
         )
         val result = BackupCodec.decode(raw) as BackupParseResult.Success
         assertEquals(2, result.document.hearingRuns.size)
@@ -206,7 +206,7 @@ class BackupCodecTest {
 
     @Test
     fun `a run with no thresholds is dropped with a warning`() {
-        val empty = BackupRun("run-empty", 1L, null, "generic_uncalibrated")
+        val empty = BackupRun("run-empty", 1L, null, calibrationPresetId = "generic_uncalibrated")
         val raw = BackupCodec.encode(document().let { it.copy(hearingRuns = it.hearingRuns + empty) })
         val result = BackupCodec.decode(raw) as BackupParseResult.Success
         assertTrue(result.document.hearingRuns.none { it.id == "run-empty" })

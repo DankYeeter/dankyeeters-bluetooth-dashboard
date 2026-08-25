@@ -124,6 +124,7 @@ class AudiogramStore(context: Context) {
                     put("id", run.id)
                     put("timestamp", run.timestampMillis)
                     put("device", run.deviceAddressHash ?: JSONObject.NULL)
+                    put("deviceName", run.deviceName ?: JSONObject.NULL)
                     put("preset", run.calibrationPresetId)
                     put("anc", run.ancMode.name)
                     put("ambient", run.ambientNoiseDbA ?: JSONObject.NULL)
@@ -166,6 +167,7 @@ class AudiogramStore(context: Context) {
                     ambientNoiseDbA = if (obj.isNull("ambient")) null else obj.optDouble("ambient"),
                     left = parsePoints(obj.optJSONArray("left")),
                     right = parsePoints(obj.optJSONArray("right")),
+                    deviceName = obj.optString("deviceName").takeIf { it.isNotBlank() && it != "null" },
                 )
             }
         } catch (e: Exception) {
@@ -225,9 +227,31 @@ class AudiogramStore(context: Context) {
          * choosing - a stored set from an older build cannot smuggle in a
          * fourth.
          */
-        fun selectionOf(all: List<AudiogramRun>, chosen: Set<String>): List<AudiogramRun> {
-            val explicit = all.filter { it.id in chosen }
-            return if (explicit.isEmpty()) all.takeLast(MAX_SELECTED) else explicit.takeLast(MAX_SELECTED)
+        fun selectionOf(all: List<AudiogramRun>, chosen: Set<String>): List<AudiogramRun> =
+            selectionOf(all, chosen, deviceKey = null)
+
+        /**
+         * Device-aware variant: only runs measured through [deviceKey] count.
+         *
+         * A hearing curve is a property of ear plus headphone together — the
+         * same person measures differently through different drivers, and a
+         * correction derived from one device applied to another corrects for
+         * hardware that is not there. Runs with no recorded device (older
+         * builds) stay usable everywhere: locking them out would strand data
+         * nobody can re-attribute.
+         */
+        fun selectionOf(
+            all: List<AudiogramRun>,
+            chosen: Set<String>,
+            deviceKey: String?,
+        ): List<AudiogramRun> {
+            val eligible = if (deviceKey == null) {
+                all
+            } else {
+                all.filter { it.deviceAddressHash == null || it.deviceAddressHash == deviceKey }
+            }
+            val explicit = eligible.filter { it.id in chosen }
+            return if (explicit.isEmpty()) eligible.takeLast(MAX_SELECTED) else explicit.takeLast(MAX_SELECTED)
         }
 
         private const val TAG = "AudiogramStore"

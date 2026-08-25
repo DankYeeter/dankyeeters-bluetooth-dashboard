@@ -27,13 +27,20 @@ import dev.dankyeeter.btdashboard.hearing.fit.FitCheckResult
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import dev.dankyeeter.btdashboard.hearing.noise.MicAmbientNoiseCheck
 import dev.dankyeeter.btdashboard.hearing.protocol.ProtocolConfig
+import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
+import dev.dankyeeter.btdashboard.monitor.MonitorGraph
+import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
+import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Where the user currently is in the hearing-test flow. */
@@ -55,6 +62,9 @@ data class HearingUiState(
     val lastReliability: RunReliability? = null,
     val runs: List<AudiogramRun> = emptyList(),
     val audiogram: Audiogram? = null,
+    /** Key of the headphone currently active, null when nothing is connected. */
+    val currentDeviceKey: String? = null,
+    val currentDeviceName: String? = null,
 ) {
     val fitCheckRequired: Boolean get() = formFactor.fitCheckMandatory && !fitCheckPassed
 
@@ -84,17 +94,28 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
     private var focusRequest: AudioFocusRequest? = null
     private var runJob: Job? = null
 
+    /** The active headphone, hashed the same way device profiles are keyed. */
+    private val activeDevice: StateFlow<BtAudioDevice?> =
+        MonitorGraph.codecSource.connectedDevicesFlow()
+            .map { devices -> devices.firstOrNull { it.isActive } ?: devices.firstOrNull() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     init {
         viewModelScope.launch {
-            // All runs are shown; only the chosen ones are averaged. Those are
-            // two different questions and used to have one answer.
-            combine(store.runs, store.selectedRuns, store.selectedRunIds) { all, chosen, ids ->
-                Triple(all, chosen, ids)
-            }.collect { (all, chosen, ids) ->
+            // All runs are shown; only the chosen ones are averaged - and only
+            // ones measured through the connected headphone count, because a
+            // hearing curve is a property of ear plus driver together.
+            combine(store.runs, store.selectedRunIds, activeDevice) { all, ids, device ->
+                Triple(all, ids, device)
+            }.collect { (all, ids, device) ->
+                val key = DeviceKey.fromAddress(device?.address)
+                val chosen = AudiogramStore.selectionOf(all, ids, key)
                 _state.value = _state.value.copy(
                     runs = all,
                     selectedRunIds = ids,
                     audiogram = if (chosen.isEmpty()) null else aggregator.aggregate(chosen),
+                    currentDeviceKey = key,
+                    currentDeviceName = device?.name,
                 )
             }
         }
@@ -164,7 +185,16 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
             frequencies = TEST_FREQUENCIES_HZ,
             runAmbientCheck = runAmbientCheck,
         ) { run ->
-            store.addRun(run)
+            // Stamped here rather than in the controller: the controller is
+            // pure audio and pure protocol, and which headphone was on the
+            // head is something only this layer knows.
+            val device = activeDevice.value
+            store.addRun(
+                run.copy(
+                    deviceAddressHash = DeviceKey.fromAddress(device?.address),
+                    deviceName = device?.name,
+                ),
+            )
             _state.value = _state.value.copy(
                 phase = HearingPhase.RESULT,
                 presenting = null,

@@ -15,6 +15,10 @@ import dev.dankyeeter.btdashboard.hearing.CompensationResult
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_INTENSITY
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_PARTIAL_FACTOR
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
+import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
+import dev.dankyeeter.btdashboard.monitor.MonitorGraph
+import dev.dankyeeter.btdashboard.system.devices.DeviceKey
+import kotlinx.coroutines.flow.combine
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -95,7 +99,18 @@ class EqViewModel : ViewModel() {
             }
         }
         viewModelScope.launch {
-            audiogramStore.selectedRuns.collect { runs ->
+            // The personal curve follows the connected headphone: only runs
+            // measured through it feed the median, because a hearing curve is
+            // a property of ear plus driver together. Swap headphones and the
+            // correction swaps with them.
+            combine(
+                audiogramStore.runs,
+                audiogramStore.selectedRunIds,
+                MonitorGraph.codecSource.connectedDevicesFlow(),
+            ) { all, ids, devices ->
+                val device = devices.firstOrNull { it.isActive } ?: devices.firstOrNull()
+                AudiogramStore.selectionOf(all, ids, DeviceKey.fromAddress(device?.address))
+            }.collect { runs ->
                 val audiogram = if (runs.isEmpty()) null else HearingGraph.aggregator.aggregate(runs)
                 // Adopt the preset the test was actually run with; mixing a
                 // curve measured through one device with another device's

@@ -53,6 +53,7 @@ data class BackupRun(
     @SerialName("id") val id: String,
     @SerialName("timestampMillis") val timestampMillis: Long,
     @SerialName("deviceAddressHash") val deviceAddressHash: String? = null,
+    @SerialName("deviceName") val deviceName: String? = null,
     @SerialName("calibrationPresetId") val calibrationPresetId: String,
     @SerialName("ancMode") val ancMode: String = "UNKNOWN",
     @SerialName("ambientNoiseDbA") val ambientNoiseDbA: Double? = null,

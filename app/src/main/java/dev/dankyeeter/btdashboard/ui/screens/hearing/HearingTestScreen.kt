@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -411,20 +412,29 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
 
         // Which runs count, resolved the same way the store resolves it: an
         // empty selection means the three newest, so the screen never shows a
-        // different set than the equaliser is using.
-        val counted = remember(state.runs, state.selectedRunIds) {
-            AudiogramStore.selectionOf(state.runs, state.selectedRunIds).map { it.id }.toSet()
+        // different set than the equaliser is using — and only runs measured
+        // through the connected headphone are in the running at all.
+        val counted = remember(state.runs, state.selectedRunIds, state.currentDeviceKey) {
+            AudiogramStore.selectionOf(state.runs, state.selectedRunIds, state.currentDeviceKey)
+                .map { it.id }.toSet()
         }
         val full = counted.size >= AudiogramStore.MAX_SELECTED
 
         state.runs.sortedByDescending { it.timestampMillis }.forEach { run ->
+            // A run from another headphone is shown but cannot be chosen: the
+            // curve it holds corrects for a driver that is not on the head
+            // right now. It comes back to life the moment its device does.
+            val foreign = run.deviceAddressHash != null &&
+                state.currentDeviceKey != null &&
+                run.deviceAddressHash != state.currentDeviceKey
             RunRow(
                 run = run,
                 counted = run.id in counted,
                 // A fourth is refused rather than pushing one of the others
                 // out: which three count decides what the EQ does, and a set
                 // that rearranges itself behind your back is not a choice.
-                selectable = run.id in counted || !full,
+                selectable = !foreign && (run.id in counted || !full),
+                foreign = foreign,
                 onCountedChange = { viewModel.setRunSelected(run.id, it) },
                 onDelete = { viewModel.deleteRun(run.id) },
             )
@@ -449,21 +459,33 @@ private fun RunRow(
     run: AudiogramRun,
     counted: Boolean,
     selectable: Boolean,
+    foreign: Boolean,
     onCountedChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
     // One run per panel, with its timestamp as the eyebrow: the date is what
     // tells two runs apart, and everything else on the row is about that date.
-    Panel(contentPadding = 16) {
+    // A foreign-device run fades as a whole — the pill alone reads as state,
+    // the fade reads as "not yours right now", which is the actual situation.
+    Panel(contentPadding = 16, modifier = Modifier.alpha(if (foreign) 0.5f else 1f)) {
         PanelHeader(
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                 .format(Date(run.timestampMillis)),
             trailing = {
                 Pill(
-                    if (counted) "In the curve" else "Not used",
-                    tone = if (counted) PillTone.ACCENT else PillTone.NEUTRAL,
+                    when {
+                        foreign -> "Other device"
+                        counted -> "In the curve"
+                        else -> "Not used"
+                    },
+                    tone = if (counted && !foreign) PillTone.ACCENT else PillTone.NEUTRAL,
                 )
             },
+        )
+        Text(
+            run.deviceName ?: "No device recorded",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(
             Modifier.fillMaxWidth(),

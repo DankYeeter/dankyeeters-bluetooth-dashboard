@@ -58,6 +58,15 @@ data class AudiogramRun(
     val ambientNoiseDbA: Double?,
     val left: List<ThresholdPoint>,
     val right: List<ThresholdPoint>,
+    /**
+     * Name of the headphone the run was measured through, for display.
+     *
+     * A hearing curve is a property of the pair ear-plus-headphone, not of the
+     * ear alone - the same person measures differently through different
+     * drivers. The hash above is the identity; the name is kept alongside so a
+     * run can say which device it belongs to even after that device is gone.
+     */
+    val deviceName: String? = null,
 ) {
     fun points(ear: Ear): List<ThresholdPoint> = when (ear) {
         Ear.LEFT -> left
