@@ -322,9 +322,10 @@ private fun AttachmentStatus.describe(): String = when (this) {
     is AttachmentStatus.ActiveGlobal ->
         "Attached to the output mix, which reaches every app including Tidal."
     is AttachmentStatus.ActiveSessions ->
-        "Fell back to session mode: attached to ${sessionIds.size} announced session(s). " +
-            "Players that do not announce their audio session are not affected at all, " +
-            "and Tidal does not announce reliably."
+        "Session mode: the EQ follows the apps that announce their playback, and " +
+            "anything that keeps its playback to itself is not equalised. Whether a " +
+            "player announces varies by build — Tidal did on Android 17 and did not " +
+            "on 16."
     is AttachmentStatus.Unavailable -> reason
     // Inactive is both "the user switched the EQ off" and "nothing has applied
     // it yet this session" — it is the controller's initial value. Naming only

@@ -526,8 +526,10 @@ private fun AttachmentStatus.tone(): PillTone = when (this) {
 
 private fun AttachmentStatus.describe(): String = when (this) {
     is AttachmentStatus.ActiveGlobal -> "Attached to the output mix — reaches every app."
+    // No count: a number of sessions is nothing the user can check against
+    // what they are hearing. The EQ screen names the apps instead.
     is AttachmentStatus.ActiveSessions ->
-        "Attached to ${sessionIds.size} announced session(s) only."
+        "Following whatever is playing, app by app — the EQ screen names them."
     is AttachmentStatus.Unavailable -> reason
     // Inactive is the controller's initial value as well as its off state, so
     // it cannot be reported as "switched off" without guessing.

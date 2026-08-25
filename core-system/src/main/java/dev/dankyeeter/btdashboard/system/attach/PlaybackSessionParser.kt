@@ -38,15 +38,36 @@ object PlaybackSessionParser {
     private val CONFIG_LINE = Regex("""AudioPlaybackConfiguration\b.*""")
     private val SESSION_ID = Regex("""\bsessionId:(\d+)""")
 
-    /** Session ids of everything currently playing media. Never contains 0. */
-    fun activeMediaSessions(dumpsysAudio: String): Set<Int> =
+    /**
+     * The uid of the app behind a line, printed as `u/pid:10290/2154`.
+     *
+     * Carried alongside the session id so the app can say *who* is being
+     * equalised rather than how many anonymous sessions there are. A number is
+     * nothing a user can check against what they are hearing; a name is.
+     */
+    private val UID = Regex("""\bu/pid:(\d+)/\d+""")
+
+    /** One playing media session, and the app it belongs to. */
+    data class PlayingSession(val sessionId: Int, val uid: Int)
+
+    /** Everything currently playing media, with its owner. Never session 0. */
+    fun activeMediaPlayers(dumpsysAudio: String): Set<PlayingSession> =
         dumpsysAudio.lineSequence()
             .filter { CONFIG_LINE.containsMatchIn(it) }
             .filter { it.contains("state:started") }
             .filter { it.contains("usage=USAGE_MEDIA") }
-            .mapNotNull { line -> SESSION_ID.find(line)?.groupValues?.get(1)?.toIntOrNull() }
-            // Session 0 is the output mix, not a player. Attaching there is the
-            // global strategy's job, and over Bluetooth it is measurably silent.
-            .filter { it > 0 }
+            .mapNotNull { line ->
+                // Session 0 is the output mix, not a player. Attaching there is
+                // the global strategy's job, and over Bluetooth it is
+                // measurably silent.
+                val session = SESSION_ID.find(line)?.groupValues?.get(1)?.toIntOrNull()
+                    ?.takeIf { it > 0 }
+                    ?: return@mapNotNull null
+                PlayingSession(session, UID.find(line)?.groupValues?.get(1)?.toIntOrNull() ?: -1)
+            }
             .toSet()
+
+    /** Session ids of everything currently playing media. Never contains 0. */
+    fun activeMediaSessions(dumpsysAudio: String): Set<Int> =
+        activeMediaPlayers(dumpsysAudio).map { it.sessionId }.toSet()
 }

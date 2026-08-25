@@ -28,6 +28,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import dev.dankyeeter.btdashboard.system.attach.PlayingApps
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
@@ -69,11 +71,13 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        val playingApps = rememberPlayingAppNames()
+
         Text("System EQ", style = MaterialTheme.typography.displayMedium)
 
         Panel {
-                Text("Reach", style = MaterialTheme.typography.titleSmall)
-                Text(status.describe(), style = MaterialTheme.typography.bodySmall)
+                Text("Where the EQ acts", style = MaterialTheme.typography.titleSmall)
+                Text(status.describe(playingApps), style = MaterialTheme.typography.bodySmall)
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -242,12 +246,57 @@ private fun Float.labelHz(): String =
     if (this >= 1000f) "${(this / 1000f).let { if (it % 1f == 0f) it.toInt().toString() else "%.1f".format(it) }} kHz"
     else "${if (this % 1f == 0f) toInt().toString() else "%.1f".format(this)} Hz"
 
-private fun AttachmentStatus.describe(): String = when (this) {
+/**
+ * The names of the apps whose sound is being equalised right now.
+ *
+ * Resolved here rather than anywhere deeper: turning a uid into a name needs a
+ * PackageManager, and the only reason to do it at all is to put words on a
+ * screen. Everything below this layer works in session ids, which is what an
+ * audio effect actually attaches to.
+ *
+ * A uid can hold several packages; the first one that has a label is close
+ * enough, because the alternative is a list nobody asked for.
+ */
+@Composable
+private fun rememberPlayingAppNames(): List<String> {
+    val context = LocalContext.current
+    val uids by PlayingApps.uids.collectAsStateWithLifecycle()
+    return remember(uids) {
+        val packages = context.packageManager
+        uids.mapNotNull { uid ->
+            runCatching {
+                packages.getPackagesForUid(uid)
+                    ?.firstNotNullOfOrNull { name ->
+                        packages.getApplicationLabel(packages.getApplicationInfo(name, 0)).toString()
+                    }
+            }.getOrNull()
+        }.distinct().sorted()
+    }
+}
+
+/**
+ * What the user is told, in names and never in numbers.
+ *
+ * Session ids used to be in this sentence, and a count of them is not something
+ * anyone can check against what they are hearing. A name is: either the app
+ * playing is in the list, or the EQ is not reaching it.
+ */
+private fun AttachmentStatus.describe(playingApps: List<String>): String = when (this) {
     is AttachmentStatus.ActiveGlobal ->
-        "Global: attached to the output mix — reaches every app, including Tidal."
-    is AttachmentStatus.ActiveSessions ->
-        "Session mode: attached to ${sessionIds.size} announced session(s). Players " +
-            "that do not announce their session are not affected."
+        "Attached to the output mix — every app is equalised, including those that " +
+            "keep their playback to themselves."
+
+    is AttachmentStatus.ActiveSessions -> when {
+        playingApps.isEmpty() ->
+            "Following whatever is playing. Nothing is playing at the moment."
+
+        else -> "Currently equalising " + playingApps.joinToString(
+            separator = ", ",
+            limit = 3,
+            truncated = "others",
+        ) + "."
+    }
+
     is AttachmentStatus.Unavailable -> reason
     AttachmentStatus.Inactive -> "Not attached."
 }

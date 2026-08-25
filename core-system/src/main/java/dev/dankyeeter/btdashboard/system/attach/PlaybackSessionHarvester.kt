@@ -138,7 +138,11 @@ class PlaybackSessionHarvester(
             Log.i(TAG, "no helper answer; nothing harvested")
             return
         }
-        val sessions = PlaybackSessionParser.activeMediaSessions(dump)
+        val players = PlaybackSessionParser.activeMediaPlayers(dump)
+        // Published beside the ids, not instead of them: the attachment works
+        // in session ids, while the app wants to name who is being equalised.
+        PlayingApps.report(players.map { it.uid }.toSet())
+        val sessions = players.map { it.sessionId }.toSet()
         Log.i(TAG, "harvested $sessions from ${dump.length} chars")
         report(sessions)
     }

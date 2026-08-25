@@ -56,4 +56,20 @@ class PlaybackSessionParserTest {
             "content=CONTENT_TYPE_MUSIC tags= bundle=null sessionId:9099 mutedState:none"
         assertEquals(setOf(8009, 9099), PlaybackSessionParser.activeMediaSessions(two))
     }
+
+    /**
+     * The uid is what lets the app say "Tidal" instead of a session number.
+     *
+     * Pinned to the same real capture: `u/pid:10400/13838` sits on the very
+     * line the session id comes from, so if the framework ever moves it, this
+     * fails here rather than turning the EQ screen into a sentence with a hole
+     * in it.
+     */
+    @Test
+    fun `carries the uid of the app that is playing`() {
+        assertEquals(
+            setOf(PlaybackSessionParser.PlayingSession(sessionId = 8009, uid = 10400)),
+            PlaybackSessionParser.activeMediaPlayers(realDump),
+        )
+    }
 }
