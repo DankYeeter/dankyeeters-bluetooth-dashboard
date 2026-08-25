@@ -187,11 +187,11 @@ private data class PlotArea(val left: Float, val top: Float, val right: Float, v
 private const val MIN_HZ = 200.0
 private const val MAX_HZ = 10_000.0
 
-private const val TOP_DB = -90.0
+private const val TOP_DB = -100.0
 private const val BOTTOM_DB = 0.0
 
 private val GRID_FREQUENCIES = listOf(250, 500, 1000, 2000, 4000, 8000)
-private val GRID_LEVELS = listOf(-90.0, -70.0, -50.0, -30.0, -10.0)
+private val GRID_LEVELS = listOf(-100.0, -80.0, -60.0, -40.0, -20.0)
 
 private fun PlotArea.xFor(frequencyHz: Int): Float {
     val fraction = (log10(frequencyHz.toDouble()) - log10(MIN_HZ)) / (log10(MAX_HZ) - log10(MIN_HZ))

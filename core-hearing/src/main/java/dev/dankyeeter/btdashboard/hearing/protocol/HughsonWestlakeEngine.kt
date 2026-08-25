@@ -222,8 +222,23 @@ data class ProtocolConfig(
     val startLevelDb: Double = -45.0,
     /** Loudest level the app will ever produce. Hearing-safety ceiling. */
     val maxLevelDb: Double = -6.0,
-    /** Quietest level that is still reproducible on 16-bit output. */
-    val minLevelDb: Double = -85.0,
+    /**
+     * Quietest level the app will present.
+     *
+     * Was -85 dBFS, justified as "16-bit output" - but the tone is generated
+     * in float, and what is actually 16-bit is the Bluetooth link. On a
+     * 16-bit link one LSB sits at about -90 dBFS, and that is the honest
+     * floor: below it a sine is smaller than the smallest representable
+     * sample and survives only as dither noise, so a "threshold" measured
+     * there would be a measurement of the codec, not of an ear.
+     *
+     * The old floor was not academic. Someone who hears well runs straight
+     * into it, every point comes back unconverged, and the correction is 0 dB
+     * everywhere - the app then reports even hearing when what it really
+     * means is "quieter than I can ask". Five decibels of honest range were
+     * being left on the table.
+     */
+    val minLevelDb: Double = -90.0,
     val stepUpDb: Double = 5.0,
     val stepDownDb: Double = 10.0,
     val requiredHits: Int = 2,

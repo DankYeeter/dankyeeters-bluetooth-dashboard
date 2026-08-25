@@ -127,7 +127,7 @@ class VolumeGuard(context: Context) {
         const val POLL_INTERVAL_MS = 250L
         const val MIN_VOLUME_FRACTION = 0.3
 
-        /** Where the run puts the media stream: loud enough for the -85 dBFS floor,
+        /** Where the run puts the media stream: loud enough for the -90 dBFS floor,
          *  well short of anything uncomfortable at the -6 dBFS ceiling. */
         const val TEST_VOLUME_FRACTION = 0.7
     }
