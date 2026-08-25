@@ -3895,3 +3895,63 @@ Gebaut, **noch nicht am Geraet geprueft**:
    verschwindet von selbst.
 4. Danach: laeuft genau **ein** Helfer? Der unbekannte Startpfad ist weiterhin
    offen.
+
+---
+
+## Android 17: die Kette steht  (25. August)
+
+Am Pixel 11 Pro durchgespielt, mit echter Kopplung.
+
+**Bewiesen:**
+
+- Der neue Fehlerweg fuehrt: Activate ohne Wireless Debugging nennt die Ursache
+  und zeigt den Knopf, der in die Entwickleroptionen springt - mit dem Eintrag
+  *hervorgehoben*, die Highlight-Anfrage greift auf 17.
+- Das Gate zeigt im Fall "nur der Helfer fehlt" den Activate-Knopf allein.
+- **Kopplung, Helfer und Vergabe laufen auf Android 17.** Nach dem Eintippen des
+  Codes: genau ein Helfer (`uid shell`), `WRITE_SECURE_SETTINGS: granted=true`,
+  `adb_wifi_enabled=0` - die App hat das drahtlose Debugging selbst wieder
+  geschlossen - und das Setup war von allein verschwunden.
+- Der Diensttyp ist unveraendert `_adb-tls-connect._tcp`. ADB Wi-Fi 2.0 hat die
+  Ankuendigung also nicht umbenannt; die Sorge aus `ANDROID17_READINESS.md` ist
+  fuer die Erkennung ausgeraeumt.
+
+**Eine Sackgasse, die keine war:** Der erste Versuch scheiterte an `adb tcpip
+5555`. In diesem Legacy-Modus kuendigt adbd nur `_adb._tcp` an und laesst den
+TLS-Dienst weg - die App konnte nichts finden. Messaufbau, nicht App. Wer die
+Kopplung am Geraet beobachten will, kann adb nicht ueber tcpip halten; beides
+schliesst sich aus.
+
+**Offen geblieben:** Die Kopplungs-Benachrichtigung bleibt nach dem Erfolg
+stehen. Das Log sagt `pairing outcome: Started`, die Ruecknahme wird also
+aufgerufen, und die Benachrichtigung traegt trotzdem noch
+`LIFETIME_EXTENDED_BY_DIRECT_REPLY`. Naechster Schritt: nicht am Erfolgspfad
+nachbessern, sondern am Ereignis "ein Helfer ist verbunden" aufhaengen - dort,
+wo Vergabe und Schliessen schon haengen.
+
+Der Doppelstart existiert auch auf 17 (`retiring stale helper pid 23438`),
+heilt sich aber selbst.
+
+---
+
+## Alte Android-Versionen: zwei echte Fallen  (25. August)
+
+Auf Daniels Ansage geprueft, dass nichts an einer Version klebt. Zwei Funde,
+beide auf 16 und 17 unsichtbar:
+
+1. **Benachrichtigungen auf Android 12.** `POST_NOTIFICATIONS` gibt es erst ab
+   13; darunter antwortet die Plattform auf den unbekannten String mit
+   "verweigert". Seit der Schritt Pflicht ist, haette das Android 12 dauerhaft
+   im Setup eingesperrt - `minSdk` ist 31. Gefragt wird jetzt
+   `areNotificationsEnabled()`: dieselbe Antwort ab 13, richtig darunter, und
+   sie merkt zusaetzlich, wenn der Nutzer Benachrichtigungen spaeter abschaltet.
+   Unter 13 fuehrt der Schritt in die Benachrichtigungs-Einstellungen der App
+   statt einen Dialog anzubieten, den es dort nicht gibt.
+2. **`BigInteger.TWO` in `Ed25519.kt`**, fuenfmal. Java 9, auf Android erst ab
+   13 - darunter ein `NoSuchFieldError` mitten in der Kopplungs-Kryptografie,
+   also ein Absturz genau dann, wenn der Nutzer einen Code in der Hand haelt,
+   den er nicht wiederbekommt.
+
+Beides fand `lintDebug`, nicht das Auge. Von acht Fehlern bleiben drei, und die
+sind `RestrictedApi` in `MainActivity` - kein Versionsthema. Der Rest des Codes
+verzweigt nur auf Stufen unterhalb von 16 und ist damit unauffaellig.

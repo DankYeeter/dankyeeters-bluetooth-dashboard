@@ -1,6 +1,10 @@
 package dev.dankyeeter.btdashboard.ui.screens.wizard
 
 import android.Manifest
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -256,17 +260,54 @@ private fun StepPanel(state: SetupStepState, viewModel: SetupWizardViewModel) {
                     "Allow the microphone",
                 )
 
-                SetupStep.NOTIFICATIONS -> PermissionAction(
-                    viewModel,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    "Allow notifications",
-                )
+                SetupStep.NOTIFICATIONS -> NotificationsAction(viewModel)
 
                 SetupStep.HELPER -> HelperAction()
             }
         }
 
         GoldOutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
+    }
+}
+
+/**
+ * Notifications, which are a runtime permission only from Android 13 on.
+ *
+ * Below that there is no dialog to show and nothing to grant: notifications
+ * are on unless the user has turned them off, and the only way back is the
+ * app's own notification settings. Asking for a permission the platform has
+ * never heard of would put up a button that silently does nothing - on the one
+ * step that cannot be skipped.
+ */
+@Composable
+private fun NotificationsAction(viewModel: SetupWizardViewModel) {
+    val context = LocalContext.current
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        PermissionAction(
+            viewModel,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            "Allow notifications",
+        )
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        GoldButton(
+            onClick = {
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { context.startActivity(intent) }
+                    .onFailure { Log.w("SetupWizard", "cannot open notification settings", it) }
+            },
+        ) { Text("Open notification settings") }
+        Text(
+            "On this Android version notifications are switched on or off in " +
+                "settings rather than granted in a dialog.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

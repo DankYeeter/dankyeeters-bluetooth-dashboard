@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.ui.screens.wizard
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
@@ -27,7 +28,21 @@ class AndroidSetupEnvironment(context: Context) : SetupEnvironment {
             granted(Manifest.permission.BLUETOOTH_CONNECT) && granted(Manifest.permission.BLUETOOTH_SCAN)
 
         SetupStep.MICROPHONE -> granted(Manifest.permission.RECORD_AUDIO)
-        SetupStep.NOTIFICATIONS -> granted(Manifest.permission.POST_NOTIFICATIONS)
+        // Asked as "can this app post a notification?", not as "is
+        // POST_NOTIFICATIONS granted?".
+        //
+        // The permission only exists from Android 13. Below that the platform
+        // answers "denied" to a string it does not know - and since this step
+        // became required, that answer would have locked Android 12 into a
+        // setup process with no way out, on a build whose minSdk is 31. The
+        // older phones cannot say so themselves and there is none left here to
+        // notice.
+        //
+        // areNotificationsEnabled() is the same answer on 13 and up, and a
+        // better one: it also turns false when the user switches notifications
+        // off in Settings, which is exactly the drift this whole live model
+        // exists for.
+        SetupStep.NOTIFICATIONS -> NotificationManagerCompat.from(appContext).areNotificationsEnabled()
         // A connected helper, and not "helper connected *and* the permission
         // granted".
         //

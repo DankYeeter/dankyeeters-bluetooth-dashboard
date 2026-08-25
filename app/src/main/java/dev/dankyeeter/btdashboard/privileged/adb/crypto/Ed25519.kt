@@ -33,11 +33,21 @@ import java.math.BigInteger
  */
 internal object Ed25519 {
 
+    /**
+     * Two, spelled out.
+     *
+     * `BigInteger.TWO` is Java 9 and reached Android only in 13, while this
+     * build installs from 12 - where touching it is a NoSuchFieldError, not a
+     * fallback. It would have hit in the pairing handshake, which is the one
+     * place where a crash costs the user a code they cannot get back.
+     */
+    private val TWO: BigInteger = BigInteger.valueOf(2)
+
     /** Field prime, 2^255 - 19. */
-    val P: BigInteger = BigInteger.TWO.pow(255) - BigInteger.valueOf(19)
+    val P: BigInteger = TWO.pow(255) - BigInteger.valueOf(19)
 
     /** Group order of the base point. */
-    val L: BigInteger = BigInteger.TWO.pow(252) +
+    val L: BigInteger = TWO.pow(252) +
         BigInteger("27742317777372353535851937790883648493")
 
     /** Curve constant d = -121665/121666 mod p. */
@@ -46,7 +56,7 @@ internal object Ed25519 {
         .mod(P)
 
     /** sqrt(-1) mod p, needed to recover x during decompression. */
-    val SQRT_M1: BigInteger = BigInteger.TWO.modPow((P - BigInteger.ONE) / BigInteger.valueOf(4), P)
+    val SQRT_M1: BigInteger = TWO.modPow((P - BigInteger.ONE) / BigInteger.valueOf(4), P)
 
     /** The standard base point. */
     val B: Point by lazy {
@@ -140,8 +150,8 @@ internal object Ed25519 {
         // usually gets these implementations wrong.
         val a1 = (a.y - a.x).multiply(b.y - b.x).mod(P)
         val a2 = (a.y + a.x).multiply(b.y + b.x).mod(P)
-        val a3 = a.t.multiply(BigInteger.TWO).multiply(D).multiply(b.t).mod(P)
-        val a4 = a.z.multiply(BigInteger.TWO).multiply(b.z).mod(P)
+        val a3 = a.t.multiply(TWO).multiply(D).multiply(b.t).mod(P)
+        val a4 = a.z.multiply(TWO).multiply(b.z).mod(P)
 
         val e = (a2 - a1).mod(P)
         val f = (a4 - a3).mod(P)
