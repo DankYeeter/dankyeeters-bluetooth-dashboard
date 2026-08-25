@@ -5,6 +5,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -274,13 +277,20 @@ private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewMode
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (state.volumeLockedNotice) {
+                // Fades in, fades out, asks nothing. A message that has to be
+                // dismissed turns a keypress into a decision, and this one has
+                // nothing to decide - it only explains why the volume did not
+                // move.
+                AnimatedVisibility(
+                    visible = state.volumeLockedNotice,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
                     Text(
                         "Volume is locked during the test.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    TextButton(onClick = viewModel::dismissVolumeLockedNotice) { Text("OK") }
                 }
                 TextButton(onClick = viewModel::cancelRun) {
                     Text("Cancel test", color = Color.White.copy(alpha = 0.7f))

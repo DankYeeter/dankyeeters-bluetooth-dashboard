@@ -98,15 +98,37 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             explanation = "Plays your music untouched so you can hear the difference, " +
                 "without losing your settings — flip it back and the curve returns. " +
                 "Both sides play at the same loudness on purpose: louder always sounds " +
-                "better at first, and that would make the comparison worthless.",
+                "better at first, and that would make the comparison worthless. That match " +
+                "comes from the automatic headroom — with it switched off a boosted curve " +
+                "really is the louder one, and the comparison is no longer fair.",
         ) {
             Switch(checked = bypass, onCheckedChange = viewModel::setBypass)
         }
 
+        ExplainedRow(
+            label = "Automatic headroom",
+            explanation = "Raising a band means multiplying the numbers the music is made " +
+                "of, and those have a ceiling. This lowers everything by however much the " +
+                "loudest band was raised, so nothing can overflow — the cost is that the " +
+                "whole thing gets quieter, and a boost sounds like everything else " +
+                "becoming softer rather than like a boost. Turn it up on your phone and " +
+                "you have exactly what you asked for, without distortion.\n\n" +
+                "Switched off, a boost is heard as a boost. A loud passage can then clip, " +
+                "which sounds like brief crackle. The output limiter stays as a second " +
+                "net.",
+        ) {
+            Switch(checked = settings.autoHeadroom, onCheckedChange = viewModel::setAutoHeadroom)
+        }
+
         Text(
-            "Headroom (pre-gain): ${"%.1f".format(settings.preGainDb)} dB — applied " +
-                "automatically so boosted bands cannot clip.",
+            if (settings.autoHeadroom) {
+                "Headroom: ${"%.1f".format(settings.preGainDb)} dB — turn the volume up to " +
+                    "get the boost you set."
+            } else {
+                "Headroom off — boosts are louder, and loud passages may clip."
+            },
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

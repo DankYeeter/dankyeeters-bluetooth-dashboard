@@ -1,6 +1,10 @@
 package dev.dankyeeter.btdashboard.ui.screens.hearing
 
 import android.app.Application
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.audio.eq.Ear
@@ -24,6 +28,7 @@ import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import dev.dankyeeter.btdashboard.hearing.noise.MicAmbientNoiseCheck
 import dev.dankyeeter.btdashboard.hearing.protocol.ProtocolConfig
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,6 +78,7 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
     private var toneGenerator: NativeToneGenerator? = null
     private var controller: HughsonWestlakeTestController? = null
     private var volumeGuard: VolumeGuard? = null
+    private var focusRequest: AudioFocusRequest? = null
     private var runJob: Job? = null
 
     init {
@@ -191,12 +197,24 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { store.deleteAllRuns() }
     }
 
+    private var noticeJob: Job? = null
+
+    /**
+     * Says that the volume is locked, then takes itself back.
+     *
+     * It used to sit there until the user pressed OK - a confirmation for
+     * something nobody asked to do and nothing to decide. The message exists so
+     * a press on the volume key is not mistaken for a broken phone; once it has
+     * been read it is in the way, and it is in the way during a test where the
+     * next tone is already on its path.
+     */
     private fun showVolumeLockedNotice() {
         _state.value = _state.value.copy(volumeLockedNotice = true)
-    }
-
-    fun dismissVolumeLockedNotice() {
-        _state.value = _state.value.copy(volumeLockedNotice = false)
+        noticeJob?.cancel()
+        noticeJob = viewModelScope.launch {
+            delay(NOTICE_MS)
+            _state.value = _state.value.copy(volumeLockedNotice = false)
+        }
     }
 
     private fun launchRun(
@@ -209,6 +227,9 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
         if (runJob?.isActive == true) return
         runJob = viewModelScope.launch {
             _state.value = _state.value.copy(phase = phase, busy = true, message = null)
+            // Before the first tone, not after: whatever is playing has to be
+            // gone before anything is measured.
+            grabAudioFocus()
             val tone = NativeToneGenerator()
             val guard = VolumeGuard(getApplication<Application>())
             val testController = HughsonWestlakeTestController(
@@ -288,9 +309,52 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
         controller?.release()
         volumeGuard?.release()
         toneGenerator?.close()
+        releaseAudioFocus()
         controller = null
         volumeGuard = null
         toneGenerator = null
+    }
+
+    /**
+     * Asks every other player to stop, and means it.
+     *
+     * A hearing test measures the quietest tone a person can still hear. Music
+     * underneath does not merely disturb that - it decides the result, and the
+     * result looks perfectly plausible afterwards. Nobody remembers, an hour
+     * later, that something was playing.
+     *
+     * TRANSIENT_EXCLUSIVE rather than a plain gain: it tells the system that
+     * ducking is not good enough here and the other app must fall silent
+     * entirely.
+     */
+    private fun grabAudioFocus() {
+        val audio = getApplication<Application>().getSystemService(AudioManager::class.java)
+            ?: return
+        val request = AudioFocusRequest
+            .Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            // Required by the builder. Nothing to do on a change: the test owns
+            // the output for its duration, and an interruption is handled by
+            // the run being cancelled, not by lowering our own tone.
+            .setOnAudioFocusChangeListener { }
+            .build()
+        focusRequest = request
+        val granted = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        Log.i(TAG, "audio focus for the test granted=$granted")
+    }
+
+    private fun releaseAudioFocus() {
+        val request = focusRequest ?: return
+        focusRequest = null
+        runCatching {
+            getApplication<Application>().getSystemService(AudioManager::class.java)
+                ?.abandonAudioFocusRequest(request)
+        }.onFailure { Log.w(TAG, "could not hand audio focus back", it) }
     }
 
     override fun onCleared() {
@@ -299,5 +363,12 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
         runJob?.cancel()
         teardown()
         super.onCleared()
+    }
+
+    private companion object {
+        const val TAG = "HearingTest"
+
+        /** Long enough to read one short sentence, short enough not to nag. */
+        const val NOTICE_MS = 2_500L
     }
 }

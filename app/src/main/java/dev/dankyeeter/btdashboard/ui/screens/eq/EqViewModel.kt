@@ -175,8 +175,37 @@ class EqViewModel : ViewModel() {
     fun setLimiterEnabled(enabled: Boolean) = commit(_settings.value.copy(limiterEnabled = enabled))
 
     /**
+     * Turns the automatic headroom on or off, and sets the pre-gain to match.
+     *
+     * On: the whole signal is lowered by whatever the loudest band was raised,
+     * so nothing can overflow - the safe default. Off: the pre-gain goes to
+     * zero, so dragging a band upwards is heard as louder rather than as
+     * everything else becoming quieter. That is what people expect, and it is
+     * also how a track can clip; the limiter stays as the second net.
+     */
+    fun setAutoHeadroom(enabled: Boolean) {
+        val current = _settings.value
+        commit(
+            current.copy(
+                autoHeadroom = enabled,
+                preGainDb = if (enabled) {
+                    EqSettings.headroomFor(current.leftGainsDb, current.rightGainsDb)
+                } else {
+                    0f
+                },
+            ),
+        )
+    }
+
+    /**
      * Flat vs. compensated at matched loudness: the bands go to 0 dB but the
      * negative pre-gain and the limiter state are carried over unchanged.
+     *
+     * The loudness match holds only while the automatic headroom is on, which
+     * is what produces that negative pre-gain in the first place. With it off
+     * a boosted curve really is louder than flat - that is the point of
+     * switching it off - and the screen says so rather than pretending the
+     * comparison is still level-matched.
      */
     fun setBypass(bypass: Boolean) {
         _bypass.value = bypass

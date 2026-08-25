@@ -41,6 +41,12 @@ object EqBands {
  *   headroom: roughly `-max(0, maxBandGain)` so boosted bands cannot clip.
  * @param limiterEnabled enables the built-in per-channel limiter as the last
  *   stage (tames loudly mastered tracks; not a loudness normaliser)
+ * @param autoHeadroom lowers the whole signal by whatever the loudest band was
+ *   raised, so nothing can overflow. On by default. Turning it off makes a
+ *   boost audible *as* a boost - which is what a person expects when they drag
+ *   a band upwards - at the price that a loud passage can now clip. The
+ *   limiter is the second net; whoever switches that off as well is on their
+ *   own, and should be.
  */
 data class EqSettings(
     val enabled: Boolean = false,
@@ -49,6 +55,7 @@ data class EqSettings(
     val rightGainsDb: List<Float> = List(layout.bandCount) { 0f },
     val preGainDb: Float = 0f,
     val limiterEnabled: Boolean = true,
+    val autoHeadroom: Boolean = true,
 ) {
     init {
         require(leftGainsDb.size == layout.bandCount) {
@@ -81,15 +88,26 @@ data class EqSettings(
         Ear.RIGHT -> rightGainsDb
     }
 
-    /** Clamps all gains into the supported range and recomputes safe headroom. */
+    /**
+     * Clamps all gains into the supported range and, if asked, recomputes safe
+     * headroom.
+     *
+     * The headroom rule used to be unconditional, and it made every boost
+     * inaudible as a boost: raising a band by 15 dB lowered everything else by
+     * 15 dB, so the band ended up back where it started and the only audible
+     * change was that the music got quieter. Correct against clipping, useless
+     * as a control. It stays the default and is now a choice - see
+     * [autoHeadroom].
+     */
     fun sanitized(): EqSettings {
         val l = leftGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
         val r = rightGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
         val peak = ((l + r).maxOrNull() ?: 0f).coerceAtLeast(0f)
+        val gain = preGainDb.coerceIn(-24f, 0f)
         return copy(
             leftGainsDb = l,
             rightGainsDb = r,
-            preGainDb = preGainDb.coerceIn(-24f, 0f).coerceAtMost(-peak),
+            preGainDb = if (autoHeadroom) gain.coerceAtMost(-peak) else gain,
         )
     }
 
