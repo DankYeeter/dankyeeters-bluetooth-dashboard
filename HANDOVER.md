@@ -3955,3 +3955,38 @@ beide auf 16 und 17 unsichtbar:
 Beides fand `lintDebug`, nicht das Auge. Von acht Fehlern bleiben drei, und die
 sind `RestrictedApi` in `MainActivity` - kein Versionsthema. Der Rest des Codes
 verzweigt nur auf Stufen unterhalb von 16 und ist damit unauffaellig.
+
+---
+
+## Android 17 traegt die ganze Funktion  (25. August, spaet)
+
+Am Pixel 11 Pro mit Focal Bathys nachgewiesen, nach einem echten Neustart:
+
+- **Automatische Aktivierung nach dem Boot laeuft auch auf 17.** Uptime zwei
+  Minuten, Helfer mit frischer PID, `WRITE_SECURE_SETTINGS` gehalten,
+  `adb_wifi_enabled=0`. Im Log: `automatic activation after boot: true`,
+  danach `wireless debugging closed: true`. Die App oeffnet das drahtlose
+  Debugging also selbst, startet den Helfer und schliesst es wieder - ohne
+  Zutun.
+- **Codec-Lesen ueber den Helfer**: aptX, 48 kHz, 16 bit, Active.
+- **Greylist-Reflection**: `BluetoothA2dp.getActiveDevice()` ist
+  `domain=platform, api=unsupported` und wird **erlaubt**.
+- **EQ**: haengt im Session-Modus an Tidal, nachgewiesen im Audio-Flinger
+  (`DynamicsProcessing` auf der Session des Players).
+
+### Der Session-Modus ist hier kein Rueckfall
+
+`globalAttachReachesOutput()` ist `!routesToBluetooth && !spatializerEngaged`.
+Mit Bluetooth-Kopfhoerern ist der Session-Modus also der *vorgesehene* Weg, auf
+jeder Android-Version; der globale Angriff auf den Output-Mix ist fuer die
+Lautsprecher-Ausgabe da. Kein 17-Bruch, entgegen dem ersten Eindruck.
+
+Nebenbei gemessen und einer alten Annahme widersprochen: **Tidal meldet seine
+Audio-Session auf Android 17 an.** Auf 16 tat es das nicht - daher der ganze
+globale Pfad. Die Texte behaupten das jetzt nicht mehr als Regel.
+
+### Was noch fehlt, bevor das Pixel 8 weg kann
+
+1. **Codec-Umschaltung** - der Schreibweg ueber den privaten
+   `BluetoothAdapter`-Konstruktor. Lesen ist bewiesen, Schreiben nicht.
+2. Die haengende Kopplungs-Benachrichtigung.
