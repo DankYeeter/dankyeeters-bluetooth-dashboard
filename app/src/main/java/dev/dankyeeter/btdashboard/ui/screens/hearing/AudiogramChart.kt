@@ -26,31 +26,39 @@ import androidx.compose.ui.unit.sp
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
+import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.log10
 
 /**
  * Audiogram chart drawn by hand on a Compose [Canvas] — no chart library, per
- * PLAN.md. Logarithmic frequency axis, level axis in the app's internal dBFS
- * scale: the top of the chart is the quietest tone the app can produce, so
- * higher curves mean more sensitive hearing.
+ * PLAN.md. Logarithmic frequency axis; the level axis shows **deviation from
+ * this person's own average sensitivity**, with zero in the middle.
  *
- * Individual runs are drawn as thin translucent lines and the active median
- * curve as a thick one, which is exactly the overlay view the multi-run
- * workflow needs. Points that did not converge are drawn hollow so a
- * floor/ceiling artefact is never mistaken for a real measurement.
+ * ## Why a relative axis
  *
- * ## The reference line
+ * The raw numbers are the app's internal attenuation in dBFS, and the output
+ * is uncalibrated — where absolute "normal hearing" sits depends on how loud
+ * this particular headphone plays at a given digital level, which the app
+ * does not know. The absolute view therefore painted every curve into one
+ * corner of a 90 dB canvas and made a 2 dB difference — a real, audible
+ * difference — invisible.
  *
- * A dashed line marks what even hearing would look like: the same threshold at
- * every frequency. It is placed at the best frequency this person actually
- * measured, and the gap below it is how much each other frequency falls short.
+ * What the app *does* know honestly is the shape: how each frequency compares
+ * to the listener's own average. That is exactly what the compensation works
+ * from, so it is what the chart shows. Zero is the average of the converged
+ * thresholds; above zero this ear is more sensitive than its own average,
+ * below it less. Both directions exist by construction — an average is not a
+ * floor — which also matches how audiograms are read: the norm at zero,
+ * better hearing in the minus... plotted up here, because "more sensitive"
+ * belongs visually above the line.
  *
- * It is deliberately *not* a clinical 0 dB HL line. This scale is the app's
- * own attenuation in dBFS and the output is uncalibrated - where absolute
- * normal hearing sits depends on how loud this particular headphone plays at a
- * given digital level, which the app does not know. Drawing an absolute line
- * anyway would be a medical-looking claim with nothing behind it. The relative
- * shape, on the other hand, is exactly what the compensation works from.
+ * The axis range adapts to the data so small deviations stay visible instead
+ * of drowning in a fixed scale sized for hearing loss.
+ *
+ * Individual runs are thin translucent lines, the active median is thick, and
+ * points that did not converge are hollow so a floor/ceiling artefact is never
+ * mistaken for a real measurement.
  */
 @Composable
 fun AudiogramChart(
@@ -67,90 +75,30 @@ fun AudiogramChart(
     val axisColor = colors.outline
     val labelColor = colors.onSurfaceVariant
 
+    val points = visiblePoints(active, runs, showLeft, showRight)
+    val reference = referenceLevel(points)
+
     Canvas(modifier = modifier.fillMaxWidth().height(260.dp)) {
         val plot = PlotArea(
             left = 44.dp.toPx(),
             top = 12.dp.toPx(),
             right = size.width - 10.dp.toPx(),
             bottom = size.height - 24.dp.toPx(),
+            halfRangeDb = halfRangeFor(points, reference),
         )
         drawGrid(plot, axisColor, labelColor, measurer)
+        drawZeroLine(plot, labelColor, measurer)
 
+        if (reference == null) return@Canvas
         runs.forEach { run ->
-            if (showLeft) drawCurve(plot, run.left, leftColor.copy(alpha = 0.25f), 1.5.dp.toPx(), false)
-            if (showRight) drawCurve(plot, run.right, rightColor.copy(alpha = 0.25f), 1.5.dp.toPx(), false)
+            if (showLeft) drawCurve(plot, reference, run.left, leftColor.copy(alpha = 0.25f), 1.5.dp.toPx(), false)
+            if (showRight) drawCurve(plot, reference, run.right, rightColor.copy(alpha = 0.25f), 1.5.dp.toPx(), false)
         }
         active?.let {
-            if (showLeft) drawCurve(plot, it.left, leftColor, 3.dp.toPx(), true)
-            if (showRight) drawCurve(plot, it.right, rightColor, 3.dp.toPx(), true)
-        }
-
-        // Drawn last so it sits on top of the curves it is meant to be read
-        // against, and only from points that converged - a threshold that hit
-        // the floor says nothing about how well someone hears.
-        referenceLevel(active, runs, showLeft, showRight)?.let { level ->
-            drawReferenceLine(plot, level, labelColor, measurer)
+            if (showLeft) drawCurve(plot, reference, it.left, leftColor, 3.dp.toPx(), true)
+            if (showRight) drawCurve(plot, reference, it.right, rightColor, 3.dp.toPx(), true)
         }
     }
-}
-
-/**
- * The best converged threshold on screen, or null when nothing converged.
- *
- * "Best" is the quietest tone that was still heard, which on this axis is the
- * smallest number. Ignoring the hollow points matters: a run that hit the
- * floor everywhere - the app could not go quieter - would otherwise place the
- * line at an invented level and make the hearing look even.
- */
-private fun referenceLevel(
-    active: Audiogram?,
-    runs: List<AudiogramRun>,
-    showLeft: Boolean,
-    showRight: Boolean,
-): Double? {
-    val points = buildList {
-        if (active != null) {
-            if (showLeft) addAll(active.left)
-            if (showRight) addAll(active.right)
-        } else {
-            runs.forEach { run ->
-                if (showLeft) addAll(run.left)
-                if (showRight) addAll(run.right)
-            }
-        }
-    }
-    return points.filter { it.converged }.minOfOrNull { it.thresholdDb }
-}
-
-private fun DrawScope.drawReferenceLine(
-    plot: PlotArea,
-    levelDb: Double,
-    labelColor: Color,
-    measurer: TextMeasurer,
-) {
-    val y = plot.yFor(levelDb)
-    drawLine(
-        color = labelColor.copy(alpha = 0.8f),
-        start = Offset(plot.left, y),
-        end = Offset(plot.right, y),
-        strokeWidth = 1.5.dp.toPx(),
-        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
-    )
-    // Below the line and clamped into the plot.
-    //
-    // Above it collided with the top axis label as soon as the line sat near
-    // the top - which is exactly where it sits for someone who hears well, so
-    // the better the hearing, the more unreadable the chart became. Below the
-    // line is the empty half in that case.
-    val layout = measurer.measure(
-        "even hearing",
-        TextStyle(fontSize = 9.sp, color = labelColor),
-    )
-    val labelY = (y + 3.dp.toPx()).coerceAtMost(plot.bottom - layout.size.height)
-    drawText(
-        layout,
-        topLeft = Offset(plot.right - layout.size.width, labelY),
-    )
 }
 
 @Composable
@@ -163,7 +111,7 @@ fun AudiogramLegend(modifier: Modifier = Modifier) {
         LegendEntry(MaterialTheme.colorScheme.primary, "Left")
         LegendEntry(MaterialTheme.colorScheme.tertiary, "Right")
         Text(
-            "thin = single runs · thick = median · dashed = even hearing",
+            "0 = your average · above = more sensitive · hollow = not measurable",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -178,7 +126,60 @@ private fun LegendEntry(color: Color, label: String) {
     }
 }
 
-private data class PlotArea(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+private fun visiblePoints(
+    active: Audiogram?,
+    runs: List<AudiogramRun>,
+    showLeft: Boolean,
+    showRight: Boolean,
+): List<ThresholdPoint> = buildList {
+    if (active != null) {
+        if (showLeft) addAll(active.left)
+        if (showRight) addAll(active.right)
+    } else {
+        runs.forEach { run ->
+            if (showLeft) addAll(run.left)
+            if (showRight) addAll(run.right)
+        }
+    }
+}
+
+/**
+ * Zero of the deviation axis: the median converged threshold on screen.
+ *
+ * The median, not the best — an average is a level someone can sit on either
+ * side of, which is what makes "plus" possible at all. Hollow points are
+ * excluded: a threshold that hit the floor says nothing about hearing and
+ * would drag the reference toward wherever the floor happens to be.
+ */
+private fun referenceLevel(points: List<ThresholdPoint>): Double? {
+    val converged = points.filter { it.converged }.map { it.thresholdDb }.sorted()
+    if (converged.isEmpty()) return null
+    val mid = converged.size / 2
+    return if (converged.size % 2 == 1) converged[mid] else (converged[mid - 1] + converged[mid]) / 2.0
+}
+
+/**
+ * Half of the axis range, adapted to the data.
+ *
+ * Small deviations get a tight scale — a person 2 dB off their average should
+ * see those 2 dB, not a flat line on a canvas sized for a 40 dB loss. The
+ * floor of ±6 dB keeps single-decibel noise from filling the whole chart, and
+ * only converged points vote: hollow ones sit at the test's own limits and
+ * would stretch the scale to exactly the artefact they represent.
+ */
+private fun halfRangeFor(points: List<ThresholdPoint>, reference: Double?): Double {
+    if (reference == null) return 12.0
+    val maxAbs = points.filter { it.converged }.maxOfOrNull { abs(reference - it.thresholdDb) } ?: 0.0
+    return (ceil(maxAbs / 3.0) * 3.0).coerceIn(6.0, 48.0)
+}
+
+private data class PlotArea(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val halfRangeDb: Double,
+) {
     val width: Float get() = right - left
     val height: Float get() = bottom - top
 }
@@ -187,19 +188,16 @@ private data class PlotArea(val left: Float, val top: Float, val right: Float, v
 private const val MIN_HZ = 200.0
 private const val MAX_HZ = 10_000.0
 
-private const val TOP_DB = -100.0
-private const val BOTTOM_DB = 0.0
-
 private val GRID_FREQUENCIES = listOf(250, 500, 1000, 2000, 4000, 8000)
-private val GRID_LEVELS = listOf(-100.0, -80.0, -60.0, -40.0, -20.0)
 
 private fun PlotArea.xFor(frequencyHz: Int): Float {
     val fraction = (log10(frequencyHz.toDouble()) - log10(MIN_HZ)) / (log10(MAX_HZ) - log10(MIN_HZ))
     return left + (fraction.coerceIn(0.0, 1.0) * width).toFloat()
 }
 
-private fun PlotArea.yFor(levelDb: Double): Float {
-    val fraction = (levelDb - TOP_DB) / (BOTTOM_DB - TOP_DB)
+/** Deviation in dB (positive = more sensitive) to a y position, zero centered. */
+private fun PlotArea.yForDeviation(deviationDb: Double): Float {
+    val fraction = (halfRangeDb - deviationDb) / (2 * halfRangeDb)
     return top + (fraction.coerceIn(0.0, 1.0) * height).toFloat()
 }
 
@@ -212,15 +210,28 @@ private fun DrawScope.drawGrid(
     val hairline = 1.dp.toPx()
     val labelStyle = TextStyle(fontSize = 9.sp, color = labelColor)
 
-    GRID_LEVELS.forEach { level ->
-        val y = plot.yFor(level)
+    // Symmetric levels around zero, spaced so there are about three lines per
+    // half — enough to read values off, few enough not to turn into graph
+    // paper when the range tightens.
+    val step = (plot.halfRangeDb / 3.0).let { raw ->
+        listOf(1.0, 2.0, 3.0, 5.0, 10.0, 20.0).firstOrNull { it >= raw } ?: 20.0
+    }
+    var level = step
+    val levels = buildList {
+        while (level <= plot.halfRangeDb + 1e-9) {
+            add(level); add(-level); level += step
+        }
+    }
+    levels.forEach { dev ->
+        val y = plot.yForDeviation(dev)
         drawLine(
-            color = axisColor.copy(alpha = 0.35f),
+            color = axisColor.copy(alpha = 0.25f),
             start = Offset(plot.left, y),
             end = Offset(plot.right, y),
             strokeWidth = hairline,
         )
-        val layout = measurer.measure("${level.toInt()} dB", labelStyle)
+        val text = (if (dev > 0) "+" else "−") + "${abs(dev).toInt()} dB"
+        val layout = measurer.measure(text, labelStyle)
         drawText(layout, topLeft = Offset(0f, y - layout.size.height / 2f))
     }
 
@@ -239,8 +250,23 @@ private fun DrawScope.drawGrid(
     }
 }
 
+/** The zero line: this listener's own average, dashed so curves stay legible over it. */
+private fun DrawScope.drawZeroLine(plot: PlotArea, labelColor: Color, measurer: TextMeasurer) {
+    val y = plot.yForDeviation(0.0)
+    drawLine(
+        color = labelColor.copy(alpha = 0.8f),
+        start = Offset(plot.left, y),
+        end = Offset(plot.right, y),
+        strokeWidth = 1.5.dp.toPx(),
+        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
+    )
+    val layout = measurer.measure("0 dB", TextStyle(fontSize = 9.sp, color = labelColor))
+    drawText(layout, topLeft = Offset(0f, y - layout.size.height / 2f))
+}
+
 private fun DrawScope.drawCurve(
     plot: PlotArea,
+    referenceDb: Double,
     points: List<ThresholdPoint>,
     color: Color,
     strokeWidth: Float,
@@ -251,7 +277,7 @@ private fun DrawScope.drawCurve(
     val path = Path()
     sorted.forEachIndexed { index, point ->
         val x = plot.xFor(point.frequencyHz)
-        val y = plot.yFor(point.thresholdDb)
+        val y = plot.yForDeviation(referenceDb - point.thresholdDb)
         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
     drawPath(path, color, style = Stroke(width = strokeWidth))
@@ -259,7 +285,7 @@ private fun DrawScope.drawCurve(
     if (!withMarkers) return
     val radius = strokeWidth * 1.6f
     sorted.forEach { point ->
-        val center = Offset(plot.xFor(point.frequencyHz), plot.yFor(point.thresholdDb))
+        val center = Offset(plot.xFor(point.frequencyHz), plot.yForDeviation(referenceDb - point.thresholdDb))
         if (point.converged) {
             drawCircle(color, radius, center)
         } else {
