@@ -136,13 +136,20 @@ private fun DrawScope.drawReferenceLine(
         strokeWidth = 1.5.dp.toPx(),
         pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
     )
+    // Below the line and clamped into the plot.
+    //
+    // Above it collided with the top axis label as soon as the line sat near
+    // the top - which is exactly where it sits for someone who hears well, so
+    // the better the hearing, the more unreadable the chart became. Below the
+    // line is the empty half in that case.
     val layout = measurer.measure(
         "even hearing",
         TextStyle(fontSize = 9.sp, color = labelColor),
     )
+    val labelY = (y + 3.dp.toPx()).coerceAtMost(plot.bottom - layout.size.height)
     drawText(
         layout,
-        topLeft = Offset(plot.right - layout.size.width, y - layout.size.height - 2.dp.toPx()),
+        topLeft = Offset(plot.right - layout.size.width, labelY),
     )
 }
 
