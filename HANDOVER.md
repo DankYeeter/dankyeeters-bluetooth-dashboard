@@ -4017,3 +4017,69 @@ Fragen steht in REPORT-2026-08-26.md -- er ist die Referenz, hier nur die Karte:
 
 Fuer Daniels Morgen: REPORT Teil 3 (Lautheits-Restauration bauen? Test bei
 niedrigerer Lautstaerke? Preset-Rename? HCI-Snoop ausschalten).
+
+---
+
+## Handover 26. August, Abend — Pause mitten in der letzten Bauwelle
+
+Stand: Branch backup/wip-20260822, 91 Commits, letzter 2423f9f. 688 Tests
+gruen. **Auf dem Pixel 11 installiert ist noch der Stand von Commit 8c59522**
+(QA-Runde) — die grosse Welle danach (klinischer Anker, BT-Settings,
+Live-Link-Datenschicht, NAL-R-Fix) ist committet, aber NICHT installiert.
+
+### Drei Worker liefen beim Pausieren noch (Hintergrund)
+
+1. **Live-Monitoring-UI**: neues "Live link"-Panel auf dem Monitoring-Tab
+   gegen MonitorGraph.liveLink* (Kontrakt in core-monitor/link/live/
+   LinkLiveModels.kt — Ehrlichkeitsregeln dort sind bindend), inkl.
+   LDAC-Pin-Chips als Live-Tuning.
+2. **Kalibrier-Transfer-Verdrahtung**: Store + "Derive headphone calibration"-
+   Knopf + Preset-Injektion ("Measured — your <device>") + Auto-Adoption.
+   Mathe-Kern existiert und ist getestet (CalibrationTransfer.kt).
+3. **Adaptive-Bitrate-Inferenz, alle Codecs** (Folgeauftrag an den
+   Datenschicht-Worker; Scope per Daniels letzter Nachricht erweitert: NICHT
+   nur LDAC, sondern jeder Codec mit einstellbarer/adaptiver Bitrate).
+   Prinzip: Paketrate als Modus-Signatur — feste Rahmendauer, ratenabhaengige
+   Rahmengroesse, also ist Pakete/s pro Modus unterscheidbar; Kalibrierung
+   durch kurzes Pinnen je Modus, gespeichert je (Geraet, Codec, Modus).
+   Codec-agnostische Struktur mit LDAC als erstem Provider; LHDCv5/aptX-
+   Adaptive als Stubs (UNKNOWN mit Grund, keine geratenen Konstanten);
+   offgeloadete Codecs ehrlich als "host cannot observe" ausgewiesen. Ziel:
+   Daniels "wann wechselt ABR, bleibt es niedrig" beobachtbar machen, mit
+   Konfidenz-Stufen statt Raterei.
+
+### Wiederaufnahme (in dieser Reihenfolge)
+
+1. `git status` — die Worker hinterlassen uncommittete Aenderungen; ihre
+   Berichte stehen als Task-Notifications im Sitzungsverlauf bzw. in den
+   tasks/*.output-Dateien.
+2. Volle Suite (`gradlew --no-daemon testDebugUnitTest :app:assembleDebug`),
+   Integration pruefen (bekannte Naht: EqScreen/CompensationSection zwischen
+   Transfer-Worker und bestehendem Source-Switch), committen.
+3. **Installieren + Kabel ziehen**: Helfer-Protokoll ist auf v4 (HD-Audio,
+   BT-Neustart) — der alte Helfer stirbt bei der Installation, die App
+   re-aktiviert sich selbst nach dem Abstecken; erst danach sind die neuen
+   HD-Audio-Aufrufe live verifizierbar (bisher nur Kontrakt-Ebene).
+4. Danach laut Daniels Plan: **Fable testet die App, Worker fixen** (Task 15),
+   dann synthetische Test-Iteration (Task 16). Offene Backlog-Tasks: 18
+   (Drift-Tracking), 19 (ISO-7029-Altersprior), 20 (ISO-226-Tilt).
+
+### Die wichtigsten Erkenntnisse des Tages (Details: REPORT-2026-08-26.md)
+
+- **NAL-R bekam dBFS statt dB HL** — die Adjusted Reference war fuer jede
+  realistische Messung flach. Gefixt (asRelativeLossHl), vier
+  Regressionstests. Das war der Grund fuer "+0,0 ueberall", nicht nur der
+  Testboden.
+- **Daniels Klinikbefund**: flach 10 dB HL beidseitig = normal, nichts zu
+  korrigieren. Noble-Kurve widerspricht der Klinik in der Form
+  (Tiefen-Artefakt durch Leckage/Rauschen, Hoehen echt gut). Der ganze
+  "Personalisierungs"-Komplex: Mimi misst nur noch Ruhehoerschwellen,
+  Praeferenz in Mimis eigener Studie unabhaengig vom Hoerverlust; Noble =
+  Audiodo, deren ISO-226-Patent der einzige saubere Mechanismus fuer
+  Normalhoerende ist. Unsere ehrliche Antwort darauf: Loudness restoration
+  (gebaut) + klinischer Anker (gebaut) + Schwellen-Assay (REPORT 4.5).
+- **Live-Link**: A2DP-Quellpfad hat echte Underflow-Zaehler (788 in der
+  Morgen-Session — Daniels unsichtbares Problem), LDAC-ABR-Rate ist nativ
+  nicht observierbar, daher die Paketraten-Inferenz.
+- Merke: parallele Gradle-Builds im selben Repo kollidieren (Locks, korrupte
+  Inkremental-Caches); Workern das Kompilieren nur einzeln erlauben.
