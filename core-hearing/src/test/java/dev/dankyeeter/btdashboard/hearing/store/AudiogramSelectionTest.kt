@@ -2,7 +2,10 @@ package dev.dankyeeter.btdashboard.hearing.store
 
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -55,6 +58,47 @@ class AudiogramSelectionTest {
     @Test
     fun `never more than three`() {
         assertEquals(3, AudiogramStore.selectionOf(all, all.map { it.id }.toSet()).size)
+    }
+
+    /**
+     * The cap lives here and nowhere else.
+     *
+     * [AudiogramStore.setRunSelected] deliberately stores whatever it is given:
+     * it cannot see which device or test level is current, so a cap there
+     * counted ids that no screen ever showed in a curve and jammed the switch.
+     * A stored set of any size therefore has to come out at three.
+     */
+    @Test
+    fun `a stored set larger than three still yields three`() {
+        val chosen = all.map { it.id }.toSet() + setOf("gone1", "gone2", "gone3")
+
+        assertEquals(
+            listOf("b", "c", "d"),
+            AudiogramStore.selectionOf(all, chosen).map { it.id },
+        )
+    }
+
+    /**
+     * Deleting a run frees the slot its id was holding.
+     *
+     * The store prunes the id on delete; this is the half of that the curve
+     * sees. A set naming three runs of which one is gone leaves room for a
+     * fourth run to be chosen and actually counted - which is precisely what
+     * the old raw-set cap made impossible.
+     */
+    @Test
+    fun `deleting a selected run frees its slot`() {
+        val chosen = setOf("a", "b", "c")
+        val afterDelete = all.filterNot { it.id == "a" }
+
+        assertEquals(
+            listOf("b", "c"),
+            AudiogramStore.selectionOf(afterDelete, chosen - "a").map { it.id },
+        )
+        assertEquals(
+            listOf("b", "c", "d"),
+            AudiogramStore.selectionOf(afterDelete, chosen - "a" + "d").map { it.id },
+        )
     }
 
     @Test
@@ -128,5 +172,50 @@ class AudiogramSelectionTest {
             listOf("loud1", "loud2"),
             AudiogramStore.selectionOf(mixed, emptySet(), deviceKey = null).map { it.id },
         )
+    }
+
+    /** What the history screen fades out has to be what the selection benches. */
+    @Test
+    fun `the current level is the newest run's, per device`() {
+        val mixed = listOf(
+            runOn("f1", 1, "focal"),
+            runOn("n1", 2, "noble").copy(volumeFraction = 0.4),
+        )
+
+        assertEquals(
+            VolumeGuard.TEST_VOLUME_FRACTION,
+            AudiogramStore.currentVolumeFor(mixed, "focal")!!,
+            EXACT,
+        )
+        assertEquals(0.4, AudiogramStore.currentVolumeFor(mixed, "noble")!!, EXACT)
+        assertNull(AudiogramStore.currentVolumeFor(emptyList(), "focal"))
+    }
+
+    /**
+     * Two levels that differ only in float noise are one level.
+     *
+     * One ULP apart is a different Double and the same volume. Exact equality
+     * would bench the older run and quietly shrink the curve to one, which is
+     * the kind of failure nobody reports because nothing looks broken.
+     */
+    @Test
+    fun `a hair of rounding does not bench a run`() {
+        val nudged = Math.nextUp(VolumeGuard.TEST_VOLUME_FRACTION)
+        assertNotEquals(VolumeGuard.TEST_VOLUME_FRACTION, nudged, 0.0)
+
+        val mixed = listOf(
+            run("a", 1).copy(volumeFraction = VolumeGuard.TEST_VOLUME_FRACTION),
+            run("b", 2).copy(volumeFraction = nudged),
+        )
+
+        assertEquals(
+            listOf("a", "b"),
+            AudiogramStore.selectionOf(mixed, emptySet(), deviceKey = null).map { it.id },
+        )
+    }
+
+    private companion object {
+        /** These assertions are about which value came back, not about arithmetic. */
+        const val EXACT = 0.0
     }
 }

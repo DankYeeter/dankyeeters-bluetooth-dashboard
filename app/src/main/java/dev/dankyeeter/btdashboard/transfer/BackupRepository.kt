@@ -3,8 +3,12 @@ package dev.dankyeeter.btdashboard.transfer
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
+import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
+import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.system.SystemGraph
+import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -24,12 +28,13 @@ class BackupRepository(context: Context) {
     /** Writes the current state of every store into [uri]. */
     suspend fun export(uri: Uri): BackupExportResult = withContext(Dispatchers.IO) {
         try {
+            val runs = HearingGraph.audiogramStore.currentRuns()
             val document = BackupMapper.buildDocument(
-                runs = HearingGraph.audiogramStore.currentRuns(),
+                runs = runs,
                 // Every run is backed up, but the stored curve is the one the
                 // app actually uses - the median of the chosen runs, not of
                 // all of them.
-                audiogram = HearingGraph.audiogramStore.currentSelectedRuns()
+                audiogram = exportedSelection(runs)
                     .takeIf { it.isNotEmpty() }
                     ?.let { HearingGraph.aggregator.aggregate(it) },
                 profiles = HearingGraph.profileStore.current(),
@@ -94,6 +99,34 @@ class BackupRepository(context: Context) {
                 )
             }
         }
+    }
+
+    /**
+     * The runs the exported curve is built from — resolved the way the
+     * equaliser resolves it, through the headphone that is connected.
+     *
+     * The backup should carry the curve the user actually hears. The old code
+     * asked for the device-unaware selection, which is the one curve no screen
+     * in the app shows: with two headphones in the history it could hand the
+     * file a median of runs measured through the one that is not on the head,
+     * and restoring that on a new phone would apply a correction for hardware
+     * that is not there. [dev.dankyeeter.btdashboard.ui.screens.eq.EqViewModel]
+     * picks the active device the same way, so the exported curve and the live
+     * one are the same curve.
+     *
+     * With nothing connected there is no device to be aware of, and the
+     * device-unaware selection is the honest answer rather than an empty
+     * backup: exporting while the headphones are in the case is a perfectly
+     * ordinary thing to do.
+     */
+    private suspend fun exportedSelection(runs: List<AudiogramRun>): List<AudiogramRun> {
+        val ids = HearingGraph.audiogramStore.currentSelectedRunIds()
+        // Reading the device is best-effort: a backup must not fail because the
+        // Bluetooth profile is unbound or the permission was never granted.
+        val devices = runCatching { MonitorGraph.codecSource.connectedDevices() }
+            .getOrDefault(emptyList())
+        val device = devices.firstOrNull { it.isActive } ?: devices.firstOrNull()
+        return AudiogramStore.selectionOf(runs, ids, DeviceKey.fromAddress(device?.address))
     }
 
     private suspend fun activeProfileId(): String? =

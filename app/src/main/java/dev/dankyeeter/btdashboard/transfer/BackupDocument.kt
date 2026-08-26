@@ -69,9 +69,27 @@ data class BackupAudiogram(
     @SerialName("right") val right: List<BackupThreshold> = emptyList(),
 )
 
+/**
+ * A stored EQ curve.
+ *
+ * [layout] was added after the first release, when the EQ stopped being fixed
+ * at ten bands. It is nullable on purpose: a file written before the field
+ * existed has no layout, and per this file's contract an added field must not
+ * make such a file unreadable. Adding it is therefore *not* a
+ * [BackupSchema.CURRENT_VERSION] bump — the version marks a change in what an
+ * existing field *means*, and nothing here changed meaning.
+ *
+ * Without it, importing threw away everything past the tenth gain and read the
+ * remaining ten as octave bands, so a 20- or 31-band curve came back as a
+ * different, silently wrong curve. The band count carries the same information
+ * for old files, which is why the importer can infer the layout from the list
+ * length when the field is absent.
+ */
 @Serializable
 data class BackupEq(
     @SerialName("enabled") val enabled: Boolean = false,
+    /** [EqBandLayout.id]; null in files written before layouts existed. */
+    @SerialName("layout") val layout: String? = null,
     @SerialName("leftGainsDb") val leftGainsDb: List<Float> = emptyList(),
     @SerialName("rightGainsDb") val rightGainsDb: List<Float> = emptyList(),
     @SerialName("preGainDb") val preGainDb: Float = 0f,

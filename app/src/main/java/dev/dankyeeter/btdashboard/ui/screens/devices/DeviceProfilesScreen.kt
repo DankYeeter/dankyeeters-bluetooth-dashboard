@@ -343,17 +343,35 @@ internal fun ProfileEditorCard(
     // of the headphone.
     LaunchedEffect(initial.deviceKey) { viewModel.loadOfferedCodecs(initial.deviceKey) }
 
-    var name by remember(initial.deviceKey) { mutableStateOf(initial.name) }
-    var presetId by remember(initial.deviceKey) { mutableStateOf(initial.calibrationPresetId) }
-    var compensationId by remember(initial.deviceKey) { mutableStateOf(initial.compensationProfileId) }
-    var volumeEnabled by remember(initial.deviceKey) { mutableStateOf(initial.mediaVolumePercent != null) }
-    var volume by remember(initial.deviceKey) { mutableStateOf((initial.mediaVolumePercent ?: 60).toFloat()) }
-    var absoluteEnabled by remember(initial.deviceKey) { mutableStateOf(initial.absoluteVolumeEnabled) }
-    var absoluteSystemDefault by remember(initial.deviceKey) { mutableStateOf(initial.absoluteVolumeSystemDefault) }
-    var autoApply by remember(initial.deviceKey) { mutableStateOf(initial.autoApply) }
-    var devOptions by remember(initial.deviceKey) { mutableStateOf(initial.developerOptions) }
-    var codec by remember(initial.deviceKey) { mutableStateOf(initial.codecPreference) }
+    // Seeded from the whole `initial`, not from its key.
+    //
+    // On the Bluetooth tab the stored profiles arrive from DataStore a frame or
+    // more after this card first composes, so the first `initial` is the
+    // `DeviceProfile(deviceKey, name)` fallback — all defaults. Keyed by
+    // `deviceKey`, the key was already correct when the real stored profile
+    // landed, the remembers never re-ran, and the defaults stayed latched: the
+    // card showed the wrong settings for a saved device, and Save wrote those
+    // defaults back over the real profile.
+    //
+    // Keying on `initial` itself makes the data class's equality the trigger, so
+    // the late-arriving stored profile re-seeds the editor. The accepted
+    // tradeoff: an external change to the profile (auto-apply writing it, say)
+    // also re-seeds and discards in-progress unsaved edits. For a card whose
+    // `initial` can genuinely change identity-without-key, showing the stored
+    // truth wins over preserving a draft that was built on defaults.
+    var name by remember(initial) { mutableStateOf(initial.name) }
+    var presetId by remember(initial) { mutableStateOf(initial.calibrationPresetId) }
+    var compensationId by remember(initial) { mutableStateOf(initial.compensationProfileId) }
+    var volumeEnabled by remember(initial) { mutableStateOf(initial.mediaVolumePercent != null) }
+    var volume by remember(initial) { mutableStateOf((initial.mediaVolumePercent ?: 60).toFloat()) }
+    var absoluteEnabled by remember(initial) { mutableStateOf(initial.absoluteVolumeEnabled) }
+    var absoluteSystemDefault by remember(initial) { mutableStateOf(initial.absoluteVolumeSystemDefault) }
+    var autoApply by remember(initial) { mutableStateOf(initial.autoApply) }
+    var devOptions by remember(initial) { mutableStateOf(initial.developerOptions) }
+    var codec by remember(initial) { mutableStateOf(initial.codecPreference) }
     // Saveable, so a rotation does not fold the section the user just opened.
+    // Still keyed by `deviceKey` alone, unlike the fields above: where the
+    // expander stands is not profile data, so a profile edit must not fold it.
     var advancedOpen by rememberSaveable(initial.deviceKey) { mutableStateOf(false) }
     val showAdvanced = !collapsibleAdvanced || advancedOpen
 

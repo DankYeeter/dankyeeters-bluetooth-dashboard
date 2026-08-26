@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
@@ -15,6 +16,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -190,7 +192,13 @@ private fun AudiogramSummary(state: CompensationUiState) {
 @Composable
 private fun CalibrationRow(state: CompensationUiState) {
     val preset = state.preset
-    ExplainedRow(
+    // [ExplainedRow] renders its control slot *before* the label, which is right
+    // for a switch and wrong for a readout: this row came out as "Not set
+    // Device calibration ?", a value announced before the reader has been told
+    // what it is a value for. This is not a control at all, so it is built from
+    // [ExplainedBlock] instead — label, question mark, then the value at the far
+    // end, in the order the row is read.
+    ExplainedBlock(
         label = "Device calibration",
         explanation = "Every headphone colours the test tones before they reach your " +
             "ear, so a threshold measured through one is not the same number " +
@@ -198,15 +206,20 @@ private fun CalibrationRow(state: CompensationUiState) {
             "colouring, which is what makes the correction about your ears rather " +
             "than about the driver. Presets are set per headphone under Devices; " +
             "without one the test result is used raw.",
-    ) {
-        Text(
-            if (preset == null || preset.id == CalibrationPresetRepository.GENERIC_ID) {
-                "Not set"
-            } else {
-                preset.displayName
-            },
-            style = MaterialTheme.typography.bodyMedium,
-        )
+    ) { toggle ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Device calibration", style = MaterialTheme.typography.bodyLarge)
+            toggle()
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (preset == null || preset.id == CalibrationPresetRepository.GENERIC_ID) {
+                    "Not set"
+                } else {
+                    preset.displayName
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
@@ -583,9 +596,7 @@ private fun ProfileList(
     // "Changed since saved" only means something for a hand-tuned preset: the
     // Personal Reference is a measurement and is never edited back into.
     val dirty = activeProfile != null && activeProfile.audiogram == null &&
-        (activeProfile.eq.leftGainsDb != currentEq.leftGainsDb ||
-            activeProfile.eq.rightGainsDb != currentEq.rightGainsDb ||
-            activeProfile.eq.layout != currentEq.layout)
+        activeProfile.eq.forDirtyCheck() != currentEq.forDirtyCheck()
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PanelHeader("EQ presets")
@@ -608,7 +619,11 @@ private fun ProfileList(
                 singleLine = true,
                 label = { Text("Active EQ") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
-                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                // PrimaryNotEditable: the field is the menu's own anchor and is
+                // readOnly, so it opens the menu rather than taking a caret.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
             )
             ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 if (state.adjustedReferenceReady) {
@@ -723,6 +738,21 @@ private fun NewEqDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) {
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/**
+ * Everything a preset stores, minus the two fields that are not part of what it
+ * stores.
+ *
+ * The check used to compare gains and layout only, so the limiter, the
+ * automatic headroom and loudness restoration could all be switched while the
+ * preset stayed "unchanged" — no offer to save, and the next load quietly put
+ * them back. Comparing the whole object is the fix; the two exceptions are
+ * exceptions for a reason. `preGainDb` is derived from the gains by sanitized()
+ * rather than chosen, and `enabled` is the master switch for the session, not
+ * part of any preset's identity — a preset does not become a different preset
+ * because the EQ is currently off.
+ */
+private fun EqSettings.forDirtyCheck() = copy(enabled = false, preGainDb = 0f)
 
 private fun Float.bandLabel(): String = when {
     this >= 1000f -> {

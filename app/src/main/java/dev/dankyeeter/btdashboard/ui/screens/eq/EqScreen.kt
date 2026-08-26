@@ -34,7 +34,7 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
-import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
+import dev.dankyeeter.btdashboard.ui.common.describeWithApps
 import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.screens.dashboard.ForeignEqSection
@@ -87,7 +87,7 @@ fun EqScreen(
                     "counting sessions. Whether a given player announces itself varies " +
                     "by Android build.",
             )
-            Text(status.describe(playingApps), style = MaterialTheme.typography.bodySmall)
+            Text(status.describeWithApps(playingApps), style = MaterialTheme.typography.bodySmall)
         }
 
         ExplainedRow(
@@ -358,31 +358,4 @@ private fun rememberPlayingAppNames(): List<String> {
             }.getOrNull()
         }.distinct().sorted()
     }
-}
-
-/**
- * What the user is told, in names and never in numbers.
- *
- * Session ids used to be in this sentence, and a count of them is not something
- * anyone can check against what they are hearing. A name is: either the app
- * playing is in the list, or the EQ is not reaching it.
- */
-private fun AttachmentStatus.describe(playingApps: List<String>): String = when (this) {
-    is AttachmentStatus.ActiveGlobal ->
-        "Attached to the output mix — every app is equalised, including those that " +
-            "keep their playback to themselves."
-
-    is AttachmentStatus.ActiveSessions -> when {
-        playingApps.isEmpty() ->
-            "Following whatever is playing. Nothing is playing at the moment."
-
-        else -> "Currently equalising " + playingApps.joinToString(
-            separator = ", ",
-            limit = 3,
-            truncated = "others",
-        ) + "."
-    }
-
-    is AttachmentStatus.Unavailable -> reason
-    AttachmentStatus.Inactive -> "Not attached."
 }

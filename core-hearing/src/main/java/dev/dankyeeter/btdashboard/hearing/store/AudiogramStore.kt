@@ -13,6 +13,7 @@ import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import dev.dankyeeter.btdashboard.hearing.fit.FitBaseline
+import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import kotlin.math.abs
 
 private val Context.hearingDataStore: DataStore<Preferences> by preferencesDataStore(name = "hearing_runs")
 
@@ -69,22 +71,30 @@ class AudiogramStore(context: Context) {
 
     suspend fun currentSelectedRuns(): List<AudiogramRun> = selectedRuns.first()
 
+    suspend fun currentSelectedRunIds(): Set<String> = selectedRunIds.first()
+
     /**
-     * Adds or removes one run from the selection.
+     * Adds or removes one run from the selection. The toggle always takes.
      *
-     * Selecting a fourth is refused rather than silently dropping one of the
-     * others: which three count decides what the equaliser does, and a set that
-     * rearranges itself behind the user's back is not a choice.
+     * Deliberately uncapped. This used to refuse a fourth id by counting the
+     * raw stored set - but that set is device-blind and volume-blind, while
+     * what actually counts is decided per context by [selectionOf]. An id for a
+     * run measured through another headphone, or at another test volume, still
+     * occupied one of the three slots even though no screen ever showed it in a
+     * curve, so the switch stopped responding with one or two runs visibly in
+     * use and no way to tell why. A global cap over a per-context rule can only
+     * ever disagree with what is on screen.
+     *
+     * The cap lives where the rule lives: [selectionOf] takes the last
+     * [MAX_SELECTED] of the runs eligible right now, so a stored set of any
+     * size still yields three, and the history screen disables the switch once
+     * three *eligible* runs are in use. Both of those see the same context this
+     * function does not.
      */
     suspend fun setRunSelected(id: String, selected: Boolean) {
         appContext.hearingDataStore.edit { prefs ->
             val current = prefs[KEY_SELECTED] ?: emptySet()
-            val next = when {
-                !selected -> current - id
-                current.size >= MAX_SELECTED -> current
-                else -> current + id
-            }
-            prefs[KEY_SELECTED] = next
+            prefs[KEY_SELECTED] = if (selected) current + id else current - id
         }
     }
 
@@ -95,17 +105,33 @@ class AudiogramStore(context: Context) {
             val existing = parseRuns(prefs[KEY_RUNS]).filterNot { it.id == run.id }
             val merged = (existing + run).sortedBy { it.timestampMillis }.takeLast(MAX_RUNS)
             prefs[KEY_RUNS] = encodeRuns(merged)
+            // The MAX_RUNS trim drops the oldest runs; their selection ids go
+            // with them, same as on delete. selectionOf would ignore the dead
+            // ids anyway, but a set that accumulates ghosts is a set nobody
+            // can reason about.
+            val kept = merged.map { it.id }.toSet()
+            prefs[KEY_SELECTED]?.let { chosen -> prefs[KEY_SELECTED] = chosen intersect kept }
         }
     }
 
     suspend fun deleteRun(id: String) {
         appContext.hearingDataStore.edit { prefs ->
             prefs[KEY_RUNS] = encodeRuns(parseRuns(prefs[KEY_RUNS]).filterNot { it.id == id })
+            // The selection is pruned with the run, not left to be filtered out
+            // later. [selectionOf] already ignores ids with no run behind them,
+            // but a set that keeps growing dead entries is a set nobody can
+            // reason about - and it is exactly what let deleted runs hold slots
+            // when the cap still lived in setRunSelected.
+            prefs[KEY_SELECTED]?.let { chosen -> prefs[KEY_SELECTED] = chosen - id }
         }
     }
 
     suspend fun deleteAllRuns() {
-        appContext.hearingDataStore.edit { prefs -> prefs[KEY_RUNS] = "[]" }
+        appContext.hearingDataStore.edit { prefs ->
+            prefs[KEY_RUNS] = "[]"
+            // No runs left for any id to name.
+            prefs[KEY_SELECTED] = emptySet()
+        }
     }
 
     suspend fun saveFitBaseline(baseline: FitBaseline) {
@@ -169,7 +195,14 @@ class AudiogramStore(context: Context) {
                     left = parsePoints(obj.optJSONArray("left")),
                     right = parsePoints(obj.optJSONArray("right")),
                     deviceName = obj.optString("deviceName").takeIf { it.isNotBlank() && it != "null" },
-                    volumeFraction = if (obj.has("volume")) obj.optDouble("volume") else 0.7,
+                    // A run stored before the volume field existed was taken at
+                    // the standard test level by definition - there was no
+                    // other one to take it at.
+                    volumeFraction = if (obj.has("volume")) {
+                        obj.optDouble("volume")
+                    } else {
+                        VolumeGuard.TEST_VOLUME_FRACTION
+                    },
                 )
             }
         } catch (e: Exception) {
@@ -225,9 +258,13 @@ class AudiogramStore(context: Context) {
          * Nothing chosen means the three most recent, so the app works before
          * anyone has thought about this and after a deleted run leaves the
          * selection empty. Ids that no longer exist are ignored rather than
-         * remembered, and the cap is enforced here as well as at the point of
-         * choosing - a stored set from an older build cannot smuggle in a
-         * fourth.
+         * remembered.
+         *
+         * This is the only place [MAX_SELECTED] is enforced, and it has to be:
+         * a stored set can hold any number of ids - from an older build, or
+         * because ids for runs on other devices and other test levels are kept
+         * rather than thrown away when the context changes. Whatever is in the
+         * set, at most three eligible runs come out.
          */
         fun selectionOf(all: List<AudiogramRun>, chosen: Set<String>): List<AudiogramRun> =
             selectionOf(all, chosen, deviceKey = null)
@@ -238,32 +275,74 @@ class AudiogramStore(context: Context) {
          * A hearing curve is a property of ear plus headphone together — the
          * same person measures differently through different drivers, and a
          * correction derived from one device applied to another corrects for
-         * hardware that is not there. Runs with no recorded device (older
-         * builds) stay usable everywhere: locking them out would strand data
-         * nobody can re-attribute.
+         * hardware that is not there. See [onDevice] for how runs with no
+         * recorded device are treated.
          */
         fun selectionOf(
             all: List<AudiogramRun>,
             chosen: Set<String>,
             deviceKey: String?,
         ): List<AudiogramRun> {
-            val sameDevice = if (deviceKey == null) {
-                all
-            } else {
-                all.filter { it.deviceAddressHash == null || it.deviceAddressHash == deviceKey }
-            }
+            val sameDevice = onDevice(all, deviceKey)
             // Runs only mix at one test volume: thresholds in dBFS mean
             // nothing across volumes, so the newest run decides which window
             // is current and older runs at other volumes wait on the bench.
-            val currentVolume = sameDevice.lastOrNull()?.volumeFraction
+            val currentVolume = currentVolumeOf(sameDevice)
             val eligible = if (currentVolume == null) {
                 sameDevice
             } else {
-                sameDevice.filter { it.volumeFraction == currentVolume }
+                sameDevice.filter { isSameVolume(it.volumeFraction, currentVolume) }
             }
             val explicit = eligible.filter { it.id in chosen }
             return if (explicit.isEmpty()) eligible.takeLast(MAX_SELECTED) else explicit.takeLast(MAX_SELECTED)
         }
+
+        /**
+         * The test volume that currently counts for [deviceKey], or null when
+         * no run belongs to that device at all.
+         *
+         * The newest run on the device decides; every older run at a different
+         * level is benched until one is taken at that level again. Public
+         * because the history screen has to state the same rule [selectionOf]
+         * applies - a row that looks selectable but is silently ignored by the
+         * curve is a broken control, and the only way to keep the screen and
+         * the rule from drifting apart is for both to ask the same function.
+         */
+        fun currentVolumeFor(all: List<AudiogramRun>, deviceKey: String?): Double? =
+            currentVolumeOf(onDevice(all, deviceKey))
+
+        /** The one line of rule both callers above share: newest run wins. */
+        private fun currentVolumeOf(onDevice: List<AudiogramRun>): Double? =
+            onDevice.lastOrNull()?.volumeFraction
+
+        /**
+         * Whether two runs were taken at the same test level.
+         *
+         * Compared with a tolerance, never with `==`. The values come from one
+         * shared constant today, so exact equality happens to hold - but a
+         * fraction that is computed, round-tripped through JSON at a different
+         * precision, or derived from an index into the system volume steps
+         * would stop matching itself, and the failure is silent: every run
+         * looks benched and the curve quietly empties out. One refactor away
+         * from never matching is not a comparison worth keeping.
+         */
+        fun isSameVolume(a: Double, b: Double): Boolean = abs(a - b) < VOLUME_TOLERANCE
+
+        /**
+         * Runs measured through [deviceKey], plus the device-less ones.
+         *
+         * Runs with no recorded device (older builds) stay usable everywhere:
+         * locking them out would strand data nobody can re-attribute.
+         */
+        private fun onDevice(all: List<AudiogramRun>, deviceKey: String?): List<AudiogramRun> =
+            if (deviceKey == null) {
+                all
+            } else {
+                all.filter { it.deviceAddressHash == null || it.deviceAddressHash == deviceKey }
+            }
+
+        /** Far below any difference one media-volume step can make. */
+        private const val VOLUME_TOLERANCE = 0.001
 
         private const val TAG = "AudiogramStore"
         private const val MAX_RUNS = 20

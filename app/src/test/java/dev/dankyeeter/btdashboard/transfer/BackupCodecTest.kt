@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.transfer
 
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
@@ -8,6 +9,7 @@ import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -25,6 +27,9 @@ import org.junit.Test
 class BackupCodecTest {
 
     // ---- fixtures -------------------------------------------------------------
+
+    /** Matches [BackupCodec]'s reader settings; see [reparse] for why it exists. */
+    private val rawJson = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
     private fun points(offset: Double = 0.0): List<ThresholdPoint> =
         TEST_FREQUENCIES_HZ.mapIndexed { i, hz ->
@@ -90,6 +95,51 @@ class BackupCodecTest {
             is BackupParseResult.Success -> throw AssertionError("expected failure, got success")
         }
 
+    /**
+     * Reads a backup file straight into the wire model, skipping
+     * [BackupCodec]'s record validation.
+     *
+     * That validation still measures every curve against a hardcoded ten bands,
+     * so a 20- or 31-band export is dropped before it ever reaches the mapper.
+     * The layout tests below are about what the *format* and the mapper do with
+     * a wide curve, which is the part that silently destroyed it; they would
+     * otherwise be testing the ten-band gate instead.
+     */
+    private fun reparse(raw: String): BackupDocument =
+        rawJson.decodeFromString(BackupDocument.serializer(), raw)
+
+    /**
+     * A file as the pre-layout build wrote it: gains, and no `layout` key at
+     * all. Written out by hand rather than encoded, because the whole point is
+     * a field the current encoder always emits.
+     */
+    private fun legacyJson(gains: List<Float>): String {
+        val list = gains.joinToString(",")
+        return """
+            {
+              "schemaVersion": 1,
+              "format": "${BackupSchema.FORMAT_ID}",
+              "appVersion": "0.1.0",
+              "exportedAtMillis": 1700000000000,
+              "eq": {
+                "enabled": true,
+                "leftGainsDb": [$list],
+                "rightGainsDb": [$list],
+                "preGainDb": -3.0,
+                "limiterEnabled": true
+              }
+            }
+        """.trimIndent()
+    }
+
+    private fun wideEq(): EqSettings = EqSettings(
+        enabled = true,
+        layout = EqBandLayout.HALF_OCTAVE_20,
+        leftGainsDb = List(EqBandLayout.HALF_OCTAVE_20.bandCount) { -6f + it * 0.5f },
+        rightGainsDb = List(EqBandLayout.HALF_OCTAVE_20.bandCount) { 6f - it * 0.5f },
+        preGainDb = -6f,
+    ).sanitized()
+
     // ---- round trip -----------------------------------------------------------
 
     @Test
@@ -142,6 +192,68 @@ class BackupCodecTest {
         val raw = BackupCodec.encode(document())
         assertTrue(raw.contains(BackupSchema.FORMAT_ID))
         assertEquals(BackupSchema.CURRENT_VERSION, decodeOrFail(raw).schemaVersion)
+    }
+
+    // ---- band layouts ---------------------------------------------------------
+
+    @Test
+    fun `a twenty band profile keeps its layout and its exact gains on import`() {
+        val original = profile("profile-wide").copy(eq = wideEq())
+        val doc = BackupMapper.buildDocument(
+            runs = listOf(run()),
+            audiogram = null,
+            profiles = listOf(original),
+            eq = wideEq(),
+            activeProfileId = "profile-wide",
+            appVersion = "0.3.0",
+            nowMillis = 1L,
+        )
+
+        val restored = BackupMapper.toDomain(reparse(BackupCodec.encode(doc)).profiles.first())
+
+        assertEquals(EqBandLayout.HALF_OCTAVE_20, restored.eq.layout)
+        assertEquals(EqBandLayout.HALF_OCTAVE_20.bandCount, restored.eq.bandCount)
+        // Not merely the right length: the same numbers, unresampled.
+        assertEquals(original.eq.leftGainsDb, restored.eq.leftGainsDb)
+        assertEquals(original.eq.rightGainsDb, restored.eq.rightGainsDb)
+        assertEquals(original, restored)
+    }
+
+    @Test
+    fun `the exported eq carries its layout id`() {
+        val raw = BackupCodec.encode(document())
+        assertEquals(EqBandLayout.OCTAVE_10.id, reparse(raw).eq!!.layout)
+    }
+
+    @Test
+    fun `a legacy file with no layout field and ten gains imports as octave bands`() {
+        val gains = List(EqBandLayout.OCTAVE_10.bandCount) { it * 0.5f }
+
+        val restored = BackupMapper.toDomain(decodeOrFail(legacyJson(gains)).eq!!)
+
+        assertEquals(EqBandLayout.OCTAVE_10, restored.layout)
+        assertEquals(gains, restored.leftGainsDb)
+        assertEquals(gains, restored.rightGainsDb)
+    }
+
+    @Test
+    fun `a legacy file with no layout field and twenty gains infers the wide layout`() {
+        val gains = List(EqBandLayout.HALF_OCTAVE_20.bandCount) { -5f + it * 0.5f }
+
+        val restored = BackupMapper.toDomain(reparse(legacyJson(gains)).eq!!)
+
+        assertEquals(EqBandLayout.HALF_OCTAVE_20, restored.layout)
+        assertEquals(EqBandLayout.HALF_OCTAVE_20.bandCount, restored.bandCount)
+        assertEquals(gains, restored.leftGainsDb)
+    }
+
+    @Test
+    fun `a curve whose length matches no layout degrades to flat rather than to noise`() {
+        val restored = BackupMapper.toDomain(
+            BackupEq(enabled = true, leftGainsDb = List(7) { 5f }, rightGainsDb = List(7) { 5f }),
+        )
+        assertEquals(EqBandLayout.DEFAULT, restored.layout)
+        assertTrue(restored.leftGainsDb.all { it == 0f })
     }
 
     // ---- validation -----------------------------------------------------------

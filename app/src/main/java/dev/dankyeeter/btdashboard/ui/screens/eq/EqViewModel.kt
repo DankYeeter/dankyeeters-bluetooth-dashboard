@@ -56,10 +56,6 @@ data class CompensationUiState(
     /** Whether enough runs exist for the generated curve to stand on anything. */
     val adjustedReferenceReady: Boolean
         get() = runCount >= AdjustedReference.REQUIRED_RUNS
-
-    /** How many more runs are needed; zero once [adjustedReferenceReady]. */
-    val runsStillNeeded: Int
-        get() = (AdjustedReference.REQUIRED_RUNS - runCount).coerceAtLeast(0)
 }
 
 class EqViewModel : ViewModel() {
@@ -337,35 +333,6 @@ class EqViewModel : ViewModel() {
     }
 
     /**
-     * Saves whatever is currently in force under a name.
-     *
-     * A hearing-test result is stored with its audiogram, so a later re-test
-     * cannot change it. Without one, the live curve is saved on its own — a
-     * hand-tuned EQ deserves to be nameable and recallable just as much, and
-     * requiring a hearing test first made the whole preset feature unreachable
-     * for anyone who just wanted to set the sliders.
-     */
-    fun saveProfile(name: String) {
-        val state = _compensation.value
-        val result = state.result
-        val profile = CompensationProfile(
-            id = UUID.randomUUID().toString(),
-            name = name.trim().ifBlank { "Preset ${state.profiles.size + 1}" },
-            createdAtMillis = System.currentTimeMillis(),
-            audiogram = if (result == null) null else state.audiogram,
-            calibrationPresetId = state.presetId,
-            ancMode = AncMode.UNKNOWN,
-            intensity = state.intensity,
-            partialFactor = DEFAULT_PARTIAL_FACTOR,
-            eq = result?.eq ?: _settings.value,
-        )
-        viewModelScope.launch {
-            profileStore.save(profile)
-            store.setActiveProfileId(profile.id)
-        }
-    }
-
-    /**
      * A new, named, flat EQ — the "Add new EQ" path.
      *
      * Deliberately flat rather than a copy of whatever is playing: a new
@@ -393,6 +360,15 @@ class EqViewModel : ViewModel() {
             eq = flat,
         )
         compensationDrivesTheEq = false
+        // The new preset becomes the active one here, before anything is
+        // written. setActiveProfileId only lands one coroutine later, and
+        // commit() does not wait for it: it saves, the settings flow comes
+        // straight back, and syncGeneratedCurve() then acts on whatever
+        // activeProfileId still says. Coming from the Personal Reference that
+        // was still its id, so the generated curve was written back over the
+        // flat preset the user had just asked for — a new EQ that arrived
+        // already full of someone's hearing correction.
+        update { it.copy(activeProfileId = profile.id) }
         commit(flat)
         viewModelScope.launch {
             profileStore.save(profile)
@@ -517,10 +493,17 @@ class EqViewModel : ViewModel() {
     }
 
     private fun effective(value: EqSettings, bypass: Boolean): EqSettings =
-        if (!bypass) value else EqSettings(
-            enabled = value.enabled,
-            preGainDb = value.preGainDb,          // matched loudness
-            limiterEnabled = value.limiterEnabled,
+        // A copy of the live state with the bands zeroed, not a fresh
+        // EqSettings. Built from scratch it carried the *default* layout, so on
+        // any other layout every A/B toggle changed the band count — and a band
+        // count change forces the controller to release DynamicsProcessing and
+        // build a new one, which is an audible dropout in the middle of the very
+        // comparison being made, and leaves the EQ dead when the rebuild fails.
+        // The same omission dropped autoHeadroom and loudnessRestoration, the
+        // two fields the matched-loudness claim below actually rests on.
+        if (!bypass) value else value.copy(
+            leftGainsDb = List(value.layout.bandCount) { 0f },
+            rightGainsDb = List(value.layout.bandCount) { 0f },
         )
 
     private fun pushLive(value: EqSettings) {

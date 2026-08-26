@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +52,7 @@ fun ExplainedRow(
             )
             IconButton(onClick = { open = !open }) {
                 Icon(
-                    Icons.Outlined.HelpOutline,
+                    Icons.AutoMirrored.Outlined.HelpOutline,
                     contentDescription = if (open) "Hide explanation" else "What is $label?",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -93,7 +93,7 @@ fun ExplainedBlock(
         content {
             IconButton(onClick = { open = !open }) {
                 Icon(
-                    Icons.Outlined.HelpOutline,
+                    Icons.AutoMirrored.Outlined.HelpOutline,
                     contentDescription = if (open) "Hide explanation" else "What is $label?",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -125,7 +125,7 @@ fun ExplainedHeader(
             trailing = {
                 IconButton(onClick = { open = !open }) {
                     Icon(
-                        Icons.Outlined.HelpOutline,
+                        Icons.AutoMirrored.Outlined.HelpOutline,
                         contentDescription = if (open) "Hide explanation" else "What is $label?",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,

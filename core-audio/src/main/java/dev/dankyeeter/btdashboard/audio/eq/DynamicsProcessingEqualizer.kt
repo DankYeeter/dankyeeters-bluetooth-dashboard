@@ -32,6 +32,12 @@ class DynamicsProcessingEqualizer private constructor(
     override fun apply(settings: EqSettings) = guard {
         val clean = settings.sanitized()
         if (clean.layout != layout) rebuildFor(clean.layout)
+        // rebuildFor releases the old effect before creating the new one, so a
+        // refused rebuild leaves `effect` pointing at a released object. Without
+        // this bail the loop below would keep writing bands into it until the
+        // framework threw and guard() caught the unwind — an exception used as
+        // control flow, on the audio path, for a condition already known here.
+        if (!alive) return@guard
         Ear.entries.forEach { ear ->
             val gains = clean.gainsFor(ear)
             for (band in 0 until layout.bandCount) {

@@ -46,6 +46,7 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
+import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import java.text.DateFormat
 import java.util.Date
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
@@ -517,6 +518,14 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
         }
         val full = counted.size >= AudiogramStore.MAX_SELECTED
 
+        // The level the selection is currently working at, straight from the
+        // rule that decides it. A run at any other level cannot join the curve,
+        // and until this was drawn the screen gave that rule no sign at all —
+        // the row looked ordinary and the switch simply refused.
+        val currentVolume = remember(state.runs, state.currentDeviceKey) {
+            AudiogramStore.currentVolumeFor(state.runs, state.currentDeviceKey)
+        }
+
         state.runs.sortedByDescending { it.timestampMillis }.forEach { run ->
             // A run from another headphone is shown but cannot be chosen: the
             // curve it holds corrects for a driver that is not on the head
@@ -524,14 +533,22 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
             val foreign = run.deviceAddressHash != null &&
                 state.currentDeviceKey != null &&
                 run.deviceAddressHash != state.currentDeviceKey
+            // Same idea one axis over: thresholds in dBFS describe the window
+            // the media volume put them in, so a run from another level is on
+            // the bench until a run is taken at its level again. Only asked of
+            // runs that pass the device test — a foreign run has already lost,
+            // and "Other device" is the more useful thing to say about it.
+            val benched = !foreign && currentVolume != null &&
+                !AudiogramStore.isSameVolume(run.volumeFraction, currentVolume)
             RunRow(
                 run = run,
                 counted = run.id in counted,
                 // A fourth is refused rather than pushing one of the others
                 // out: which three count decides what the EQ does, and a set
                 // that rearranges itself behind your back is not a choice.
-                selectable = !foreign && (run.id in counted || !full),
+                selectable = !foreign && !benched && (run.id in counted || !full),
                 foreign = foreign,
+                benched = benched,
                 onCountedChange = { viewModel.setRunSelected(run.id, it) },
                 onDelete = { viewModel.deleteRun(run.id) },
             )
@@ -591,14 +608,19 @@ private fun RunRow(
     counted: Boolean,
     selectable: Boolean,
     foreign: Boolean,
+    benched: Boolean,
     onCountedChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
     // One run per panel, with its timestamp as the eyebrow: the date is what
     // tells two runs apart, and everything else on the row is about that date.
-    // A foreign-device run fades as a whole — the pill alone reads as state,
-    // the fade reads as "not yours right now", which is the actual situation.
-    Panel(contentPadding = 16, modifier = Modifier.alpha(if (foreign) 0.5f else 1f)) {
+    // A run that cannot join the curve fades as a whole — the pill alone reads
+    // as state, the fade reads as "not yours right now", which is the actual
+    // situation. Both reasons it can happen, wrong device and wrong level, look
+    // the same to the person: the switch will not move. So they look the same
+    // here, and only the pill says which.
+    val eligible = !foreign && !benched
+    Panel(contentPadding = 16, modifier = Modifier.alpha(if (eligible) 1f else 0.5f)) {
         PanelHeader(
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                 .format(Date(run.timestampMillis)),
@@ -606,10 +628,11 @@ private fun RunRow(
                 Pill(
                     when {
                         foreign -> "Other device"
+                        benched -> "Other level"
                         counted -> "In the curve"
                         else -> "Not used"
                     },
-                    tone = if (counted && !foreign) PillTone.ACCENT else PillTone.NEUTRAL,
+                    tone = if (counted && eligible) PillTone.ACCENT else PillTone.NEUTRAL,
                 )
             },
         )
@@ -649,10 +672,18 @@ private fun RunRow(
             Text(
                 listOfNotNull(
                     run.ambientNoiseDbA?.let { "Room ≈ ${it.toInt()} dB" },
-                    // Only worth a word when it differs from the default: a
-                    // bench-sitting run at another level should say why.
-                    "Quiet level (${(run.volumeFraction * 100).toInt()} %)"
-                        .takeIf { run.volumeFraction != 0.7 },
+                    // Only worth a word when it differs from the standard test
+                    // level: a bench-sitting run at another level should say
+                    // why. Compared against the constant the run was recorded
+                    // from, and with the same tolerance the selection uses —
+                    // a row claiming "Quiet level" about a run the curve counts
+                    // as standard would be the two disagreeing on screen.
+                    "Quiet level (${(run.volumeFraction * 100).toInt()} %)".takeIf {
+                        !AudiogramStore.isSameVolume(
+                            run.volumeFraction,
+                            VolumeGuard.TEST_VOLUME_FRACTION,
+                        )
+                    },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

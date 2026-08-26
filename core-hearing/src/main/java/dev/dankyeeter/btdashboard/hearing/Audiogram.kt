@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.hearing
 
+import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 
 /**
@@ -75,7 +76,7 @@ data class AudiogramRun(
      * physical windows and must never share a median. Stored per run so the
      * selection can enforce exactly that.
      */
-    val volumeFraction: Double = 0.7,
+    val volumeFraction: Double = VolumeGuard.TEST_VOLUME_FRACTION,
 ) {
     fun points(ear: Ear): List<ThresholdPoint> = when (ear) {
         Ear.LEFT -> left

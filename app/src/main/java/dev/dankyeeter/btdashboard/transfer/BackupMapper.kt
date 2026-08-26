@@ -1,6 +1,6 @@
 package dev.dankyeeter.btdashboard.transfer
 
-import dev.dankyeeter.btdashboard.audio.eq.EqBands
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
@@ -49,6 +49,9 @@ object BackupMapper {
 
     fun toBackup(eq: EqSettings): BackupEq = BackupEq(
         enabled = eq.enabled,
+        // Without this the gain list is just a bare row of numbers, and the
+        // importer has to guess which frequencies they sit on.
+        layout = eq.layout.id,
         leftGainsDb = eq.leftGainsDb,
         rightGainsDb = eq.rightGainsDb,
         preGainDb = eq.preGainDb,
@@ -117,16 +120,28 @@ object BackupMapper {
         right = audiogram.right.map(::toDomain),
     )
 
-    /** Always sanitised: an imported curve must obey the app's gain limits. */
-    fun toDomain(eq: BackupEq): EqSettings = EqSettings(
-        enabled = eq.enabled,
-        leftGainsDb = eq.leftGainsDb.padded(),
-        rightGainsDb = eq.rightGainsDb.padded(),
-        preGainDb = eq.preGainDb,
-        limiterEnabled = eq.limiterEnabled,
-        autoHeadroom = eq.autoHeadroom,
-        loudnessRestoration = eq.loudnessRestoration,
-    ).sanitized()
+    /**
+     * Always sanitised: an imported curve must obey the app's gain limits.
+     *
+     * The curve is restored at the resolution it was saved at. This used to pad
+     * or truncate every list to the ten-band default, which meant a 20- or
+     * 31-band export came back as its first ten gains reinterpreted as octave
+     * bands — the user's curve destroyed, quietly, with the import reporting
+     * success.
+     */
+    fun toDomain(eq: BackupEq): EqSettings {
+        val layout = layoutOf(eq)
+        return EqSettings(
+            enabled = eq.enabled,
+            layout = layout,
+            leftGainsDb = eq.leftGainsDb.fittedTo(layout),
+            rightGainsDb = eq.rightGainsDb.fittedTo(layout),
+            preGainDb = eq.preGainDb,
+            limiterEnabled = eq.limiterEnabled,
+            autoHeadroom = eq.autoHeadroom,
+            loudnessRestoration = eq.loudnessRestoration,
+        ).sanitized()
+    }
 
     fun toDomain(profile: BackupProfile): CompensationProfile = CompensationProfile(
         id = profile.id,
@@ -144,9 +159,34 @@ object BackupMapper {
         runCatching { AncMode.valueOf(name) }.getOrDefault(AncMode.UNKNOWN)
 
     /**
-     * The codec already rejects wrong-sized curves, so this only guards the
-     * `EqSettings` constructor against a caller that skipped validation.
+     * Which layout an imported curve belongs to.
+     *
+     * A file written before [BackupEq.layout] existed has no id, but its band
+     * count still says which layout it was: the three layouts have distinct
+     * counts, so the length is an unambiguous fallback. Left is asked first and
+     * right only if left is unusable, because a hand-edited file can disagree
+     * with itself and one of the two has to win.
      */
-    private fun List<Float>.padded(): List<Float> =
-        if (size == EqBands.COUNT) this else List(EqBands.COUNT) { getOrElse(it) { 0f } }
+    private fun layoutOf(eq: BackupEq): EqBandLayout {
+        eq.layout?.let { return EqBandLayout.fromId(it) }
+        return layoutWithBandCount(eq.leftGainsDb.size)
+            ?: layoutWithBandCount(eq.rightGainsDb.size)
+            ?: EqBandLayout.DEFAULT
+    }
+
+    private fun layoutWithBandCount(count: Int): EqBandLayout? =
+        EqBandLayout.entries.firstOrNull { it.bandCount == count }
+
+    /**
+     * Makes a gain list fit [layout]. Same rule as
+     * `EqSettingsStore.parseGains`: a list whose length belongs to a *different*
+     * layout is the user's curve at another resolution, so it is resampled
+     * rather than discarded; a length that matches no layout is not a curve at
+     * all and degrades to flat. Never truncated — that was the data loss.
+     */
+    private fun List<Float>.fittedTo(layout: EqBandLayout): List<Float> {
+        if (size == layout.bandCount) return this
+        val source = layoutWithBandCount(size) ?: return List(layout.bandCount) { 0f }
+        return EqBandLayout.resample(this, source, layout)
+    }
 }

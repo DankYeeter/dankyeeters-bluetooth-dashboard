@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.transfer
 
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import kotlinx.serialization.json.Json
 
 /**
@@ -124,16 +125,22 @@ object BackupCodec {
         )
     }
 
-    /** Band lists must be complete; a partial curve cannot be repaired safely. */
-    private fun BackupEq.hasUsableBands(): Boolean =
-        leftGainsDb.size == BAND_COUNT && rightGainsDb.size == BAND_COUNT
-
     /**
-     * Kept as a literal rather than referencing `EqBands.COUNT`: this is the
-     * band count *of the file format*. If the app ever moves to a different
-     * band layout, that becomes a schema migration, not a silent mismatch.
+     * Band lists must be complete for *some* layout; a partial curve cannot be
+     * repaired safely.
+     *
+     * This used to demand exactly ten bands — written when ten was the only
+     * layout the app had, with a comment saying a new layout would be "a
+     * schema migration, not a silent mismatch". That migration has happened:
+     * the file format carries a layout id now, and the Personal Reference has
+     * never been ten bands. Keeping the old gate meant a valid 20-band curve
+     * was thrown away here, one call before the mapper that knows how to read
+     * it. The gate now asks the same question the mapper answers: is this a
+     * band count any layout defines?
      */
-    private const val BAND_COUNT = 10
+    private fun BackupEq.hasUsableBands(): Boolean =
+        EqBandLayout.entries.any { it.bandCount == leftGainsDb.size } &&
+            EqBandLayout.entries.any { it.bandCount == rightGainsDb.size }
 }
 
 sealed interface BackupParseResult {

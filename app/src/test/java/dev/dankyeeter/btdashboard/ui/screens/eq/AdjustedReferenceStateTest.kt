@@ -33,11 +33,19 @@ class AdjustedReferenceStateTest {
 
     @Test
     fun `it counts down the runs that are still missing`() {
-        assertEquals(3, state(0).runsStillNeeded)
-        assertEquals(1, state(2).runsStillNeeded)
-        assertEquals(0, state(3).runsStillNeeded)
-        // Never negative: the UI prints this number in a sentence.
-        assertEquals(0, state(9).runsStillNeeded)
+        // The countdown is no longer a property; the card builds the sentence
+        // straight from these two numbers ("N of REQUIRED_RUNS runs done"), so
+        // what has to hold is that they agree with the readiness flag printed
+        // beside them. A shortfall means not ready, none means ready — and an
+        // extra run past the threshold is never "one to go" in the negative.
+        listOf(0, 1, 2, 3, 9).forEach { runs ->
+            val state = state(runs)
+            val stillNeeded = AdjustedReference.REQUIRED_RUNS - state.runCount
+            assertEquals(runs, state.runCount)
+            assertEquals(stillNeeded <= 0, state.adjustedReferenceReady)
+        }
+        assertEquals(3, AdjustedReference.REQUIRED_RUNS - state(0).runCount)
+        assertEquals(1, AdjustedReference.REQUIRED_RUNS - state(2).runCount)
     }
 
     @Test
