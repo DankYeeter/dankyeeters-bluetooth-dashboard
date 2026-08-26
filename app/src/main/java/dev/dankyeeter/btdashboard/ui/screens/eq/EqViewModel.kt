@@ -190,6 +190,28 @@ class EqViewModel : ViewModel() {
     fun setLimiterEnabled(enabled: Boolean) = commit(_settings.value.copy(limiterEnabled = enabled))
 
     /**
+     * Boosts act on quiet passages only; loud passages pass as recorded.
+     *
+     * sanitized() recomputes the headroom on commit: in this mode boosts live
+     * in the compressor and are gone again by full scale, so the automatic
+     * pre-gain lets go of them — switching this on audibly restores the level
+     * a boosted static curve had traded away.
+     */
+    fun setLoudnessRestoration(enabled: Boolean) {
+        val current = _settings.value
+        commit(
+            current.copy(
+                loudnessRestoration = enabled,
+                preGainDb = if (current.autoHeadroom) {
+                    if (enabled) 0f else EqSettings.headroomFor(current.leftGainsDb, current.rightGainsDb)
+                } else {
+                    current.preGainDb
+                },
+            ),
+        )
+    }
+
+    /**
      * Turns the automatic headroom on or off, and sets the pre-gain to match.
      *
      * On: the whole signal is lowered by whatever the loudest band was raised,

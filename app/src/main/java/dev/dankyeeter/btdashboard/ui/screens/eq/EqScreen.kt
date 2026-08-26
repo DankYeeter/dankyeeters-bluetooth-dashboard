@@ -120,6 +120,24 @@ fun EqScreen(
         }
 
         ExplainedRow(
+            label = "Loudness restoration",
+            explanation = "A static boost raises a band by the same amount whether the " +
+                "signal there is a whisper of reverb or a full snare hit. A healthy ear " +
+                "does the opposite: it amplifies quiet sound and compresses loud sound. " +
+                "With this on, every boost in your curve acts that way — quiet detail " +
+                "gets the full lift, loud passages pass as recorded, and by full scale " +
+                "the boost is gone entirely, so nothing can clip and no headroom is " +
+                "spent. Cuts stay as they are. This is the same idea the headphone " +
+                "vendors sell as sound personalisation, with your curve in the open " +
+                "instead of a black box.",
+        ) {
+            Switch(
+                checked = settings.loudnessRestoration,
+                onCheckedChange = viewModel::setLoudnessRestoration,
+            )
+        }
+
+        ExplainedRow(
             label = "Automatic headroom",
             explanation = "Raising a band means multiplying the numbers the music is made " +
                 "of, and those have a ceiling. This lowers everything by however much the " +

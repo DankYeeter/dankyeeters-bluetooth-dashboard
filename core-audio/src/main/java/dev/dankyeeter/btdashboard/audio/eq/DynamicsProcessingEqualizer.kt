@@ -35,7 +35,19 @@ class DynamicsProcessingEqualizer private constructor(
         Ear.entries.forEach { ear ->
             val gains = clean.gainsFor(ear)
             for (band in 0 until layout.bandCount) {
-                writeBand(ear, band, gains[band])
+                // In loudness-restoration mode a boost belongs to the
+                // compressor, where it fades out as the level rises; the
+                // static pre-EQ keeps only the cuts, which cannot clip and
+                // must not become level-dependent. Off, everything is static
+                // and the compressor bands sit at neutral.
+                val gain = gains[band]
+                if (clean.loudnessRestoration) {
+                    writeBand(ear, band, gain.coerceAtMost(0f))
+                    writeMbcBand(ear, band, gain.coerceAtLeast(0f))
+                } else {
+                    writeBand(ear, band, gain)
+                    writeMbcBand(ear, band, 0f)
+                }
             }
         }
         effect.setInputGainAllChannelsTo(clean.preGainDb)
@@ -139,6 +151,31 @@ class DynamicsProcessingEqualizer private constructor(
         effect.setPreEqBandByChannelIndex(ear.channelIndex, bandIndex, band)
     }
 
+    /**
+     * One compressor band: [boostDb] of post-gain for quiet signal, taken back
+     * above the threshold at the ratio that lands on net zero at full scale.
+     * A boost of zero writes an explicitly neutral band rather than skipping
+     * the write — a band that once carried a boost must not keep it after the
+     * mode is switched off.
+     */
+    private fun writeMbcBand(ear: Ear, bandIndex: Int, boostDb: Float) {
+        val band = effect.getMbcBandByChannelIndex(ear.channelIndex, bandIndex)
+        band.isEnabled = boostDb > 0f
+        band.cutoffFrequency = layout.upperEdgesHz[bandIndex]
+        band.attackTime = LoudnessRestorationMath.ATTACK_MS
+        band.releaseTime = LoudnessRestorationMath.RELEASE_MS
+        band.ratio = LoudnessRestorationMath.ratioFor(boostDb)
+        band.threshold = LoudnessRestorationMath.THRESHOLD_DB
+        band.kneeWidth = LoudnessRestorationMath.KNEE_WIDTH_DB
+        // No downward expansion: this stage lifts quiet detail, gating it away
+        // again would be the opposite feature.
+        band.noiseGateThreshold = NOISE_GATE_OFF_DB
+        band.expanderRatio = 1f
+        band.preGain = 0f
+        band.postGain = boostDb
+        effect.setMbcBandByChannelIndex(ear.channelIndex, bandIndex, band)
+    }
+
     /** Reads a gain back out of the framework — proof the value reached the effect. */
     fun readBandGain(ear: Ear, bandIndex: Int): Float? = runCatching {
         effect.getPreEqBandByChannelIndex(ear.channelIndex, bandIndex).gain
@@ -164,6 +201,12 @@ class DynamicsProcessingEqualizer private constructor(
          * attach path already runs off the main thread.
          */
         private const val ENABLE_RETRY_DELAY_MS = 120L
+
+        /**
+         * Far enough below any real signal that the gate can never trigger.
+         * The framework wants a value; "off" is not one of its options.
+         */
+        private const val NOISE_GATE_OFF_DB = -120f
 
         /** Attack/release/ratio/threshold/post-gain for the output limiter. */
         private const val LIMITER_ATTACK_MS = 1f
@@ -212,6 +255,31 @@ class DynamicsProcessingEqualizer private constructor(
                     )
                 }
             }
+            // The compressor stage exists from the start, at neutral, because
+            // the band count is fixed at construction: enabling loudness
+            // restoration later must be a parameter write, not a rebuild that
+            // audibly drops the effect mid-song. A disabled band with unity
+            // ratio and zero gains is bit-transparent.
+            val mbc = DynamicsProcessing.Mbc(true, true, layout.bandCount).apply {
+                for (i in 0 until layout.bandCount) {
+                    setBand(
+                        i,
+                        DynamicsProcessing.MbcBand(
+                            /* enabled = */ false,
+                            /* cutoffFrequency = */ edges[i],
+                            /* attackTime = */ LoudnessRestorationMath.ATTACK_MS,
+                            /* releaseTime = */ LoudnessRestorationMath.RELEASE_MS,
+                            /* ratio = */ 1f,
+                            /* threshold = */ LoudnessRestorationMath.THRESHOLD_DB,
+                            /* kneeWidth = */ LoudnessRestorationMath.KNEE_WIDTH_DB,
+                            /* noiseGateThreshold = */ NOISE_GATE_OFF_DB,
+                            /* expanderRatio = */ 1f,
+                            /* preGain = */ 0f,
+                            /* postGain = */ 0f,
+                        ),
+                    )
+                }
+            }
             val limiter = DynamicsProcessing.Limiter(
                 /* inUse = */ true,
                 /* enabled = */ true,
@@ -227,14 +295,15 @@ class DynamicsProcessingEqualizer private constructor(
                 /* channelCount = */ 2,
                 /* preEqInUse = */ true,
                 /* preEqBandCount = */ layout.bandCount,
-                /* mbcInUse = */ false,
-                /* mbcBandCount = */ 0,
+                /* mbcInUse = */ true,
+                /* mbcBandCount = */ layout.bandCount,
                 /* postEqInUse = */ false,
                 /* postEqBandCount = */ 0,
                 /* limiterInUse = */ true,
             )
                 .setPreferredFrameDuration(10f)
                 .setPreEqAllChannelsTo(eq)
+                .setMbcAllChannelsTo(mbc)
                 .setLimiterAllChannelsTo(limiter)
                 .build()
         }

@@ -43,6 +43,8 @@ class EqSettingsStore(private val context: Context) {
             prefs[KEY_RIGHT] = clean.rightGainsDb.joinToString(";")
             prefs[KEY_PRE_GAIN] = clean.preGainDb
             prefs[KEY_LIMITER] = clean.limiterEnabled
+            prefs[KEY_AUTO_HEADROOM] = clean.autoHeadroom
+            prefs[KEY_LOUDNESS] = clean.loudnessRestoration
         }
     }
 
@@ -69,6 +71,8 @@ class EqSettingsStore(private val context: Context) {
             rightGainsDb = parseGains(this[KEY_RIGHT], layout),
             preGainDb = this[KEY_PRE_GAIN] ?: 0f,
             limiterEnabled = this[KEY_LIMITER] ?: true,
+            autoHeadroom = this[KEY_AUTO_HEADROOM] ?: true,
+            loudnessRestoration = this[KEY_LOUDNESS] ?: false,
         )
     }
 
@@ -88,6 +92,10 @@ class EqSettingsStore(private val context: Context) {
 
     private companion object {
         val KEY_ENABLED = booleanPreferencesKey("eq_enabled")
+        // Added later than the fields above; missing keys fall back to the
+        // model's defaults, so an old store reads cleanly.
+        val KEY_AUTO_HEADROOM = booleanPreferencesKey("eq_auto_headroom")
+        val KEY_LOUDNESS = booleanPreferencesKey("eq_loudness_restoration")
         val KEY_LEFT = stringPreferencesKey("eq_gains_left")
         val KEY_RIGHT = stringPreferencesKey("eq_gains_right")
         val KEY_PRE_GAIN = floatPreferencesKey("eq_pre_gain_db")

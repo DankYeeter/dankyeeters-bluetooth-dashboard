@@ -52,6 +52,8 @@ object BackupMapper {
         rightGainsDb = eq.rightGainsDb,
         preGainDb = eq.preGainDb,
         limiterEnabled = eq.limiterEnabled,
+        autoHeadroom = eq.autoHeadroom,
+        loudnessRestoration = eq.loudnessRestoration,
     )
 
     fun toBackup(profile: CompensationProfile): BackupProfile = BackupProfile(
@@ -120,6 +122,8 @@ object BackupMapper {
         rightGainsDb = eq.rightGainsDb.padded(),
         preGainDb = eq.preGainDb,
         limiterEnabled = eq.limiterEnabled,
+        autoHeadroom = eq.autoHeadroom,
+        loudnessRestoration = eq.loudnessRestoration,
     ).sanitized()
 
     fun toDomain(profile: BackupProfile): CompensationProfile = CompensationProfile(

@@ -56,6 +56,14 @@ data class EqSettings(
     val preGainDb: Float = 0f,
     val limiterEnabled: Boolean = true,
     val autoHeadroom: Boolean = true,
+    /**
+     * Routes the positive band gains through the effect's multiband
+     * compressor so they act on quiet passages only — loud passages pass as
+     * recorded. Cuts stay static. See [LoudnessRestorationMath] for the shape
+     * and the reasoning; the practical consequence here is that boosts in
+     * this mode cannot clip and therefore cost no headroom.
+     */
+    val loudnessRestoration: Boolean = false,
 ) {
     init {
         require(leftGainsDb.size == layout.bandCount) {
@@ -102,7 +110,10 @@ data class EqSettings(
     fun sanitized(): EqSettings {
         val l = leftGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
         val r = rightGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
-        val peak = ((l + r).maxOrNull() ?: 0f).coerceAtLeast(0f)
+        // With loudness restoration on, boosts live in the compressor and are
+        // gone again by the time the signal is loud enough to clip — only the
+        // static path needs headroom, and its positive contribution is zero.
+        val peak = if (loudnessRestoration) 0f else ((l + r).maxOrNull() ?: 0f).coerceAtLeast(0f)
         val gain = preGainDb.coerceIn(-24f, 0f)
         return copy(
             leftGainsDb = l,

@@ -75,6 +75,8 @@ data class BackupEq(
     @SerialName("rightGainsDb") val rightGainsDb: List<Float> = emptyList(),
     @SerialName("preGainDb") val preGainDb: Float = 0f,
     @SerialName("limiterEnabled") val limiterEnabled: Boolean = true,
+    @SerialName("autoHeadroom") val autoHeadroom: Boolean = true,
+    @SerialName("loudnessRestoration") val loudnessRestoration: Boolean = false,
 )
 
 @Serializable
