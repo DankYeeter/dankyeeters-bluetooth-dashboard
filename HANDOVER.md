@@ -3990,3 +3990,30 @@ globale Pfad. Die Texte behaupten das jetzt nicht mehr als Regel.
 1. **Codec-Umschaltung** - der Schreibweg ueber den privaten
    `BluetoothAdapter`-Konstruktor. Lesen ist bewiesen, Schreiben nicht.
 2. Die haengende Kopplungs-Benachrichtigung.
+
+---
+
+## Nachtschicht 26. August: Feature-Welle und Design-Durchgang
+
+Elf Commits. Der volle Bericht mit Befunden, Focal/Mimi-Erklaerung und offenen
+Fragen steht in REPORT-2026-08-26.md -- er ist die Referenz, hier nur die Karte:
+
+- Hoertest: Boden -85 -> -90 dBFS; Audiogramm als Abweichungs-Ansicht (0 in
+  der Mitte, adaptiver Massstab); Laeufe geraetegebunden (DeviceKey + Name,
+  fremde ausgegraut); Laeufe speichern jetzt das Kalibrierprofil des
+  verbundenen Geraets (vorher hart generisch -- die Geraetekalibrierung kam
+  nie an).
+- EQ: Presets als Dropdown mit "Add new EQ" (flach starten, formen, "Save
+  changes to ..."); manuelle Presets geraeteuebergreifend, Personal Reference
+  geraetegebunden.
+- Design-Durchgang ueber jede Oberflaeche (zwei Opus-Audits, fuenf Worker):
+  erste Ebene kurz, Erklaerungen hinter ?-Knoepfen, Sackgassen bekamen
+  Knoepfe, Namen statt Zahlen, ADB-Erzaehlung als Fallback degradiert,
+  falsches "No INTERNET permission"-Versprechen korrigiert, helpExpanded-Bug
+  und BLOCKED-Totcode raus.
+- 580 Tests gruen. Neue Fassung aufs Pixel 11 installiert, aber noch von
+  niemandem gesehen -- der erste Blick steht aus. Der Helfer ist durch die
+  Installation tot und aktiviert sich nach dem Abstecken selbst.
+
+Fuer Daniels Morgen: REPORT Teil 3 (Lautheits-Restauration bauen? Test bei
+niedrigerer Lautstaerke? Preset-Rename? HCI-Snoop ausschalten).
