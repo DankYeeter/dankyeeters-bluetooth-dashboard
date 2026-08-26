@@ -15,6 +15,15 @@ import kotlinx.coroutines.CoroutineScope
 import dev.dankyeeter.btdashboard.system.attach.PlaybackSessionHarvester
 import dev.dankyeeter.btdashboard.system.attach.SessionAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate
+import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
+import dev.dankyeeter.btdashboard.system.devices.HdAudioController
+import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
+import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
+import dev.dankyeeter.btdashboard.system.devices.HdAudioState
+import dev.dankyeeter.btdashboard.system.devices.NoSystemPropertyReader
+import dev.dankyeeter.btdashboard.system.devices.SystemPropertyReader
+import dev.dankyeeter.btdashboard.system.devices.UnavailableBluetoothRestartController
+import dev.dankyeeter.btdashboard.system.devices.UnavailableHdAudioController
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.CodecPreferenceController
@@ -203,6 +212,66 @@ object SystemGraph {
             (installedCodec ?: UnavailableCodecPreferenceController).apply(address, preference)
     }
 
+    @Volatile
+    private var installedHdAudio: HdAudioController? = null
+
+    /**
+     * Installs the HD-audio controller, exactly as
+     * [installCodecPreferenceController] does and for the same reason: only
+     * `:app` can reach the privileged helper's Binder.
+     */
+    fun installHdAudioController(controller: HdAudioController) {
+        installedHdAudio = controller
+    }
+
+    /**
+     * Resolved on every call rather than captured, for the reason spelled out
+     * on [codecPreferences]: the applier is built lazily by whichever caller
+     * touches it first, which is not guaranteed to be after the app has
+     * finished wiring.
+     */
+    private val hdAudioControl = object : HdAudioController {
+        override fun isAvailable(): Boolean = installedHdAudio?.isAvailable() == true
+
+        override suspend fun read(address: String): HdAudioState =
+            (installedHdAudio ?: UnavailableHdAudioController).read(address)
+
+        override suspend fun apply(address: String, preference: HdAudioPreference): HdAudioOutcome =
+            (installedHdAudio ?: UnavailableHdAudioController).apply(address, preference)
+    }
+
+    /** What the profile editor reads HD audio through. Same object as the applier's. */
+    val hdAudio: HdAudioController get() = hdAudioControl
+
+    @Volatile
+    private var installedRestart: BluetoothRestartController? = null
+
+    fun installBluetoothRestartController(controller: BluetoothRestartController) {
+        installedRestart = controller
+    }
+
+    /**
+     * Cycles the Bluetooth radio, when a helper is there to do it.
+     *
+     * Not a dependency of the applier: restarting Bluetooth is something the
+     * *user* asks for after seeing "stored, but not in force yet", never
+     * something a profile does on connect. A profile that cycled the radio on
+     * connect would disconnect the device that triggered it.
+     */
+    val bluetoothRestart: BluetoothRestartController
+        get() = installedRestart ?: UnavailableBluetoothRestartController
+
+    @Volatile
+    private var installedProperties: SystemPropertyReader? = null
+
+    fun installSystemPropertyReader(reader: SystemPropertyReader) {
+        installedProperties = reader
+    }
+
+    /** Live values for the read-only rows. Answers "unset" until `:app` installs one. */
+    val systemProperties: SystemPropertyReader
+        get() = installedProperties ?: NoSystemPropertyReader
+
     private var _globalSettings: SecureSettingsController? = null
 
     /**
@@ -229,6 +298,7 @@ object SystemGraph {
                 absoluteVolume = absoluteVolume,
                 secureSettings = globalSettings,
                 codec = codecPreferences,
+                hdAudio = hdAudioControl,
             ).also { _applier = it }
         }
 

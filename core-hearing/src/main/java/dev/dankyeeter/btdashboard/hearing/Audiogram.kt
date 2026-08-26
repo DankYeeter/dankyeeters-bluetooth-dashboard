@@ -104,3 +104,39 @@ data class Audiogram(
 interface AudiogramAggregator {
     fun aggregate(runs: List<AudiogramRun>): Audiogram
 }
+
+/**
+ * Rewrites a measured audiogram from the app's internal dBFS frame into the
+ * loss frame NAL-R actually takes.
+ *
+ * NAL-R's formula (COMPENSATION.md §3) wants H_T(f) in dB HL: positive,
+ * zero = no loss. The Hughson-Westlake engine stores thresholds as dBFS
+ * attenuation — negative, −90…−6 — and for a long time those raw values went
+ * into the calculator unchanged. Every term of the formula then came out
+ * negative, the ≥0 clamp flattened all of it, and the generated curve
+ * prescribed exactly nothing for every realistic measurement. The existing
+ * tests fed hand-written positive values and could not see it.
+ *
+ * Without an absolute calibration the honest loss figure is relative: how far
+ * each frequency falls short of this person's own best converged threshold.
+ * The reference is global across both ears on purpose — a worse left ear is a
+ * loss of the left ear, and a per-ear reference would erase exactly that
+ * asymmetry, which is the one thing the per-ear prescription exists for.
+ * Unconverged points ride along: at the floor they sit near the reference and
+ * produce no phantom loss, at the ceiling the large loss is real enough to
+ * keep.
+ *
+ * An all-flat measurement maps to zero loss everywhere and prescribes
+ * nothing — the same behaviour a flat clinical audiogram gets, which is what
+ * makes the two sources comparable.
+ */
+fun Audiogram.asRelativeLossHl(): Audiogram {
+    val reference = (left + right)
+        .filter { it.converged }
+        .minOfOrNull { it.thresholdDb }
+        ?: return this
+    fun rebase(points: List<ThresholdPoint>) = points.map { point ->
+        point.copy(thresholdDb = (point.thresholdDb - reference).coerceAtLeast(0.0))
+    }
+    return copy(left = rebase(left), right = rebase(right))
+}

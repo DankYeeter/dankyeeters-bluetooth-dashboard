@@ -61,6 +61,20 @@ data class DeviceProfile(
      * not be attempted, never that it was left alone.
      */
     val codecPreference: CodecPreference? = null,
+    /**
+     * Whether this device may use anything better than SBC — Android's "HD
+     * audio" row (see [HdAudioPreference]).
+     *
+     * The only field in this class that maps onto a setting Android really does
+     * keep **per device**: the stack stores it against the bond, so two
+     * headphones can hold different values at the same time and neither
+     * overwrites the other. Still re-applied on connect like the rest, because
+     * re-asserting a value the stack already holds costs one read and removes
+     * the question of whether something else changed it.
+     *
+     * Null means "don't touch", as everywhere else.
+     */
+    val hdAudio: HdAudioPreference? = null,
     /** Whether the profile is applied automatically on ACL connect. */
     val autoApply: Boolean = true,
     val lastSeenAtMillis: Long = 0L,
@@ -125,6 +139,25 @@ sealed interface ProfileAction {
      * own words, including how long it waited.
      */
     data class CodecNotObserved(val observed: String, val detail: String) : ProfileAction
+
+    /**
+     * HD audio was written and **read back**.
+     *
+     * [enabled] is null when the stack reports "nobody has chosen" — the state
+     * "Use System Default" asks for. Kept apart from `true` so the sentence the
+     * user reads can distinguish "on because you asked" from "on because
+     * Android decides".
+     */
+    data class HdAudioSet(val enabled: Boolean?, val alreadySet: Boolean) : ProfileAction
+
+    /**
+     * The write went through and the read-back says something else.
+     *
+     * The same shape as [CodecNotObserved] and for the same reason: neither a
+     * failure nor a success, and nothing reachable from an app can tell a
+     * refusal apart from a value the stack has not committed yet.
+     */
+    data class HdAudioNotObserved(val detail: String) : ProfileAction
 
     data class Skipped(val what: String, val reason: String) : ProfileAction
 }

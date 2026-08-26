@@ -14,10 +14,12 @@ import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.hearing.HearingTestConfig
 import dev.dankyeeter.btdashboard.hearing.HearingTestState
 import dev.dankyeeter.btdashboard.hearing.HughsonWestlakeTestController
+import dev.dankyeeter.btdashboard.hearing.LowToneArtifact
 import dev.dankyeeter.btdashboard.hearing.PrepareResult
 import dev.dankyeeter.btdashboard.hearing.RunReliability
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
@@ -72,8 +74,24 @@ data class HearingUiState(
     /** Key of the headphone currently active, null when nothing is connected. */
     val currentDeviceKey: String? = null,
     val currentDeviceName: String? = null,
+    /**
+     * The ENT result, if one has been entered. Not per device: it is a property
+     * of the ears, so it stays put when the headphones change.
+     */
+    val clinicalAudiogram: ClinicalAudiogram? = null,
 ) {
     val fitCheckRequired: Boolean get() = formFactor.fitCheckMandatory && !fitCheckPassed
+
+    /**
+     * Whether the run just finished should carry the low-tone advisory.
+     *
+     * Derived here rather than stored, so it can never disagree with the run
+     * and the clinical audiogram it is about — both of which can change while
+     * the result screen is open. The whole rule lives in [LowToneArtifact];
+     * this is only the wiring.
+     */
+    val lowToneArtifact: LowToneArtifact.Advice?
+        get() = lastRun?.let { LowToneArtifact.evaluate(it, clinicalAudiogram) }
 
     /** Fraction 0..1 of the current run, for the progress indicator. */
     val progress: Float
@@ -127,7 +145,26 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
         }
+        viewModelScope.launch {
+            // A separate collector, because this record does not belong to the
+            // headphone: it must survive a device change, which the combine
+            // above deliberately does not.
+            store.clinicalAudiogram.collect { clinical ->
+                _state.value = _state.value.copy(clinicalAudiogram = clinical)
+            }
+        }
         VolumeKeyLock.onBlocked = { showVolumeLockedNotice() }
+    }
+
+    /** Stores the ENT values, or clears them when the editor was emptied. */
+    fun saveClinicalAudiogram(audiogram: ClinicalAudiogram) {
+        viewModelScope.launch {
+            store.saveClinicalAudiogram(audiogram.copy(savedAtMillis = System.currentTimeMillis()))
+        }
+    }
+
+    fun clearClinicalAudiogram() {
+        viewModelScope.launch { store.clearClinicalAudiogram() }
     }
 
     val needsMicPermission: Boolean get() = !ambientCheck.hasPermission

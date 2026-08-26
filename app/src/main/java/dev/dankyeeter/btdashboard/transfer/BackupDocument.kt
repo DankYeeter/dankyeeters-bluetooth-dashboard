@@ -37,6 +37,37 @@ data class BackupDocument(
     @SerialName("profiles") val profiles: List<BackupProfile> = emptyList(),
     @SerialName("eq") val eq: BackupEq? = null,
     @SerialName("activeProfileId") val activeProfileId: String? = null,
+    /**
+     * The clinical audiogram, when one has been entered.
+     *
+     * Worth more in a backup than anything else in this file: the runs can be
+     * measured again in twenty minutes, and this cannot be re-obtained at all
+     * without another appointment. Null in every file written before the field
+     * existed, which is why it is nullable and defaulted — no version bump, as
+     * nothing that already existed changed meaning.
+     */
+    @SerialName("clinicalAudiogram") val clinicalAudiogram: BackupClinicalAudiogram? = null,
+)
+
+/**
+ * A clinical audiogram on disk.
+ *
+ * Thresholds are keyed by frequency as a *string*, because JSON object keys
+ * are strings and a sparse map is the honest shape: a frequency the practice
+ * did not test has no entry, and must never come back as 0 dB HL.
+ *
+ * The unit is dB HL and it is not negotiable — unlike [BackupThreshold.thresholdDb],
+ * which is this app's internal dBFS. The two must not be mixed up on import,
+ * which is the reason this is its own type rather than another
+ * [BackupAudiogram].
+ */
+@Serializable
+data class BackupClinicalAudiogram(
+    @SerialName("leftDbHl") val leftDbHl: Map<String, Double> = emptyMap(),
+    @SerialName("rightDbHl") val rightDbHl: Map<String, Double> = emptyMap(),
+    @SerialName("measuredOn") val measuredOn: String = "",
+    @SerialName("source") val source: String = "",
+    @SerialName("savedAtMillis") val savedAtMillis: Long = 0L,
 )
 
 @Serializable

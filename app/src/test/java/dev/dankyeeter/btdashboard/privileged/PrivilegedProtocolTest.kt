@@ -243,14 +243,58 @@ class PrivilegedProtocolTest {
         // setting - and it is deliberately a named operation instead of a
         // `pm grant` entry on the exec whitelist, which would have smuggled a
         // privilege change through the door marked read-only.
+        // `setOptionalCodecs` and `restartBluetooth` were meant too, and both
+        // are here rather than on the exec whitelist for the same reason
+        // `grantSecureSettings` is: `cmd bluetooth_manager` also offers
+        // `factoryReset`, which un-pairs every device the user owns, so a
+        // caller able to vary those arguments would be a much larger thing than
+        // a button that cycles the radio.
         assertEquals(
-            listOf("grantSecureSettings", "setCodecPreference", "shutdown"),
+            listOf(
+                "grantSecureSettings",
+                "restartBluetooth",
+                "setCodecPreference",
+                "setOptionalCodecs",
+                "shutdown",
+            ),
             PrivilegedProtocol.WRITE_OPERATIONS.map { it.aidlName }.sorted(),
         )
         assertEquals(
-            listOf("codecStatus", "exec", "version"),
+            listOf("codecStatus", "exec", "optionalCodecs", "version"),
             PrivilegedProtocol.READ_OPERATIONS.map { it.aidlName }.sorted(),
         )
+    }
+
+    @Test
+    fun `an HD-audio observation survives the round trip with all three states`() {
+        // The tri-state is the whole point: "unknown" must not decay into
+        // "false" anywhere between the helper and the screen, because the UI
+        // words the two completely differently - "Android decides" versus "this
+        // device is held to SBC".
+        listOf(
+            HdAudioObservation(supported = true, enabled = true, note = "on"),
+            HdAudioObservation(supported = true, enabled = false, note = "off"),
+            HdAudioObservation(supported = true, enabled = null, note = "nobody chose"),
+            HdAudioObservation(supported = false, enabled = null, note = "SBC-only headphone"),
+            HdAudioObservation(supported = null, enabled = null, note = ""),
+        ).forEach { original ->
+            val decoded = PrivilegedProtocol.decodeHdAudio(PrivilegedProtocol.encodeHdAudio(original))
+            assertEquals(original, decoded)
+        }
+    }
+
+    @Test
+    fun `a malformed HD-audio line decodes to null rather than to a default`() {
+        // Same discipline as the codec decoder: the helper answers a socket
+        // anything on the device may reach, so garbage has to be refusable
+        // rather than silently readable as "off".
+        listOf(
+            "HDAUDIO 1 1",
+            "HDAUDIO 1 1 ${b64("")} extra",
+            "HDAUDIO 2 1 ${b64("")}",
+            "HDAUDIO 1 yes ${b64("")}",
+            "CODEC 1 1 ${b64("")}",
+        ).forEach { assertNull("decodeHdAudio($it)", PrivilegedProtocol.decodeHdAudio(it)) }
     }
 
     @Test

@@ -42,6 +42,10 @@ class BackupRepository(context: Context) {
                 activeProfileId = activeProfileId(),
                 appVersion = appVersion(),
                 nowMillis = System.currentTimeMillis(),
+                // Not device-scoped like everything above it: an audiogram is a
+                // property of the ears, so there is exactly one and it goes into
+                // every backup regardless of what is connected.
+                clinical = HearingGraph.audiogramStore.currentClinicalAudiogram(),
             )
             val json = BackupCodec.encode(document)
             appContext.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
@@ -90,6 +94,13 @@ class BackupRepository(context: Context) {
                 document.profiles.forEach { HearingGraph.profileStore.save(BackupMapper.toDomain(it)) }
                 document.eq?.let { SystemGraph.settingsStore.save(BackupMapper.toDomain(it)) }
                 document.activeProfileId?.let { SystemGraph.settingsStore.setActiveProfileId(it) }
+                // Overwrites rather than merges, unlike the runs above. There is
+                // one pair of ears and therefore one clinical audiogram; merging
+                // two of them frequency by frequency would produce a document no
+                // practice ever issued.
+                document.clinicalAudiogram?.let {
+                    HearingGraph.audiogramStore.saveClinicalAudiogram(BackupMapper.toDomain(it))
+                }
 
                 BackupImportResult.Success(
                     runCount = document.hearingRuns.size,

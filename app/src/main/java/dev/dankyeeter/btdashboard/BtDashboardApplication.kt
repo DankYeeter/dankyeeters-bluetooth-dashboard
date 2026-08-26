@@ -3,8 +3,11 @@ package dev.dankyeeter.btdashboard
 import android.app.Application
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
+import dev.dankyeeter.btdashboard.privileged.AndroidSystemProperties
+import dev.dankyeeter.btdashboard.privileged.PrivilegedBluetoothRestartController
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodecController
+import dev.dankyeeter.btdashboard.privileged.PrivilegedHdAudioController
 import dev.dankyeeter.btdashboard.privileged.PrivilegedShellRunner
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.privileged.adb.HelperAutoStart
@@ -141,6 +144,15 @@ class BtDashboardApplication : Application() {
         val codecController = PrivilegedCodecController(this)
         SystemGraph.installCodecPreferenceController(codecController)
         PrivilegedCodec.install(codecController)
+        // HD audio and the Bluetooth restart go through the same helper, and are
+        // installed on the same terms: without one they report "cannot check"
+        // and "cannot restart", which is what the UI is built to show.
+        SystemGraph.installHdAudioController(PrivilegedHdAudioController(this))
+        SystemGraph.installBluetoothRestartController(PrivilegedBluetoothRestartController(this))
+        // Needs no helper at all — system properties are world-readable. It is
+        // only installed here because :core-system may not reach the hidden
+        // SystemProperties class itself.
+        SystemGraph.installSystemPropertyReader(AndroidSystemProperties)
         // Per-device profiles: listen for ACL connects for as long as we live.
         SystemGraph.startDeviceProfileAutoApply()
         // "As long as we live" used to be the problem: this process is whatever

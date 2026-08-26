@@ -195,6 +195,165 @@ internal class HelperBluetooth(private val context: Context) {
         )
     }
 
+    // ---- HD audio (optional codecs) -----------------------------------------
+
+    /**
+     * Reads whether this device may use anything beyond SBC.
+     *
+     * Two separate questions, and the UI needs both: whether the headphone
+     * *can* (`isOptionalCodecsSupported`) and whether it currently *may*
+     * (`isOptionalCodecsEnabled`). A single boolean cannot distinguish "your
+     * headphone is SBC-only" from "you turned HD audio off", and those call for
+     * opposite reactions from the user.
+     *
+     * The method names differ between AOSP releases — the `@SystemApi` pair
+     * `isOptionalCodecsSupported`/`isOptionalCodecsEnabled` in recent builds,
+     * `getSupportsOptionalCodecs`/`getOptionalCodecsEnabled` in older ones, and
+     * `dumpsys` on this device prints the *old* names, so both are live. Each is
+     * tried in turn rather than branching on `SDK_INT`: which name a build has
+     * is the question, and reflection can answer it directly instead of
+     * inferring it from a version number.
+     */
+    fun optionalCodecs(address: String): Result<HdAudioObservation> {
+        val device = device(address).getOrElse { return Result.failure(it) }
+        val a2dp = profile().getOrElse { return Result.failure(it) }
+        return readOptionalCodecs(a2dp, device, note = "read through the privileged A2DP API")
+    }
+
+    /**
+     * Sets HD audio for one device, then reads it back.
+     *
+     * Same contract as [setCodecPreference]: the call returning proves the
+     * request was accepted, not that it was honoured, so only the read-back is
+     * reported. Unlike the codec path there is no settle-polling — this value is
+     * stored in the stack's own bond database and is readable immediately; what
+     * takes time is the *renegotiation* it triggers, and that shows up in the
+     * codec section rather than here.
+     */
+    fun setOptionalCodecs(address: String, preference: Int): Result<HdAudioObservation> {
+        if (!OptionalCodecs.isWritablePreference(preference)) {
+            return Result.failure(
+                IllegalArgumentException(
+                    "HD audio preference $preference is not one of -1 (system default), " +
+                        "0 (off) or 1 (on)",
+                ),
+            )
+        }
+        val device = device(address).getOrElse { return Result.failure(it) }
+        val a2dp = profile().getOrElse { return Result.failure(it) }
+
+        // One name only, unlike the getters. `setOptionalCodecsEnabled` has kept
+        // its name and its `(BluetoothDevice, int)` shape across every release
+        // that has the API at all, so a second candidate here would not be a
+        // fallback — it would be a guess that turns "this build renamed the
+        // method" into a vaguer error than the real one.
+        val written = invokeIntSetter(a2dp, device, preference, "setOptionalCodecsEnabled")
+        written.exceptionOrNull()?.let {
+            return Result.failure(
+                IllegalStateException("setOptionalCodecsEnabled failed: ${reason(it)}"),
+            )
+        }
+
+        val after = readOptionalCodecs(a2dp, device, note = "")
+            .getOrElse {
+                return Result.failure(
+                    IllegalStateException(
+                        "the write was accepted but HD audio could not be read back " +
+                            "(${reason(it)}) — whether it took effect is unknown",
+                    ),
+                )
+            }
+        val wanted = OptionalCodecs.toTriState(preference)
+        return Result.success(
+            after.copy(
+                note = if (after.enabled == wanted) {
+                    "read back after the write"
+                } else {
+                    // Both readings are live from here and neither can be ruled
+                    // out, so both are stated — the same wording discipline the
+                    // codec path uses.
+                    "HD audio still reads ${describe(after.enabled)} — the stack either " +
+                        "refused the change or has not committed it yet"
+                },
+            ),
+        )
+    }
+
+    private fun readOptionalCodecs(
+        a2dp: BluetoothProfile,
+        device: BluetoothDevice,
+        note: String,
+    ): Result<HdAudioObservation> = runCatching {
+        HdAudioObservation(
+            supported = OptionalCodecs.toTriState(
+                invokeIntGetter(a2dp, device, "isOptionalCodecsSupported", "getSupportsOptionalCodecs"),
+            ),
+            enabled = OptionalCodecs.toTriState(
+                invokeIntGetter(a2dp, device, "isOptionalCodecsEnabled", "getOptionalCodecsEnabled"),
+            ),
+            note = note,
+        )
+    }.recoverCatching { throw IllegalStateException("reading HD audio failed: ${reason(it)}", it) }
+
+    /**
+     * The first of [names] this build actually has, invoked.
+     *
+     * Null when none of them exist *or* when the one that does returns
+     * something that is not an Int — both mean "this build will not tell us",
+     * which [OptionalCodecs.toTriState] turns into "unknown" rather than "no".
+     */
+    private fun invokeIntGetter(
+        a2dp: BluetoothProfile,
+        device: BluetoothDevice,
+        vararg names: String,
+    ): Int? = names.firstNotNullOfOrNull { name ->
+        runCatching {
+            a2dp.javaClass.getMethod(name, BluetoothDevice::class.java)
+                .apply { isAccessible = true }
+                .invoke(a2dp, device) as? Int
+        }.getOrNull()
+    }
+
+    /**
+     * Like [invokeIntGetter] but for the write, and it keeps the failure.
+     *
+     * A setter that silently did nothing would be the worst outcome here, so a
+     * missing method is an error the caller reports rather than a null that
+     * reads like success.
+     */
+    private fun invokeIntSetter(
+        a2dp: BluetoothProfile,
+        device: BluetoothDevice,
+        value: Int,
+        vararg names: String,
+    ): Result<Unit> {
+        val failures = mutableListOf<String>()
+        for (name in names) {
+            val attempt = runCatching {
+                a2dp.javaClass
+                    .getMethod(name, BluetoothDevice::class.java, Int::class.javaPrimitiveType!!)
+                    .apply { isAccessible = true }
+                    .invoke(a2dp, device, value)
+                Unit
+            }
+            attempt.onSuccess { return Result.success(Unit) }
+            attempt.exceptionOrNull()?.let { failures += "$name: ${reason(it)}" }
+        }
+        return Result.failure(
+            IllegalStateException(
+                "no HD-audio setter is callable on this build (${failures.joinToString("; ")})",
+            ),
+        )
+    }
+
+    private fun describe(enabled: Boolean?): String = when (enabled) {
+        true -> "on"
+        false -> "off"
+        null -> "unset"
+    }
+
+    // ---- codec read-back -----------------------------------------------------
+
     /**
      * Polls the read-back until it agrees with the request or the budget runs
      * out.

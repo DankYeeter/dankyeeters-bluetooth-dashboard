@@ -10,9 +10,15 @@ import dev.dankyeeter.btdashboard.monitor.codec.NoOpCodecController
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
 import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
+import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
+import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.CodecPreferenceController
+import dev.dankyeeter.btdashboard.system.devices.HdAudioController
+import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
+import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
+import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -545,5 +551,163 @@ class PrivilegedCodecController(
 
     private companion object {
         const val TAG = "PrivilegedCodec"
+    }
+}
+
+/**
+ * HD audio (optional codecs) through the privileged helper.
+ *
+ * Its own class rather than three more methods on [PrivilegedCodecController],
+ * because it answers a different question: that one is "which codec is this
+ * link running", this one is "is the link allowed to run anything but SBC".
+ * They are read and written independently, and the profile applier treats them
+ * as separate steps with separate outcomes — one class implementing both would
+ * be the only thing suggesting otherwise.
+ *
+ * Everything about the honesty contract is inherited from that class: no
+ * success is reported from a call that merely returned, and an absent helper
+ * answers "cannot check" rather than "not supported".
+ */
+class PrivilegedHdAudioController(
+    context: Context,
+    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+) : HdAudioController {
+
+    override fun isAvailable(): Boolean =
+        PrivilegedConnection.isConnected && bootstrap.activeToken() != null
+
+    override suspend fun read(address: String): HdAudioState =
+        when (val result = call { service, token -> service.optionalCodecs(token, address) }) {
+            is HdAudioCallResult.Observed -> HdAudioState.Known(
+                // Unknown support is reported as supported rather than as not.
+                // A bonded device that has never connected reads "unknown", and
+                // greying the control out there would tell a user their LDAC
+                // headphones are SBC-only. The read after the first connect
+                // corrects it either way, and offering a control that turns out
+                // to be moot is a much smaller wrong than withholding one.
+                supported = result.observation.supported != false,
+                enabled = result.observation.enabled,
+            )
+
+            is HdAudioCallResult.Unavailable -> HdAudioState.Unreadable(result.reason)
+        }
+
+    override suspend fun apply(address: String, preference: HdAudioPreference): HdAudioOutcome {
+        val wire = OptionalCodecs.fromTriState(preference.asEnabled())
+        return when (
+            val result = call { service, token ->
+                service.setOptionalCodecs(token, address, wire)
+            }
+        ) {
+            is HdAudioCallResult.Unavailable -> HdAudioOutcome.Unavailable(result.reason)
+
+            is HdAudioCallResult.Observed -> {
+                val observed = result.observation
+                if (observed.enabled == preference.asEnabled()) {
+                    HdAudioOutcome.Applied(observed.enabled)
+                } else {
+                    HdAudioOutcome.NotObserved(observed.note)
+                }
+            }
+        }
+    }
+
+    /**
+     * The same idiom as `PrivilegedCodecController.call`, with the HD-audio
+     * decoder. Not shared with it: the two differ only in which decode function
+     * they use, and threading that through as a parameter would make the one
+     * place that decides "is this reply readable" generic — which is exactly
+     * where a wrong answer would be least visible.
+     */
+    private suspend fun call(
+        block: (IPrivilegedService, String) -> String?,
+    ): HdAudioCallResult = withContext(Dispatchers.IO) {
+        val service = PrivilegedConnection.service.value
+            ?: return@withContext HdAudioCallResult.Unavailable(
+                "the privileged helper is not running, so HD audio cannot be checked",
+            )
+        val token = bootstrap.activeToken()
+            ?: return@withContext HdAudioCallResult.Unavailable(
+                "no token for the privileged helper",
+            )
+
+        runCatching {
+            val reply = block(service, token)
+                ?: return@runCatching HdAudioCallResult.Unavailable("the helper returned nothing")
+            PrivilegedProtocol.decodeHdAudio(reply)?.let { HdAudioCallResult.Observed(it) }
+                ?: HdAudioCallResult.Unavailable(
+                    PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
+                )
+        }.getOrElse {
+            Log.w(TAG, "privileged HD-audio call failed", it)
+            PrivilegedConnection.forget()
+            HdAudioCallResult.Unavailable("the privileged helper stopped responding")
+        }
+    }
+
+    private companion object {
+        const val TAG = "PrivilegedHdAudio"
+    }
+}
+
+/** Where an HD-audio answer came from, and what it actually said. */
+private sealed interface HdAudioCallResult {
+    data class Observed(val observation: HdAudioObservation) : HdAudioCallResult
+    data class Unavailable(val reason: String) : HdAudioCallResult
+}
+
+/**
+ * Turns Bluetooth off and on again through the privileged helper.
+ *
+ * The app has been telling users to do this by hand ever since the developer
+ * options existed — the stack reads those keys at startup, so a stored AVRCP
+ * version does nothing until the radio is cycled. The instruction was correct
+ * and was still a dead end: the app knew what had to happen and made the user
+ * go and do it.
+ */
+class PrivilegedBluetoothRestartController(
+    context: Context,
+    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+) : BluetoothRestartController {
+
+    override fun isAvailable(): Boolean =
+        PrivilegedConnection.isConnected && bootstrap.activeToken() != null
+
+    override suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
+        val service = PrivilegedConnection.service.value
+            ?: return@withContext BluetoothRestartOutcome.Unavailable(
+                "the privileged helper is not running, so Bluetooth cannot be restarted from here",
+            )
+        val token = bootstrap.activeToken()
+            ?: return@withContext BluetoothRestartOutcome.Unavailable(
+                "no token for the privileged helper",
+            )
+
+        runCatching {
+            val reply = service.restartBluetooth(token)
+                ?: return@runCatching BluetoothRestartOutcome.Failed("the helper returned nothing")
+            when {
+                PrivilegedProtocol.decodeResult(reply)?.first == 0 ->
+                    BluetoothRestartOutcome.Restarted
+
+                else -> BluetoothRestartOutcome.Failed(
+                    PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
+                )
+            }
+        }.getOrElse {
+            Log.w(TAG, "privileged Bluetooth restart failed", it)
+            PrivilegedConnection.forget()
+            // Failed, not Unavailable: the call was made, so the radio may be
+            // off right now. Reporting "nothing was attempted" would send the
+            // user looking for a problem somewhere else entirely.
+            BluetoothRestartOutcome.Failed(
+                "the privileged helper stopped responding part-way through — " +
+                    "check whether Bluetooth is back on",
+            )
+        }
+    }
+
+    private companion object {
+        const val TAG = "PrivilegedBtRestart"
     }
 }

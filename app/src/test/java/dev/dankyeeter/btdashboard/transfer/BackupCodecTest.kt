@@ -6,6 +6,8 @@ import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.CLINICAL_FREQUENCIES_HZ
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
@@ -73,6 +75,15 @@ class BackupCodecTest {
         eq = eq(),
     )
 
+    /** The owner's ENT result: flat 10 dB HL, 15 dB at 125/250 on the right. */
+    private fun clinical(): ClinicalAudiogram = ClinicalAudiogram(
+        leftDbHl = CLINICAL_FREQUENCIES_HZ.associateWith { 10.0 },
+        rightDbHl = CLINICAL_FREQUENCIES_HZ.associateWith { if (it <= 250) 15.0 else 10.0 },
+        measuredOn = "2026-08-14",
+        source = "ENT practice",
+        savedAtMillis = 1_700_000_900_000L,
+    )
+
     private fun document(): BackupDocument = BackupMapper.buildDocument(
         runs = listOf(run("run-1"), run("run-2")),
         audiogram = Audiogram(listOf("run-1", "run-2"), points(), points(1.0)),
@@ -81,6 +92,7 @@ class BackupCodecTest {
         activeProfileId = "profile-1",
         appVersion = "0.2.0",
         nowMillis = 1_700_001_000_000L,
+        clinical = clinical(),
     )
 
     private fun decodeOrFail(raw: String): BackupDocument =
@@ -393,5 +405,39 @@ class BackupCodecTest {
         )
         assertEquals(1f, restored.intensity, 0f)
         assertEquals(0f, restored.partialFactor, 0f)
+    }
+
+    // ---- clinical audiogram ---------------------------------------------------
+
+    @Test
+    fun `the clinical audiogram survives the round trip`() {
+        // The most valuable record in the file: runs can be re-measured in
+        // twenty minutes, this needs another appointment.
+        val restored = decodeOrFail(BackupCodec.encode(document())).clinicalAudiogram
+        assertNotNull(restored)
+        assertEquals(clinical(), BackupMapper.toDomain(restored!!))
+    }
+
+    @Test
+    fun `a file without a clinical audiogram still loads`() {
+        val legacy = document().copy(clinicalAudiogram = null)
+        assertNull(decodeOrFail(BackupCodec.encode(legacy)).clinicalAudiogram)
+    }
+
+    @Test
+    fun `an untested frequency stays absent rather than coming back as zero`() {
+        val sparse = ClinicalAudiogram(leftDbHl = mapOf(1000 to 30.0, 4000 to 45.0))
+        val restored = BackupMapper.toDomain(BackupMapper.toBackup(sparse))
+        assertEquals(setOf(1000, 4000), restored.leftDbHl.keys)
+        assertNull(restored.leftDbHl[750])
+        assertTrue(restored.rightDbHl.isEmpty())
+    }
+
+    @Test
+    fun `a frequency key that is not a number is dropped, not fatal`() {
+        val broken = BackupMapper.toBackup(clinical())
+            .copy(leftDbHl = mapOf("1000" to 20.0, "not-a-frequency" to 30.0))
+        val restored = BackupMapper.toDomain(broken)
+        assertEquals(mapOf(1000 to 20.0), restored.leftDbHl)
     }
 }

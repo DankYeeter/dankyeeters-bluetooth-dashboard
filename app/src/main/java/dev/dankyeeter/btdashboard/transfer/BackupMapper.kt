@@ -5,6 +5,7 @@ import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 
@@ -47,6 +48,14 @@ object BackupMapper {
         right = audiogram.right.map(::toBackup),
     )
 
+    fun toBackup(clinical: ClinicalAudiogram): BackupClinicalAudiogram = BackupClinicalAudiogram(
+        leftDbHl = clinical.leftDbHl.mapKeys { it.key.toString() },
+        rightDbHl = clinical.rightDbHl.mapKeys { it.key.toString() },
+        measuredOn = clinical.measuredOn,
+        source = clinical.source,
+        savedAtMillis = clinical.savedAtMillis,
+    )
+
     fun toBackup(eq: EqSettings): BackupEq = BackupEq(
         enabled = eq.enabled,
         // Without this the gain list is just a bare row of numbers, and the
@@ -81,6 +90,7 @@ object BackupMapper {
         activeProfileId: String?,
         appVersion: String,
         nowMillis: Long,
+        clinical: ClinicalAudiogram? = null,
     ): BackupDocument = BackupDocument(
         appVersion = appVersion,
         exportedAtMillis = nowMillis,
@@ -89,6 +99,7 @@ object BackupMapper {
         profiles = profiles.map(::toBackup),
         eq = toBackup(eq),
         activeProfileId = activeProfileId,
+        clinicalAudiogram = clinical?.takeUnless { it.isEmpty }?.let(::toBackup),
     )
 
     // ---- file -> domain -------------------------------------------------------
@@ -119,6 +130,23 @@ object BackupMapper {
         left = audiogram.left.map(::toDomain),
         right = audiogram.right.map(::toDomain),
     )
+
+    /**
+     * A frequency key that is not a number is dropped on its own rather than
+     * costing the whole record — the same rule the DataStore parser follows,
+     * because a hand-edited backup is exactly as likely to be malformed as a
+     * hand-edited preference.
+     */
+    fun toDomain(clinical: BackupClinicalAudiogram): ClinicalAudiogram = ClinicalAudiogram(
+        leftDbHl = clinical.leftDbHl.toFrequencyMap(),
+        rightDbHl = clinical.rightDbHl.toFrequencyMap(),
+        measuredOn = clinical.measuredOn,
+        source = clinical.source,
+        savedAtMillis = clinical.savedAtMillis,
+    )
+
+    private fun Map<String, Double>.toFrequencyMap(): Map<Int, Double> =
+        mapNotNull { (hz, db) -> hz.toIntOrNull()?.let { it to db } }.toMap()
 
     /**
      * Always sanitised: an imported curve must obey the app's gain limits.

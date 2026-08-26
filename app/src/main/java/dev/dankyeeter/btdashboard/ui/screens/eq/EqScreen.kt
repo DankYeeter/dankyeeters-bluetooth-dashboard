@@ -193,6 +193,7 @@ fun EqScreen(
             onIntensityChange = viewModel::setIntensity,
             onIntensityChangeFinished = viewModel::applyCompensationIfActive,
             onApply = viewModel::applyCompensation,
+            onSelectSource = viewModel::setCompensationSource,
             onSelectAdjustedReference = viewModel::selectAdjustedReference,
             onCreateProfile = viewModel::createProfile,
             onSaveIntoActive = viewModel::saveCurrentIntoActive,

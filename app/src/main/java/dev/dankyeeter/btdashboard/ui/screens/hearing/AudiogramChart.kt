@@ -23,8 +23,10 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -67,6 +69,7 @@ fun AudiogramChart(
     modifier: Modifier = Modifier,
     showLeft: Boolean = true,
     showRight: Boolean = true,
+    clinical: ClinicalAudiogram? = null,
 ) {
     val measurer = rememberTextMeasurer()
     val colors = MaterialTheme.colorScheme
@@ -77,6 +80,10 @@ fun AudiogramChart(
 
     val points = visiblePoints(active, runs, showLeft, showRight)
     val reference = referenceLevel(points)
+    // Already in the chart's deviation space, so nothing below has to know that
+    // these came off a different scale. See [ClinicalAudiogram.deviationCurve].
+    val clinicalLeft = if (showLeft) clinical?.deviationCurve(Ear.LEFT).orEmpty() else emptyList()
+    val clinicalRight = if (showRight) clinical?.deviationCurve(Ear.RIGHT).orEmpty() else emptyList()
 
     Canvas(modifier = modifier.fillMaxWidth().height(260.dp)) {
         val plot = PlotArea(
@@ -84,10 +91,18 @@ fun AudiogramChart(
             top = 12.dp.toPx(),
             right = size.width - 10.dp.toPx(),
             bottom = size.height - 24.dp.toPx(),
-            halfRangeDb = halfRangeFor(points, reference),
+            // The clinical curve votes on the range too: a scale sized for the
+            // measured points alone would flatten the overlay against the top
+            // or bottom edge, which is where the comparison is being made.
+            halfRangeDb = halfRangeFor(points, reference, clinicalLeft + clinicalRight),
         )
         drawGrid(plot, axisColor, labelColor, measurer)
         drawZeroLine(plot, labelColor, measurer)
+
+        // Drawn before the measured curves so those stay on top: this is the
+        // reference being compared against, not the subject of the chart.
+        drawDeviationCurve(plot, clinicalLeft, leftColor, 2.dp.toPx())
+        drawDeviationCurve(plot, clinicalRight, rightColor, 2.dp.toPx())
 
         if (reference == null) return@Canvas
         runs.forEach { run ->
@@ -102,7 +117,7 @@ fun AudiogramChart(
 }
 
 @Composable
-fun AudiogramLegend(modifier: Modifier = Modifier) {
+fun AudiogramLegend(modifier: Modifier = Modifier, showClinical: Boolean = false) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -110,8 +125,15 @@ fun AudiogramLegend(modifier: Modifier = Modifier) {
     ) {
         LegendEntry(MaterialTheme.colorScheme.primary, "Left")
         LegendEntry(MaterialTheme.colorScheme.tertiary, "Right")
+        // Only when a curve is actually drawn: a legend entry for an absent
+        // line is a promise the chart does not keep.
+        if (showClinical) LegendEntry(MaterialTheme.colorScheme.onSurfaceVariant, "clinic", dotted = true)
         Text(
-            "0 = your average · above = more sensitive · hollow = not measurable",
+            if (showClinical) {
+                "0 = each curve's own average · above = more sensitive · shapes only, not levels"
+            } else {
+                "0 = your average · above = more sensitive · hollow = not measurable"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -119,9 +141,23 @@ fun AudiogramLegend(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun LegendEntry(color: Color, label: String) {
+private fun LegendEntry(color: Color, label: String, dotted: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Canvas(Modifier.size(10.dp)) { drawCircle(color) }
+        // A dotted swatch rather than a filled dot, so the key looks like the
+        // stroke it stands for.
+        Canvas(Modifier.size(width = if (dotted) 18.dp else 10.dp, height = 10.dp)) {
+            if (dotted) {
+                drawLine(
+                    color = color,
+                    start = Offset(0f, size.height / 2f),
+                    end = Offset(size.width, size.height / 2f),
+                    strokeWidth = 2.dp.toPx(),
+                    pathEffect = CLINICAL_DASH,
+                )
+            } else {
+                drawCircle(color, radius = size.height / 2f, center = Offset(size.height / 2f, size.height / 2f))
+            }
+        }
         Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
@@ -167,10 +203,19 @@ private fun referenceLevel(points: List<ThresholdPoint>): Double? {
  * only converged points vote: hollow ones sit at the test's own limits and
  * would stretch the scale to exactly the artefact they represent.
  */
-private fun halfRangeFor(points: List<ThresholdPoint>, reference: Double?): Double {
-    if (reference == null) return 12.0
+private fun halfRangeFor(
+    points: List<ThresholdPoint>,
+    reference: Double?,
+    clinicalDeviations: List<Pair<Int, Double>> = emptyList(),
+): Double {
+    val clinicalMax = clinicalDeviations.maxOfOrNull { abs(it.second) } ?: 0.0
+    if (reference == null) {
+        // No measured curve yet, but the clinical overlay can stand alone — a
+        // fixed 12 dB range would hide a 25 dB clinical slope entirely.
+        return if (clinicalMax == 0.0) 12.0 else (ceil(clinicalMax / 3.0) * 3.0).coerceIn(6.0, 48.0)
+    }
     val maxAbs = points.filter { it.converged }.maxOfOrNull { abs(reference - it.thresholdDb) } ?: 0.0
-    return (ceil(maxAbs / 3.0) * 3.0).coerceIn(6.0, 48.0)
+    return (ceil(maxOf(maxAbs, clinicalMax) / 3.0) * 3.0).coerceIn(6.0, 48.0)
 }
 
 private data class PlotArea(
@@ -262,6 +307,48 @@ private fun DrawScope.drawZeroLine(plot: PlotArea, labelColor: Color, measurer: 
     )
     val layout = measurer.measure("0 dB", TextStyle(fontSize = 9.sp, color = labelColor))
     drawText(layout, topLeft = Offset(0f, y - layout.size.height / 2f))
+}
+
+/**
+ * The dot pattern the clinical overlay is drawn with.
+ *
+ * Tight round dots rather than the long dashes used for the grid and the zero
+ * line: those two are furniture, this is data, and at a glance a dashed data
+ * curve reads as another piece of furniture. It also has to survive being
+ * crossed by a 3 dp measured curve without either line becoming ambiguous.
+ */
+private val CLINICAL_DASH = PathEffect.dashPathEffect(floatArrayOf(3f, 7f))
+
+/**
+ * The clinical curve, already converted into the chart's deviation space.
+ *
+ * Dotted and without markers, because it is not a measurement this app made and
+ * must not be mistaken for one — the solid markered curves are the app's own
+ * points, the dots are somebody else's. There is deliberately no absolute
+ * alignment between the two: the offset between calibrated dB HL and this app's
+ * dBFS thresholds is unknown and unknowable without a measurement microphone in
+ * an artificial ear, so both curves are drawn against their own median and only
+ * their *shapes* are being compared. Two curves that sit on top of each other
+ * here mean the shapes agree, never that the levels do.
+ */
+private fun DrawScope.drawDeviationCurve(
+    plot: PlotArea,
+    deviations: List<Pair<Int, Double>>,
+    color: Color,
+    strokeWidth: Float,
+) {
+    if (deviations.size < 2) return
+    val path = Path()
+    deviations.sortedBy { it.first }.forEachIndexed { index, (hz, deviation) ->
+        val x = plot.xFor(hz)
+        val y = plot.yForDeviation(deviation)
+        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    }
+    drawPath(
+        path,
+        color.copy(alpha = 0.85f),
+        style = Stroke(width = strokeWidth, pathEffect = CLINICAL_DASH),
+    )
 }
 
 private fun DrawScope.drawCurve(

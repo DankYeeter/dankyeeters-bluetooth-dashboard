@@ -11,6 +11,8 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
+import dev.dankyeeter.btdashboard.hearing.CompensationSource
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import dev.dankyeeter.btdashboard.hearing.fit.FitBaseline
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
@@ -65,6 +67,63 @@ class AudiogramStore(context: Context) {
      */
     val selectedRuns: Flow<List<AudiogramRun>> = combine(runs, selectedRunIds) { all, chosen ->
         selectionOf(all, chosen)
+    }
+
+    /**
+     * The clinical audiogram, or null while none has been entered.
+     *
+     * One per person, not one per device — every other record in this store is
+     * keyed to the headphone it was measured through, because a threshold
+     * measured through a driver describes ear *and* driver together. A clinical
+     * audiogram is the exception: it was measured on calibrated equipment at a
+     * practice, it is a property of the ears alone, and it stays true whichever
+     * headphones are connected. Keying it per device would produce copies that
+     * could disagree about one pair of ears.
+     */
+    val clinicalAudiogram: Flow<ClinicalAudiogram?> = appContext.hearingDataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { prefs -> parseClinical(prefs[KEY_CLINICAL]) }
+
+    /**
+     * Which thresholds the compensation is built from. [CompensationSource.MEASURED]
+     * until the user picks otherwise, and again whenever the stored name is
+     * one this build does not know.
+     */
+    val compensationSource: Flow<CompensationSource> = appContext.hearingDataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { prefs ->
+            runCatching { CompensationSource.valueOf(prefs[KEY_SOURCE].orEmpty()) }
+                .getOrDefault(CompensationSource.MEASURED)
+        }
+
+    suspend fun currentClinicalAudiogram(): ClinicalAudiogram? = clinicalAudiogram.first()
+
+    /**
+     * Stores the clinical audiogram, or clears it when nothing is filled in.
+     *
+     * An empty audiogram is not a record of anything, and keeping one would
+     * leave the chart with a "clinic" legend entry that draws no curve. Saving
+     * a cleared editor is therefore the same act as clearing.
+     */
+    suspend fun saveClinicalAudiogram(audiogram: ClinicalAudiogram) {
+        if (audiogram.isEmpty) return clearClinicalAudiogram()
+        appContext.hearingDataStore.edit { prefs ->
+            prefs[KEY_CLINICAL] = encodeClinical(audiogram)
+        }
+    }
+
+    suspend fun clearClinicalAudiogram() {
+        appContext.hearingDataStore.edit { prefs ->
+            prefs.remove(KEY_CLINICAL)
+            // The source goes with it: a compensation built from an audiogram
+            // that no longer exists would silently fall back to the measured
+            // curve while the screen still said "Clinical audiogram".
+            prefs.remove(KEY_SOURCE)
+        }
+    }
+
+    suspend fun setCompensationSource(source: CompensationSource) {
+        appContext.hearingDataStore.edit { prefs -> prefs[KEY_SOURCE] = source.name }
     }
 
     suspend fun currentRuns(): List<AudiogramRun> = runs.first()
@@ -225,6 +284,37 @@ class AudiogramStore(context: Context) {
         }
     }
 
+    private fun encodeClinical(audiogram: ClinicalAudiogram): String = JSONObject().apply {
+        put("left", JSONObject(audiogram.leftDbHl.mapKeys { it.key.toString() }))
+        put("right", JSONObject(audiogram.rightDbHl.mapKeys { it.key.toString() }))
+        put("measuredOn", audiogram.measuredOn)
+        put("source", audiogram.source)
+        put("savedAt", audiogram.savedAtMillis)
+    }.toString()
+
+    /**
+     * Same defensive shape as every other parser here: anything unreadable
+     * degrades to "no clinical audiogram" rather than throwing. A frequency key
+     * that is not a number is dropped on its own, so one bad entry cannot cost
+     * the whole record.
+     */
+    private fun parseClinical(raw: String?): ClinicalAudiogram? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            val obj = JSONObject(raw)
+            ClinicalAudiogram(
+                leftDbHl = obj.readMap("left"),
+                rightDbHl = obj.readMap("right"),
+                measuredOn = obj.optString("measuredOn"),
+                source = obj.optString("source"),
+                savedAtMillis = obj.optLong("savedAt"),
+            ).takeUnless { it.isEmpty }
+        } catch (e: Exception) {
+            Log.w(TAG, "stored clinical audiogram could not be parsed", e)
+            null
+        }
+    }
+
     private fun encodeBaseline(baseline: FitBaseline): String = JSONObject().apply {
         put("left", JSONObject(baseline.left.mapKeys { it.key.toString() }))
         put("right", JSONObject(baseline.right.mapKeys { it.key.toString() }))
@@ -349,5 +439,7 @@ class AudiogramStore(context: Context) {
         private val KEY_RUNS = stringPreferencesKey("audiogram_runs_json")
         private val KEY_FIT_BASELINE = stringPreferencesKey("fit_baseline_json")
         private val KEY_SELECTED = stringSetPreferencesKey("audiogram_selected_ids")
+        private val KEY_CLINICAL = stringPreferencesKey("clinical_audiogram_json")
+        private val KEY_SOURCE = stringPreferencesKey("compensation_source")
     }
 }

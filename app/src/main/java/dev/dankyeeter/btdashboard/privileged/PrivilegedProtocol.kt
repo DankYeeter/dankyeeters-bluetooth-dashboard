@@ -81,11 +81,32 @@ object PrivilegedProtocol {
         /** Reads the negotiated A2DP codec through the privileged system API. */
         CODEC_STATUS("codecStatus", mutates = false),
 
+        /** Reads one device's HD-audio (optional codecs) state. Observes only. */
+        OPTIONAL_CODECS("optionalCodecs", mutates = false),
+
         /**
-         * Asks the Bluetooth stack to renegotiate a codec. The first — and so
-         * far only — operation that changes the device.
+         * Asks the Bluetooth stack to renegotiate a codec. The first operation
+         * that changes the device.
          */
         SET_CODEC_PREFERENCE("setCodecPreference", mutates = true),
+
+        /**
+         * Turns HD audio on or off for one device.
+         *
+         * Mutating, and more so than it looks: the stack drops and re-negotiates
+         * the A2DP link when this changes, so it is audible.
+         */
+        SET_OPTIONAL_CODECS("setOptionalCodecs", mutates = true),
+
+        /**
+         * Cycles the Bluetooth radio.
+         *
+         * The four `cmd bluetooth_manager` commands behind it could have gone
+         * into [ALLOWED] and travelled through [EXEC] — and that would have put
+         * "switch the user's Bluetooth off" behind the door marked read-only.
+         * Same reasoning as [GRANT_SECURE_SETTINGS], same conclusion.
+         */
+        RESTART_BLUETOOTH("restartBluetooth", mutates = true),
 
         /**
          * Stops the helper. Counted as mutating: it ends the privileged
@@ -249,6 +270,55 @@ object PrivilegedProtocol {
                 .filter { it.isNotBlank() },
             note = decodeOrNull(parts[8]) ?: return null,
         )
+    }
+
+    // ---- HD audio replies ---------------------------------------------------
+
+    /**
+     * One HD-audio observation.
+     *
+     * Both flags are tri-state and neither may be flattened. `supported` is
+     * unknown when the stack has not decided yet — a freshly bonded device
+     * reports that until the first connection — and `enabled` is unknown when
+     * nobody has expressed a preference, which is a state the user can ask for
+     * on purpose. Encoding either as `false` would turn "we do not know" into
+     * "no", which is the one mistake this whole protocol is built to avoid.
+     */
+    fun encodeHdAudio(observation: HdAudioObservation): String = listOf(
+        "HDAUDIO",
+        observation.supported.wire(),
+        observation.enabled.wire(),
+        encode(observation.note),
+    ).joinToString(SEPARATOR.toString())
+
+    fun decodeHdAudio(line: String): HdAudioObservation? {
+        val parts = line.stripLineEnding().split(SEPARATOR)
+        if (parts.size != 4 || parts[0] != "HDAUDIO") return null
+        // Both fields are checked for legality before either is read, because
+        // "unknown" and "unreadable" both want to be null and only one of them
+        // may reach the caller as a value.
+        if (!isWireTriState(parts[1]) || !isWireTriState(parts[2])) return null
+        return HdAudioObservation(
+            supported = parts[1].fromWire(),
+            enabled = parts[2].fromWire(),
+            note = decodeOrNull(parts[3]) ?: return null,
+        )
+    }
+
+    /** The tri-state encoding, shared by both flags. */
+    private fun Boolean?.wire(): String = when (this) {
+        null -> "-1"
+        true -> "1"
+        false -> "0"
+    }
+
+    private fun isWireTriState(value: String): Boolean = value == "1" || value == "0" || value == "-1"
+
+    /** Only ever called on a value [isWireTriState] has already accepted. */
+    private fun String.fromWire(): Boolean? = when (this) {
+        "1" -> true
+        "0" -> false
+        else -> null
     }
 
     private fun encode(value: String): String =

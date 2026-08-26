@@ -83,7 +83,45 @@ interface IPrivilegedService {
         long ldacQuality
     );
 
-    /** Stops the helper. The app offers this so a stale helper can be replaced. */
+    /**
+     * Reads Android's per-device "HD audio" switch — AOSP's optional codecs.
+     *
+     * Separate from codecStatus even though both describe one device's audio:
+     * this one is the gate in front of the codec negotiation rather than a
+     * property of it, and folding it into the codec reply would mean an old
+     * helper's shorter CODEC line had to be told apart from a malformed one.
+     *
+     * @return an encoded HDAUDIO line, or an ERR line
+     */
+    String optionalCodecs(String token, String address);
+
+    /**
+     * Turns HD audio on or off for one device.
+     *
+     * @param preference 1 enable, 0 disable, -1 hand the decision back to
+     *   Android. The three are AOSP's own OPTIONAL_CODECS_PREF_* values, passed
+     *   through rather than re-encoded, so there is no second vocabulary to
+     *   keep in step with the platform's.
+     * @return an encoded HDAUDIO line describing what the helper **read back**,
+     *   or an ERR line. As with setCodecPreference, a reply is a report of what
+     *   was observed and never a claim that the request was honoured.
+     */
+    String setOptionalCodecs(String token, String address, int preference);
+
+    /**
+     * Turns Bluetooth off and on again.
+     *
+     * Deliberately its own operation rather than four whitelist entries: it
+     * changes the state of the phone, and the whitelist is classified read-only.
+     * Taking no arguments is the point — there is nothing for a caller to vary,
+     * so this cannot become a general way to drive `cmd bluetooth_manager`.
+     *
+     * @return an encoded result line, or an ERR line when the adapter did not
+     *   reach the expected state. The helper waits for each transition rather
+     *   than sleeping and hoping.
+     */
+    String restartBluetooth(String token);
+
     /**
      * Grants this app WRITE_SECURE_SETTINGS, once.
      *

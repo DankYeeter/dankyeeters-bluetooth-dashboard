@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.CompensationResult
+import dev.dankyeeter.btdashboard.hearing.CompensationSource
 import kotlin.math.abs
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
@@ -70,6 +72,7 @@ internal fun CompensationSection(
     onIntensityChange: (Float) -> Unit,
     onIntensityChangeFinished: () -> Unit,
     onApply: () -> Unit,
+    onSelectSource: (CompensationSource) -> Unit,
     onSelectAdjustedReference: () -> Unit,
     onCreateProfile: (String) -> Unit,
     onSaveIntoActive: () -> Unit,
@@ -93,11 +96,22 @@ internal fun CompensationSection(
         )
 
         AudiogramSummary(state)
-        CalibrationRow(state)
+        SourceChoice(state, onSelectSource)
+        // Meaningless for the clinical source, which never went through a
+        // headphone — a "Device calibration: Not set" line under a clinical
+        // curve would invite someone to go and set one.
+        if (state.effectiveSource == CompensationSource.MEASURED) CalibrationRow(state)
         IntensityControl(state, onIntensityChange, onIntensityChangeFinished)
 
         val result = state.result
-        if (result == null) {
+        if (state.clinicalPrescribesNothing && result != null) {
+            NothingToCorrectNotice()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GoldButton(onClick = onApply, enabled = !state.applied) {
+                    Text(if (state.applied) "Applied" else "Apply to EQ")
+                }
+            }
+        } else if (result == null) {
             // A dead end otherwise: the one thing that would fix this state is
             // on another screen, so the way there belongs here.
             Text(
@@ -172,6 +186,14 @@ private fun AudiogramSummary(state: CompensationUiState) {
     // of the sentence and "1 run(s)" makes the reader do the work of deciding
     // whether that is enough.
     val text = when {
+        // Says the source first, because with two of them on the screen the
+        // run count would otherwise describe data the curve is not built from.
+        state.effectiveSource == CompensationSource.CLINICAL ->
+            listOfNotNull(
+                "Built from your clinical audiogram",
+                state.clinical?.source?.takeIf { it.isNotBlank() },
+                state.clinical?.measuredOn?.takeIf { it.isNotBlank() },
+            ).joinToString(" · ") + "."
         state.audiogram == null -> "No hearing test yet."
         state.runCount == 0 -> "Loaded from a saved preset."
         state.runCount == 1 -> "Based on one run — two more make it steady."
@@ -179,6 +201,94 @@ private fun AudiogramSummary(state: CompensationUiState) {
         else -> "Based on ${state.runCount} runs — enough to be steady."
     }
     Text(text, style = MaterialTheme.typography.bodySmall)
+}
+
+/**
+ * Which thresholds the correction is built from, offered only when there are
+ * two to choose between.
+ *
+ * Absent for everyone who has never been to an ENT, which is most people: a
+ * picker with one usable option is a decision the app is pretending to hand
+ * over. When it does appear, the measured curve stays the default — it is the
+ * only one of the two that knows anything about *this* headphone.
+ */
+@Composable
+private fun SourceChoice(state: CompensationUiState, onSelect: (CompensationSource) -> Unit) {
+    if (!state.clinicalAvailable) return
+
+    ExplainedBlock(
+        label = "Threshold source",
+        explanation = "The hearing test in this app plays tones through your headphones at " +
+            "whatever volume you had set, so its numbers only mean something next to each " +
+            "other — it measures the shape of your hearing honestly and its level not at " +
+            "all. What it does know is your headphones, and the correction it produces is " +
+            "for the pair of ears and drivers together.\n\n" +
+            "A clinical audiogram is the other way round. It is calibrated, so 20 dB HL " +
+            "means the same thing at a practice in another city, and the rule this app " +
+            "follows (NAL-R) was written for exactly those numbers — they go in " +
+            "unconverted. But it says nothing about your headphones, so no device " +
+            "calibration is applied and nothing corrects for the driver.\n\n" +
+            "If the two disagree at the low frequencies, the clinic is almost certainly " +
+            "right: a leaking seal and a noisy room both cost bass, and neither exists in " +
+            "a sound booth.",
+    ) { toggle ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            PanelHeader("Threshold source")
+            toggle()
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = state.effectiveSource == CompensationSource.MEASURED,
+                onClick = { onSelect(CompensationSource.MEASURED) },
+                label = { Text("Measured through this headphone") },
+            )
+            FilterChip(
+                selected = state.effectiveSource == CompensationSource.CLINICAL,
+                onClick = { onSelect(CompensationSource.CLINICAL) },
+                label = { Text("Clinical audiogram") },
+            )
+        }
+    }
+}
+
+/**
+ * The answer when the calibrated measurement says there is nothing wrong.
+ *
+ * This is a result, not a failure, and the wording has to make that
+ * unmistakable — a screen that went quiet here would read as broken, and the
+ * temptation to fill the silence with a small curve is exactly what the app
+ * must not do. Normal hearing gets no correction, and the reason it gets none
+ * is that there is nothing to correct.
+ *
+ * The second sentence exists because the person reading this came here wanting
+ * something to happen. Something still can: loudness restoration lifts quiet
+ * passages without changing the tonal balance, which is a real, audible
+ * improvement that does not depend on having a hearing loss.
+ */
+@Composable
+private fun NothingToCorrectNotice() {
+    ExplainedHeader(
+        "Nothing to correct",
+        "Anything up to 20 dB HL is normal hearing, and your audiogram is flat inside " +
+            "that. NAL-R is a prescription for hearing loss: with no loss and no tilt, " +
+            "the honest output is a flat correction, so that is what you get.\n\n" +
+            "Fed 10 dB HL literally the formula would still return two to four " +
+            "decibels — but look at where those come from. They are the rule's own " +
+            "speech-spectrum weighting, the same constant for every listener, and once " +
+            "the automatic headroom has removed the overall level all that is left of " +
+            "it is a few dB of bass cut that says nothing whatever about your ears. " +
+            "Applying that would be inventing a correction, and inventing one is worse " +
+            "than applying none.\n\n" +
+            "Loudness restoration is the control that does something for ears like " +
+            "yours: it lifts quiet passages towards the loud ones instead of lifting " +
+            "one part of the spectrum, so detail that was sitting below the noise of " +
+            "the room becomes audible without the tonal balance moving.",
+    )
+    Text(
+        "Your clinical audiogram is flat — there is nothing to correct. Loudness " +
+            "restoration is the knob that adds audible detail anyway.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
 }
 
 /**
@@ -628,7 +738,14 @@ private fun ProfileList(
             ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 if (state.adjustedReferenceReady) {
                     DropdownMenuItem(
-                        text = { Text(AdjustedReference.NAME + " — from your hearing test") },
+                        text = {
+                            Text(
+                                AdjustedReference.NAME + when (state.effectiveSource) {
+                                    CompensationSource.CLINICAL -> " — from your clinical audiogram"
+                                    CompensationSource.MEASURED -> " — from your hearing test"
+                                },
+                            )
+                        },
                         onClick = {
                             open = false
                             onSelectAdjustedReference()

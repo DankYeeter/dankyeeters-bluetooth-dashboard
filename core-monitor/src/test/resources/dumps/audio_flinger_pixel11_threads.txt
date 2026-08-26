@@ -1,0 +1,84 @@
+Start begin: 08-26 06:25:07.239
+Now:         08-26 17:39:27.562
+
+Bluetooth latency modes are enabled
+
+Output thread 0xb4000076973a9790, name AudioOut_D, tid 1624, type 0 (MIXER):
+  I/O handle: 13
+  Standby: yes
+  Sample rate: 48000 Hz
+  HAL frame count: 480
+  HAL format: 0x5 (AUDIO_FORMAT_PCM_FLOAT)
+  HAL buffer size: 3840 bytes
+  Channel count: 2
+  Channel mask: 0x00000003 (front-left, front-right)
+  Processing format: 0x5 (AUDIO_FORMAT_PCM_FLOAT)
+  Processing frame size: 8 bytes
+  Pending config events: none
+  Output devices: 0x400000 (AUDIO_DEVICE_OUT_SPEAKER_SAFE)
+  Input device: 0 (AUDIO_DEVICE_NONE)
+  Audio source: 0 (AUDIO_SOURCE_DEFAULT)
+  Total writes: 4046
+  Delayed writes: 0
+  Blocked in write: no
+  AudioStreamOut: 0xb4000075aa812410 flags 0x6 (AUDIO_OUTPUT_FLAG_PRIMARY|AUDIO_OUTPUT_FLAG_FAST)
+  Frames written: 3884160
+  FastMixer thread 0xb4000076972293f0 tid=1623  FastMixer command=COLD_IDLE writeSequence=16532 framesWritten=3967680
+            numTracks=1 writeErrors=0 underruns=4 overruns=14
+            sampleRate=48000 frameCount=480 measuredWarmup=23.5 ms, warmupCycles=7
+            mixPeriod=10.00 ms latency=41.00 ms
+  Fast tracks: sMaxFastTracks=8 activeMask=0x1
+  Index Active Full Partial Empty  Recent Ready    Written
+      0    yes  920       0     0    full  2400    3881760
+      1     no    0       0     0    full     0          0
+Bluetooth latency modes are enabled
+HAL does support Bluetooth latency modes
+Supported latency modes: { FREE }
+
+  Normal mixer raw underrun counters: partial=0 empty=0
+  0 Tracks
+  0 Effect Chains
+  Local log:
+                                                         Type     Id Active Client(pid/uid) Session Port Id S  Flags   Format Chn mask  SRate ST Usg CT  G db  L dB  R dB  VS dB  PortVol dB  PortMuted   Server FrmCnt  FrmRdy F Underruns  Flushed BitPerfect InternalMute   Latency
+   08-26 09:41:47.274 removeTrack_l (0xb40000755a813698)         354     no    4187/  10378    1177     757 T  0x600 00000001 00000001  44100  5   5  0  -inf     0     0     0           -6       true 000006FA  22050       0 f         0        0      false        false  388.90 k
+   08-26 09:41:59.620 CFG_EVENT_CREATE_AUDIO_PATCH: old device 0x80 (AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) new device 0x80 (AUDIO_DEVICE_OUT_BLUETOOTH_A2DP)
+
+Output thread 0xb400007697002790, name AudioOut_15, tid 1629, type 0 (MIXER):
+  I/O handle: 21
+  Standby: yes
+  Sample rate: 48000 Hz
+  HAL frame count: 1920
+  HAL format: 0x5 (AUDIO_FORMAT_PCM_FLOAT)
+  HAL buffer size: 15360 bytes
+  Channel count: 2
+  Channel mask: 0x00000003 (front-left, front-right)
+  Processing format: 0x5 (AUDIO_FORMAT_PCM_FLOAT)
+  Processing frame size: 8 bytes
+  Pending config events: none
+  Output devices: 0x2 (AUDIO_DEVICE_OUT_SPEAKER)
+  Input device: 0 (AUDIO_DEVICE_NONE)
+  Audio source: 0 (AUDIO_SOURCE_DEFAULT)
+  Total writes: 343441
+  Delayed writes: 0
+  Blocked in write: no
+  AudioStreamOut: 0xb4000075aa814e40 flags 0x8 (AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+  Frames written: 659399040
+  Thread throttle time (msecs): 318
+  AudioMixer tracks:
+  Master mono: off
+  No FastMixer
+Bluetooth latency modes are enabled
+HAL does support Bluetooth latency modes
+Supported latency modes: { FREE }
+
+  Normal mixer raw underrun counters: partial=0 empty=0
+  0 Tracks
+  0 Effect Chains
+  Local log:
+                                                         Type     Id Active Client(pid/uid) Session Port Id S  Flags   Format Chn mask  SRate ST Usg CT  G db  L dB  R dB  VS dB  PortVol dB  PortMuted   Server FrmCnt  FrmRdy F Underruns  Flushed BitPerfect InternalMute   Latency
+   08-26 11:48:24.584 removeTrack_l (0xb40000755a81af58)         591     no    9137/  10360    2473    1240 T  0x600 00000001 00000003  48000  3   1  0   -33     0     0     0          -33      false 00009600  12000       0 f         0    12000      false        false  189.01 k
+   08-26 11:48:26.605 AT::add       (0xb40000755a81a548)         607     no    9137/  10360    2521    1268 A  0x000 00000001 00000003  44100  3   1  0  -inf     0     0     0          -33      false 00000000  11025   11025 f         0        0      false        false       new
+   08-26 11:48:26.866 CFG_EVENT_CREATE_AUDIO_PATCH: old device 0x2 (AUDIO_DEVICE_OUT_SPEAKER) new device 0x2 (AUDIO_DEVICE_OUT_SPEAKER)
+
+Patches:
+  Patch handle 34: 1 sources, 1 sinks

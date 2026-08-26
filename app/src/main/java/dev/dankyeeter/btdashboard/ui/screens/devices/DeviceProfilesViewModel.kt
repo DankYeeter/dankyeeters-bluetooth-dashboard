@@ -21,9 +21,12 @@ import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeStatus
 import dev.dankyeeter.btdashboard.system.devices.ApplyResult
+import dev.dankyeeter.btdashboard.system.devices.BluetoothReadOnlySettings
+import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
 import dev.dankyeeter.btdashboard.system.devices.BluetoothDeveloperOptions
+import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.system.devices.ProfileAction
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
@@ -50,6 +53,21 @@ data class CodecInfo(
     /** What the link is actually running, or null when unreadable. */
     val negotiated: CodecStatus? = null,
     val connected: Boolean = false,
+    /**
+     * HD audio for the same device, read in the same pass.
+     *
+     * It rides along here rather than in a flow of its own because it is
+     * derived from exactly the same three inputs — which device, whether it is
+     * connected, whether the helper is up — and reading it separately would
+     * mean two flows recomputing on the same events with no guarantee they
+     * agree. The codec section and the HD-audio row would then be able to
+     * disagree about whether the device is even connected, which is the drift
+     * this data class exists to prevent.
+     *
+     * Null while nothing has been read yet, as distinct from
+     * [HdAudioState.Unreadable], which is an answer.
+     */
+    val hdAudio: HdAudioState? = null,
 )
 
 /** A device the user could have a profile for, whether or not one exists yet. */
@@ -206,6 +224,40 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         .map { it.connected }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /** Live HD-audio state for the watched device; null before anything is read. */
+    val hdAudioState: StateFlow<HdAudioState?> = codecInfo
+        .map { it.hdAudio }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Whether the helper can cycle the radio.
+     *
+     * Derived from the same connection flow [helperConnected] uses rather than
+     * asked once: the button is on a panel the user may leave open while the
+     * helper connects, and a value read at compose time would still say "no"
+     * afterwards.
+     */
+    val canRestartBluetooth: StateFlow<Boolean> = PrivilegedConnection.service
+        .map { SystemGraph.bluetoothRestart.isAvailable() }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            SystemGraph.bluetoothRestart.isAvailable(),
+        )
+
+    /** True only while a restart is in flight, so the button cannot be double-tapped. */
+    private val _restarting = MutableStateFlow(false)
+    val restarting: StateFlow<Boolean> = _restarting.asStateFlow()
+
+    /**
+     * Live values of the settings the app can only *show*.
+     *
+     * Null means the property is unset, which is the normal state and is worded
+     * as such — see [dev.dankyeeter.btdashboard.system.devices.BluetoothReadOnlySettings].
+     */
+    private val _readOnlySettings = MutableStateFlow<Map<String, String?>>(emptyMap())
+    val readOnlySettings: StateFlow<Map<String, String?>> = _readOnlySettings.asStateFlow()
+
     init {
         refresh()
     }
@@ -215,6 +267,89 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         _absoluteVolumeStatus.value = absoluteVolume.status()
         _liveDevOptions.value = BluetoothDeveloperOptions.all.associate {
             it.key to SystemGraph.globalSettings.read(it.key)
+        }
+        _readOnlySettings.value = BluetoothReadOnlySettings.all.associate {
+            it.liveValueKey to SystemGraph.systemProperties.read(it.liveValueKey)
+        }
+    }
+
+    /**
+     * Writes one global **now**, system-wide, outside any profile.
+     *
+     * The counterpart to the per-device picker, not a duplicate of it: that one
+     * stores "set this when the Bathys connects", this one answers "set this,
+     * for the phone, today". Both go through the same read-back-confirming
+     * controller, so neither can report a success the settings database does
+     * not actually show.
+     *
+     * [value] of [BluetoothDeveloperOptions.USE_SYSTEM_DEFAULT] deletes the key
+     * rather than writing a guessed default — the same distinction the applier
+     * makes, for the same reason.
+     */
+    fun setGlobalNow(key: String, value: String) {
+        val option = BluetoothDeveloperOptions.byKey(key) ?: return
+        val settings = SystemGraph.globalSettings
+        if (!settings.isWritable()) {
+            post(null, "\"${option.label}\" was not changed — WRITE_SECURE_SETTINGS is not granted.")
+            return
+        }
+
+        val systemDefault = value == BluetoothDeveloperOptions.USE_SYSTEM_DEFAULT
+        val ok = if (systemDefault) settings.clear(key) else settings.write(key, value)
+        refresh()
+
+        post(
+            null,
+            when {
+                !ok && systemDefault ->
+                    "\"${option.label}\" could not be reset — the key still holds a value."
+                // The only evidence available that a build ignores a key, said
+                // plainly rather than reported as a success.
+                !ok ->
+                    "\"${option.label}\" did not stick — this Android build may not support it."
+
+                systemDefault ->
+                    "\"${option.label}\" is back to Android's own default. " +
+                        "Restart Bluetooth for it to take effect."
+
+                else ->
+                    "\"${option.label}\" is now ${option.labelFor(value)} system-wide. " +
+                        "Restart Bluetooth for it to take effect."
+            },
+        )
+    }
+
+    /**
+     * Turns Bluetooth off and on again, so a stored global actually takes hold.
+     *
+     * The screen has been telling people to do this by hand since the developer
+     * options existed. Doing it here is the same action, minus the trip to the
+     * quick-settings panel.
+     */
+    fun restartBluetooth() {
+        if (_restarting.value) return
+        _restarting.value = true
+        viewModelScope.launch {
+            val outcome = runCatching { SystemGraph.bluetoothRestart.restart() }
+                .getOrElse {
+                    BluetoothRestartOutcome.Failed(it.message ?: "the restart threw")
+                }
+            _restarting.value = false
+            post(
+                null,
+                when (outcome) {
+                    BluetoothRestartOutcome.Restarted ->
+                        "Bluetooth was turned off and on again. Anything stored above is in " +
+                            "force now; your headphones will reconnect on their own."
+
+                    is BluetoothRestartOutcome.Failed ->
+                        "The restart did not finish: ${outcome.detail}"
+
+                    is BluetoothRestartOutcome.Unavailable ->
+                        "Bluetooth was not restarted: ${outcome.reason}"
+                },
+            )
+            refresh()
         }
     }
 
@@ -245,6 +380,11 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             (MonitorGraph.codecSource.codecStatus(address) as? CodecReadResult.Available)?.status
         }.getOrNull()
 
+        // A throw here must not take the codec fields down with it: the two are
+        // read through different privileged calls and either can fail alone.
+        val hdAudio = runCatching { SystemGraph.hdAudio.read(address) }
+            .getOrElse { HdAudioState.Unreadable(it.message ?: "the HD-audio read failed") }
+
         return CodecInfo(
             // An empty answer is what the no-op controller returns when there
             // is no helper. That is "we could not ask", not "this device
@@ -252,6 +392,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             offered = families.takeIf { it.isNotEmpty() }?.map { it.name },
             negotiated = status,
             connected = true,
+            hdAudio = hdAudio,
         )
     }
 
@@ -386,6 +527,22 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
                 // flight, so both are named.
                 is ProfileAction.CodecNotObserved ->
                     "Codec still reads ${action.observed}: ${action.detail}."
+                is ProfileAction.HdAudioSet -> {
+                    val state = when (action.enabled) {
+                        true -> "on"
+                        false -> "off — this device is now SBC only"
+                        // The stack's "nobody has chosen", which is what "Use
+                        // System Default" asks for. Named rather than rounded to
+                        // "on", because the two are undone differently.
+                        null -> "back to Android's own choice"
+                    }
+                    if (action.alreadySet) {
+                        "HD audio was already $state."
+                    } else {
+                        "HD audio is now $state — read back, not just requested."
+                    }
+                }
+                is ProfileAction.HdAudioNotObserved -> "HD audio: ${action.detail}."
                 is ProfileAction.Skipped -> "Skipped ${action.what}: ${action.reason}."
             }
         }

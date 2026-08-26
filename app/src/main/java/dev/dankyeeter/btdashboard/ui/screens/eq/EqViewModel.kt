@@ -8,10 +8,13 @@ import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.hearing.Audiogram
+import dev.dankyeeter.btdashboard.hearing.asRelativeLossHl
 import dev.dankyeeter.btdashboard.hearing.CalibrationPreset
 import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.CompensationResult
+import dev.dankyeeter.btdashboard.hearing.CompensationSource
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_INTENSITY
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_PARTIAL_FACTOR
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
@@ -45,6 +48,10 @@ data class CompensationUiState(
     val profiles: List<CompensationProfile> = emptyList(),
     val activeProfileId: String? = null,
     val applied: Boolean = false,
+    /** The ENT result, if one was entered on the hearing screen. */
+    val clinical: ClinicalAudiogram? = null,
+    /** Which thresholds the user picked. Only offered while [clinicalAvailable]. */
+    val source: CompensationSource = CompensationSource.MEASURED,
 ) {
     val preset: CalibrationPreset?
         get() = presets.firstOrNull { it.id == presetId }
@@ -53,9 +60,67 @@ data class CompensationUiState(
     val adjustedReferenceActive: Boolean
         get() = activeProfileId == AdjustedReference.ID
 
-    /** Whether enough runs exist for the generated curve to stand on anything. */
+    val clinicalAvailable: Boolean get() = clinical?.isEmpty == false
+
+    /**
+     * The source actually in force.
+     *
+     * A stored choice of [CompensationSource.CLINICAL] falls back to the
+     * measured curve when the clinical audiogram has since been deleted. The
+     * fallback lives here rather than in the store so that one property answers
+     * for both the computation and the label on screen — a screen that said
+     * "Clinical audiogram" over a curve built from runs would be the worst of
+     * the available failures.
+     */
+    val effectiveSource: CompensationSource
+        get() = if (clinicalAvailable) source else CompensationSource.MEASURED
+
+    /**
+     * The thresholds the prescription is computed from right now.
+     *
+     * See [ClinicalAudiogram.prescriptionThresholdsDbHl] for the unit mapping:
+     * an ENT form is already in NAL-R's own units, so the values go in
+     * unconverted.
+     */
+    val activeAudiogram: Audiogram?
+        get() = when (effectiveSource) {
+            CompensationSource.CLINICAL -> clinical?.toAudiogram()
+            // Rebased into the loss frame NAL-R takes — see asRelativeLossHl
+            // for why the raw dBFS values used to flatten every prescription.
+            CompensationSource.MEASURED -> audiogram?.asRelativeLossHl()
+        }
+
+    /**
+     * The calibration preset to compute with.
+     *
+     * Forced to generic — all offsets zero — for the clinical source. The
+     * preset undoes a headphone's own frequency response, and a clinical
+     * audiogram never went through a headphone: subtracting one there would
+     * corrupt a calibrated measurement with a correction for hardware that was
+     * not in the path.
+     */
+    val activePresetId: String
+        get() = when (effectiveSource) {
+            CompensationSource.CLINICAL -> CalibrationPresetRepository.GENERIC_ID
+            CompensationSource.MEASURED -> presetId
+        }
+
+    /** True when the active source is a clinical audiogram with no loss in it. */
+    val clinicalPrescribesNothing: Boolean
+        get() = effectiveSource == CompensationSource.CLINICAL &&
+            clinical?.prescribesNothing == true
+
+    /**
+     * Whether the generated curve has anything to stand on.
+     *
+     * Three runs, *or* a clinical audiogram. The run threshold exists because a
+     * median of one self-test run is not a reference; a calibrated audiogram
+     * from a practice already is one, and demanding three headphone runs on top
+     * of it would gate the better measurement behind the worse.
+     */
     val adjustedReferenceReady: Boolean
-        get() = runCount >= AdjustedReference.REQUIRED_RUNS
+        get() = runCount >= AdjustedReference.REQUIRED_RUNS ||
+            (effectiveSource == CompensationSource.CLINICAL && activeAudiogram != null)
 }
 
 class EqViewModel : ViewModel() {
@@ -117,6 +182,19 @@ class EqViewModel : ViewModel() {
                 }
                 syncGeneratedCurve()
             }
+        }
+        viewModelScope.launch {
+            // Not folded into the combine above: the clinical audiogram is not
+            // a property of the connected headphone, so it must not be
+            // re-resolved when the device changes.
+            combine(
+                audiogramStore.clinicalAudiogram,
+                audiogramStore.compensationSource,
+            ) { clinical, source -> clinical to source }
+                .collect { (clinical, source) ->
+                    update { it.copy(clinical = clinical, source = source) }
+                    syncGeneratedCurve()
+                }
         }
         viewModelScope.launch {
             profileStore.profiles.collect { list -> update { it.copy(profiles = list) } }
@@ -286,6 +364,22 @@ class EqViewModel : ViewModel() {
     fun setIntensity(value: Float) = update { it.copy(intensity = value.coerceIn(0f, 1f)) }
 
     /**
+     * Switches the compensation between the headphone measurement and the
+     * clinical audiogram.
+     *
+     * Persisted rather than kept in the ViewModel: it decides what the EQ does,
+     * and a choice that quietly reverted on the next launch would swap the
+     * curve underneath the listener. The preview follows immediately; the live
+     * EQ follows only where it already did — through [applyCompensationIfActive],
+     * so a comparison in progress is not cancelled by a source switch.
+     */
+    fun setCompensationSource(source: CompensationSource) {
+        update { it.copy(source = source) }
+        applyCompensationIfActive()
+        viewModelScope.launch { audiogramStore.setCompensationSource(source) }
+    }
+
+    /**
      * True once the live EQ came from the compensation flow rather than from
      * manual band edits; lets the intensity slider keep the curve live.
      */
@@ -420,10 +514,12 @@ class EqViewModel : ViewModel() {
     /** Applies [transform], then recomputes the preview and the applied flag. */
     private fun update(transform: (CompensationUiState) -> CompensationUiState) {
         val next = transform(_compensation.value)
-        val audiogram = next.audiogram
+        // Whichever source is in force, with its own preset rule; see
+        // [CompensationUiState.activeAudiogram] and [activePresetId].
+        val audiogram = next.activeAudiogram
         val result = if (audiogram == null) null else calculator.computeDetailed(
             audiogram = audiogram,
-            calibrationPresetId = next.presetId,
+            calibrationPresetId = next.activePresetId,
             intensity = next.intensity,
             partialFactor = DEFAULT_PARTIAL_FACTOR,
             layout = layoutFor(next),

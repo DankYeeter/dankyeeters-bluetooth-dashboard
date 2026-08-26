@@ -103,6 +103,55 @@ data class CodecObservation(
 }
 
 /**
+ * What the helper saw about one device's HD-audio switch.
+ *
+ * Both flags are tri-state on purpose, mirroring AOSP's own
+ * `OPTIONAL_CODECS_*_UNKNOWN`:
+ *
+ *  - [supported] null means the stack has not established whether the headphone
+ *    offers anything beyond SBC. A device that has been bonded but never
+ *    connected reads exactly this, and reporting it as "not supported" would
+ *    grey out the control for a headphone that supports HD audio fine.
+ *  - [enabled] null means nobody has chosen. Android then applies its own rule
+ *    — on where supported — so the effective answer is usually "on", but "on
+ *    because you asked" and "on because nobody said otherwise" are different
+ *    facts and the second one is undoable.
+ */
+data class HdAudioObservation(
+    val supported: Boolean?,
+    val enabled: Boolean?,
+    /** Free text for the UI. Says what was observed, never a verdict. */
+    val note: String = "",
+)
+
+/** AOSP's `BluetoothA2dp.OPTIONAL_CODECS_*` values, passed through unchanged. */
+object OptionalCodecs {
+    const val PREF_UNKNOWN = -1
+    const val PREF_DISABLED = 0
+    const val PREF_ENABLED = 1
+
+    /** True for the three values [PREF_UNKNOWN]..[PREF_ENABLED] and nothing else. */
+    fun isWritablePreference(value: Int): Boolean =
+        value == PREF_UNKNOWN || value == PREF_DISABLED || value == PREF_ENABLED
+
+    /**
+     * AOSP returns the same -1/0/1 triple from both getters, so one translation
+     * serves both. `SUPPORT_UNKNOWN` and `PREF_UNKNOWN` are both -1.
+     */
+    fun toTriState(value: Int?): Boolean? = when (value) {
+        PREF_ENABLED -> true
+        PREF_DISABLED -> false
+        else -> null
+    }
+
+    fun fromTriState(enabled: Boolean?): Int = when (enabled) {
+        true -> PREF_ENABLED
+        false -> PREF_DISABLED
+        null -> PREF_UNKNOWN
+    }
+}
+
+/**
  * Values → the bitmasks `BluetoothCodecConfig` is built from.
  *
  * The tables are the same ones [CodecDecoding] reads, written out again in the

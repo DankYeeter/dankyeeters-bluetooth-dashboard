@@ -52,8 +52,12 @@ import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeStatus
 import dev.dankyeeter.btdashboard.system.devices.ApplyResult
 import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
 import dev.dankyeeter.btdashboard.system.devices.BluetoothDeveloperOptions
+import dev.dankyeeter.btdashboard.system.devices.BluetoothReadOnlySettings
+import dev.dankyeeter.btdashboard.system.devices.BluetoothSystemControls
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
+import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
+import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
 import kotlin.math.roundToInt
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
@@ -188,9 +192,152 @@ fun DeviceProfilesScreen(
 
         // A result whose device has left the list — deleted, or never bonded —
         // still has to be shown somewhere, and the foot of the screen is the
-        // only place left.
+        // only place left. The system panel's results land here too: they
+        // belong to the phone, not to any card above.
         if (known.none { it.deviceKey == messageDeviceKey }) {
             message?.let { MessageNote(it, viewModel::dismissMessage) }
+        }
+
+        // After the devices, not before them. This screen is called "Device
+        // profiles" and that is what someone opening it came for; the
+        // phone-wide settings are the answer to a question they ask second.
+        BluetoothSystemPanel(viewModel)
+    }
+}
+
+/**
+ * The Bluetooth settings that belong to the phone rather than to one headphone.
+ *
+ * ## Why this panel exists at all
+ *
+ * The same keys were already reachable, but only as a per-device wish inside
+ * some headphone's profile — and that implied a per-device setting that does
+ * not exist. Someone who simply wanted AVRCP set to 1.4 on this phone had to
+ * pick a headphone to say it through, and could not see what the value was
+ * without opening one. Both halves are true and they are different questions:
+ * "set this when the Bathys connects" is upstairs, "this is what the phone is
+ * on right now" is here.
+ *
+ * ## Why the unwritable ones are here too
+ *
+ * Because leaving them out is the dishonest option. Android's own Developer
+ * Options offers A2DP hardware offload; this app cannot, and a reader has no
+ * way to tell "we chose not to" from "we could not" from "we forgot" unless the
+ * row says which. Each one names the mechanism, shows its live value, and
+ * quotes the reason it is beyond reach.
+ */
+@Composable
+private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
+    val live by viewModel.liveDevOptions.collectAsStateWithLifecycle()
+    val readOnly by viewModel.readOnlySettings.collectAsStateWithLifecycle()
+    val canRestart by viewModel.canRestartBluetooth.collectAsStateWithLifecycle()
+    val restarting by viewModel.restarting.collectAsStateWithLifecycle()
+    val absoluteStatus by viewModel.absoluteVolumeStatus.collectAsStateWithLifecycle()
+    val writable = absoluteStatus !is AbsoluteVolumeStatus.PermissionMissing
+
+    Panel {
+        ExplainedHeader(
+            "Bluetooth system",
+            "These belong to the phone, not to one headphone: Android keeps a single " +
+                "value for each. Setting one here changes it now and for every device. " +
+                "The profiles above can also ask for these — that is a different thing, " +
+                "re-applied whenever a chosen headphone connects, and the last device to " +
+                "connect wins.",
+        )
+        Text(
+            "One value for the whole phone. Changed here, changed now.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+
+        if (!writable) {
+            Text(
+                "These need system access, which is not granted yet. The helper grants it " +
+                    "as soon as it is running.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        BluetoothSystemControls.writableGlobals.forEach { option ->
+            val current = live[option.key]
+            PickerMenu<String>(
+                label = option.label,
+                // Never a stored wish: this picker shows what the settings
+                // database actually holds. "Use System Default" is what an unset
+                // key reads as, which is the state a fresh phone is in.
+                selectedLabel = current?.let(option::labelFor) ?: "Use System Default",
+                options = listOf(
+                    BluetoothDeveloperOptions.USE_SYSTEM_DEFAULT to "Use System Default",
+                ) + option.values.map { it.raw to it.label },
+                onSelect = { viewModel.setGlobalNow(option.key, it) },
+                enabled = writable,
+                explanation = option.explanation,
+            )
+            option.caution?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        HorizontalDivider()
+
+        ExplainedRow(
+            label = "Restart Bluetooth",
+            explanation = "The Bluetooth stack reads the settings above once, when it " +
+                "starts. Until it is restarted, a value you just changed is stored and " +
+                "not yet in force — which is why this button is here rather than a " +
+                "sentence telling you to go and do it in the quick-settings panel. " +
+                "Everything reconnects on its own afterwards.",
+            control = {},
+        )
+        GoldOutlinedButton(
+            onClick = viewModel::restartBluetooth,
+            enabled = canRestart && !restarting,
+        ) {
+            Text(
+                when {
+                    restarting -> "Restarting…"
+                    canRestart -> "Turn Bluetooth off and on"
+                    else -> "Needs the helper"
+                },
+            )
+        }
+        if (!canRestart) {
+            Text(
+                "The helper is not running, so the app cannot cycle the radio for you. " +
+                    "Turning Bluetooth off and on by hand does exactly the same thing.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+
+        HorizontalDivider()
+
+        ExplainedHeader(
+            "Shown but not changeable",
+            "These affect Bluetooth audio and this app cannot write them, so they are " +
+                "here read-only rather than left out. Each one is a system property " +
+                "rather than a setting — a different mechanism that the phone's init " +
+                "process guards, and it refuses the shell. The app's helper is the " +
+                "shell, so being privileged does not help; only a rooted phone could " +
+                "change these.",
+        )
+        BluetoothReadOnlySettings.all.forEach { setting ->
+            ExplainedRow(
+                label = setting.label,
+                explanation = setting.explanation + "\n\n" + setting.whyReadOnly,
+                control = {},
+            )
+            Text(
+                readOnly[setting.liveValueKey]
+                    // Unset is the normal state for all of these, and it is not
+                    // the same as "off" — for hardware offload the two are
+                    // opposites, since the stack's built-in default is on.
+                    ?.let { "Currently: $it" }
+                    ?: "Not set — the Bluetooth stack's own default applies.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
         }
     }
 }
@@ -267,6 +414,18 @@ private fun summarise(profile: DeviceProfile?, device: KnownDevice): String {
         if (profile.compensationProfileId != null) add("compensation")
         profile.mediaVolumePercent?.let { add("volume $it %") }
         profile.absoluteVolumeEnabled?.let { add("absolute volume ${if (it) "on" else "off"}") }
+        // Before the codec, because it can override it: "LDAC · HD audio off"
+        // would read as a contradiction, and in that order it reads as the
+        // explanation it is.
+        profile.hdAudio?.let {
+            add(
+                when (it) {
+                    HdAudioPreference.ENABLE -> "HD audio on"
+                    HdAudioPreference.DISABLE -> "HD audio off"
+                    HdAudioPreference.SYSTEM_DEFAULT -> "HD audio by system default"
+                },
+            )
+        }
         profile.codecPreference?.let { add(codecDisplayName(it.codec)) }
         if (!profile.autoApply) add("auto-apply off")
     }
@@ -336,6 +495,7 @@ internal fun ProfileEditorCard(
     val negotiatedStatus by viewModel.negotiatedStatus.collectAsStateWithLifecycle()
     val deviceConnected by viewModel.deviceConnected.collectAsStateWithLifecycle()
     val liveDevOptions by viewModel.liveDevOptions.collectAsStateWithLifecycle()
+    val liveHdAudio by viewModel.hdAudioState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Asked again every time this card appears for a device, and never cached:
@@ -369,6 +529,7 @@ internal fun ProfileEditorCard(
     var autoApply by remember(initial) { mutableStateOf(initial.autoApply) }
     var devOptions by remember(initial) { mutableStateOf(initial.developerOptions) }
     var codec by remember(initial) { mutableStateOf(initial.codecPreference) }
+    var hdAudio by remember(initial) { mutableStateOf(initial.hdAudio) }
     // Saveable, so a rotation does not fold the section the user just opened.
     // Still keyed by `deviceKey` alone, unlike the fields above: where the
     // expander stands is not profile data, so a profile edit must not fold it.
@@ -508,6 +669,21 @@ internal fun ProfileEditorCard(
 
                 HorizontalDivider()
 
+                // Above the codec section, mirroring the order the applier runs
+                // them in — and for the same reason. HD audio is the gate in
+                // front of codec negotiation: with it off, everything in the
+                // section below is moot, and a reader who meets the codec picker
+                // first has no way to know that.
+                HdAudioEditor(
+                    wish = hdAudio,
+                    live = liveHdAudio,
+                    helperConnected = helperConnected,
+                    onChange = { hdAudio = it },
+                    enabled = enabled,
+                )
+
+                HorizontalDivider()
+
                 CodecEditor(
                     preference = codec,
                     helperConnected = helperConnected,
@@ -542,6 +718,7 @@ internal fun ProfileEditorCard(
                                 absoluteVolumeSystemDefault = absoluteSystemDefault,
                                 developerOptions = devOptions,
                                 codecPreference = codec,
+                                hdAudio = hdAudio,
                                 autoApply = autoApply,
                             ),
                         )
@@ -871,6 +1048,102 @@ private fun CodecEditor(
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/**
+ * HD audio — whether this headphone may use anything better than SBC.
+ *
+ * The one section in this editor that is about a setting Android really does
+ * keep **per device**, and it says so out loud, because every neighbouring
+ * section spends a paragraph explaining the opposite. Getting that backwards
+ * would have people expecting their other headphones to change too.
+ *
+ * It sits above the codec picker on purpose: it is the gate in front of the
+ * negotiation, not another knob inside it. With HD audio off, asking for LDAC
+ * does not fail loudly — the link simply comes up as SBC, and the codec section
+ * can only report that the read-back disagreed without being able to say why.
+ * That was the one failure mode in the codec section nobody could explain.
+ */
+@Composable
+private fun HdAudioEditor(
+    wish: HdAudioPreference?,
+    /** What the stack says right now, or null before anything has been read. */
+    live: HdAudioState?,
+    helperConnected: Boolean,
+    onChange: (HdAudioPreference?) -> Unit,
+    enabled: Boolean = true,
+) {
+    ExplainedHeader(
+        "HD audio",
+        "The switch behind Android's own \"HD audio\" row. Off, this headphone is " +
+            "held to SBC no matter what the codec section below asks for — which is " +
+            "why it sits above it. Unlike the other Bluetooth settings here, Android " +
+            "stores this one per device, so changing it for these headphones leaves " +
+            "your others alone. Reading or writing it needs the app's helper: the " +
+            "underlying calls are system-only, and the helper runs with the shell's " +
+            "privileges.",
+    )
+
+    val known = live as? HdAudioState.Known
+    Text(
+        when {
+            !helperConnected ->
+                "The helper is not running, so HD audio cannot be set or read."
+            live == null -> "Not read yet — connect this device to see its current state."
+            live is HdAudioState.Unreadable -> "Cannot be read: ${live.reason}"
+            known?.supported == false ->
+                "This headphone offers nothing beyond SBC, so the setting changes nothing here."
+            known?.enabled == true -> "Currently on for this device."
+            known?.enabled == false -> "Currently off — this device is held to SBC."
+            // The stack's third state, named rather than rounded to "on". It is
+            // what "Use System Default" produces, and it is undone differently.
+            else -> "No preference stored — Android decides, which normally means on."
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = if (helperConnected) {
+            MaterialTheme.colorScheme.outline
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+    )
+
+    PickerMenu<HdAudioPreference?>(
+        label = "On connect",
+        selectedLabel = when (wish) {
+            null -> systemDefaultLabel(
+                known?.let {
+                    when (it.enabled) {
+                        true -> "on"
+                        false -> "off"
+                        null -> null
+                    }
+                },
+            )
+            else -> HdAudioPreference.label(wish)
+        },
+        // "Leave alone" leads, because it is what a profile that has never been
+        // touched means, and it is the only entry that writes nothing at all.
+        options = listOf<Pair<HdAudioPreference?, String>>(
+            null to "Leave alone",
+            HdAudioPreference.ENABLE to HdAudioPreference.label(HdAudioPreference.ENABLE),
+            HdAudioPreference.DISABLE to HdAudioPreference.label(HdAudioPreference.DISABLE),
+            HdAudioPreference.SYSTEM_DEFAULT to
+                HdAudioPreference.label(HdAudioPreference.SYSTEM_DEFAULT),
+        ),
+        onSelect = onChange,
+        enabled = enabled && helperConnected,
+        explanation = "\"Use System Default\" is not the same as \"On\": it clears the " +
+            "stored preference so Android applies its own rule again, which is how a " +
+            "choice made here is withdrawn rather than merely replaced.",
+    )
+
+    if (wish != null) {
+        Text(
+            "Changing this drops and re-negotiates the link, so playback stops for a moment.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 /**

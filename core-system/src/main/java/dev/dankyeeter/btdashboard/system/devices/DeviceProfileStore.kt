@@ -98,6 +98,11 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
                     put("absoluteVolumeSystemDefault", p.absoluteVolumeSystemDefault)
                     put("developerOptions", JSONObject(p.developerOptions.toMap()))
                     putOpt("codecPreference", p.codecPreference?.let(::encodeCodec))
+                    // The enum's own name, not its ordinal. An ordinal survives
+                    // exactly as long as nobody reorders the enum, and the day
+                    // somebody does, every stored profile quietly means
+                    // something else.
+                    putOpt("hdAudio", p.hdAudio?.name)
                     put("autoApply", p.autoApply)
                     put("lastSeenAtMillis", p.lastSeenAtMillis)
                 },
@@ -131,6 +136,7 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
                     absoluteVolumeSystemDefault = o.optBoolean("absoluteVolumeSystemDefault", false),
                     developerOptions = o.optJSONObject("developerOptions").toStringMap(),
                     codecPreference = parseCodec(o.optJSONObject("codecPreference")),
+                    hdAudio = parseHdAudio(o.optNullableString("hdAudio")),
                     autoApply = o.optBoolean("autoApply", true),
                     lastSeenAtMillis = o.optLong("lastSeenAtMillis"),
                 ).sanitized()
@@ -167,6 +173,14 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
      * recognises, so a value that survives parsing is still checked before it
      * can reach the Bluetooth stack.
      */
+    /**
+     * A name this build no longer has degrades to "no wish", never to a crash
+     * and never to a guessed value — the same rule `sanitized()` applies to a
+     * developer option the registry has dropped.
+     */
+    private fun parseHdAudio(name: String?): HdAudioPreference? =
+        name?.let { stored -> HdAudioPreference.entries.firstOrNull { it.name == stored } }
+
     private fun parseCodec(o: JSONObject?): CodecPreference? {
         if (o == null) return null
         val codec = o.optString("codec").takeIf { it.isNotBlank() } ?: return null

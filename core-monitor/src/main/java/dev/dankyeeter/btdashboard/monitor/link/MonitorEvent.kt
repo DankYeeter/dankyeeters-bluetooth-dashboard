@@ -15,6 +15,23 @@ enum class MonitorEventType {
     /** Derived: playback stopped without a takeover — a real interruption. */
     INTERRUPTION,
     QUALITY_REPORT,
+
+    /**
+     * Measured loss inside one polling window: the Bluetooth tx queue dropped
+     * or underflowed, or a mixer track underran. Distinct from [INTERRUPTION],
+     * which is inferred from playback simply stopping — this one is a counter
+     * that moved.
+     */
+    DROPOUT,
+
+    /**
+     * The codec's configured bitrate *mode* changed — LDAC being pinned to a
+     * quality, or unpinned back to adaptive. Deliberately not "the bitrate
+     * changed": LDAC's adaptive rate is not observable, so an event claiming to
+     * have seen it move would be invented. See `link.live.LdacState`.
+     */
+    BITRATE_MODE_CHANGED,
+
     MONITOR_NOTE,
 }
 

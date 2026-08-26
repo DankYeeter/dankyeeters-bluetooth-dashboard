@@ -78,8 +78,14 @@ object PrivilegedServer {
      * confusing answers from it.
      *
      * 2: caller-uid verification, and the codec operations.
+     * 4: HD audio (optional codecs) and the Bluetooth restart.
+     *
+     * The bump matters more than usual for this one: the new methods are new
+     * Binder transaction codes, so a version-3 helper receiving them throws
+     * rather than answering. Refusing the stale helper up front turns that into
+     * "the helper is out of date" instead of "HD audio stopped responding".
      */
-    const val VERSION: Int = 3
+    const val VERSION: Int = 4
 
     /**
      * How often the helper looks for the app while disconnected.
@@ -552,6 +558,63 @@ private class PrivilegedService(
         ).encoded()
     }
 
+    override fun optionalCodecs(token: String?, address: String?): String {
+        refuse(token, PrivilegedOperation.OPTIONAL_CODECS)?.let { return it }
+        val target = address?.takeIf { it.isNotBlank() }
+            ?: return PrivilegedProtocol.encodeError("no device address")
+        println("privileged helper: optionalCodecs ${tail(target)}")
+        return bluetooth.optionalCodecs(target).encodedHdAudio()
+    }
+
+    override fun setOptionalCodecs(token: String?, address: String?, preference: Int): String {
+        refuse(token, PrivilegedOperation.SET_OPTIONAL_CODECS)?.let { return it }
+        val target = address?.takeIf { it.isNotBlank() }
+            ?: return PrivilegedProtocol.encodeError("no device address")
+        println("privileged helper: setOptionalCodecs ${tail(target)} preference=$preference")
+        return bluetooth.setOptionalCodecs(target, preference).encodedHdAudio()
+    }
+
+    /**
+     * Cycles the Bluetooth radio, waiting for each transition.
+     *
+     * The argument vectors are constants here, exactly as in
+     * [grantSecureSettings]: a caller that could vary them would have a general
+     * way to drive `cmd bluetooth_manager`, which also offers `factoryReset` —
+     * a command that would un-pair every device the user owns.
+     *
+     * `wait-for-state` rather than a sleep, because a sleep would be a guess
+     * about a transition the platform is willing to report. If the adapter does
+     * not come back on, the reply says so with the radio left off, rather than
+     * reporting success and leaving the user to discover it.
+     */
+    override fun restartBluetooth(token: String?): String {
+        refuse(token, PrivilegedOperation.RESTART_BLUETOOTH)?.let { return it }
+        println("privileged helper: restartBluetooth")
+
+        val steps = listOf(
+            listOf("cmd", "bluetooth_manager", "disable"),
+            listOf("cmd", "bluetooth_manager", "wait-for-state:STATE_OFF"),
+            listOf("cmd", "bluetooth_manager", "enable"),
+            listOf("cmd", "bluetooth_manager", "wait-for-state:STATE_ON"),
+        )
+        val transcript = StringBuilder()
+        for (step in steps) {
+            val reply = execute(step)
+            val result = PrivilegedProtocol.decodeResult(reply)
+                // An ERR line is already the right shape to hand back, and it
+                // carries the reason execute() found.
+                ?: return reply
+            transcript.append(step.last()).append(": ").append(result.second.trim()).append('\n')
+            if (result.first != 0) {
+                return PrivilegedProtocol.encodeError(
+                    "\"${step.joinToString(" ")}\" exited ${result.first}: " +
+                        result.third.trim().ifBlank { result.second.trim() },
+                )
+            }
+        }
+        return PrivilegedProtocol.encodeResult(0, transcript.toString(), "")
+    }
+
     /**
      * Hands the app the one permission that lets it work without this helper.
      *
@@ -620,6 +683,11 @@ private class PrivilegedService(
 
     private fun Result<CodecObservation>.encoded(): String = fold(
         onSuccess = { PrivilegedProtocol.encodeCodec(it) },
+        onFailure = { PrivilegedProtocol.encodeError(it.message ?: it.javaClass.simpleName) },
+    )
+
+    private fun Result<HdAudioObservation>.encodedHdAudio(): String = fold(
+        onSuccess = { PrivilegedProtocol.encodeHdAudio(it) },
         onFailure = { PrivilegedProtocol.encodeError(it.message ?: it.javaClass.simpleName) },
     )
 

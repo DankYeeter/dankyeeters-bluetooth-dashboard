@@ -25,6 +25,10 @@ import dev.dankyeeter.btdashboard.monitor.link.BluetoothBroadcastSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 import dev.dankyeeter.btdashboard.monitor.link.ReflectiveQualityReportSource
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
+import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
@@ -33,8 +37,15 @@ import dev.dankyeeter.btdashboard.monitor.shell.UnavailableShellRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.transform
 
 /**
  * Process-wide wiring for the monitor, in the same hand-rolled style as
@@ -171,6 +182,80 @@ object MonitorGraph {
         get() = synchronized(lock) {
             _bqr ?: ReflectiveQualityReportSource(ctx()).also { _bqr = it }
         }
+
+    // ---- live link view ------------------------------------------------------
+    //
+    // The API a screen showing "what is happening on the link right now" builds
+    // against. Three properties, and which one to use is decided by what the
+    // screen draws:
+    //
+    //   liveLinkUpdates   one poll: the reading and the changes together.
+    //                     Use this when a panel shows both.
+    //   liveLinkSnapshots just the readings — the numbers panel.
+    //   liveLinkEvents    just the changes — the timeline.
+    //
+    // All three are views on one shared poll loop. Collecting all three costs
+    // the same as collecting one; collecting none costs nothing, which is the
+    // important half (see LiveLinkSource for what a pass actually runs).
+    //
+    // ### Honesty contract, in one place
+    //
+    // Every field of `LinkLiveSnapshot` carries in its KDoc whether it is
+    // MEASURED, DERIVED, NOMINAL, PROXY or UNAVAILABLE (see `Honesty`). The two
+    // that matter most for not misleading anyone:
+    //
+    //  - `ldac.nominalKbps` is **null whenever LDAC is adaptive**, which on an
+    //    untouched phone is always. There is no live LDAC bitrate to show on
+    //    this hardware; `ldac.note` is the sentence explaining that, and it is
+    //    meant to be printed rather than summarised.
+    //  - `tx.*` counters are **null unless the codec is host-encoded**. An
+    //    offloaded codec bypasses the stack that maintains them, and the
+    //    warning list says so.
+
+    private var _liveLink: LiveLinkSource? = null
+    private var _liveLinkUpdates: SharedFlow<LinkLiveUpdate>? = null
+
+    /** The poller itself. Screens normally want [liveLinkUpdates] instead. */
+    val liveLink: LiveLinkSource
+        get() = synchronized(lock) {
+            _liveLink ?: LiveLinkSource(shell).also { _liveLink = it }
+        }
+
+    /**
+     * One shared poll loop, started by the first collector and stopped shortly
+     * after the last one leaves.
+     *
+     * `WhileSubscribed` rather than an app-lifetime job on purpose: a pass is
+     * three `dumpsys` execs, and nothing about it is worth running for a screen
+     * nobody is looking at. `replay = 1` means a screen that rotates redraws
+     * from the last reading instead of an empty panel for one interval.
+     */
+    val liveLinkUpdates: SharedFlow<LinkLiveUpdate>
+        get() = synchronized(lock) {
+            _liveLinkUpdates ?: liveLink.updates()
+                .shareIn(
+                    scope = monitorScope,
+                    started = SharingStarted.WhileSubscribed(
+                        stopTimeoutMillis = LIVE_LINK_STOP_TIMEOUT_MS,
+                        replayExpirationMillis = LIVE_LINK_REPLAY_EXPIRY_MS,
+                    ),
+                    replay = 1,
+                )
+                .also { _liveLinkUpdates = it }
+        }
+
+    /** The readings alone. */
+    val liveLinkSnapshots: Flow<LinkLiveSnapshot>
+        get() = liveLinkUpdates.map { it.snapshot }
+
+    /**
+     * The changes alone, flattened so a timeline can collect events rather than
+     * lists of them. Polls that changed nothing emit nothing.
+     */
+    val liveLinkEvents: Flow<LinkEvent>
+        get() = liveLinkUpdates
+            .filter { it.events.isNotEmpty() }
+            .transform { update -> update.events.forEach { emit(it) } }
 
     val foreignEqScanner: ForeignEqScanner
         get() = synchronized(lock) {
@@ -310,4 +395,17 @@ object MonitorGraph {
     fun setUiVisible(visible: Boolean) {
         _uiVisible.value = visible
     }
+
+    /**
+     * Long enough to survive a configuration change, short enough that leaving
+     * the screen stops the polling within one interval.
+     */
+    private const val LIVE_LINK_STOP_TIMEOUT_MS = 3_000L
+
+    /**
+     * The held reading is dropped a few seconds after the last collector goes.
+     * A live panel that opens on a minute-old snapshot is worse than one that
+     * opens empty: stale counters look exactly like current ones.
+     */
+    private const val LIVE_LINK_REPLAY_EXPIRY_MS = 10_000L
 }

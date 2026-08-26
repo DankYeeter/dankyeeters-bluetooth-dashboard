@@ -60,6 +60,12 @@ class DeviceProfileApplier(
      * helper installed, a codec wish reports that it could not be attempted.
      */
     private val codec: CodecPreferenceController = UnavailableCodecPreferenceController,
+    /**
+     * Defaulted for the same reason [codec] is: every existing caller and test
+     * predates HD audio, and without a helper the step reports that it could
+     * not be attempted rather than that it was left alone.
+     */
+    private val hdAudio: HdAudioController = UnavailableHdAudioController,
 ) {
 
     suspend fun onDeviceConnected(address: String?): ApplyResult {
@@ -197,6 +203,57 @@ class DeviceProfileApplier(
                         "the value did not stick \u2014 this Android build may not support it",
                     ),
                 )
+            }
+        }
+
+        // Before the codec, and that order is load-bearing rather than tidy.
+        // HD audio is the gate in front of the codec picker: with it off the
+        // stack will not negotiate anything but SBC, so a codec request made
+        // first would come back as SBC and be reported as "did not stick" —
+        // technically true and completely misleading, because the cause was a
+        // switch this same profile was about to turn on one line later.
+        profile.hdAudio?.let { wish ->
+            when {
+                address == null -> add(
+                    ProfileAction.Skipped(
+                        "HD audio",
+                        "the device address is not known here — connect the device and try again",
+                    ),
+                )
+
+                !hdAudio.isAvailable() -> add(
+                    ProfileAction.Skipped(
+                        "HD audio",
+                        "the privileged helper is not running, so HD audio can be neither " +
+                            "set nor checked",
+                    ),
+                )
+
+                else -> {
+                    // Read first so an unchanged value costs nothing. Writing it
+                    // anyway would be harmless in itself, but the stack drops the
+                    // A2DP link to re-negotiate when this changes, and doing that
+                    // on every connect to re-assert a value that was already
+                    // right is an audible hiccup for no gain.
+                    val before = hdAudio.read(address)
+                    val alreadyRight = (before as? HdAudioState.Known)
+                        ?.let { it.enabled == wish.asEnabled() } == true
+
+                    if (alreadyRight) {
+                        add(ProfileAction.HdAudioSet(wish.asEnabled(), alreadySet = true))
+                    } else {
+                        when (val outcome = hdAudio.apply(address, wish)) {
+                            is HdAudioOutcome.Applied ->
+                                add(ProfileAction.HdAudioSet(outcome.enabled, alreadySet = false))
+
+                            is HdAudioOutcome.NotObserved ->
+                                add(ProfileAction.HdAudioNotObserved(outcome.detail))
+
+                            is HdAudioOutcome.Unavailable ->
+                                add(ProfileAction.Skipped("HD audio", outcome.reason))
+                        }
+                    }
+                }
             }
         }
 

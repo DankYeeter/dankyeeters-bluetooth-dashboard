@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -29,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,12 +42,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
+import dev.dankyeeter.btdashboard.hearing.CLINICAL_FREQUENCIES_HZ
+import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
+import dev.dankyeeter.btdashboard.hearing.LowToneArtifact
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
@@ -227,6 +235,12 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             }
         }
 
+        ClinicalAudiogramPanel(
+            clinical = state.clinicalAudiogram,
+            onSave = viewModel::saveClinicalAudiogram,
+            onClear = viewModel::clearClinicalAudiogram,
+        )
+
         // A button, not a panel. The panel around it had a header saying
         // "Stored runs", a large numeral, the word "runs" under the numeral and
         // then this button with the count in it again - four renderings of one
@@ -238,6 +252,238 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         }
     }
 }
+
+// --- clinical audiogram -----------------------------------------------------
+
+/**
+ * Where an ENT result is entered, and the only absolute reference the app can
+ * ever hold.
+ *
+ * One line on the surface. The reason this is worth typing in — that everything
+ * else the app measures is relative and this is not — is a paragraph, so it
+ * lives behind the question mark like every other paragraph on this screen.
+ */
+@Composable
+private fun ClinicalAudiogramPanel(
+    clinical: ClinicalAudiogram?,
+    onSave: (ClinicalAudiogram) -> Unit,
+    onClear: () -> Unit,
+) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+
+    Panel {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            ExplainedHeader(
+                "Clinical audiogram",
+                explanation = "An audiometer at a practice is calibrated: 0 dB HL is the " +
+                    "average threshold of young, normally hearing ears, and anything up to " +
+                    "20 dB HL is read as normal. That makes it an absolute measurement. " +
+                    "Everything this app measures itself is not — the tones go through your " +
+                    "headphones at whatever volume you had set, so the numbers are only " +
+                    "meaningful next to each other, and the app can honestly describe the " +
+                    "shape of your hearing but never its level.\n\n" +
+                    "Entering the clinic's values gives the app that missing level. It draws " +
+                    "them over your own curve so the two shapes can be compared, it can tell " +
+                    "you when a self-test result contradicts them, and the equaliser can be " +
+                    "built from them instead of from the headphone measurement.\n\n" +
+                    "Nothing leaves the phone, and nothing here is a diagnosis — it is the " +
+                    "clinic's reading, stored as you type it.",
+                modifier = Modifier.weight(1f),
+            )
+            if (clinical != null) Pill("stored", tone = PillTone.ACCENT)
+        }
+        Text(
+            "From an ENT hearing test — the calibrated reference this app cannot " +
+                "measure itself.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (clinical != null) {
+            Text(
+                listOfNotNull(
+                    clinical.source.takeIf { it.isNotBlank() },
+                    clinical.measuredOn.takeIf { it.isNotBlank() },
+                    "${clinical.leftDbHl.size} left · ${clinical.rightDbHl.size} right",
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Said here because it is the one thing a reader of a *normal*
+            // audiogram most needs to hear, and the EQ screen is where the
+            // consequence shows up rather than where the values live.
+            if (clinical.withinNormalLimits) {
+                Text(
+                    "All values are inside normal limits — there is no loss to correct.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        GoldOutlinedButton(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (clinical == null) "Enter clinical audiogram" else "Edit clinical audiogram")
+        }
+    }
+
+    if (editing) {
+        ClinicalAudiogramDialog(
+            existing = clinical,
+            onSave = {
+                editing = false
+                onSave(it)
+            },
+            onClear = {
+                editing = false
+                onClear()
+            },
+            onDismiss = { editing = false },
+        )
+    }
+}
+
+/**
+ * The editor: two columns, one row per frequency on a standard ENT form.
+ *
+ * Every field may stay blank, because practices routinely leave 125 Hz and the
+ * inter-octaves off the form, and a blank has to remain a blank — filling it in
+ * as 0 dB HL would record perfect hearing at a frequency nobody tested. That is
+ * why the values are kept as text here and only parsed on save.
+ *
+ * The frequency list is the clinical one, not [dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ]:
+ * this is a transcription of a document, so it has to have a line for every line
+ * on the document, and a form with 750 Hz filled in would otherwise lose it.
+ */
+@Composable
+private fun ClinicalAudiogramDialog(
+    existing: ClinicalAudiogram?,
+    onSave: (ClinicalAudiogram) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val left = remember(existing) {
+        mutableStateMapOf<Int, String>().apply {
+            existing?.leftDbHl?.forEach { (hz, db) -> put(hz, db.asEntryText()) }
+        }
+    }
+    val right = remember(existing) {
+        mutableStateMapOf<Int, String>().apply {
+            existing?.rightDbHl?.forEach { (hz, db) -> put(hz, db.asEntryText()) }
+        }
+    }
+    var measuredOn by remember(existing) { mutableStateOf(existing?.measuredOn.orEmpty()) }
+    var source by remember(existing) { mutableStateOf(existing?.source.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clinical audiogram") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "Thresholds in dB HL, exactly as printed on the form. Leave a " +
+                        "frequency blank if it was not tested.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Hz", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(56.dp))
+                    Text("Left", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    Text("Right", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                }
+                CLINICAL_FREQUENCIES_HZ.forEach { hz ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            formatHz(hz),
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.width(56.dp),
+                        )
+                        DbHlField(left[hz].orEmpty(), { left[hz] = it }, Modifier.weight(1f))
+                        DbHlField(right[hz].orEmpty(), { right[hz] = it }, Modifier.weight(1f))
+                    }
+                }
+                OutlinedTextField(
+                    value = measuredOn,
+                    onValueChange = { measuredOn = it },
+                    label = { Text("Date on the form") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = source,
+                    onValueChange = { source = it },
+                    label = { Text("Where it came from") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSave(
+                        ClinicalAudiogram(
+                            leftDbHl = left.parsedDbHl(),
+                            rightDbHl = right.parsedDbHl(),
+                            measuredOn = measuredOn.trim(),
+                            source = source.trim(),
+                        ),
+                    )
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (existing != null) TextButton(onClick = onClear) { Text("Clear") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun DbHlField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        // Signed, because an ENT form can print −5 or −10 dB HL: hearing better
+        // than the young-normal median is ordinary, and a keyboard that cannot
+        // type the minus sign would quietly turn it into a 5 dB loss.
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        placeholder = { Text("—", style = MaterialTheme.typography.bodySmall) },
+        modifier = modifier,
+    )
+}
+
+/**
+ * Text to stored values: unparseable and out-of-range entries are dropped
+ * rather than coerced.
+ *
+ * Coercing would store a number the form does not contain. The audiometric
+ * range runs from about −10 dB HL (better than the young-normal median, which
+ * is perfectly ordinary) to the 120 dB HL limit of the equipment, so anything
+ * outside that is a typo, and a typo is better lost than recorded as a finding.
+ */
+private fun Map<Int, String>.parsedDbHl(): Map<Int, Double> = mapNotNull { (hz, text) ->
+    text.trim().replace(',', '.').toDoubleOrNull()
+        ?.takeIf { it in MIN_DB_HL..MAX_DB_HL }
+        ?.let { hz to it }
+}.toMap()
+
+/** 10.0 -> "10", 12.5 -> "12.5": audiometric steps are whole numbers. */
+private fun Double.asEntryText(): String =
+    if (this % 1.0 == 0.0) toInt().toString() else toString()
+
+private const val MIN_DB_HL = -10.0
+private const val MAX_DB_HL = 120.0
 
 // --- running ----------------------------------------------------------------
 
@@ -416,16 +662,30 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
             }
         }
 
+        state.lowToneArtifact?.let { LowToneNotice(it) }
+
         Panel {
             ExplainedHeader(
                 "Your hearing",
                 explanation = "Each point is the quietest level you still answered at that " +
                     "frequency. A hollow point is one the test could not pin down: the tone was " +
                     "still inaudible at the loudest level the app allows, or still audible at " +
-                    "the quietest. Both ends are limits of the measurement, not of your ears.",
+                    "the quietest. Both ends are limits of the measurement, not of your ears." +
+                    if (state.clinicalAudiogram != null) {
+                        "\n\nThe dotted curve is your clinical audiogram. Both curves are drawn " +
+                            "against their own average, because the app's scale and the clinic's " +
+                            "dB HL cannot be lined up without a measurement microphone — so what " +
+                            "you can compare here is the shape, never the height."
+                    } else {
+                        ""
+                    },
             )
-            AudiogramChart(runs = state.runs, active = state.audiogram)
-            AudiogramLegend()
+            AudiogramChart(
+                runs = state.runs,
+                active = state.audiogram,
+                clinical = state.clinicalAudiogram,
+            )
+            AudiogramLegend(showClinical = state.clinicalAudiogram != null)
 
             // Counted the way the curve is actually built, not by counting
             // every run on the phone.
@@ -476,6 +736,65 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
     }
 }
 
+/**
+ * The advisory for raised low tones, and the one line it comes down to.
+ *
+ * Not an error and not framed as one: nothing has gone wrong with the app, and
+ * the run is kept. It is a reading aid for a curve whose most eye-catching
+ * feature is very likely not about the person's ears at all. The reasoning —
+ * why a leak and a noisy room both cost bass, and what a contradicting clinical
+ * audiogram proves — is behind the question mark, because it is a paragraph and
+ * the useful part is one sentence.
+ *
+ * The wording never says the lows *are* an artifact. "Usually" is doing real
+ * work there: a genuine low-frequency loss exists, and this rule cannot rule it
+ * out, only report that the odds favour the boring explanation.
+ */
+@Composable
+private fun LowToneNotice(advice: LowToneArtifact.Advice) {
+    Panel {
+        ExplainedHeader(
+            "About the low tones in this run",
+            explanation = buildString {
+                append(
+                    "Both of the things that go wrong in a home test hit the bottom of " +
+                        "the range hardest. A seal that leaks — a tip that has worked loose, " +
+                        "glasses under an earpad — lets bass escape, so the low tones need to " +
+                        "be louder before you hear them. And room noise is bass-heavy almost " +
+                        "everywhere: traffic, ventilation, the building itself. Either one " +
+                        "raises 250 and 500 Hz while leaving the middle of the range alone, " +
+                        "which looks exactly like a low-frequency hearing loss.",
+                )
+                if (advice.clinicalContradicts) {
+                    append(
+                        "\n\nYour clinical audiogram is flat and normal at those same " +
+                            "frequencies, measured on calibrated equipment. Same ears, so the " +
+                            "raised lows in this run came from the headphones or the room, not " +
+                            "from your hearing. This is the classic pattern: a headphone app " +
+                            "shows a low-frequency dip that the clinic does not.",
+                    )
+                }
+                if (advice.roomWasNoisy) {
+                    append(
+                        "\n\nThe microphone measured this room as loud before the run. That is " +
+                            "an uncalibrated estimate, but loud enough to mask the quiet low " +
+                            "tones the test was asking about.",
+                    )
+                }
+                append(
+                    "\n\nWorth a retake: reseat the earphones, find a quieter room, and see " +
+                        "whether the lows move. If they do, they were never yours.",
+                )
+            },
+        )
+        Text(
+            "Raised low tones in a headphone test usually mean seal leakage or room " +
+                "noise, not your ears.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
 // --- history ----------------------------------------------------------------
 
 @Composable
@@ -504,8 +823,12 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
                 "The thick curve is the median of the runs you chose — up to three count.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            AudiogramChart(runs = state.runs, active = state.audiogram)
-            AudiogramLegend()
+            AudiogramChart(
+                runs = state.runs,
+                active = state.audiogram,
+                clinical = state.clinicalAudiogram,
+            )
+            AudiogramLegend(showClinical = state.clinicalAudiogram != null)
         }
 
         // Which runs count, resolved the same way the store resolves it: an
