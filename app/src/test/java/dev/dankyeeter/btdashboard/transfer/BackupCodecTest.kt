@@ -9,6 +9,7 @@ import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.CLINICAL_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
+import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import kotlinx.serialization.json.Json
@@ -84,6 +85,17 @@ class BackupCodecTest {
         savedAtMillis = 1_700_000_900_000L,
     )
 
+    /** One headphone's transfer result, warnings and provenance included. */
+    private fun derivedCalibration(): DerivedCalibration = DerivedCalibration(
+        deviceKey = "hash-abc",
+        deviceName = "Noble FoKus Prestige Encore",
+        responseDeviationDb = listOf(2.0, 1.0, 0.0, -1.5, -3.0, -1.0, 1.5, -2.0),
+        earSpreadDb = 6.5,
+        warnings = listOf("The two ears disagree by up to 6.5 dB about the device."),
+        createdAtMillis = 1_700_000_800_000L,
+        sourceRunIds = listOf("run-1", "run-2"),
+    )
+
     private fun document(): BackupDocument = BackupMapper.buildDocument(
         runs = listOf(run("run-1"), run("run-2")),
         audiogram = Audiogram(listOf("run-1", "run-2"), points(), points(1.0)),
@@ -93,6 +105,7 @@ class BackupCodecTest {
         appVersion = "0.2.0",
         nowMillis = 1_700_001_000_000L,
         clinical = clinical(),
+        derivedCalibrations = listOf(derivedCalibration()),
     )
 
     private fun decodeOrFail(raw: String): BackupDocument =
@@ -439,5 +452,42 @@ class BackupCodecTest {
             .copy(leftDbHl = mapOf("1000" to 20.0, "not-a-frequency" to 30.0))
         val restored = BackupMapper.toDomain(broken)
         assertEquals(mapOf(1000 to 20.0), restored.leftDbHl)
+    }
+
+    // ---- derived calibrations -------------------------------------------------
+
+    /**
+     * Worth as much as the clinical audiogram it was built from: re-deriving
+     * needs that appointment *plus* the runs *plus* the same headphone worn the
+     * same way, and the runs are pruned at twenty.
+     */
+    @Test
+    fun `derived calibrations survive the round trip`() {
+        val restored = decodeOrFail(BackupCodec.encode(document())).derivedCalibrations
+
+        assertEquals(1, restored.size)
+        assertEquals(derivedCalibration(), BackupMapper.toDomain(restored.single()))
+    }
+
+    @Test
+    fun `a file written before derived calibrations existed still loads`() {
+        val legacy = document().copy(derivedCalibrations = emptyList())
+
+        assertTrue(decodeOrFail(BackupCodec.encode(legacy)).derivedCalibrations.isEmpty())
+    }
+
+    /**
+     * A deviation list that does not align with the test frequencies is refused
+     * rather than padded: `CalibrationPreset` requires the alignment in its
+     * constructor, and padding one would invent a device response at the
+     * frequencies it filled in.
+     */
+    @Test
+    fun `a misaligned record is refused instead of padded`() {
+        val broken = BackupMapper.toBackup(derivedCalibration())
+            .copy(responseDeviationDb = listOf(1.0, 2.0))
+
+        assertNull(BackupMapper.toDomain(broken))
+        assertNull(BackupMapper.toDomain(broken.copy(deviceKey = "")))
     }
 }

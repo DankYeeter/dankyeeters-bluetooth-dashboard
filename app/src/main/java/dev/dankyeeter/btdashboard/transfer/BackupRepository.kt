@@ -46,6 +46,10 @@ class BackupRepository(context: Context) {
                 // property of the ears, so there is exactly one and it goes into
                 // every backup regardless of what is connected.
                 clinical = HearingGraph.audiogramStore.currentClinicalAudiogram(),
+                // All of them, not only the connected headphone's: each one is
+                // a measurement of a device that may well be in the drawer
+                // today and on the head next week.
+                derivedCalibrations = HearingGraph.audiogramStore.currentDerivedCalibrations(),
             )
             val json = BackupCodec.encode(document)
             appContext.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
@@ -100,6 +104,16 @@ class BackupRepository(context: Context) {
                 // practice ever issued.
                 document.clinicalAudiogram?.let {
                     HearingGraph.audiogramStore.saveClinicalAudiogram(BackupMapper.toDomain(it))
+                }
+                // Merged by device key, like the runs and unlike the audiogram:
+                // there is one per headphone, and a file from the other phone
+                // may carry a derivation for a headphone this one has never
+                // seen. A record the mapper cannot vouch for is skipped rather
+                // than imported half-formed.
+                document.derivedCalibrations.forEach { stored ->
+                    BackupMapper.toDomain(stored)?.let {
+                        HearingGraph.audiogramStore.saveDerivedCalibration(it)
+                    }
                 }
 
                 BackupImportResult.Success(

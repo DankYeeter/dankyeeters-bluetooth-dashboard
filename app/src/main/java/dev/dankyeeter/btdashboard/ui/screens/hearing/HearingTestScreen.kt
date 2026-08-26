@@ -51,6 +51,7 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.CLINICAL_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
+import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.LowToneArtifact
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
@@ -236,9 +237,11 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         }
 
         ClinicalAudiogramPanel(
-            clinical = state.clinicalAudiogram,
+            state = state,
             onSave = viewModel::saveClinicalAudiogram,
             onClear = viewModel::clearClinicalAudiogram,
+            onDerive = viewModel::deriveCalibration,
+            onDiscardDerived = viewModel::discardDerivedCalibration,
         )
 
         // A button, not a panel. The panel around it had a header saying
@@ -265,10 +268,13 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
  */
 @Composable
 private fun ClinicalAudiogramPanel(
-    clinical: ClinicalAudiogram?,
+    state: HearingUiState,
     onSave: (ClinicalAudiogram) -> Unit,
     onClear: () -> Unit,
+    onDerive: () -> Unit,
+    onDiscardDerived: () -> Unit,
 ) {
+    val clinical = state.clinicalAudiogram
     var editing by rememberSaveable { mutableStateOf(false) }
 
     Panel {
@@ -321,6 +327,18 @@ private fun ClinicalAudiogramPanel(
         GoldOutlinedButton(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) {
             Text(if (clinical == null) "Enter clinical audiogram" else "Edit clinical audiogram")
         }
+
+        // Only once both halves of the transfer exist. Offering it earlier would
+        // be offering a button whose only possible outcome is an explanation of
+        // why it cannot work.
+        if (state.canDeriveCalibration || state.derivedCalibration != null) {
+            CalibrationTransferSection(
+                derived = state.derivedCalibration,
+                canDerive = state.canDeriveCalibration,
+                onDerive = onDerive,
+                onDiscard = onDiscardDerived,
+            )
+        }
     }
 
     if (editing) {
@@ -336,6 +354,78 @@ private fun ClinicalAudiogramPanel(
             },
             onDismiss = { editing = false },
         )
+    }
+}
+
+/**
+ * The calibration transfer, inside the clinical panel because that is the half
+ * of it a user has to go and fetch.
+ *
+ * Two sentences on the surface, and they are the whole idea: the same ears were
+ * measured twice, so whatever is left over after subtracting one from the other
+ * is the headphone. The arithmetic and the caveats live behind the question
+ * mark, as everywhere else on this screen.
+ */
+@Composable
+private fun CalibrationTransferSection(
+    derived: DerivedCalibration?,
+    canDerive: Boolean,
+    onDerive: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    ExplainedHeader(
+        "Headphone calibration from your audiogram",
+        explanation = "The clinic measured your ears on calibrated equipment; this app " +
+            "measured the same ears through your headphones. Subtract one from the other " +
+            "and the ears cancel out — what is left is the headphone's own frequency " +
+            "response, measured at your ear rather than on a laboratory rig.\n\n" +
+            "The overall level is thrown away, because it depends on the volume the test " +
+            "ran at and means nothing. What is kept is the shape, which is exactly what a " +
+            "calibration preset is.\n\n" +
+            "Two honest limits. This describes these headphones on your ears — your " +
+            "seal, your ear canals, the way you wore them that day — so it is better than " +
+            "any published average for you, and useless to anybody else. And it is only as " +
+            "good as the two measurements behind it: a run with a loose fit or a mistyped " +
+            "value from the form goes straight into the result, which is why the app names " +
+            "the disagreements it can see instead of quietly averaging them away.",
+    )
+    Text(
+        "Both measurements are of the same ears, so their difference is your headphones.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+
+    if (derived != null) {
+        Text(
+            "Derived for ${derived.displayDeviceName} · " +
+                DateFormat.getDateInstance(DateFormat.MEDIUM)
+                    .format(Date(derived.createdAtMillis)),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Kept on screen rather than shown once when it was derived. A caveat
+        // that decides how much to trust a preset has to be readable at the
+        // moment somebody wonders about the preset, not only at the moment it
+        // was made.
+        derived.warnings.forEach { warning ->
+            Text(
+                warning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    GoldOutlinedButton(
+        onClick = onDerive,
+        enabled = canDerive,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(if (derived == null) "Derive headphone calibration" else "Derive again")
+    }
+    if (derived != null) {
+        TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth()) {
+            Text("Discard")
+        }
     }
 }
 

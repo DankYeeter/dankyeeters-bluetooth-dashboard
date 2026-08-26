@@ -47,6 +47,42 @@ data class BackupDocument(
      * nothing that already existed changed meaning.
      */
     @SerialName("clinicalAudiogram") val clinicalAudiogram: BackupClinicalAudiogram? = null,
+    /**
+     * Calibrations derived from the clinical audiogram, one per headphone.
+     *
+     * A list, unlike [clinicalAudiogram] above, and that difference is the whole
+     * model: an audiogram belongs to a pair of ears and there is one, a
+     * derivation belongs to a pair of ears *and* one headphone.
+     *
+     * Worth carrying for the same reason the audiogram is: re-deriving needs the
+     * runs *and* the clinical values *and* the same headphone worn the same way,
+     * and the runs are pruned at twenty. Empty in every file written before the
+     * field existed, hence defaulted — and no [BackupSchema.CURRENT_VERSION]
+     * bump, because nothing that already existed changed meaning.
+     */
+    @SerialName("derivedCalibrations")
+    val derivedCalibrations: List<BackupDerivedCalibration> = emptyList(),
+)
+
+/**
+ * A derived calibration on disk.
+ *
+ * [responseDeviationDb] is index-aligned with `TEST_FREQUENCIES_HZ` and stored
+ * in the *response deviation* convention (positive = the headphone plays that
+ * band louder), not as the negated threshold correction — the same convention
+ * the domain record keeps, so that the sign flip stays in one place and cannot
+ * be applied twice by a round trip.
+ */
+@Serializable
+data class BackupDerivedCalibration(
+    @SerialName("deviceKey") val deviceKey: String,
+    @SerialName("deviceName") val deviceName: String? = null,
+    @SerialName("responseDeviationDb") val responseDeviationDb: List<Double> = emptyList(),
+    @SerialName("earSpreadDb") val earSpreadDb: Double = 0.0,
+    @SerialName("warnings") val warnings: List<String> = emptyList(),
+    @SerialName("createdAtMillis") val createdAtMillis: Long = 0L,
+    /** Provenance only; the runs themselves may be long gone. */
+    @SerialName("sourceRunIds") val sourceRunIds: List<String> = emptyList(),
 )
 
 /**

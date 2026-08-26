@@ -2,14 +2,17 @@ package dev.dankyeeter.btdashboard.monitor
 
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
+import dev.dankyeeter.btdashboard.monitor.link.live.InferenceConfidence
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkObservability
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.UnavailableShellRunner
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -155,6 +158,92 @@ class LiveLinkSourceTest {
         assertEquals(true, snapshot.codec?.isOffloaded)
         assertNull(snapshot.tx)
         assertTrue(snapshot.warnings.any { it.contains("controller") })
+
+        // The panel must say which of the two worlds it is in, not merely leave
+        // the numbers blank - a blank throughput row reads as "no traffic",
+        // which is the opposite of "this codec is invisible from here".
+        assertEquals(LinkObservability.OFFLOADED, snapshot.observability)
+        assertEquals(InferenceConfidence.UNKNOWN, snapshot.modeInference.confidence)
+        assertTrue(snapshot.modeInference.reason.contains("cannot observe"))
+    }
+
+    @Test
+    fun `a host-encoded codec is marked observable`() = runTest {
+        val snapshot = LiveLinkSource(shellOf(connected())).readOnce()
+        assertEquals(LinkObservability.HOST_ENCODED, snapshot.observability)
+    }
+
+    /**
+     * The event the whole inference exists for: LDAC's adaptive bitrate
+     * actually moving.
+     *
+     * Three readings, because the first carries no delta and therefore no
+     * packing. Between the second and third the link goes from 12 frames per
+     * packet to 4 — at 96 kHz that is 55-byte frames giving way to 165-byte
+     * ones, which is the floor stepping back up to high quality.
+     */
+    @Test
+    fun `an ABR step up is reported with its timestamp and rate`() = runTest {
+        val clock = TestClock(0L)
+        // 3000 frames per window over 4 s is LDAC's real 750 frames/s at 96 kHz,
+        // which the inference gate checks before believing any packing.
+        fun link(frames: Long, packets: Long) =
+            setCounter(
+                setCounter(connected(), "Counts (enqueue/dequeue/readbuf)", "$packets / $packets / $packets"),
+                "Frames per packet (total/max/ave)",
+                "$frames / 12 / 12",
+            )
+
+        val atFloor = LiveLinkSource(shellOf(link(4_693_895, 389_197)), clock::now).readOnce()
+        clock.advance(4_000)
+        val stillFloor = LiveLinkSource(shellOf(link(4_696_895, 389_447)), clock::now)
+            .readOnce(atFloor)
+        clock.advance(4_000)
+        val source = LiveLinkSource(shellOf(link(4_699_895, 390_197)), clock::now)
+        val recovered = source.readOnce(stillFloor)
+
+        assertEquals(12.0, requireNotNull(stillFloor.modeInference.framesPerPacket), 0.001)
+        assertEquals(330, stillFloor.modeInference.nominalKbps)
+        assertEquals(4.0, requireNotNull(recovered.modeInference.framesPerPacket), 0.001)
+        assertEquals(990, recovered.modeInference.nominalKbps)
+
+        val step = source.eventsBetween(stillFloor, recovered)
+            .filterIsInstance<LinkEvent.InferredModeChanged>()
+            .single()
+        assertEquals(8_000L, step.timestampMs)
+        assertEquals(990, step.nominalKbps)
+        assertEquals(InferenceConfidence.ANALYTIC, step.confidence)
+        assertFalse("fewer frames per packet means a higher rate", step.framesPerPacketRose)
+        assertTrue(step.detail.contains("stepped up"))
+        assertEquals(990, step.toMonitorEvent(null, null).bitrateKbps)
+    }
+
+    /**
+     * A steady link must not manufacture steps out of the half-frame wobble
+     * that two counters read microseconds apart produce.
+     */
+    @Test
+    fun `an unchanged packing is not an ABR step`() = runTest {
+        val clock = TestClock(0L)
+        fun link(frames: Long, packets: Long) =
+            setCounter(
+                setCounter(connected(), "Counts (enqueue/dequeue/readbuf)", "$packets / $packets / $packets"),
+                "Frames per packet (total/max/ave)",
+                "$frames / 12 / 12",
+            )
+
+        val first = LiveLinkSource(shellOf(link(4_693_895, 389_197)), clock::now).readOnce()
+        clock.advance(4_000)
+        val second = LiveLinkSource(shellOf(link(4_696_895, 389_447)), clock::now).readOnce(first)
+        clock.advance(4_000)
+        val source = LiveLinkSource(shellOf(link(4_699_895, 389_697)), clock::now)
+        val third = source.readOnce(second)
+
+        assertTrue(
+            source.eventsBetween(second, third)
+                .filterIsInstance<LinkEvent.InferredModeChanged>()
+                .isEmpty(),
+        )
     }
 
     @Test

@@ -41,6 +41,30 @@ sealed interface LinkEvent {
     ) : LinkEvent
 
     /**
+     * The rate the encoder is actually running at moved — the ABR event the
+     * whole inference exists for.
+     *
+     * Fires on a change in **measured frames per packet**, not on a change in
+     * an inferred label, so a step is reported even when neither side of it can
+     * be named. [from] and [to] are null in exactly that case, and
+     * [framesPerPacketRose] still says which way it went: more frames per
+     * packet means smaller frames means a lower bitrate, always.
+     */
+    data class InferredModeChanged(
+        override val timestampMs: Long,
+        val from: CodecMode?,
+        val to: CodecMode?,
+        val fromFramesPerPacket: Double,
+        val toFramesPerPacket: Double,
+        val confidence: InferenceConfidence,
+        val nominalKbps: Int?,
+        override val detail: String,
+    ) : LinkEvent {
+        /** True when the rate dropped. See the class note on monotonicity. */
+        val framesPerPacketRose: Boolean get() = toFramesPerPacket > fromFramesPerPacket
+    }
+
+    /**
      * Audible loss inside one polling window.
      *
      * Deliberately carries the three counters apart rather than one total: they
@@ -99,6 +123,7 @@ fun LinkEvent.toMonitorEvent(
     type = when (this) {
         is LinkEvent.CodecChanged -> MonitorEventType.CODEC_CHANGED
         is LinkEvent.LdacModeChanged -> MonitorEventType.BITRATE_MODE_CHANGED
+        is LinkEvent.InferredModeChanged -> MonitorEventType.BITRATE_MODE_CHANGED
         is LinkEvent.LossDetected -> MonitorEventType.DROPOUT
         is LinkEvent.PlaybackChanged ->
             if (isPlaying) MonitorEventType.PLAYING_STARTED else MonitorEventType.PLAYING_STOPPED
@@ -107,8 +132,14 @@ fun LinkEvent.toMonitorEvent(
     },
     detail = detail,
     codec = (this as? LinkEvent.CodecChanged)?.to,
-    // Only ever the nominal figure of a *pinned* mode. An adaptive link reports
-    // null here on purpose: a bitrate column that quietly falls back to the
-    // codec's headline number is the exact lie this module is built to avoid.
-    bitrateKbps = (this as? LinkEvent.LdacModeChanged)?.nominalKbps,
+    // Only ever a figure that was established, never a fallback. A pinned mode
+    // supplies its spec rate; an inferred one supplies its rate only once the
+    // inference actually resolved. A bitrate column that quietly falls back to
+    // the codec's headline number is the exact lie this module is built to
+    // avoid, so an unresolved inference leaves it empty.
+    bitrateKbps = when (this) {
+        is LinkEvent.LdacModeChanged -> nominalKbps
+        is LinkEvent.InferredModeChanged -> nominalKbps
+        else -> null
+    },
 )

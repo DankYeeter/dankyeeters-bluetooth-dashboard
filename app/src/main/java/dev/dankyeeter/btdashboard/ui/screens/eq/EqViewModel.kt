@@ -17,6 +17,7 @@ import dev.dankyeeter.btdashboard.hearing.CompensationResult
 import dev.dankyeeter.btdashboard.hearing.CompensationSource
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_INTENSITY
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_PARTIAL_FACTOR
+import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
@@ -52,9 +53,27 @@ data class CompensationUiState(
     val clinical: ClinicalAudiogram? = null,
     /** Which thresholds the user picked. Only offered while [clinicalAvailable]. */
     val source: CompensationSource = CompensationSource.MEASURED,
+    /**
+     * The calibration derived for the headphone that is connected, or null.
+     *
+     * Held rather than folded into [presetId] on adoption, so that the adoption
+     * stays a *rule* ([activePresetId]) instead of a mutation that some later
+     * emission can undo — the run collector rewrites [presetId] from whatever
+     * the last run was stamped with, and a derived id written into the field
+     * would silently lose that race.
+     */
+    val derivedForDevice: DerivedCalibration? = null,
 ) {
+    /**
+     * The preset in force, named for the readout.
+     *
+     * Resolved through [activePresetId] rather than [presetId] so that the row
+     * on screen and the numbers in the curve can never disagree: the clinical
+     * source computes with no device correction, and a derived calibration is
+     * adopted over the generic one.
+     */
     val preset: CalibrationPreset?
-        get() = presets.firstOrNull { it.id == presetId }
+        get() = presets.firstOrNull { it.id == activePresetId }
 
     /** True while the generated profile is active, i.e. the curve is read-only. */
     val adjustedReferenceActive: Boolean
@@ -102,7 +121,29 @@ data class CompensationUiState(
     val activePresetId: String
         get() = when (effectiveSource) {
             CompensationSource.CLINICAL -> CalibrationPresetRepository.GENERIC_ID
-            CompensationSource.MEASURED -> presetId
+            CompensationSource.MEASURED -> adoptedPresetId
+        }
+
+    /**
+     * [presetId], unless a calibration derived for this very headphone can take
+     * the place of no calibration at all.
+     *
+     * The same rule hardware detection follows (see the
+     * [dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository] collector):
+     * adopted **only** over [CalibrationPresetRepository.GENERIC_ID]. A preset
+     * the user chose for this headphone, or the one a run was actually measured
+     * with, always wins — silently reinterpreting a measurement through a
+     * different correction than the one it was taken with is the failure this
+     * whole area is guarding against.
+     *
+     * Over generic, though, adopting is plainly right: generic means "no
+     * correction was available", and one measured on these ears now is.
+     */
+    private val adoptedPresetId: String
+        get() = if (presetId == CalibrationPresetRepository.GENERIC_ID && derivedForDevice != null) {
+            DerivedCalibration.presetIdFor(derivedForDevice.deviceKey)
+        } else {
+            presetId
         }
 
     /** True when the active source is a clinical audiogram with no loss in it. */
@@ -195,6 +236,29 @@ class EqViewModel : ViewModel() {
                     update { it.copy(clinical = clinical, source = source) }
                     syncGeneratedCurve()
                 }
+        }
+        viewModelScope.launch {
+            // Derived calibrations follow the connected headphone, like the runs
+            // above and unlike the clinical audiogram: one is a property of ear
+            // plus driver, the other of the ears alone.
+            combine(
+                audiogramStore.derivedCalibrations,
+                MonitorGraph.codecSource.connectedDevicesFlow(),
+            ) { derived, devices ->
+                val device = devices.firstOrNull { it.isActive } ?: devices.firstOrNull()
+                val key = DeviceKey.fromAddress(device?.address)
+                derived to derived.firstOrNull { it.deviceKey == key }
+            }.collect { (all, forDevice) ->
+                // Fed here as well as in HearingGraph.init, and idempotently, for
+                // the same ordering reason syncGeneratedCurve() guards against:
+                // both collectors hang off the same DataStore and neither
+                // promises to arrive first, so reading all() before the graph's
+                // own collector had run would leave the new preset out of the
+                // list that is about to be shown.
+                HearingGraph.presets.setDerived(all)
+                update { it.copy(presets = HearingGraph.presets.all(), derivedForDevice = forDevice) }
+                syncGeneratedCurve()
+            }
         }
         viewModelScope.launch {
             profileStore.profiles.collect { list -> update { it.copy(profiles = list) } }

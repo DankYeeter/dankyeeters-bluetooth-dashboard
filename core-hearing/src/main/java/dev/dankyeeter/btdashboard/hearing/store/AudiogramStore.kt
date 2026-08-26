@@ -13,6 +13,7 @@ import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationSource
+import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import dev.dankyeeter.btdashboard.hearing.fit.FitBaseline
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
@@ -96,6 +97,48 @@ class AudiogramStore(context: Context) {
                 .getOrDefault(CompensationSource.MEASURED)
         }
 
+    /**
+     * The calibrations derived from the clinical audiogram, one per headphone.
+     *
+     * The opposite of [clinicalAudiogram] in exactly the way that makes both of
+     * them right: an audiogram belongs to a pair of ears and there is one, a
+     * derivation belongs to a pair of ears *and one headphone* and there is one
+     * per headphone. Two headphones on one head produce two genuinely different
+     * device responses, and neither of them is wrong.
+     */
+    val derivedCalibrations: Flow<List<DerivedCalibration>> = appContext.hearingDataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { prefs -> DerivedCalibrationJson.parse(prefs[KEY_DERIVED]) }
+
+    /** The derivation for one headphone, or null — including for a null key. */
+    fun derivedCalibrationFor(deviceKey: String?): Flow<DerivedCalibration?> =
+        derivedCalibrations.map { all -> all.firstOrNull { it.deviceKey == deviceKey } }
+
+    suspend fun currentDerivedCalibrations(): List<DerivedCalibration> = derivedCalibrations.first()
+
+    /**
+     * Stores one derivation, replacing any earlier one for the same headphone.
+     *
+     * Replace rather than append: a second derivation for one device is a
+     * re-measurement, and keeping both would leave the preset repository with
+     * two entries claiming the same id.
+     */
+    suspend fun saveDerivedCalibration(calibration: DerivedCalibration) {
+        appContext.hearingDataStore.edit { prefs ->
+            val existing = DerivedCalibrationJson.parse(prefs[KEY_DERIVED])
+                .filterNot { it.deviceKey == calibration.deviceKey }
+            prefs[KEY_DERIVED] = DerivedCalibrationJson.encode(existing + calibration)
+        }
+    }
+
+    suspend fun clearDerivedCalibration(deviceKey: String) {
+        appContext.hearingDataStore.edit { prefs ->
+            val kept = DerivedCalibrationJson.parse(prefs[KEY_DERIVED])
+                .filterNot { it.deviceKey == deviceKey }
+            prefs[KEY_DERIVED] = DerivedCalibrationJson.encode(kept)
+        }
+    }
+
     suspend fun currentClinicalAudiogram(): ClinicalAudiogram? = clinicalAudiogram.first()
 
     /**
@@ -119,6 +162,11 @@ class AudiogramStore(context: Context) {
             // that no longer exists would silently fall back to the measured
             // curve while the screen still said "Clinical audiogram".
             prefs.remove(KEY_SOURCE)
+            // KEY_DERIVED deliberately stays. A derivation is a finished result,
+            // not a view onto the audiogram: the clinical values were an input
+            // that has already been consumed, and the device response it
+            // produced is no less true once the form is deleted. Runs behave the
+            // same way, and for the same reason.
         }
     }
 
@@ -440,6 +488,7 @@ class AudiogramStore(context: Context) {
         private val KEY_FIT_BASELINE = stringPreferencesKey("fit_baseline_json")
         private val KEY_SELECTED = stringSetPreferencesKey("audiogram_selected_ids")
         private val KEY_CLINICAL = stringPreferencesKey("clinical_audiogram_json")
+        private val KEY_DERIVED = stringPreferencesKey("derived_calibrations_json")
         private val KEY_SOURCE = stringPreferencesKey("compensation_source")
     }
 }

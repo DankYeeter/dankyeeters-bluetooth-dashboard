@@ -281,6 +281,15 @@ data class LdacState(
 /** The negotiated link, as `mCodecConfig` reports it. Every field MEASURED. */
 data class LiveCodecSnapshot(
     val family: CodecFamily,
+    /**
+     * MEASURED: the `codecName:` the dump printed, verbatim.
+     *
+     * Kept alongside [family] because the two can disagree. This phone
+     * advertises LHDCv5 as codec type 7, which `CodecDecoding` already assigns
+     * to aptX Adaptive — so on a type-7 link the family is wrong and the name
+     * is right. Anything that must not be fooled by that keys off this.
+     */
+    val rawCodecName: String? = null,
     val sampleRateHz: Int? = null,
     val bitsPerSample: Int? = null,
     val channelMode: ChannelMode = ChannelMode.UNKNOWN,
@@ -379,6 +388,44 @@ data class A2dpTxDelta(
      */
     val framesPerSecond: Double?
         get() = if (windowMs > 0) framesEncoded * 1000.0 / windowMs else null
+
+    /**
+     * DERIVED: encoded frames per media packet across this window.
+     *
+     * The key to which bitrate mode an adaptive codec is running in — see
+     * [CodecModeInference] — and useful on its own even when the mode cannot be
+     * named, because for a fixed link it is exactly inverse-monotone in the
+     * bitrate. A bigger frame is a higher rate and fewer of them fit in a
+     * packet, so a rise here is a drop in quality, always, with no table or MTU
+     * assumed.
+     */
+    val framesPerPacket: Double?
+        get() = if (enqueued > 0) framesEncoded.toDouble() / enqueued else null
+}
+
+/**
+ * Whether the host can see this codec's stream at all.
+ *
+ * The single most important caveat on the whole panel. A codec the controller
+ * encodes never passes through `btif_a2dp_source`, so every packet, frame and
+ * loss counter in this module is either absent or a leftover from some earlier
+ * host-encoded session. There is no partial view and no degraded estimate:
+ * either the host encodes and everything below is measured, or it does not and
+ * nothing is.
+ */
+enum class LinkObservability(val label: String) {
+    /** The host encodes. Tx counters, frame rates and mode inference all apply. */
+    HOST_ENCODED("host-encoded — the stream is observable"),
+
+    /**
+     * The controller encodes. On this hardware that is SBC, AAC and Opus. The
+     * negotiated codec, sample rate and bit depth are still readable; nothing
+     * about throughput or loss is.
+     */
+    OFFLOADED("offloaded to the controller — the host cannot observe the stream"),
+
+    /** No codec was readable, so which of the two applies is unknown. */
+    UNKNOWN("no negotiated codec — observability unknown"),
 }
 
 /** The device the link belongs to. */
@@ -404,8 +451,23 @@ data class LinkLiveSnapshot(
     val timestampMs: Long,
     val device: LiveDeviceSnapshot? = null,
     val codec: LiveCodecSnapshot? = null,
-    /** Present only when [codec] is LDAC. */
+    /**
+     * The LDAC **configuration**, present only when [codec] is LDAC.
+     *
+     * Says which mode the user pinned, which on an untouched phone is "none,
+     * run adaptive". For which rate the adaptive encoder actually settled on,
+     * read [modeInference] — the two answer different questions and only one of
+     * them is about what is happening right now.
+     */
     val ldac: LdacState? = null,
+    /**
+     * Which bitrate mode the encoder is **running** in, worked out from the
+     * packet counters. Never null: when it cannot be established it carries
+     * [InferenceConfidence.UNKNOWN] and the reason why.
+     */
+    val modeInference: ModeInference = ModeInference.unknown(null, "no reading yet"),
+    /** Whether any of the throughput and loss figures below apply at all. */
+    val observability: LinkObservability = LinkObservability.UNKNOWN,
     val tx: A2dpTxStats? = null,
     /** Null on the first poll of a session — there is nothing to subtract from. */
     val txDelta: A2dpTxDelta? = null,

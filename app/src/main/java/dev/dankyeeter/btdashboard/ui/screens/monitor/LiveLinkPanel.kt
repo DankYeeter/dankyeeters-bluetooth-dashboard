@@ -1,0 +1,498 @@
+package dev.dankyeeter.btdashboard.ui.screens.monitor
+
+import android.content.Context
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
+import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
+import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
+import dev.dankyeeter.btdashboard.ui.theme.Panel
+import dev.dankyeeter.btdashboard.ui.theme.Pill
+import dev.dankyeeter.btdashboard.ui.theme.PillTone
+import java.util.Locale
+import kotlin.math.roundToInt
+
+/**
+ * "What is happening on this link right now", and the panel this whole live
+ * module exists for.
+ *
+ * ## The rule every row here follows
+ *
+ * `LinkLiveSnapshot` labels each of its fields MEASURED, DERIVED, NOMINAL,
+ * PROXY or UNAVAILABLE, and this panel renders that distinction rather than
+ * flattening it into numbers that all look equally solid:
+ *
+ *  - **measured and derived** values are printed plainly — they are facts;
+ *  - **nominal** values say what they are ("990 kbps (pinned)", with the note
+ *    behind the question mark spelling out that it is the spec figure for the
+ *    mode and not a measurement of what crossed the air);
+ *  - **proxy** values carry "(proxy)" in the line itself, because
+ *    `framesPerPacketAvg` correlates with the LDAC rate and is not one;
+ *  - **unavailable** values are never guessed. LDAC in adaptive mode has no
+ *    readable rate on this hardware, so the panel prints the data layer's own
+ *    sentence about *why*, verbatim, instead of the codec's headline number.
+ *
+ * The loss row is the reason the panel is at the top of the screen: it is quiet
+ * when nothing was lost and loud when something was, and every non-zero window
+ * also lands on the timeline through the ViewModel, so "it stuttered around
+ * half past" can be checked against something afterwards.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LiveLinkPanel(
+    snapshot: LinkLiveSnapshot?,
+    intervalMs: Long,
+    onIntervalChange: (Long) -> Unit,
+    ldacTuning: LdacTuningState,
+    onLdacQuality: (Long) -> Unit,
+    onDismissLdacMessage: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Panel(modifier) {
+        ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
+
+        when {
+            // Not an error and not zeroes: the first pass takes about half a
+            // second, and a panel full of "0" would be read as a measurement.
+            snapshot == null -> Text(
+                "Waiting for the first reading.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            snapshot.isEmpty -> Text(
+                "Nothing on the link could be read.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            else -> {
+                LinkHeader(snapshot)
+                InputVersusLink(snapshot)
+                LdacSection(snapshot, ldacTuning, onLdacQuality, onDismissLdacMessage)
+                LossRow(snapshot, intervalMs)
+                TxRows(snapshot)
+            }
+        }
+
+        UpdateRateRow(intervalMs, onIntervalChange)
+
+        // Why a row above is missing, in the machinery's own words. Behind the
+        // question mark because it is the last thing anybody needs to read and
+        // the first thing that would swamp the panel if printed in full.
+        snapshot?.warnings?.takeIf { it.isNotEmpty() }?.let { warnings ->
+            ExplainedHeader(
+                "Not readable (${warnings.size})",
+                warnings.joinToString("\n\n") { it.replaceFirstChar(Char::uppercase) + "." },
+            )
+        }
+    }
+}
+
+/** Device, codec and the negotiated format — the three facts of a link. */
+@Composable
+private fun LinkHeader(snapshot: LinkLiveSnapshot) {
+    val device = snapshot.device
+    val codec = snapshot.codec
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            // The address is the fallback, never the first choice: a name is
+            // what the user calls the thing sitting on their head.
+            device?.name?.takeIf { it.isNotBlank() }
+                ?: device?.address
+                ?: "No device",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        codec?.family?.let { Pill(it.displayName, tone = PillTone.ACCENT) }
+        // "Connected" and "playing" are different facts, and only the second one
+        // explains why every counter below is standing still.
+        if (device?.isConnected == true && device.isPlaying != true) {
+            Pill("Idle", tone = PillTone.NEUTRAL)
+        }
+    }
+
+    Text(
+        codec?.formatLine() ?: "Negotiated format not reported.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * What the app produced against what the link carries.
+ *
+ * The single most useful line on the panel: an app feeding 44.1 kHz into a link
+ * negotiated at 96 kHz is being resampled, and nowhere else on the phone are
+ * those two numbers shown together.
+ */
+@Composable
+private fun InputVersusLink(snapshot: LinkLiveSnapshot) {
+    val input = snapshot.inputs.topPlaying()
+    val context = LocalContext.current
+    val appName = input?.let { stream -> remember(stream.uid) { appLabel(context, stream.uid) } }
+
+    Text(
+        when {
+            input == null -> "Nothing is playing into this link right now."
+            else -> buildString {
+                append("In: $appName")
+                input.sampleRateHz?.let { append(" ${formatKhz(it)}") }
+                input.pcmFormat?.bits?.let { append("/$it") }
+                append("  →  Link: ")
+                append(snapshot.codec?.shortFormat() ?: "not reported")
+            }
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
+}
+
+/**
+ * LDAC's configured rate, and the control that changes it.
+ *
+ * Split in two because the two halves answer different questions: the row says
+ * what the link is set to (and, in adaptive mode, why that cannot be a number),
+ * the chips are the only place in the app where that setting can be moved for
+ * the link that is playing right now.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LdacSection(
+    snapshot: LinkLiveSnapshot,
+    tuning: LdacTuningState,
+    onLdacQuality: (Long) -> Unit,
+    onDismissMessage: () -> Unit,
+) {
+    val ldac = snapshot.ldac ?: return
+    val sampleRateHz = snapshot.codec?.sampleRateHz
+
+    // First layer: one short line. The note behind it is the data layer's own
+    // sentence and is printed verbatim — it explains that the rate is inside
+    // the encoder, that the system does not report it, and that pinning a
+    // quality makes the mode readable. Summarising it would lose exactly the
+    // part a user needs in order to do something about it.
+    ExplainedRow(
+        label = when {
+            ldac.mode.isAdaptive -> "Adaptive — rate not observable"
+            ldac.nominalKbps != null -> "${ldac.nominalKbps} kbps (pinned)"
+            else -> "LDAC quality not readable"
+        },
+        explanation = ldac.note,
+        control = {
+            Pill(
+                ldac.mode.label,
+                tone = if (ldac.mode.isAdaptive) PillTone.NEUTRAL else PillTone.ACCENT,
+            )
+        },
+    )
+
+    ExplainedBlock("LDAC quality", LDAC_TUNING_EXPLANATION) { toggle ->
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Live tuning", style = MaterialTheme.typography.bodyLarge)
+            toggle()
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LDAC_MODES.forEach { (mode, codecSpecific1) ->
+                FilterChip(
+                    selected = ldac.mode == mode,
+                    // Never two requests in flight: each one renegotiates the
+                    // codec, and the second would race the first's read-back.
+                    enabled = !tuning.busy,
+                    onClick = { onLdacQuality(codecSpecific1) },
+                    // The rate ladder follows the sample-rate family — 990/660/330
+                    // at 48 and 96 kHz, 909/606/303 at 44.1 and 88.2. Labelling
+                    // every chip "990" would be off by 8 % on half of all links.
+                    label = { Text(mode.chipLabel(sampleRateHz)) },
+                )
+            }
+        }
+        Text(
+            "Changing this renegotiates the codec: the audio cuts out for a moment, " +
+                "and the result below is read back rather than assumed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        tuning.message?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (tuning.messageIsError) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            TextButton(onClick = onDismissMessage) { Text("OK") }
+        }
+    }
+}
+
+/**
+ * The row the panel exists for: was anything lost in the last window.
+ *
+ * Quiet when nothing was — a green tick for "no dropouts" trains the eye to
+ * skip the row, and this is the one row that must be noticed when it changes.
+ */
+@Composable
+private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
+    val tx = snapshot.txDelta
+    // The tx window is measured between two polls and is the honest figure; the
+    // configured interval is only used when there is no tx block to measure.
+    val windowSeconds = ((tx?.windowMs ?: intervalMs) / 100L).toDouble().roundToInt() / 10.0
+    val parts = buildList {
+        snapshot.inputUnderrunDelta.takeIf { it > 0 }?.let { add(plural(it, "app underrun")) }
+        val mixer = (snapshot.mixer?.fastMixerUnderrunDelta ?: 0L) +
+            (snapshot.mixer?.normalMixerEmptyDelta ?: 0L)
+        mixer.takeIf { it > 0 }?.let { add(plural(it, "mixer underrun")) }
+        tx?.dropped?.takeIf { it > 0 }?.let { add(plural(it, "dropped packet")) }
+        tx?.dropouts?.takeIf { it > 0 }?.let { add(plural(it, "stack dropout")) }
+        tx?.underflows?.takeIf { it > 0 }?.let { add(plural(it, "encoder underflow")) }
+    }
+
+    when {
+        parts.isNotEmpty() -> Text(
+            "Audio lost: ${parts.joinToString(", ")} in the last ${trimZero(windowSeconds)} s.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+
+        // A delta needs two readings. Saying "no loss" off a single cumulative
+        // total would be a claim about a window nobody measured.
+        tx == null && snapshot.inputs.none { it.underrunDelta != null } -> Text(
+            "Nothing to compare yet — loss is the change between two readings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        else -> Text(
+            "No loss this window.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The Bluetooth stack's own queue — when it applies to this link at all. */
+@Composable
+private fun TxRows(snapshot: LinkLiveSnapshot) {
+    val codec = snapshot.codec
+    if (codec != null && codec.isOffloaded) {
+        // Not a silent blank: the counters below exist, are non-zero, and belong
+        // to whatever host-encoded session ran last. Reading them here would
+        // report a perfectly healthy link that nothing is measuring.
+        Text(
+            "${codec.family.displayName} is encoded by the controller, so the Bluetooth " +
+                "stack's packet counters do not describe this link.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+
+    snapshot.txDelta?.packetsPerSecond?.let { pps ->
+        Text(
+            "Encoder queue: ${pps.roundToInt()} packets/s",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+
+    snapshot.tx?.framesPerPacketAvg?.let { avg ->
+        // "(proxy)" is in the label rather than only in the explanation: the
+        // line has to be honest to somebody who never taps the question mark.
+        ExplainedRow(
+            label = "$avg frames per packet (proxy)",
+            explanation = FRAMES_PROXY_EXPLANATION,
+            control = {},
+        )
+    }
+}
+
+/** How often the panel polls. The measured cost of each rate is in the explainer. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UpdateRateRow(intervalMs: Long, onIntervalChange: (Long) -> Unit) {
+    ExplainedRow(
+        label = "Update rate",
+        explanation = UPDATE_RATE_EXPLANATION,
+        control = {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                INTERVALS.forEach { (ms, label) ->
+                    FilterChip(
+                        selected = intervalMs == ms,
+                        onClick = { onIntervalChange(ms) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+        },
+    )
+}
+
+// ---- values -----------------------------------------------------------------
+
+/** The three poll rates, slowest cost first. Named in seconds, as a user thinks. */
+private val INTERVALS = listOf(1_000L to "1 s", 2_000L to "2 s", 5_000L to "5 s")
+
+/**
+ * The four LDAC quality modes AOSP can be asked for, with the `codecSpecific1`
+ * each one is written as. [LdacQualityMode.NOT_PINNED] is absent on purpose: it
+ * is the state of never having chosen, and it cannot be *requested* — asking for
+ * adaptive explicitly is [LdacQualityMode.ADAPTIVE].
+ */
+private val LDAC_MODES = listOf(
+    LdacQualityMode.HIGH_QUALITY to 1000L,
+    LdacQualityMode.STANDARD to 1001L,
+    LdacQualityMode.CONNECTION_PRIORITY to 1002L,
+    LdacQualityMode.ADAPTIVE to 1003L,
+)
+
+private const val LIVE_LINK_EXPLANATION =
+    "One reading of the whole audio path, from the app that is playing to the " +
+        "Bluetooth radio.\n\n" +
+        "Plain numbers are measured or worked out from measurements. A rate marked " +
+        "\"pinned\" is the figure the spec assigns to that mode, not a measurement of " +
+        "what crossed the air. Anything marked \"(proxy)\" moves with the thing you are " +
+        "asking about but is not it. Where a value cannot be read on this phone, the " +
+        "panel says why instead of guessing.\n\n" +
+        "It polls only while this screen is in front of you."
+
+private const val LDAC_TUNING_EXPLANATION =
+    "Pins LDAC to one playback quality for the headphone that is connected now, the " +
+        "same setting Developer options offers and the same one a device profile " +
+        "stores.\n\n" +
+        "Pinning is also what makes the rate readable at all: in adaptive mode the " +
+        "encoder moves between the rates on its own and reports nothing, so there is " +
+        "no number to show.\n\n" +
+        "The change renegotiates the codec, which interrupts playback briefly. It is " +
+        "not permanent — the stack renegotiates on every reconnect, so store it in the " +
+        "device's profile if you want it back next time.\n\n" +
+        "It needs the privileged helper; without it nothing can be set and, just as " +
+        "importantly, nothing can be read back."
+
+private const val FRAMES_PROXY_EXPLANATION =
+    "How many codec frames the stack fits into one Bluetooth packet, averaged over " +
+        "the session.\n\n" +
+        "It is shown because it moves with the encoder's output size, so it changes " +
+        "when LDAC changes rate. It is not a bitrate and cannot be converted into " +
+        "one: the stack counts frames and never counts bytes, so turning this into " +
+        "kbps would mean assuming the very LDAC mode that cannot be read."
+
+private const val UPDATE_RATE_EXPLANATION =
+    "How often the panel re-reads the link.\n\n" +
+        "One pass runs three system dumps and takes roughly half a second of work on " +
+        "the phone — measured at 233 ms, 155 ms and 162 ms on the device this was " +
+        "built against. At one second the phone spends about half its time producing " +
+        "this screen, at two seconds a quarter of it.\n\n" +
+        "One second is worth it while you are chasing a dropout, because loss is " +
+        "reported per window and a shorter window places it more precisely. Five " +
+        "seconds is for leaving the panel open."
+
+// ---- formatting -------------------------------------------------------------
+
+/** "96 kHz · 32 bit · stereo", with whatever was actually reported. */
+private fun LiveCodecSnapshot.formatLine(): String {
+    val parts = buildList {
+        sampleRateHz?.let { add(formatKhz(it)) }
+        bitsPerSample?.let { add("$it bit") }
+        channelMode.label()?.let { add(it) }
+    }
+    return if (parts.isEmpty()) "Negotiated format not reported." else parts.joinToString(" · ")
+}
+
+/** "LDAC 96 kHz/32" — the compact form for the input-versus-link line. */
+private fun LiveCodecSnapshot.shortFormat(): String = buildString {
+    append(family.displayName)
+    sampleRateHz?.let { append(" ${formatKhz(it)}") }
+    bitsPerSample?.let { append("/$it") }
+}
+
+private fun ChannelMode.label(): String? = when (this) {
+    ChannelMode.MONO -> "mono"
+    ChannelMode.STEREO -> "stereo"
+    ChannelMode.DUAL_CHANNEL -> "dual channel"
+    ChannelMode.UNKNOWN -> null
+}
+
+/**
+ * The chip's own rate figure, or "ABR" where no single rate exists.
+ *
+ * [LdacState.nominalKbps] is asked rather than a table written here, so the
+ * 44.1/88.2 and 48/96 kHz ladders stay in one place — the same function the
+ * pinned row above is labelled from.
+ */
+private fun LdacQualityMode.chipLabel(sampleRateHz: Int?): String =
+    LdacState.nominalKbps(this, sampleRateHz)?.let { "$it kbps" } ?: "ABR"
+
+/**
+ * The app most likely to be the one the user is listening to.
+ *
+ * Media usage first: a notification chirp and a music player are both "playing",
+ * and naming the chirp as the input to a 96 kHz LDAC link would be nonsense.
+ */
+private fun List<InputStreamSnapshot>.topPlaying(): InputStreamSnapshot? =
+    firstOrNull { it.usage?.contains("MEDIA", ignoreCase = true) == true } ?: firstOrNull()
+
+/**
+ * The app's own name for its uid, falling back to the number.
+ *
+ * A uid is what the dump provides and a name is what the user recognises, so it
+ * is resolved here rather than shown raw. When the lookup fails the number is
+ * kept as-is — inventing "Unknown app" would hide that there really is a process
+ * playing, which is the fact the line is making.
+ */
+private fun appLabel(context: Context, uid: Int): String {
+    val pm = context.packageManager
+    val packages = runCatching { pm.getPackagesForUid(uid) }.getOrNull().orEmpty()
+    val label = packages.firstNotNullOfOrNull { name ->
+        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(name, 0)).toString() }.getOrNull()
+    }
+    return label?.takeIf { it.isNotBlank() } ?: packages.firstOrNull() ?: "uid $uid"
+}
+
+/** "44.1 kHz" / "96 kHz" — US formatting, so a German locale cannot print "44,1". */
+private fun formatKhz(hz: Int): String {
+    val khz = hz / 1000.0
+    return if (khz == khz.toInt().toDouble()) {
+        "${khz.toInt()} kHz"
+    } else {
+        String.format(Locale.US, "%.1f kHz", khz)
+    }
+}
+
+/** "2 s" rather than "2.0 s", "1.8 s" when the window really was uneven. */
+private fun trimZero(seconds: Double): String =
+    if (seconds == seconds.toInt().toDouble()) {
+        seconds.toInt().toString()
+    } else {
+        String.format(Locale.US, "%.1f", seconds)
+    }
+
+/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". */
+private fun plural(count: Long, singular: String): String =
+    if (count == 1L) "$count $singular" else "$count ${singular}s"

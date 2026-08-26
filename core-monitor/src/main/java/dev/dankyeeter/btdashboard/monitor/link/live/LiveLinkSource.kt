@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
+import kotlin.math.abs
 
 /**
  * Polls the three dumps that together describe the live audio path and turns
@@ -55,6 +56,17 @@ import kotlinx.coroutines.isActive
 class LiveLinkSource(
     private val shell: ShellRunner,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Signatures learned by [CodecModeCalibrator]. Absent is the normal case
+     * and simply leaves the mode inference on its analytic path.
+     */
+    private val signatures: CodecModeSignatureStore = InMemoryCodecModeSignatureStore(),
+    /**
+     * How the calibration store is keyed. Defaults to the device address, which
+     * is what the store's own KDoc assumes; injectable because a redacted
+     * address is not a stable key across builds.
+     */
+    private val deviceKey: (LiveDeviceSnapshot) -> String = { it.address },
 ) {
 
     val isAvailable: Boolean get() = shell.isAvailable
@@ -111,24 +123,78 @@ class LiveLinkSource(
         // an offloaded codec btif_a2dp_source is bypassed entirely and its
         // counters sit wherever the last host-encoded session left them, which
         // would read as a frozen, perfectly healthy link.
-        val txUsable = link.codec?.isEncodedOnHost != false
-        if (!txUsable) {
-            warnings += "${link.codec?.family?.displayName} is encoded by the controller — " +
-                "the Bluetooth stack's tx-queue counters do not apply to this link"
+        val observability = when {
+            link.codec == null -> LinkObservability.UNKNOWN
+            link.codec.isOffloaded -> LinkObservability.OFFLOADED
+            else -> LinkObservability.HOST_ENCODED
         }
-        val tx = link.tx?.takeIf { txUsable }
+        if (observability == LinkObservability.OFFLOADED) {
+            warnings += "${link.codec?.family?.displayName} is ${observability.label}"
+        }
+        val tx = link.tx?.takeIf { observability == LinkObservability.HOST_ENCODED }
+        val delta = txDelta(previous, tx, now)
 
         return LinkLiveSnapshot(
             timestampMs = now,
             device = link.device,
             codec = link.codec,
             ldac = ldac,
+            modeInference = inferMode(link.device, link.codec, delta, observability),
+            observability = observability,
             tx = tx,
-            txDelta = txDelta(previous, tx, now),
+            txDelta = delta,
             inputs = inputs,
             mixer = mixer,
             warnings = warnings,
         )
+    }
+
+    /**
+     * Works out the running bitrate mode, when the codec is one the host
+     * encodes and there are two polls to difference.
+     *
+     * The offloaded case is answered before anything is computed rather than
+     * after: with no host counters there is no frames-per-packet, and an
+     * inference built on absent numbers would come back UNKNOWN for the wrong
+     * reason — "ambiguous" instead of "this codec is not visible from here".
+     */
+    private suspend fun inferMode(
+        device: LiveDeviceSnapshot?,
+        codec: LiveCodecSnapshot?,
+        delta: A2dpTxDelta?,
+        observability: LinkObservability,
+    ): ModeInference {
+        if (observability == LinkObservability.OFFLOADED) {
+            return ModeInference.unknown(
+                codec?.family,
+                "${codec?.family?.displayName} is ${observability.label}",
+            )
+        }
+        return CodecModeInference.infer(
+            codec = codec?.family,
+            sampleRateHz = codec?.sampleRateHz,
+            framesPerPacket = delta?.framesPerPacket,
+            framesPerSecond = delta?.framesPerSecond,
+            rawCodecName = codec?.rawCodecName,
+            calibration = learnedSignatures(device, codec),
+        )
+    }
+
+    /**
+     * Signatures for this device and codec, or none.
+     *
+     * Read on every poll rather than cached across them, because a calibration
+     * run finishing must take effect on the very next reading — the whole point
+     * of pressing the button is to watch the panel start naming modes.
+     */
+    private suspend fun learnedSignatures(
+        device: LiveDeviceSnapshot?,
+        codec: LiveCodecSnapshot?,
+    ): List<ModeSignatureSample> {
+        if (device == null) return emptyList()
+        val name = codec?.rawCodecName ?: codec?.family?.displayName ?: return emptyList()
+        return runCatching { signatures.signatures(deviceKey(device), name) }
+            .getOrDefault(emptyList())
     }
 
     /**
@@ -298,8 +364,58 @@ class LiveLinkSource(
             )
         }
 
+        inferredModeEvent(previous, current)?.let(events::add)
         lossEvent(current)?.let(events::add)
         return events
+    }
+
+    /**
+     * The adaptive-bitrate step, if one happened.
+     *
+     * Triggered by the **measured** frames-per-packet changing by a whole
+     * frame, not by the inferred label changing. Two reasons: a label can flip
+     * because calibration arrived rather than because the link moved, and — the
+     * important one — a step is worth showing even on a link whose modes cannot
+     * be named. Frames-per-packet is exactly inverse-monotone in the bitrate,
+     * so "it went down and stayed down" is answerable with the mode column
+     * empty, which is the state most users will be in.
+     */
+    private fun inferredModeEvent(
+        previous: LinkLiveSnapshot,
+        current: LinkLiveSnapshot,
+    ): LinkEvent.InferredModeChanged? {
+        val before = previous.modeInference.framesPerPacket ?: return null
+        val after = current.modeInference.framesPerPacket ?: return null
+        // A whole frame, so counter skew and a window that clips a packet
+        // cannot manufacture a step. Real mode changes move this by at least
+        // 50% of its value.
+        if (abs(after - before) < 1.0) return null
+
+        val to = current.modeInference.mode
+        val from = previous.modeInference.mode
+        val direction = if (after > before) "down" else "up"
+        return LinkEvent.InferredModeChanged(
+            timestampMs = current.timestampMs,
+            from = from,
+            to = to,
+            fromFramesPerPacket = before,
+            toFramesPerPacket = after,
+            confidence = current.modeInference.confidence,
+            nominalKbps = to?.nominalKbps,
+            detail = buildString {
+                append("Encoder bitrate stepped $direction")
+                if (from != null && to != null) {
+                    append(": ${from.label} to ${to.label}")
+                } else if (to != null) {
+                    append(" to ${to.label}")
+                }
+                to?.nominalKbps?.let { append(" (${it} kbps)") }
+                append(
+                    " — %.1f to %.1f frames per packet".format(before, after),
+                )
+                if (to == null) append("; the exact mode is not identifiable on this link")
+            },
+        )
     }
 
     private fun lossEvent(current: LinkLiveSnapshot): LinkEvent.LossDetected? {

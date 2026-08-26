@@ -11,15 +11,27 @@ import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
+import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
+import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
+import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
+import dev.dankyeeter.btdashboard.system.devices.CodecPreference
+import dev.dankyeeter.btdashboard.system.devices.CodecPreferenceController
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -34,6 +46,21 @@ data class DiagnosticUiState(
      * and painting "Test stopped." in the error colour told the user something
      * had gone wrong when they had simply pressed the button.
      */
+    val messageIsError: Boolean = false,
+)
+
+/**
+ * What the live LDAC quality control has to say about its last attempt.
+ *
+ * A separate state rather than a boolean because setting a codec preference has
+ * three outcomes, not two: applied and read back, accepted but not observed, and
+ * "could not even ask". The panel prints whichever one happened; see
+ * [CodecApplyOutcome] for why the middle one is not called a failure.
+ */
+data class LdacTuningState(
+    /** True while the request is in flight, so the chips cannot be double-tapped. */
+    val busy: Boolean = false,
+    val message: String? = null,
     val messageIsError: Boolean = false,
 )
 
@@ -61,6 +88,65 @@ class MonitorViewModel : ViewModel() {
 
     private var diagnosticJob: Job? = null
 
+    // ---- live link -----------------------------------------------------------
+
+    private val _liveIntervalMs = MutableStateFlow(LiveLinkSource.DEFAULT_INTERVAL_MS)
+
+    /** How often the live panel polls. The cost of each rate is in the explainer. */
+    val liveIntervalMs: StateFlow<Long> = _liveIntervalMs.asStateFlow()
+
+    /**
+     * The poll a live event was last taken from.
+     *
+     * `MonitorGraph.liveLinkUpdates` replays its last reading to a new
+     * collector, so a rotation or a tab switch hands us an update we have
+     * already written to the timeline. Without this guard one dropout would
+     * appear twice in the event log for no reason the user could see.
+     */
+    private var lastRecordedPollMs = 0L
+
+    /**
+     * One poll loop, at whichever rate the panel asked for.
+     *
+     * The default rate goes through the graph's *shared* loop so that a second
+     * screen watching the same link costs nothing extra. Any other rate needs a
+     * loop of its own — the shared one is built at the default interval and
+     * cannot be re-timed — and `flatMapLatest` guarantees only one of the two is
+     * ever collected, which matters: a pass is three `dumpsys` execs and two
+     * loops would double that for one panel.
+     *
+     * Events are taken from this same collection rather than from
+     * `MonitorGraph.liveLinkEvents` for the same reason. That property is a
+     * second view on the shared default loop, so collecting it beside a
+     * non-default rate here would quietly start the polling twice over.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val liveUpdates: Flow<LinkLiveUpdate> = _liveIntervalMs
+        .flatMapLatest { interval ->
+            if (interval == LiveLinkSource.DEFAULT_INTERVAL_MS) {
+                MonitorGraph.liveLinkUpdates
+            } else {
+                MonitorGraph.liveLink.updates(interval)
+            }
+        }
+        .onEach { update -> recordLiveEvents(update) }
+
+    /**
+     * The newest reading, or null before the first poll returns.
+     *
+     * `WhileSubscribed` is what makes the polling lifecycle-bound: the screen
+     * collects this with `collectAsStateWithLifecycle`, so a backgrounded
+     * Monitor tab stops the loop within one interval and an empty panel costs
+     * nothing. Null is a real state and is worded as "waiting", never drawn as
+     * zeroes.
+     */
+    val liveLink: StateFlow<LinkLiveSnapshot?> = liveUpdates
+        .map { it.snapshot }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(LIVE_STOP_TIMEOUT_MS), null)
+
+    private val _ldacTuning = MutableStateFlow(LdacTuningState())
+    val ldacTuning: StateFlow<LdacTuningState> = _ldacTuning.asStateFlow()
+
     init {
         // The sampler polls only while something is playing or a screen that
         // shows the numbers is up. This ViewModel exists exactly as long as the
@@ -85,6 +171,97 @@ class MonitorViewModel : ViewModel() {
         // there reads as a failure rather than as a cold start.
         else -> samples.value.lastOrNull()?.source
             ?: MonitorGraph.collectorSource()
+    }
+
+    /** Changes the live poll rate. Takes effect on the next pass, not this one. */
+    fun setLiveIntervalMs(intervalMs: Long) {
+        _liveIntervalMs.value = intervalMs
+    }
+
+    /**
+     * Writes this poll's changes to the same store the timeline reads.
+     *
+     * The live view and the timeline are two renderings of one link, and the
+     * events that only the live poller can see — a dropout inside a two-second
+     * window, an LDAC mode change — used to exist for as long as the panel was
+     * open and then vanish. Recording them here puts them in the event log and
+     * on the timeline beside the connects and takeovers, which is where somebody
+     * correlating "it stuttered at 14:31" will look.
+     */
+    private suspend fun recordLiveEvents(update: LinkLiveUpdate) {
+        if (update.events.isEmpty()) return
+        if (update.snapshot.timestampMs <= lastRecordedPollMs) return
+        lastRecordedPollMs = update.snapshot.timestampMs
+        update.events.forEach { event ->
+            MonitorGraph.repository.recordEvent(
+                event.toMonitorEvent(
+                    deviceAddress = update.snapshot.device?.address,
+                    deviceName = update.snapshot.device?.name,
+                ),
+            )
+        }
+    }
+
+    /**
+     * Pins LDAC to one playback quality — or to adaptive — on the live device.
+     *
+     * The same mechanism the per-device profile editor uses: a [CodecPreference]
+     * carrying AOSP's `codecSpecific1`, handed to the privileged helper's
+     * [CodecPreferenceController], which reads the codec back and reports what it
+     * *saw*. The difference is only in when it runs — the editor stores the wish
+     * and replays it on every connect, this sets it for the link that is playing
+     * right now.
+     *
+     * The controller is resolved by asking the installed codec controller
+     * whether it can also take preferences. `:app` installs one object in both
+     * `PrivilegedCodec` and `SystemGraph` precisely so there is a single answer
+     * about whether the helper is there; when it is not, the stand-in cannot
+     * take preferences and the user is told that rather than shown a control
+     * that silently does nothing.
+     */
+    fun setLdacQuality(quality: Long) {
+        if (_ldacTuning.value.busy) return
+        val address = liveLink.value?.device?.address
+        if (address == null) {
+            _ldacTuning.value = LdacTuningState(
+                message = "No live link to change — connect the headphone first.",
+                messageIsError = true,
+            )
+            return
+        }
+        viewModelScope.launch {
+            _ldacTuning.value = LdacTuningState(busy = true)
+            val controller = PrivilegedCodec.controller() as? CodecPreferenceController
+            val outcome = if (controller == null) {
+                CodecApplyOutcome.Unavailable(
+                    "the privileged helper is not running, so LDAC quality cannot be set",
+                )
+            } else {
+                runCatching {
+                    controller.apply(address, CodecPreference("LDAC", ldacQuality = quality))
+                }.getOrElse { CodecApplyOutcome.Unavailable(it.message ?: "the request threw") }
+            }
+            _ldacTuning.value = LdacTuningState(
+                busy = false,
+                message = when (outcome) {
+                    is CodecApplyOutcome.Applied ->
+                        "LDAC is now ${outcome.observed} — read back, not just requested."
+
+                    // Not worded as a failure: nothing an app can reach tells a
+                    // refusal apart from a renegotiation still in flight.
+                    is CodecApplyOutcome.NotObserved ->
+                        "The link still reads ${outcome.observed}: ${outcome.detail}."
+
+                    is CodecApplyOutcome.Unavailable ->
+                        "LDAC quality was not changed — ${outcome.reason}."
+                },
+                messageIsError = outcome is CodecApplyOutcome.Unavailable,
+            )
+        }
+    }
+
+    fun dismissLdacMessage() {
+        _ldacTuning.value = _ldacTuning.value.copy(message = null)
     }
 
     fun startDeepCapture() {
@@ -186,5 +363,14 @@ class MonitorViewModel : ViewModel() {
         MonitorGraph.setUiVisible(false)
         if (_diagnostic.value.running) MonitorGraph.engine.stopDeepCapture()
         super.onCleared()
+    }
+
+    private companion object {
+        /**
+         * Long enough that a rotation does not restart the poll loop, short
+         * enough that leaving the screen stops it within one interval. Mirrors
+         * the stop timeout the graph's shared loop uses.
+         */
+        const val LIVE_STOP_TIMEOUT_MS = 3_000L
     }
 }

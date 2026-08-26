@@ -14,7 +14,9 @@ import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
+import dev.dankyeeter.btdashboard.hearing.CalibrationTransfer
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
+import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.hearing.HearingTestConfig
 import dev.dankyeeter.btdashboard.hearing.HearingTestState
@@ -22,6 +24,7 @@ import dev.dankyeeter.btdashboard.hearing.HughsonWestlakeTestController
 import dev.dankyeeter.btdashboard.hearing.LowToneArtifact
 import dev.dankyeeter.btdashboard.hearing.PrepareResult
 import dev.dankyeeter.btdashboard.hearing.RunReliability
+import dev.dankyeeter.btdashboard.hearing.SelfTestThresholds
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import dev.dankyeeter.btdashboard.hearing.fit.FitCheck
@@ -48,6 +51,9 @@ import kotlinx.coroutines.launch
 
 /** Where the user currently is in the hearing-test flow. */
 enum class HearingPhase { INTRO, FIT_CHECK, TESTING, RESULT, HISTORY }
+
+/** Kotlin ships Pair and Triple and stops there; the combine below needs four. */
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
 data class HearingUiState(
     val phase: HearingPhase = HearingPhase.INTRO,
@@ -79,8 +85,37 @@ data class HearingUiState(
      * of the ears, so it stays put when the headphones change.
      */
     val clinicalAudiogram: ClinicalAudiogram? = null,
+    /**
+     * The calibration derived for the headphone that is connected right now, or
+     * null. Per device, unlike [clinicalAudiogram] — see [DerivedCalibration].
+     */
+    val derivedCalibration: DerivedCalibration? = null,
 ) {
     val fitCheckRequired: Boolean get() = formFactor.fitCheckMandatory && !fitCheckPassed
+
+    /**
+     * The runs the transfer would use: exactly the ones behind [audiogram].
+     *
+     * Asked from the same function the curve asks, rather than filtered again
+     * here. A derivation built from a different set of runs than the curve on
+     * screen would be a correction for a measurement the user was never shown.
+     */
+    val runsForCurrentDevice: List<AudiogramRun>
+        get() = AudiogramStore.selectionOf(runs, selectedRunIds, currentDeviceKey)
+
+    /**
+     * Whether the transfer has both of its halves: a clinical audiogram, and at
+     * least one run measured through the headphone that is connected.
+     *
+     * The device key is required rather than tolerated as null. The result is
+     * stored *against* a headphone and only ever applied to that headphone; with
+     * nothing connected there is no identity to store it under, and guessing one
+     * would attach a device response to whatever connects next.
+     */
+    val canDeriveCalibration: Boolean
+        get() = clinicalAudiogram?.isEmpty == false &&
+            currentDeviceKey != null &&
+            runsForCurrentDevice.isNotEmpty()
 
     /**
      * Whether the run just finished should carry the low-tone advisory.
@@ -131,9 +166,17 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
             // All runs are shown; only the chosen ones are averaged - and only
             // ones measured through the connected headphone count, because a
             // hearing curve is a property of ear plus driver together.
-            combine(store.runs, store.selectedRunIds, activeDevice) { all, ids, device ->
-                Triple(all, ids, device)
-            }.collect { (all, ids, device) ->
+            // The derivation rides along in the same combine rather than in its
+            // own collector: it is keyed to the headphone, so it has to be
+            // re-resolved on exactly the emissions that change the device.
+            combine(
+                store.runs,
+                store.selectedRunIds,
+                activeDevice,
+                store.derivedCalibrations,
+            ) { all, ids, device, derived ->
+                Quad(all, ids, device, derived)
+            }.collect { (all, ids, device, derived) ->
                 val key = DeviceKey.fromAddress(device?.address)
                 val chosen = AudiogramStore.selectionOf(all, ids, key)
                 _state.value = _state.value.copy(
@@ -142,6 +185,7 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                     audiogram = if (chosen.isEmpty()) null else aggregator.aggregate(chosen),
                     currentDeviceKey = key,
                     currentDeviceName = device?.name,
+                    derivedCalibration = derived.firstOrNull { it.deviceKey == key },
                 )
             }
         }
@@ -165,6 +209,89 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
 
     fun clearClinicalAudiogram() {
         viewModelScope.launch { store.clearClinicalAudiogram() }
+    }
+
+    /**
+     * Turns the clinical audiogram and this headphone's own runs into a
+     * measured calibration for this headphone. See [CalibrationTransfer] for
+     * why the difference between the two is the device.
+     *
+     * Every refusal below says which half is missing, in words. The alternative
+     * — a disabled button — leaves someone who has a clinical audiogram, has
+     * run three tests, and still cannot press it with nothing to read; and the
+     * two halves fail for genuinely different reasons.
+     */
+    fun deriveCalibration() {
+        val current = _state.value
+        val clinical = current.clinicalAudiogram
+        if (clinical == null || clinical.isEmpty) {
+            return message(
+                "Enter your clinical audiogram first. The transfer needs both measurements " +
+                    "of the same ears — the clinic's and this app's.",
+            )
+        }
+        val deviceKey = current.currentDeviceKey ?: return message(
+            "Connect the headphones you tested with. A derived calibration belongs to one " +
+                "headphone, so there has to be one to store it against.",
+        )
+        val runs = current.runsForCurrentDevice
+        if (runs.isEmpty()) {
+            return message("No run from this headphone counts yet. Run the hearing test first.")
+        }
+
+        val result = CalibrationTransfer.derive(
+            clinicLeftHl = clinical.leftDbHl,
+            clinicRightHl = clinical.rightDbHl,
+            // Converged points only, medianed across the runs — see
+            // [SelfTestThresholds] for why a clipped point may not enter here.
+            selfLeftDbfs = SelfTestThresholds.medianPerFrequency(runs, Ear.LEFT),
+            selfRightDbfs = SelfTestThresholds.medianPerFrequency(runs, Ear.RIGHT),
+        ) ?: return message(
+            "Not enough overlapping frequencies. The transfer needs at least " +
+                "${CalibrationTransfer.MIN_OVERLAP} frequencies measured both at the clinic " +
+                "and here, on the same ear. Fill in more of the clinic's form, or re-run the " +
+                "test if points came back hollow.",
+        )
+
+        val calibration = DerivedCalibration(
+            deviceKey = deviceKey,
+            deviceName = current.currentDeviceName,
+            responseDeviationDb = result.responseDeviationDb,
+            earSpreadDb = result.earSpreadDb,
+            warnings = result.warnings,
+            createdAtMillis = System.currentTimeMillis(),
+            sourceRunIds = runs.map { it.id },
+        )
+        viewModelScope.launch { store.saveDerivedCalibration(calibration) }
+
+        // The warnings are appended, never swallowed and never shown instead of
+        // the result: the derivation is stored either way, and the caveats are
+        // about how much to trust it rather than about whether it happened.
+        message(
+            buildString {
+                append(
+                    "Calibration derived from ${runs.size} run" +
+                        (if (runs.size == 1) "" else "s") +
+                        " and your clinical audiogram. It is now offered as a preset on the " +
+                        "equaliser screen. What it describes is these headphones on your ears, " +
+                        "at the fit you had during those runs — not the model in general.",
+                )
+                result.warnings.forEach { warning ->
+                    append("\n\n")
+                    append(warning)
+                }
+            },
+        )
+    }
+
+    /** Forgets the derivation for the connected headphone. */
+    fun discardDerivedCalibration() {
+        val deviceKey = _state.value.currentDeviceKey ?: return
+        viewModelScope.launch { store.clearDerivedCalibration(deviceKey) }
+    }
+
+    private fun message(text: String) {
+        _state.value = _state.value.copy(message = text)
     }
 
     val needsMicPermission: Boolean get() = !ambientCheck.hasPermission

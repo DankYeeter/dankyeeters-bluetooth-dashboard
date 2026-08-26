@@ -25,10 +25,16 @@ import dev.dankyeeter.btdashboard.monitor.link.BluetoothBroadcastSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 import dev.dankyeeter.btdashboard.monitor.link.ReflectiveQualityReportSource
+import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
+import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeCalibrator
+import dev.dankyeeter.btdashboard.monitor.link.live.CodecModePinner
+import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeSignatureStore
+import dev.dankyeeter.btdashboard.monitor.link.live.InMemoryCodecModeSignatureStore
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
+import dev.dankyeeter.btdashboard.monitor.link.live.NoOpCodecModePinner
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
@@ -214,12 +220,63 @@ object MonitorGraph {
 
     private var _liveLink: LiveLinkSource? = null
     private var _liveLinkUpdates: SharedFlow<LinkLiveUpdate>? = null
+    private var _signatures: CodecModeSignatureStore? = null
+
+    @Volatile
+    private var installedPinner: CodecModePinner = NoOpCodecModePinner
+
+    /**
+     * Bitrate-mode signatures learned by [codecModeCalibrator].
+     *
+     * In memory only, and deliberately: persisting these needs a Room entity,
+     * and `MonitorDatabase` uses `fallbackToDestructiveMigration()`, so the
+     * schema bump would erase the user's monitor history. See
+     * [CodecModeSignatureStore] — the UI should say a calibration lasts until
+     * the app is killed rather than imply it is saved.
+     */
+    val codecModeSignatures: CodecModeSignatureStore
+        get() = synchronized(lock) {
+            _signatures ?: InMemoryCodecModeSignatureStore().also { _signatures = it }
+        }
+
+    /**
+     * Installs the privileged path that can pin a codec's bitrate mode.
+     *
+     * Same shape and same reason as [installShellRunner]: this module cannot
+     * see `:app`'s helper Binder, and without it calibration must refuse rather
+     * than pretend. The default [NoOpCodecModePinner] does exactly that.
+     */
+    fun installCodecModePinner(pinner: CodecModePinner) {
+        installedPinner = pinner
+    }
 
     /** The poller itself. Screens normally want [liveLinkUpdates] instead. */
     val liveLink: LiveLinkSource
         get() = synchronized(lock) {
-            _liveLink ?: LiveLinkSource(shell).also { _liveLink = it }
+            _liveLink ?: LiveLinkSource(shell, signatures = codecModeSignatures)
+                .also { _liveLink = it }
         }
+
+    /**
+     * Learns what each bitrate mode looks like on the connected link.
+     *
+     * **Mutating.** Calling `calibrate` renegotiates the codec once per mode,
+     * each of which restarts the A2DP stream and is audible. It exists as a
+     * suspend function with no scheduling of its own so that the only thing
+     * that can start it is a user pressing a button.
+     */
+    val codecModeCalibrator: CodecModeCalibrator
+        get() = CodecModeCalibrator(
+            source = liveLink,
+            // Resolved per call, not captured: the helper is not running at app
+            // start, so a calibrator built once would hold the no-op forever.
+            // Same trap [shell] documents at length.
+            pinner = object : CodecModePinner {
+                override suspend fun pinMode(address: String, codec: CodecFamily, modeRawValue: Long) =
+                    installedPinner.pinMode(address, codec, modeRawValue)
+            },
+            store = codecModeSignatures,
+        )
 
     /**
      * One shared poll loop, started by the first collector and stopped shortly

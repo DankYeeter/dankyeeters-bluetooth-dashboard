@@ -7,6 +7,8 @@ import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
+import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
+import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 
 /**
@@ -56,6 +58,16 @@ object BackupMapper {
         savedAtMillis = clinical.savedAtMillis,
     )
 
+    fun toBackup(calibration: DerivedCalibration): BackupDerivedCalibration = BackupDerivedCalibration(
+        deviceKey = calibration.deviceKey,
+        deviceName = calibration.deviceName,
+        responseDeviationDb = calibration.responseDeviationDb,
+        earSpreadDb = calibration.earSpreadDb,
+        warnings = calibration.warnings,
+        createdAtMillis = calibration.createdAtMillis,
+        sourceRunIds = calibration.sourceRunIds,
+    )
+
     fun toBackup(eq: EqSettings): BackupEq = BackupEq(
         enabled = eq.enabled,
         // Without this the gain list is just a bare row of numbers, and the
@@ -91,6 +103,7 @@ object BackupMapper {
         appVersion: String,
         nowMillis: Long,
         clinical: ClinicalAudiogram? = null,
+        derivedCalibrations: List<DerivedCalibration> = emptyList(),
     ): BackupDocument = BackupDocument(
         appVersion = appVersion,
         exportedAtMillis = nowMillis,
@@ -100,6 +113,7 @@ object BackupMapper {
         eq = toBackup(eq),
         activeProfileId = activeProfileId,
         clinicalAudiogram = clinical?.takeUnless { it.isEmpty }?.let(::toBackup),
+        derivedCalibrations = derivedCalibrations.map(::toBackup),
     )
 
     // ---- file -> domain -------------------------------------------------------
@@ -144,6 +158,26 @@ object BackupMapper {
         source = clinical.source,
         savedAtMillis = clinical.savedAtMillis,
     )
+
+    /**
+     * A record whose deviation list does not match [TEST_FREQUENCIES_HZ] is
+     * dropped rather than padded: `CalibrationPreset` requires the alignment in
+     * its constructor, and a padded list would be a device response the app
+     * invented at the frequencies it filled in.
+     */
+    fun toDomain(calibration: BackupDerivedCalibration): DerivedCalibration? {
+        if (calibration.deviceKey.isBlank()) return null
+        if (calibration.responseDeviationDb.size != TEST_FREQUENCIES_HZ.size) return null
+        return DerivedCalibration(
+            deviceKey = calibration.deviceKey,
+            deviceName = calibration.deviceName,
+            responseDeviationDb = calibration.responseDeviationDb,
+            earSpreadDb = calibration.earSpreadDb,
+            warnings = calibration.warnings,
+            createdAtMillis = calibration.createdAtMillis,
+            sourceRunIds = calibration.sourceRunIds,
+        )
+    }
 
     private fun Map<String, Double>.toFrequencyMap(): Map<Int, Double> =
         mapNotNull { (hz, db) -> hz.toIntOrNull()?.let { it to db } }.toMap()

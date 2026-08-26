@@ -56,6 +56,12 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val status by viewModel.status.collectAsStateWithLifecycle()
     val bqr by viewModel.bqrAvailability.collectAsStateWithLifecycle()
     val diagnostic by viewModel.diagnostic.collectAsStateWithLifecycle()
+    // The live poller is started by this collection and stopped by it: the flow
+    // is WhileSubscribed in the ViewModel, and collecting it with the lifecycle
+    // means a backgrounded screen stops paying for three dumpsys calls a poll.
+    val liveLink by viewModel.liveLink.collectAsStateWithLifecycle()
+    val liveInterval by viewModel.liveIntervalMs.collectAsStateWithLifecycle()
+    val ldacTuning by viewModel.ldacTuning.collectAsStateWithLifecycle()
 
     // The sampler only polls on a lit screen while somebody is actually
     // looking at link data. The ViewModel covers screen-open/close; this
@@ -85,6 +91,18 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Monitoring", style = MaterialTheme.typography.displayMedium)
+
+        // First panel on the screen because it answers the question people open
+        // this screen with — "what is my link doing right now, and did it just
+        // drop out" — while everything below it is history and machinery.
+        LiveLinkPanel(
+            snapshot = liveLink,
+            intervalMs = liveInterval,
+            onIntervalChange = viewModel::setLiveIntervalMs,
+            ldacTuning = ldacTuning,
+            onLdacQuality = viewModel::setLdacQuality,
+            onDismissLdacMessage = viewModel::dismissLdacMessage,
+        )
 
         Panel {
             // Three stacked paragraphs used to stand here: what BQR would give,
