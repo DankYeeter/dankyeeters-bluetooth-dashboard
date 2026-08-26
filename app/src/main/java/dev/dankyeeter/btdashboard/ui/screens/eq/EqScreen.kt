@@ -152,12 +152,14 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
         CompensationSection(
             state = compensation,
             earView = earView,
+            currentEq = settings,
             onSelectPreset = viewModel::selectPreset,
             onIntensityChange = viewModel::setIntensity,
             onIntensityChangeFinished = viewModel::applyCompensationIfActive,
             onApply = viewModel::applyCompensation,
             onSelectAdjustedReference = viewModel::selectAdjustedReference,
-            onSaveProfile = viewModel::saveProfile,
+            onCreateProfile = viewModel::createProfile,
+            onSaveIntoActive = viewModel::saveCurrentIntoActive,
             onLoadProfile = viewModel::loadProfile,
             onDeleteProfile = viewModel::deleteProfile,
         )

@@ -12,6 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +40,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
+import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.CompensationResult
 import kotlin.math.abs
@@ -62,12 +69,14 @@ import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 internal fun CompensationSection(
     state: CompensationUiState,
     earView: EarView,
+    currentEq: EqSettings,
     onSelectPreset: (String) -> Unit,
     onIntensityChange: (Float) -> Unit,
     onIntensityChangeFinished: () -> Unit,
     onApply: () -> Unit,
     onSelectAdjustedReference: () -> Unit,
-    onSaveProfile: (String) -> Unit,
+    onCreateProfile: (String) -> Unit,
+    onSaveIntoActive: () -> Unit,
     onLoadProfile: (CompensationProfile) -> Unit,
     onDeleteProfile: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -116,8 +125,10 @@ internal fun CompensationSection(
         PanelDivider()
         ProfileList(
             state,
+            currentEq,
             onSelectAdjustedReference,
-            onSaveProfile,
+            onCreateProfile,
+            onSaveIntoActive,
             onLoadProfile,
             onDeleteProfile,
         )
@@ -500,77 +511,138 @@ private fun AdjustedReferenceCard(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ProfileList(
     state: CompensationUiState,
+    currentEq: EqSettings,
     onSelectAdjustedReference: () -> Unit,
-    onSave: (String) -> Unit,
+    onCreate: (String) -> Unit,
+    onSaveIntoActive: () -> Unit,
     onLoad: (CompensationProfile) -> Unit,
     onDelete: (String) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
+    var open by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf(false) }
+
+    val activeProfile = state.profiles.firstOrNull { it.id == state.activeProfileId }
+    val activeName = when {
+        state.adjustedReferenceActive -> AdjustedReference.NAME
+        activeProfile != null -> activeProfile.name
+        else -> "None — flat"
+    }
+    // "Changed since saved" only means something for a hand-tuned preset: the
+    // Personal Reference is a measurement and is never edited back into.
+    val dirty = activeProfile != null && activeProfile.audiogram == null &&
+        (activeProfile.eq.leftGainsDb != currentEq.leftGainsDb ||
+            activeProfile.eq.rightGainsDb != currentEq.rightGainsDb ||
+            activeProfile.eq.layout != currentEq.layout)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PanelHeader("Presets")
+        PanelHeader("EQ presets")
 
-        AdjustedReferenceCard(state, onSelectAdjustedReference)
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Preset name") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            GoldOutlinedButton(
-                onClick = {
-                    onSave(name)
-                    name = ""
-                },
-            ) { Text("Save") }
+        // Until the hearing test has produced its curve, the card explains
+        // what is missing; once it is ready it becomes a dropdown entry and
+        // the card would only repeat the menu.
+        if (!state.adjustedReferenceReady) {
+            AdjustedReferenceCard(state, onSelectAdjustedReference)
         }
 
-        if (state.profiles.isEmpty()) {
-            Text(
-                "No saved presets yet. Save the current curve under a name — from a " +
-                    "hearing test or set by hand — and recall it any time.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
+        // One control instead of a list: pick, or add. Selecting applies
+        // immediately — a preset you cannot hear right away is a file, not
+        // a sound.
+        ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }) {
+            OutlinedTextField(
+                value = activeName,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text("Active EQ") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
             )
-        } else {
-            state.profiles.forEach { profile ->
-                Panel(contentPadding = 12) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(profile.name, style = MaterialTheme.typography.bodyMedium)
-                                if (profile.id == state.activeProfileId) {
-                                    Pill("active", tone = PillTone.ACCENT)
-                                }
-                            }
-                            Text(
-                                "${(profile.intensity * 100).toInt()} % · ${profile.calibrationPresetId}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                        }
-                        TextButton(onClick = { onLoad(profile) }) { Text("Load") }
-                        TextButton(onClick = { onDelete(profile.id) }) { Text("Delete") }
-                    }
+            ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                if (state.adjustedReferenceReady) {
+                    DropdownMenuItem(
+                        text = { Text(AdjustedReference.NAME + " — from your hearing test") },
+                        onClick = {
+                            open = false
+                            onSelectAdjustedReference()
+                        },
+                    )
                 }
+                state.profiles.forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile.name) },
+                        onClick = {
+                            open = false
+                            onLoad(profile)
+                        },
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("＋ Add new EQ…") },
+                    onClick = {
+                        open = false
+                        naming = true
+                    },
+                )
             }
         }
+
+        if (dirty) {
+            GoldOutlinedButton(onClick = onSaveIntoActive, modifier = Modifier.fillMaxWidth()) {
+                Text("Save changes to “${activeProfile?.name}”")
+            }
+        }
+        if (activeProfile != null) {
+            TextButton(onClick = { onDelete(activeProfile.id) }) { Text("Delete this EQ") }
+        }
     }
+
+    if (naming) {
+        NewEqDialog(
+            onCreate = { name ->
+                naming = false
+                onCreate(name)
+            },
+            onDismiss = { naming = false },
+        )
+    }
+}
+
+/**
+ * Name first, bands second: the name is the only thing the dialog asks for,
+ * because everything else about a new EQ is done better with the sliders that
+ * are already on this screen. The new preset starts flat — a fresh sheet of
+ * paper, not a copy of the last experiment.
+ */
+@Composable
+private fun NewEqDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New EQ") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                )
+                Text(
+                    "Starts flat. Shape it with the band sliders, then save.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 private fun Float.bandLabel(): String = when {

@@ -340,6 +340,56 @@ class EqViewModel : ViewModel() {
         }
     }
 
+    /**
+     * A new, named, flat EQ — the "Add new EQ" path.
+     *
+     * Deliberately flat rather than a copy of whatever is playing: a new
+     * preset is a fresh sheet of paper, and starting it from the previous
+     * curve would bake one preset's taste invisibly into the next. Manual
+     * presets are cross-device by design — taste travels with the person,
+     * only the measured Personal Reference belongs to a headphone.
+     */
+    fun createProfile(name: String) {
+        val current = _settings.value
+        val flat = current.copy(
+            leftGainsDb = List(current.layout.bandCount) { 0f },
+            rightGainsDb = List(current.layout.bandCount) { 0f },
+            enabled = true,
+        )
+        val profile = CompensationProfile(
+            id = UUID.randomUUID().toString(),
+            name = name.trim().ifBlank { "EQ ${_compensation.value.profiles.size + 1}" },
+            createdAtMillis = System.currentTimeMillis(),
+            audiogram = null,
+            calibrationPresetId = _compensation.value.presetId,
+            ancMode = AncMode.UNKNOWN,
+            intensity = _compensation.value.intensity,
+            partialFactor = DEFAULT_PARTIAL_FACTOR,
+            eq = flat,
+        )
+        compensationDrivesTheEq = false
+        commit(flat)
+        viewModelScope.launch {
+            profileStore.save(profile)
+            store.setActiveProfileId(profile.id)
+        }
+    }
+
+    /**
+     * Writes the bands as they sound right now back into the active preset.
+     *
+     * Explicit rather than automatic: a slider being dragged is an experiment,
+     * and an experiment that silently rewrites the preset it started from
+     * leaves nothing to return to. Only manual presets accept this — the
+     * Personal Reference is a measurement, and measurements are not edited.
+     */
+    fun saveCurrentIntoActive() {
+        val state = _compensation.value
+        val active = state.profiles.firstOrNull { it.id == state.activeProfileId } ?: return
+        if (active.audiogram != null) return
+        viewModelScope.launch { profileStore.save(active.copy(eq = _settings.value)) }
+    }
+
     /** Restores a saved profile: its snapshot wins over the current test data. */
     fun loadProfile(profile: CompensationProfile) {
         // A hand-tuned preset carries no audiogram, so nothing should recompute
