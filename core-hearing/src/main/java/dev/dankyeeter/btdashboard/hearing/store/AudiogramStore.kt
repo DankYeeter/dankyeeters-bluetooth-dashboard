@@ -125,6 +125,7 @@ class AudiogramStore(context: Context) {
                     put("timestamp", run.timestampMillis)
                     put("device", run.deviceAddressHash ?: JSONObject.NULL)
                     put("deviceName", run.deviceName ?: JSONObject.NULL)
+                    put("volume", run.volumeFraction)
                     put("preset", run.calibrationPresetId)
                     put("anc", run.ancMode.name)
                     put("ambient", run.ambientNoiseDbA ?: JSONObject.NULL)
@@ -168,6 +169,7 @@ class AudiogramStore(context: Context) {
                     left = parsePoints(obj.optJSONArray("left")),
                     right = parsePoints(obj.optJSONArray("right")),
                     deviceName = obj.optString("deviceName").takeIf { it.isNotBlank() && it != "null" },
+                    volumeFraction = if (obj.has("volume")) obj.optDouble("volume") else 0.7,
                 )
             }
         } catch (e: Exception) {
@@ -245,10 +247,19 @@ class AudiogramStore(context: Context) {
             chosen: Set<String>,
             deviceKey: String?,
         ): List<AudiogramRun> {
-            val eligible = if (deviceKey == null) {
+            val sameDevice = if (deviceKey == null) {
                 all
             } else {
                 all.filter { it.deviceAddressHash == null || it.deviceAddressHash == deviceKey }
+            }
+            // Runs only mix at one test volume: thresholds in dBFS mean
+            // nothing across volumes, so the newest run decides which window
+            // is current and older runs at other volumes wait on the bench.
+            val currentVolume = sameDevice.lastOrNull()?.volumeFraction
+            val eligible = if (currentVolume == null) {
+                sameDevice
+            } else {
+                sameDevice.filter { it.volumeFraction == currentVolume }
             }
             val explicit = eligible.filter { it.id in chosen }
             return if (explicit.isEmpty()) eligible.takeLast(MAX_SELECTED) else explicit.takeLast(MAX_SELECTED)

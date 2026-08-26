@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.hearing
 
+import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import kotlinx.coroutines.flow.Flow
 
@@ -37,6 +38,17 @@ data class HearingTestConfig(
     val calibrationPresetId: String,
     val ancMode: AncMode,
     val runAmbientNoiseCheck: Boolean = true,
+    /**
+     * Fraction of the maximum media volume the run locks itself to.
+     *
+     * The default window bottoms out for someone who hears very well: every
+     * point comes back at the floor, and the app cannot ask any quieter -- the
+     * 16-bit link is out of digits. Lowering the *analogue* volume shifts the
+     * whole measurable window down instead, without touching the digital
+     * floor. The price is that thresholds only compare against runs taken at
+     * the same setting, which the store enforces.
+     */
+    val testVolumeFraction: Double = VolumeGuard.TEST_VOLUME_FRACTION,
 )
 
 sealed interface PrepareResult {

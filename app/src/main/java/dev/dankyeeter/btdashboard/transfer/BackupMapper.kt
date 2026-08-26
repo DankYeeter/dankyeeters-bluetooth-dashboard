@@ -36,6 +36,7 @@ object BackupMapper {
         calibrationPresetId = run.calibrationPresetId,
         ancMode = run.ancMode.name,
         ambientNoiseDbA = run.ambientNoiseDbA,
+        volumeFraction = run.volumeFraction,
         left = run.left.map(::toBackup),
         right = run.right.map(::toBackup),
     )
@@ -105,6 +106,7 @@ object BackupMapper {
         calibrationPresetId = run.calibrationPresetId,
         ancMode = ancMode(run.ancMode),
         ambientNoiseDbA = run.ambientNoiseDbA,
+        volumeFraction = run.volumeFraction,
         left = run.left.map(::toDomain),
         right = run.right.map(::toDomain),
     )

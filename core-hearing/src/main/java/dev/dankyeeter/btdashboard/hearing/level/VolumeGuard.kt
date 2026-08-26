@@ -122,9 +122,9 @@ class VolumeGuard(context: Context) {
         referenceVolume = -1
     }
 
-    private companion object {
-        const val TAG = "VolumeGuard"
-        const val POLL_INTERVAL_MS = 250L
+    companion object {
+        private const val TAG = "VolumeGuard"
+        private const val POLL_INTERVAL_MS = 250L
         const val MIN_VOLUME_FRACTION = 0.3
 
         /** Where the run puts the media stream: loud enough for the -90 dBFS floor,

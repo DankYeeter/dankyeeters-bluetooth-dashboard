@@ -49,6 +49,7 @@ import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import java.text.DateFormat
 import java.util.Date
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -191,6 +192,17 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
 
         Panel {
             PanelHeader("Run it")
+            ExplainedRow(
+                label = "Quieter test level",
+                explanation = "If your points keep coming back hollow at the top of the " +
+                    "chart, you hear the quietest tone the app can make at the normal " +
+                    "level — the measurement is hitting its own floor, not your ears. " +
+                    "This locks the run to a lower media volume, which shifts the whole " +
+                    "measurable window down. Runs taken at different levels never mix " +
+                    "into one curve; the newest run decides which level counts.",
+            ) {
+                Switch(checked = state.quietTest, onCheckedChange = viewModel::setQuietTest)
+            }
             GoldOutlinedButton(
                 onClick = viewModel::startFitCheck,
                 enabled = !state.busy,
@@ -635,7 +647,13 @@ private fun RunRow(
             // every row of every list and told nobody anything. The room noise
             // genuinely differs between runs, which is why it is what remains.
             Text(
-                run.ambientNoiseDbA?.let { "Room ≈ ${it.toInt()} dB" }.orEmpty(),
+                listOfNotNull(
+                    run.ambientNoiseDbA?.let { "Room ≈ ${it.toInt()} dB" },
+                    // Only worth a word when it differs from the default: a
+                    // bench-sitting run at another level should say why.
+                    "Quiet level (${(run.volumeFraction * 100).toInt()} %)"
+                        .takeIf { run.volumeFraction != 0.7 },
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

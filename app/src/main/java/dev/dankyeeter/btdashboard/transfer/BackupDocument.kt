@@ -57,6 +57,7 @@ data class BackupRun(
     @SerialName("calibrationPresetId") val calibrationPresetId: String,
     @SerialName("ancMode") val ancMode: String = "UNKNOWN",
     @SerialName("ambientNoiseDbA") val ambientNoiseDbA: Double? = null,
+    @SerialName("volumeFraction") val volumeFraction: Double = 0.7,
     @SerialName("left") val left: List<BackupThreshold> = emptyList(),
     @SerialName("right") val right: List<BackupThreshold> = emptyList(),
 )

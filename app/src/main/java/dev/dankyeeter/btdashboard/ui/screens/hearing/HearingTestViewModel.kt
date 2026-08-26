@@ -56,6 +56,12 @@ data class HearingUiState(
     val volumeLockedNotice: Boolean = false,
     /** Ids of the runs that feed the curve. Empty means "the three newest". */
     val selectedRunIds: Set<String> = emptySet(),
+    /**
+     * Locks the run to a lower media volume, for ears the normal window
+     * cannot measure: every point at the floor means "quieter than I can
+     * ask", and the only honest way further down is less analogue gain.
+     */
+    val quietTest: Boolean = false,
     val presenting: HearingTestState.Presenting? = null,
     val fitResult: FitCheckResult? = null,
     val fitCheckPassed: Boolean = false,
@@ -186,6 +192,11 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
             protocol = ProtocolConfig(),
             frequencies = TEST_FREQUENCIES_HZ,
             runAmbientCheck = runAmbientCheck,
+            testVolumeFraction = if (_state.value.quietTest) {
+                QUIET_VOLUME_FRACTION
+            } else {
+                VolumeGuard.TEST_VOLUME_FRACTION
+            },
         ) { run ->
             // Stamped here rather than in the controller: the controller is
             // pure audio and pure protocol, and which headphone was on the
@@ -264,11 +275,19 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun setQuietTest(enabled: Boolean) {
+        _state.value = _state.value.copy(quietTest = enabled)
+    }
+
     private fun launchRun(
         phase: HearingPhase,
         protocol: ProtocolConfig,
         frequencies: List<Int>,
         runAmbientCheck: Boolean,
+        // The fit check stays at the standard level on purpose: its baseline
+        // was recorded there, and a comparison across volumes compares the
+        // volume, not the fit.
+        testVolumeFraction: Double = VolumeGuard.TEST_VOLUME_FRACTION,
         onCompleted: suspend (AudiogramRun) -> Unit,
     ) {
         if (runJob?.isActive == true) return
@@ -296,6 +315,7 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                 calibrationPresetId = calibrationPresetId(),
                 ancMode = AncMode.UNKNOWN,
                 runAmbientNoiseCheck = runAmbientCheck,
+                testVolumeFraction = testVolumeFraction,
             )
 
             when (val prepared = testController.prepare(config)) {
@@ -439,5 +459,12 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
 
         /** Long enough to read one short sentence, short enough not to nag. */
         const val NOTICE_MS = 2_500L
+
+        /**
+         * The quiet-test volume. Well under the standard 0.7, comfortably
+         * above VolumeGuard's 0.3 too-low gate, and a step large enough that
+         * the window genuinely moves rather than wobbles.
+         */
+        const val QUIET_VOLUME_FRACTION = 0.4
     }
 }

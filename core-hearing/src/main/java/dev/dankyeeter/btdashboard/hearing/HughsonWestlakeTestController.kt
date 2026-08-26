@@ -71,7 +71,7 @@ class HughsonWestlakeTestController(
         toneGenerator.setLevelDbFs(protocol.minLevelDb)
 
         val guard = volumeGuard
-        if (guard != null && !guard.applyTestVolume()) {
+        if (guard != null && !guard.applyTestVolume(config.testVolumeFraction)) {
             // Only reachable when the device refused the change (fixed-volume
             // output, DND policy) and what is actually set is unusable.
             return PrepareResult.Failed(
@@ -129,6 +129,7 @@ class HughsonWestlakeTestController(
                 ambientNoiseDbA = ambientDbA,
                 left = results[Ear.LEFT]?.points.orEmpty(),
                 right = results[Ear.RIGHT]?.points.orEmpty(),
+                volumeFraction = config.testVolumeFraction,
             ),
         )
     }

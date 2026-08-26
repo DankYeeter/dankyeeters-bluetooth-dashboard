@@ -99,4 +99,34 @@ class AudiogramSelectionTest {
             AudiogramStore.selectionOf(mixed, setOf("n1"), deviceKey = "focal").map { it.id },
         )
     }
+    // ---- test volume -------------------------------------------------------
+
+    @Test
+    fun `runs at different test volumes never share a median`() {
+        val mixed = listOf(
+            run("loud1", 1),
+            run("loud2", 2),
+            run("quiet1", 3).copy(volumeFraction = 0.4),
+        )
+
+        // The newest run decides which window is current.
+        assertEquals(
+            listOf("quiet1"),
+            AudiogramStore.selectionOf(mixed, emptySet(), deviceKey = null).map { it.id },
+        )
+    }
+
+    @Test
+    fun `going back to the standard level brings the old runs back`() {
+        val mixed = listOf(
+            run("loud1", 1),
+            run("quiet1", 2).copy(volumeFraction = 0.4),
+            run("loud2", 3),
+        )
+
+        assertEquals(
+            listOf("loud1", "loud2"),
+            AudiogramStore.selectionOf(mixed, emptySet(), deviceKey = null).map { it.id },
+        )
+    }
 }

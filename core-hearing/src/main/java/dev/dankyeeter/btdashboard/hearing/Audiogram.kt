@@ -67,6 +67,15 @@ data class AudiogramRun(
      * run can say which device it belongs to even after that device is gone.
      */
     val deviceName: String? = null,
+    /**
+     * Fraction of the maximum media volume the run was measured at.
+     *
+     * Thresholds in dBFS only mean anything against the volume they were
+     * measured under; a run at 40 % and a run at 70 % describe different
+     * physical windows and must never share a median. Stored per run so the
+     * selection can enforce exactly that.
+     */
+    val volumeFraction: Double = 0.7,
 ) {
     fun points(ear: Ear): List<ThresholdPoint> = when (ear) {
         Ear.LEFT -> left
