@@ -260,7 +260,10 @@ class EqViewModel : ViewModel() {
 
     // ---- compensation flow ---------------------------------------------------
 
-    fun selectPreset(id: String) = update { it.copy(presetId = id) }
+    // No setter for the calibration preset. It is not a choice made here: the
+    // id comes from the run the audiogram was measured with, or from hardware
+    // detection, and letting the EQ screen override it would reinterpret a
+    // measurement through the wrong headphone's correction.
 
     fun setIntensity(value: Float) = update { it.copy(intensity = value.coerceIn(0f, 1f)) }
 

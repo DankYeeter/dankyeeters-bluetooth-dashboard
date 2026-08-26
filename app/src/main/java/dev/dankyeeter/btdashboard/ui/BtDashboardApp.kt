@@ -205,6 +205,11 @@ fun BtDashboardApp(
                 onWatchLive = { navController.navigate(Destination.MONITORING.route) },
                 onOpenWizard = { navController.navigate(ROUTE_WIZARD) },
                 onOpenDeviceProfiles = { navController.navigate(ROUTE_DEVICE_PROFILES) },
+                // Settings reports the EQ's attachment state; when that state is
+                // one the user can act on, this is the way through to the screen
+                // that can act on it.
+                onOpenEq = { navController.navigate(Destination.EQ.route) },
+                onOpenHearingTest = { navController.navigate(Destination.PROFILING.route) },
             )
         }
     }
@@ -216,6 +221,8 @@ private fun NavGraphBuilder.appGraph(
     onWatchLive: () -> Unit = {},
     onOpenWizard: () -> Unit = {},
     onOpenDeviceProfiles: () -> Unit = {},
+    onOpenEq: () -> Unit = {},
+    onOpenHearingTest: () -> Unit = {},
 ) {
     composable(Destination.BLUETOOTH.route) {
         BluetoothScreen(
@@ -223,11 +230,17 @@ private fun NavGraphBuilder.appGraph(
             onOpenDeviceProfiles = onOpenDeviceProfiles,
         )
     }
-    composable(Destination.EQ.route) { EqScreen() }
+    composable(Destination.EQ.route) {
+        EqScreen(onOpenHearingTest = onOpenHearingTest)
+    }
     composable(Destination.PROFILING.route) { HearingTestScreen() }
     composable(Destination.MONITORING.route) { MonitorScreen() }
     composable(Destination.SETTINGS.route) {
-        SettingsScreen(onOpenWizard = onOpenWizard, onOpenOnboarding = onOpenOnboarding)
+        SettingsScreen(
+            onOpenWizard = onOpenWizard,
+            onOpenOnboarding = onOpenOnboarding,
+            onOpenEq = onOpenEq,
+        )
     }
     composable(ROUTE_ONBOARDING) { SystemAccessScreen(onDone = onBack) }
     composable(ROUTE_WIZARD) { SetupWizardScreen(onDone = onBack) }

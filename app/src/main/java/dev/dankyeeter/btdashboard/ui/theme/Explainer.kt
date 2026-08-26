@@ -70,6 +70,46 @@ fun ExplainedRow(
     }
 }
 
+/**
+ * The same disclosure for a control the [ExplainedRow] layout cannot hold.
+ *
+ * [ExplainedRow] owns its arrangement: control, label, question mark, all on one
+ * line. A slider needs the icon beside its track and a heading of its own above
+ * it, so this keeps the part that is worth sharing — the open/closed state and
+ * the way the explanation is styled when it appears — and hands the question
+ * mark back for the caller to place. One implementation instead of a second
+ * inline copy that would drift out of step with this one.
+ */
+@Composable
+fun ExplainedBlock(
+    label: String,
+    explanation: String,
+    modifier: Modifier = Modifier,
+    content: @Composable (toggle: @Composable () -> Unit) -> Unit,
+) {
+    var open by rememberSaveable(label) { mutableStateOf(false) }
+
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        content {
+            IconButton(onClick = { open = !open }) {
+                Icon(
+                    Icons.Outlined.HelpOutline,
+                    contentDescription = if (open) "Hide explanation" else "What is $label?",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        AnimatedVisibility(open) {
+            Text(
+                explanation,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 /** Section heading with the same tap-to-reveal explanation. */
 @Composable
 fun ExplainedHeader(

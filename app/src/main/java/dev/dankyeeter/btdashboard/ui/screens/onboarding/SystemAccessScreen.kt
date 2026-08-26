@@ -25,7 +25,13 @@ import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
 import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
+import dev.dankyeeter.btdashboard.ui.common.describe
+import dev.dankyeeter.btdashboard.ui.common.pill
+import dev.dankyeeter.btdashboard.ui.common.tone
+import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateStep
 import dev.dankyeeter.btdashboard.ui.screens.devices.CopyableCommand
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -33,7 +39,6 @@ import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
-import dev.dankyeeter.btdashboard.ui.theme.Readout
 
 /**
  * How the app gets shell-level access, and what it can and cannot do without it.
@@ -42,8 +47,11 @@ import dev.dankyeeter.btdashboard.ui.theme.Readout
  * Shizuku used to be documented here as the secondary path and was removed on
  * Daniel's explicit decision — one access route, owned by this project.
  *
- * There is no INTERNET permission in this project, so nothing here fetches or
- * installs anything. Every route ends in a command the user runs themselves.
+ * The helper starts from this phone, not from a computer: the app pairs with
+ * the wireless-debugging service running on the device itself. The ADB line
+ * further down is the fallback for a phone where that pairing cannot be used,
+ * and it is a command the user runs themselves — nothing here fetches or
+ * installs anything.
  */
 @Composable
 fun SystemAccessScreen(onDone: () -> Unit) {
@@ -80,9 +88,8 @@ fun SystemAccessScreen(onDone: () -> Unit) {
     ) {
         Text("System access", style = MaterialTheme.typography.displayMedium)
         Text(
-            "Android does not let an ordinary app equalize other apps' audio, or read " +
-                "what the Bluetooth stack negotiated. Both need a shell-level identity. " +
-                "This app brings its own helper for that — the route below.",
+            "Some of what this app does needs shell-level access, which its own " +
+                "helper provides.",
             style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -95,49 +102,64 @@ fun SystemAccessScreen(onDone: () -> Unit) {
         SecureSettingsPanel()
         HeadphoneAppPanel()
 
-        GoldButton(onClick = onDone) { Text("Done") }
+        GoldButton(onClick = onDone) { Text("Back to settings") }
     }
 }
 
 /**
- * The app's own helper: the primary route, and the one that is actually
- * verified working on this phone.
+ * The app's own helper: started here, on the phone, with the computer route
+ * kept only as a fallback.
  *
- * The state is deliberately said twice — once in the pill, once in the
- * readout. Under the Edgy theme a readout is painted with the metal gradient,
- * whose lower stops (Gold.Deep, Gold.Shadow) measure 2.7:1 and 1.3:1 against a
- * panel; the bright half of the ramp carries the glyphs and the dark half is
- * shading. That is fine for a value the user is glancing at, and not fine as
- * the only place a state is stated, so the pill states it in a colour that
- * clears 4.5:1 on its own. Both pairings are pinned in ContrastTest.
+ * The state is stated once, by the pill. It used to be said twice, in a
+ * [dev.dankyeeter.btdashboard.ui.theme.Readout] as well, because under the Edgy
+ * theme a readout is painted with the metal gradient, whose lower stops
+ * (Gold.Deep, Gold.Shadow) measure 2.7:1 and 1.3:1 against a panel — fine for a
+ * value being glanced at, not fine as the only place a state is stated. The
+ * pill clears 4.5:1 on its own, so it can carry the state alone; both pairings
+ * stay pinned in ContrastTest.
  */
 @Composable
 private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -> Unit) {
     val context = LocalContext.current
     Panel {
-        PanelHeader(
+        ExplainedHeader(
             "App helper",
-            trailing = {
-                Pill(
-                    if (running) "Running" else "Not running",
-                    tone = if (running) PillTone.ACCENT else PillTone.WARN,
-                )
-            },
-        )
-
-        Readout(
-            value = if (running) "Running" else "Not running",
-            caption = "uid 2000 — shell level, the same access \"adb shell\" already " +
+            "Android does not let an ordinary app equalize other apps' audio, or read " +
+                "what the Bluetooth stack negotiated. Both need a shell-level identity. " +
+                "The helper runs at shell level — uid 2000, the same access adb shell " +
                 "has. Not root.",
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Pill(
+                if (running) "Running" else "Not running",
+                tone = if (running) PillTone.ACCENT else PillTone.WARN,
+            )
+        }
+
+        PanelDivider()
+
+        ExplainedHeader(
+            "Starting the helper",
+            "The helper runs at shell level, which only Android's debugging service " +
+                "can grant. The app pairs with that service on this phone. If pairing " +
+                "cannot be used, the same command can be run from a computer with " +
+                "ADB — the copyable line is below.",
+        )
+        // The one activation control the app has, not a second copy of it: the
+        // gate, the setup process and this screen must offer the same thing, or
+        // which one the user reached would decide how activation behaves.
+        ActivateStep()
+        Text(
+            "Start the helper here. It needs no computer.",
+            style = MaterialTheme.typography.bodySmall,
         )
 
         PanelDivider()
 
-        Text("Start it", style = MaterialTheme.typography.titleSmall)
         Text(
-            "Once per boot, from a computer with ADB — over a cable, or from a shell " +
-                "already paired for wireless debugging. Run:",
-            style = MaterialTheme.typography.bodySmall,
+            "Fallback — only needed if pairing fails.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         CopyableCommand(context, adbCommand)
         Text(
@@ -154,31 +176,31 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        GoldOutlinedButton(onClick = onNewCommand) { Text("Generate a new command") }
-        Text(
+        ExplainedRow(
+            label = "Replaces the command above with one carrying a new token.",
             // Careful with the tense here. Minting only replaces the *pending*
             // token; the token a running helper is already answering to is the
             // active one and is untouched until the new command is actually run
             // and the hand-over accepted. Saying "this revokes the old token"
             // would be wrong on both halves.
-            "For when you consider the token in the command above compromised. It " +
-                "replaces the line with one carrying a freshly minted token, and the old " +
-                "line stops being accepted. A helper that is already running is not " +
-                "affected — it keeps serving until you run the new command.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            explanation = "For when you consider the token in the command above " +
+                "compromised. The old line stops being accepted. A helper that is " +
+                "already running is not affected — it keeps serving until you run the " +
+                "new command.",
+            control = {
+                GoldOutlinedButton(onClick = onNewCommand) { Text("Replace the command") }
+            },
         )
 
         PanelDivider()
 
-        Text("It dies on reboot", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "There is no way around that without root, and this app does not ask for " +
-                "root. Only ADB can put a process on the shell uid, so the helper cannot " +
-                "restart itself and the app cannot start it.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        ExplainedHeader(
+            "Why it stops at reboot",
+            "Only Android's debugging service can put a process at shell level, so the " +
+                "helper cannot survive a restart. The app restarts it for you — after " +
+                "the first pairing that is one tap, or automatic.",
         )
+        Text("It stops at every reboot.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -192,7 +214,7 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
 @Composable
 private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolean) {
     Panel {
-        PanelHeader("What needs it")
+        PanelHeader("What the helper unlocks")
 
         // The EQ reports what the controller actually did, not what it should
         // have done. Deriving the line from the live status rather than writing
@@ -210,11 +232,11 @@ private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolea
             name = "Codec details",
             pill = if (shellAvailable) "Available" else "Cannot check",
             tone = if (shellAvailable) PillTone.ACCENT else PillTone.WARN,
-            body = "Android only reports the negotiated codec to apps holding " +
+            body = "Without the helper the codec reads as unknown.",
+            explanation = "Android only reports the negotiated codec to apps holding " +
                 "BLUETOOTH_PRIVILEGED, which no sideloaded app has. The fallback reads " +
                 "it out of a dumpsys of the Bluetooth stack, and that needs the shell. " +
-                "Without it the codec reads as unknown — the screen says so rather " +
-                "than guessing.",
+                "Without it the screen says unknown rather than guessing.",
         )
 
         PanelDivider()
@@ -223,16 +245,29 @@ private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolea
             name = "Other-equalizer check",
             pill = if (shellAvailable) "Available" else "Cannot check",
             tone = if (shellAvailable) PillTone.ACCENT else PillTone.WARN,
-            body = "Another equalizer stacking on top of this one silently undoes the " +
-                "curve. Finding one means dumping audio_flinger's effect chains, which " +
-                "needs the shell. Without it the check reports that it cannot check — " +
-                "never an all-clear it did not earn.",
+            body = "Without the helper this check cannot run, so it never reports " +
+                "all-clear.",
+            explanation = "Another equalizer stacking on top of this one silently undoes " +
+                "the curve. Finding one means dumping audio_flinger's effect chains, " +
+                "which needs the shell — so without it the check reports that it cannot " +
+                "check, never an all-clear it did not earn.",
         )
     }
 }
 
+/**
+ * @param body the one line the user reads without asking for more.
+ * @param explanation the mechanism behind that line, folded away. Null where
+ *   the body is already derived from live state and has nothing behind it.
+ */
 @Composable
-private fun CapabilityRow(name: String, pill: String, tone: PillTone, body: String) {
+private fun CapabilityRow(
+    name: String,
+    pill: String,
+    tone: PillTone,
+    body: String,
+    explanation: String? = null,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             Modifier.fillMaxWidth(),
@@ -242,18 +277,26 @@ private fun CapabilityRow(name: String, pill: String, tone: PillTone, body: Stri
             Text(name, style = MaterialTheme.typography.titleSmall)
             Pill(pill, tone = tone)
         }
-        Text(
-            body,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (explanation == null) {
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            // No control: the row is a statement, and the only thing to do with
+            // it is ask why.
+            ExplainedRow(label = body, explanation = explanation, control = {})
+        }
     }
 }
 
 /**
- * WRITE_SECURE_SETTINGS. Separate from the shell above because it is a
- * permission rather than an identity: once granted it survives a reboot, which
- * makes it the one thing on this screen the user only ever does once.
+ * WRITE_SECURE_SETTINGS. Separate from the helper above because it is a
+ * permission rather than an identity: the helper grants it on every connect,
+ * but once granted it stays granted across reboots — so on a phone where the
+ * helper cannot start, granting it once from a computer keeps the
+ * absolute-volume toggle working for good.
  */
 @Composable
 private fun SecureSettingsPanel() {
@@ -273,64 +316,42 @@ private fun SecureSettingsPanel() {
         )
         Text(
             if (granted) {
-                "Granted, and it stays granted across reboots. The absolute-volume " +
-                    "toggle can be written system-wide."
+                "Granted, and it survives reboots."
             } else {
-                "Optional. Only the absolute-volume toggle needs it. It can never be " +
-                    "granted from inside an app — you run one ADB command yourself, " +
-                    "and unlike the shells above this one survives a reboot."
+                "The helper grants this the moment it attaches."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (!granted) CopyableCommand(context, gate.adbGrantCommand())
+        if (!granted) {
+            ExplainedHeader(
+                "If the helper cannot start",
+                "This permission can also be granted from a computer with ADB. It " +
+                    "survives reboots, unlike the helper.",
+            )
+            CopyableCommand(context, gate.adbGrantCommand())
+        }
     }
 }
 
 @Composable
 private fun HeadphoneAppPanel() {
     Panel {
-        PanelHeader("Headphone app")
+        // No brand names. Which companion app the listener has is not something
+        // this screen knows, and naming two of them made the sentence read as a
+        // list rather than as a rule that applies to all of them.
+        ExplainedHeader(
+            "Headphone-side equalizers",
+            "That equalizer runs in the headphone's own DSP, after Bluetooth " +
+                "transmission, so it adds to ours instead of replacing it — and no app " +
+                "on Android can read or change it. This app never modifies another " +
+                "app's stored settings.",
+        )
         Text(
-            "Set the EQ inside the Focal & Naim / Noble FoKus app to flat. Their EQ runs " +
-                "in the headphone's own DSP, after Bluetooth transmission, so it adds to " +
-                "ours instead of replacing it — and no app on Android can read or " +
-                "change it. This app never modifies another app's stored settings.",
+            "Some headphone apps have their own equalizer inside the headphone. Set " +
+                "it flat.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-// ---- live state, rendered ---------------------------------------------------
-
-
-private fun AttachmentStatus.pill(): String = when (this) {
-    is AttachmentStatus.ActiveGlobal -> "Global"
-    is AttachmentStatus.ActiveSessions -> "Session only"
-    is AttachmentStatus.Unavailable -> "Unavailable"
-    AttachmentStatus.Inactive -> "Off"
-}
-
-private fun AttachmentStatus.tone(): PillTone = when (this) {
-    is AttachmentStatus.ActiveGlobal -> PillTone.ACCENT
-    is AttachmentStatus.ActiveSessions, is AttachmentStatus.Unavailable -> PillTone.WARN
-    AttachmentStatus.Inactive -> PillTone.NEUTRAL
-}
-
-private fun AttachmentStatus.describe(): String = when (this) {
-    is AttachmentStatus.ActiveGlobal ->
-        "Attached to the output mix, which reaches every app including Tidal."
-    is AttachmentStatus.ActiveSessions ->
-        "Session mode: the EQ follows the apps that announce their playback, and " +
-            "anything that keeps its playback to itself is not equalised. Whether a " +
-            "player announces varies by build — Tidal did on Android 17 and did not " +
-            "on 16."
-    is AttachmentStatus.Unavailable -> reason
-    // Inactive is both "the user switched the EQ off" and "nothing has applied
-    // it yet this session" — it is the controller's initial value. Naming only
-    // the first would be a guess dressed up as a fact.
-    AttachmentStatus.Inactive ->
-        "Not attached. Either the EQ is switched off, or nothing has applied it yet " +
-            "since the app started."
 }

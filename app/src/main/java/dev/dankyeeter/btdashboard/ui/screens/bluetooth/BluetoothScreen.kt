@@ -20,12 +20,9 @@ import dev.dankyeeter.btdashboard.ui.screens.dashboard.BluetoothCodecSection
 import dev.dankyeeter.btdashboard.ui.screens.dashboard.BluetoothDashboardViewModel
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesViewModel
 import dev.dankyeeter.btdashboard.ui.screens.devices.ProfileEditorCard
-import dev.dankyeeter.btdashboard.ui.theme.GoldCard
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
-import dev.dankyeeter.btdashboard.ui.theme.GoldRule
-import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.Panel
-import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 
 /**
  * Settings for the headphone that is connected right now.
@@ -39,10 +36,16 @@ import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
  * address available comes from `dumpsys`, which user builds redact to
  * `XX:XX:XX:XX:35:6A` — that cannot be hashed to a key, so the section says it
  * cannot identify the device rather than guessing at a profile and showing
- * someone else's volume.
+ * someone else's volume. It also hands the reader on to the profiles screen,
+ * which looks profiles up by stored key and so is not blocked by the redaction.
+ *
+ * On this tab the card folds its Bluetooth internals away by default: this is
+ * the screen the app opens on, and a first screen that scrolls for a page and
+ * a half is a worse answer to "what is my headphone doing" than a short one.
  */
 @Composable
 private fun ConnectedDeviceSettings(
+    onOpenDeviceProfiles: () -> Unit,
     dashboard: BluetoothDashboardViewModel = viewModel(),
     profilesViewModel: DeviceProfilesViewModel = viewModel(),
 ) {
@@ -65,6 +68,7 @@ private fun ConnectedDeviceSettings(
             showDismissActions = false,
             enabled = false,
             note = "Looking for a connected device\u2026",
+            collapsibleAdvanced = true,
         )
         return
     }
@@ -76,8 +80,11 @@ private fun ConnectedDeviceSettings(
             header = "Device settings",
             showDismissActions = false,
             enabled = false,
-            note = "Nothing connected. This is every setting a headphone can be given; " +
-                "the fields fill in and become editable the moment one connects.",
+            note = "Nothing connected \u2014 these fill in when a headphone connects.",
+            headerExplanation = "This is every setting a headphone can be given. The " +
+                "fields carry that device's values and become editable the moment one " +
+                "connects.",
+            collapsibleAdvanced = true,
         )
         return
     }
@@ -90,11 +97,17 @@ private fun ConnectedDeviceSettings(
             header = active.device.name,
             showDismissActions = false,
             enabled = false,
-            note = "This Android build redacts the address, so the connected headphone " +
-                "cannot be matched to a stored profile and nothing here can be edited. " +
-                "Its profile still applies on connect \u2014 only this inline editor " +
-                "needs the address.",
+            note = "This Android build hides the address, so this headphone cannot be " +
+                "matched here.",
+            headerExplanation = "Without an address there is no key to look a stored " +
+                "profile up by, so nothing in this card can be edited. The profile still " +
+                "applies on connect \u2014 only this inline editor needs the address.",
+            collapsibleAdvanced = true,
         )
+        // The profiles screen edits by stored key rather than by live address,
+        // so the work this card cannot do is possible one screen along. Saying
+        // "cannot be edited" and stopping there was the dead end.
+        GoldOutlinedButton(onClick = onOpenDeviceProfiles) { Text("Edit in device profiles") }
         return
     }
 
@@ -104,6 +117,7 @@ private fun ConnectedDeviceSettings(
         viewModel = profilesViewModel,
         header = active.device.name,
         showDismissActions = false,
+        collapsibleAdvanced = true,
     )
 }
 
@@ -132,17 +146,18 @@ fun BluetoothScreen(
 
         BluetoothCodecSection(onWatchLive = onWatchLive)
 
-        ConnectedDeviceSettings()
+        ConnectedDeviceSettings(onOpenDeviceProfiles = onOpenDeviceProfiles)
 
+        // Header, sentence and button all said "other device profiles" three
+        // times over. The header carries the name, its question mark carries
+        // the sentence, and the button says where it goes.
         Panel {
-                PanelHeader("Other devices")
-                Text(
-                    "Every headphone this app has seen, with the profile that is applied " +
-                        "the moment it connects.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                ExplainedHeader(
+                    "Other devices",
+                    "Every headphone this app has seen, with the profile applied when " +
+                        "it connects.",
                 )
-                GoldOutlinedButton(onClick = onOpenDeviceProfiles) { Text("Other device profiles") }
+                GoldOutlinedButton(onClick = onOpenDeviceProfiles) { Text("Open device profiles") }
         }
     }
 }

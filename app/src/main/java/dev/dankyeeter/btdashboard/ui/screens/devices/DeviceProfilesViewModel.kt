@@ -111,6 +111,14 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /**
+     * Which device [message] is about, so the screen can put the result under
+     * the card that produced it instead of at the foot of the list. Null when
+     * the result belongs to no particular device.
+     */
+    private val _messageDeviceKey = MutableStateFlow<String?>(null)
+    val messageDeviceKey: StateFlow<String?> = _messageDeviceKey.asStateFlow()
+
     /** deviceKey currently open in the editor sheet, or null. */
     private val _editing = MutableStateFlow<String?>(null)
     val editing: StateFlow<String?> = _editing.asStateFlow()
@@ -265,7 +273,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             store.save(profile)
             _editing.value = null
-            _message.value = "Saved the profile for ${profile.sanitized().name}."
+            post(profile.deviceKey, "Saved the profile for ${profile.sanitized().name}.")
             refresh()
         }
     }
@@ -274,7 +282,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             store.delete(deviceKey)
             _editing.value = null
-            _message.value = "Profile deleted."
+            post(deviceKey, "Profile deleted.")
         }
     }
 
@@ -288,7 +296,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             // if the headphone is not connected there is no address, and the
             // applier reports that step as not attempted.
             val actions = applier.applyNow(profile, addressFor(profile.deviceKey))
-            _message.value = describe(actions)
+            post(profile.deviceKey, describe(actions))
             refresh()
         }
     }
@@ -306,25 +314,48 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             ?.address
 
 
-    /** The absolute-volume switch inside the editor writes through immediately. */
-    fun setAbsoluteVolumeNow(enabled: Boolean) {
+    /**
+     * The absolute-volume switch inside the editor writes through immediately.
+     *
+     * [deviceKey] identifies the card that asked, and is used for nothing else:
+     * the setting itself is system-wide. It exists so the sentence that comes
+     * back lands under that card rather than at the bottom of the screen.
+     */
+    fun setAbsoluteVolumeNow(deviceKey: String, enabled: Boolean) {
         val written = absoluteVolume.setEnabled(enabled)
         _absoluteVolumeStatus.value = absoluteVolume.status()
-        _message.value = if (written) {
-            "Absolute volume is now ${if (enabled) "on" else "off"} system-wide. " +
-                "Reconnect the headphone for it to take effect."
-        } else {
-            "The setting could not be written — WRITE_SECURE_SETTINGS is missing."
-        }
+        post(
+            deviceKey,
+            if (written) {
+                "Absolute volume is now ${if (enabled) "on" else "off"} system-wide. " +
+                    "Reconnect the headphone for it to take effect."
+            } else {
+                "The setting could not be written — WRITE_SECURE_SETTINGS is missing."
+            },
+        )
     }
 
     fun dismissMessage() {
         _message.value = null
+        _messageDeviceKey.value = null
     }
 
     // ---- helpers -------------------------------------------------------------
 
-    private fun describe(actions: List<ProfileAction>): String {
+    /** One result, tagged with the device whose card should carry it. */
+    private fun post(deviceKey: String?, text: String) {
+        _messageDeviceKey.value = deviceKey
+        _message.value = text
+    }
+
+    /**
+     * The per-action sentences for one apply run.
+     *
+     * Not private: the connect banner says the same things about the same
+     * actions, and counting them there instead produced a line that was both
+     * shorter and wrong.
+     */
+    fun describe(actions: List<ProfileAction>): String {
         if (actions.isEmpty()) return "Nothing to apply — every field in this profile is set to \"leave alone\"."
         return actions.joinToString(" ") { action ->
             when (action) {

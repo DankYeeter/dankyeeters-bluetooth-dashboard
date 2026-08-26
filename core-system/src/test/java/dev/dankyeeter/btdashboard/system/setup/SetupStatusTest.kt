@@ -8,10 +8,8 @@ import org.junit.Test
 
 private class FakeEnvironment(
     private val satisfied: Set<SetupStep> = emptySet(),
-    private val unreachable: Set<SetupStep> = emptySet(),
 ) : SetupEnvironment {
     override fun isSatisfied(step: SetupStep): Boolean = step in satisfied
-    override fun isReachable(step: SetupStep): Boolean = step !in unreachable
 }
 
 class SetupStatusTest {
@@ -58,12 +56,17 @@ class SetupStatusTest {
         )
     }
 
+    /**
+     * The other half of the skip rule: an unmet step nobody skipped stays on
+     * the badge. This used to also cover a BLOCKED status for steps that could
+     * not be completed on this device — no environment ever reported one, so
+     * the status was unreachable and went away with it.
+     */
     @Test
-    fun `an unreachable step is blocked, not silently pending`() {
-        val states = SetupStatus.evaluate(FakeEnvironment(unreachable = setOf(SetupStep.HELPER)), emptySet())
+    fun `an unmet step that was not skipped keeps counting`() {
+        val states = SetupStatus.evaluate(FakeEnvironment(), emptySet())
 
-        assertEquals(SetupStepStatus.BLOCKED, states.single { it.step == SetupStep.HELPER }.status)
-        // Blocked still counts as outstanding — the user should know about it.
+        assertEquals(SetupStepStatus.PENDING, states.single { it.step == SetupStep.HELPER }.status)
         assertTrue(SetupStatus.outstanding(states).any { it.step == SetupStep.HELPER })
     }
 

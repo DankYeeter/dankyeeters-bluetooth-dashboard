@@ -29,6 +29,12 @@ data class DiagnosticUiState(
     val report: DiagnosticReport? = null,
     /** Why the run did not start, or why it ended early. Null while healthy. */
     val message: String? = null,
+    /**
+     * Whether [message] reports a fault. Stopping the run yourself is not one,
+     * and painting "Test stopped." in the error colour told the user something
+     * had gone wrong when they had simply pressed the button.
+     */
+    val messageIsError: Boolean = false,
 )
 
 class MonitorViewModel : ViewModel() {
@@ -95,15 +101,23 @@ class MonitorViewModel : ViewModel() {
     fun runDiagnostic(soakMinutes: Int = 3) {
         if (_diagnostic.value.running) return
         diagnosticJob = viewModelScope.launch {
-            _diagnostic.value = DiagnosticUiState(running = true)
+            // The previous report deliberately survives the start of a new run.
+            // Clearing it emptied the only thing on the panel worth reading the
+            // moment the user asked for a fresh look, and left three minutes of
+            // nothing to compare the new run against.
+            _diagnostic.value = _diagnostic.value.copy(
+                running = true,
+                steps = emptyList(),
+                message = null,
+            )
             val device = MonitorGraph.codecSource.connectedDevices().firstOrNull()
             if (device == null) {
                 // Used to reset silently, which looked exactly like a frozen
                 // button: the run needs a connected A2DP sink to test against.
-                _diagnostic.value = DiagnosticUiState(
+                _diagnostic.value = _diagnostic.value.copy(
                     running = false,
-                    message = "No Bluetooth audio device is connected. Connect your headphones " +
-                        "and start the diagnostic again.",
+                    message = "Connect a headphone first — the test needs a live link.",
+                    messageIsError = true,
                 )
                 return@launch
             }
@@ -146,6 +160,10 @@ class MonitorViewModel : ViewModel() {
      * out" is not an acceptable only option — and the deep capture it started
      * lives on the app-wide monitor scope, so it has to be stopped explicitly
      * rather than dying with the job.
+     *
+     * The steps that already finished stay on screen: they were really measured
+     * and are still true after the stop, so throwing them away would discard the
+     * only result the aborted run produced.
      */
     fun cancelDiagnostic() {
         diagnosticJob?.cancel()
@@ -153,7 +171,8 @@ class MonitorViewModel : ViewModel() {
         MonitorGraph.engine.stopDeepCapture()
         _diagnostic.value = _diagnostic.value.copy(
             running = false,
-            message = "Diagnostic cancelled.",
+            message = "Test stopped.",
+            messageIsError = false,
         )
     }
 

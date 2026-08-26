@@ -82,8 +82,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             _backupMessage.value = when (val result = backups.export(uri)) {
                 is BackupExportResult.Success -> BackupMessage(
-                    text = "Exported ${result.runCount} hearing run(s) and " +
-                        "${result.profileCount} profile(s).",
+                    text = buildString {
+                        append("Exported ${plural(result.runCount, "hearing run")}")
+                        // "and 0 profiles" reads as a failure of the export. It
+                        // is not: there were none to write, and saying so is
+                        // the only thing that tells the user whether the file
+                        // they are about to keep is missing anything.
+                        if (result.profileCount > 0) {
+                            append(" and ${plural(result.profileCount, "profile")}.")
+                        } else {
+                            append(". No profiles were saved yet.")
+                        }
+                    },
                     isError = false,
                 )
                 is BackupExportResult.Failure -> BackupMessage(result.message, isError = true)
@@ -96,8 +106,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _backupMessage.value = when (val result = backups.import(uri)) {
                 is BackupImportResult.Success -> BackupMessage(
                     text = buildString {
-                        append("Imported ${result.runCount} hearing run(s) and ")
-                        append("${result.profileCount} profile(s)")
+                        append("Imported ${plural(result.runCount, "hearing run")} and ")
+                        append(plural(result.profileCount, "profile"))
                         append(if (result.eqImported) ", including the EQ curve." else ".")
                         result.warnings.forEach { append("\n• $it") }
                     },
@@ -114,3 +124,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 }
 
 data class BackupMessage(val text: String, val isError: Boolean)
+
+/**
+ * "1 hearing run" / "2 hearing runs".
+ *
+ * The "(s)" form is what a program writes when it has not decided what it is
+ * saying; every count here is known at the moment the sentence is built.
+ */
+private fun plural(count: Int, singular: String): String =
+    if (count == 1) "$count $singular" else "$count ${singular}s"

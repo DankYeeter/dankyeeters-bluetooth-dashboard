@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -45,18 +47,47 @@ class BluetoothScreenSettingsTest {
     fun `the settings are on screen with nothing connected`() {
         showScreen()
 
+        // The everyday controls are on the surface; the expert sections sit
+        // behind "Advanced device settings" since the design pass — the tab is
+        // the app's start destination and the full editor was several screens
+        // of scroll. The regression this test guards ("one sentence instead of
+        // the card") is still caught by the surface labels; the advanced ones
+        // are asserted after opening the expander, which is now part of the
+        // contract rather than a detail.
         listOf(
             "Name",
             "EQ preset",
-            "Absolute volume",
-            "Bluetooth codec",
             "Apply automatically on connect",
             "Save",
         ).forEach { label ->
-            val found = composeRule.onAllNodesWithText(label, substring = true)
+            val found = composeRule.onAllNodesWithText(label, substring = true, ignoreCase = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
             assertTrue("expected \"$label\" on the Bluetooth tab with nothing connected", found)
+        }
+
+        // The screen opens on a brief "Looking for a connected device…" card
+        // and swaps to the nothing-connected card once the device flow has
+        // answered. Both carry an expander, but they are different composition
+        // slots, so expanding the first is lost in the swap — the click has to
+        // wait for the card that stays.
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Nothing connected", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        // performClick injects a touch at the node's on-screen position, and
+        // this button sits below the fold of the scrollable tab — without the
+        // scroll the tap lands on empty space and toggles nothing.
+        composeRule.onNodeWithText("Advanced device settings")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitForIdle()
+
+        listOf("Absolute volume", "Bluetooth codec").forEach { label ->
+            val found = composeRule.onAllNodesWithText(label, substring = true, ignoreCase = true)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+            assertTrue("expected \"$label\" behind the advanced expander", found)
         }
     }
 

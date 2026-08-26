@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -44,7 +45,12 @@ import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
 import dev.dankyeeter.btdashboard.system.persist.AccentChoice
 import dev.dankyeeter.btdashboard.system.persist.AppearanceChoice
 import dev.dankyeeter.btdashboard.transfer.BackupSchema
+import dev.dankyeeter.btdashboard.ui.common.describe
+import dev.dankyeeter.btdashboard.ui.common.pill
+import dev.dankyeeter.btdashboard.ui.common.tone
 import dev.dankyeeter.btdashboard.ui.screens.dashboard.DashboardViewModel
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.MetalPalette
@@ -65,6 +71,7 @@ import dev.dankyeeter.btdashboard.ui.theme.PillTone
 fun SettingsScreen(
     onOpenWizard: () -> Unit = {},
     onOpenOnboarding: () -> Unit = {},
+    onOpenEq: () -> Unit = {},
     appearanceViewModel: SettingsViewModel = viewModel(),
     dashboardViewModel: DashboardViewModel = viewModel(),
 ) {
@@ -99,6 +106,7 @@ fun SettingsScreen(
             helperRunning = helper != null,
             attachment = attachment,
             onOpenOnboarding = onOpenOnboarding,
+            onOpenEq = onOpenEq,
         )
         AppearancePanel(appearance, appearanceViewModel::setAppearance)
         AccentPanel(
@@ -129,8 +137,11 @@ private fun SetupPanel(summary: String?, onOpenWizard: () -> Unit) {
             summary ?: "Setup complete — every step is either granted or skipped.",
             style = MaterialTheme.typography.bodyMedium,
         )
+        // "Review" and "Finish" say what is left to do; "Run setup again" said
+        // what the button does to the app, which is the one thing the user
+        // already knows from the panel it sits in.
         GoldButton(onClick = onOpenWizard) {
-            Text(if (summary == null) "Run setup again" else "Finish setup")
+            Text(if (summary == null) "Review setup" else "Finish setup")
         }
     }
 }
@@ -147,6 +158,7 @@ private fun SystemAccessPanel(
     helperRunning: Boolean,
     attachment: AttachmentStatus,
     onOpenOnboarding: () -> Unit,
+    onOpenEq: () -> Unit,
 ) {
     Panel {
         PanelHeader("System access")
@@ -169,6 +181,15 @@ private fun SystemAccessPanel(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // Only where there is something to do about it. Global and session
+        // attachment are the EQ working; the other two states are the user
+        // wanting the screen that can switch it on or say why it failed, and
+        // reading the state here without a way through is a dead end.
+        if (attachment is AttachmentStatus.Unavailable ||
+            attachment is AttachmentStatus.Inactive
+        ) {
+            GoldOutlinedButton(onClick = onOpenEq) { Text("Open the EQ screen") }
+        }
 
         PanelDivider()
 
@@ -176,18 +197,19 @@ private fun SystemAccessPanel(
         // cause: "Force stop" puts the app in Android's stopped state, and a
         // stopped app receives no broadcasts at all — not the boot one, not a
         // headphone connecting. Nothing the app can do about it from inside,
-        // and nothing the user can guess either.
-        Text(
-            "The equalizer runs as a background service, so closing the app leaves it " +
-                "on. \"Force stop\" in Android's app settings ends it — and after that " +
-                "Android delivers this app no events at all until you open it once.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // and nothing the user can guess either. The consequence is the first
+        // layer; the mechanism only matters once it has bitten.
+        ExplainedRow(
+            label = "The equalizer keeps running after you close the app.",
+            explanation = "It runs as a background service. \"Force stop\" in Android's " +
+                "app settings ends it, and after that Android delivers this app no " +
+                "events at all until you open it once.",
+            control = {},
         )
 
         // Not "System access" again — a button labelled after the panel it
         // sits in says nothing about what tapping it does.
-        GoldOutlinedButton(onClick = onOpenOnboarding) { Text("Set up shell access") }
+        GoldOutlinedButton(onClick = onOpenOnboarding) { Text("Open system access") }
     }
 }
 
@@ -256,8 +278,7 @@ private fun AccentPanel(
         )
         Text(
             if (active) {
-                "The gradients, borders and readouts are all derived from this one colour. " +
-                    "Pick any colour — the metallic ramp is derived from it."
+                "Every gradient, border and readout is derived from this one colour."
             } else {
                 "Only the Edgy theme paints metal — the other themes take their accent " +
                     "from your wallpaper. Pick Edgy above to see this."
@@ -408,9 +429,8 @@ private fun BackupPanel(viewModel: DashboardViewModel) {
     Panel {
         PanelHeader("Backup")
         Text(
-            "Hearing runs, presets and the EQ curve as a plain JSON file — for " +
-                "moving to another phone. Local only: there is no cloud and no " +
-                "INTERNET permission.",
+            "Hearing runs, presets and the EQ curve, for moving to another phone. " +
+                "A plain JSON file, saved where you choose. Nothing is uploaded.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -442,6 +462,14 @@ private fun BackupPanel(viewModel: DashboardViewModel) {
     }
 }
 
+/**
+ * Four answers, none of them on screen until asked for.
+ *
+ * These used to be four permanently open paragraphs, which put a page of prose
+ * between the backup buttons and the version number for every user who had
+ * already read them once. A settings screen is somewhere people come to change
+ * one thing.
+ */
 @Composable
 private fun HowToPanel() {
     Panel {
@@ -467,72 +495,67 @@ private fun HowToPanel() {
         )
         PanelDivider()
         HowTo(
+            // No brand names: which companion app the listener has is not
+            // something this screen knows, and the rule holds for all of them.
             "Vendor equalizers",
-            "Companion apps like Focal & Co run their EQ inside the headphone, where " +
+            "Some headphone apps run their equalizer inside the headphone, where " +
                 "Android cannot see it. Set those flat, or their curve stacks on top " +
                 "of this one.",
         )
     }
 }
 
+/** A title that answers when tapped. No control — there is nothing to set here. */
 @Composable
 private fun HowTo(title: String, body: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        Text(
-            body,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    ExplainedRow(label = title, explanation = body, control = {})
 }
 
 @Composable
 private fun AboutPanel() {
+    val context = LocalContext.current
+    // BuildConfig is switched off for the whole project
+    // (android.defaults.buildfeatures.buildconfig=false), so the version comes
+    // from the installed package instead — the same string, read at runtime.
+    // runCatching because getPackageInfo is declared as throwing for a package
+    // that does not exist, which cannot happen for our own.
+    val version = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()
+    }
+
     Panel {
         PanelHeader("About")
         Text(
             "DankYeeter's Bluetooth Dashboard",
             style = MaterialTheme.typography.bodyMedium,
         )
+        version?.let {
+            Text(
+                "Version $it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Text(
-            "No INTERNET permission anywhere in this project. Nothing you measure " +
-                "leaves the phone.",
+            "Nothing you measure leaves the phone.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // The app used to carry no INTERNET permission at all, and said so
+        // here. It holds one now — starting the helper without a computer needs
+        // a socket, and Android gates loopback behind the same permission — so
+        // the old sentence was a privacy claim the manifest no longer backed.
+        ExplainedHeader(
+            "Network access",
+            "The app holds the internet permission for one reason: starting its helper " +
+                "needs a connection to the debugging service on this phone, at " +
+                "127.0.0.1. There is no code that contacts a remote server.",
         )
     }
 }
 
-// ---- live state, rendered ---------------------------------------------------
-//
-// Deliberately short here: the full explanation of what each state costs lives
-// on the System access screen, and duplicating it would leave two copies to
-// drift apart. `AttachmentStatus.toString()` used to be printed raw, which put
-// "ActiveSessions(sessionIds=[])" in front of the user.
-
-private fun AttachmentStatus.pill(): String = when (this) {
-    is AttachmentStatus.ActiveGlobal -> "Global"
-    is AttachmentStatus.ActiveSessions -> "Session only"
-    is AttachmentStatus.Unavailable -> "Unavailable"
-    AttachmentStatus.Inactive -> "Off"
-}
-
-private fun AttachmentStatus.tone(): PillTone = when (this) {
-    is AttachmentStatus.ActiveGlobal -> PillTone.ACCENT
-    is AttachmentStatus.ActiveSessions, is AttachmentStatus.Unavailable -> PillTone.WARN
-    AttachmentStatus.Inactive -> PillTone.NEUTRAL
-}
-
-private fun AttachmentStatus.describe(): String = when (this) {
-    is AttachmentStatus.ActiveGlobal -> "Attached to the output mix — reaches every app."
-    // No count: a number of sessions is nothing the user can check against
-    // what they are hearing. The EQ screen names the apps instead.
-    is AttachmentStatus.ActiveSessions ->
-        "Following whatever is playing, app by app — the EQ screen names them."
-    is AttachmentStatus.Unavailable -> reason
-    // Inactive is the controller's initial value as well as its off state, so
-    // it cannot be reported as "switched off" without guessing.
-    AttachmentStatus.Inactive ->
-        "Not attached. Either the EQ is switched off, or nothing has applied it yet."
-}
+// The rendering of AttachmentStatus lives in ui.common now. It used to be a
+// private copy here and another on the System access screen, and the two had
+// already drifted into saying different things about the same state.

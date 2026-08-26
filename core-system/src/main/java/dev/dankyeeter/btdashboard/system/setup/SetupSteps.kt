@@ -34,6 +34,16 @@ enum class SetupNeed {
 enum class SetupStep(
     val id: String,
     val title: String,
+    /**
+     * The one line the wizard puts on its face.
+     *
+     * Separate from [rationale] because the two answer different questions.
+     * Someone walking through four steps wants to know what each one is for in
+     * the time it takes to read a line; the paragraph is for the one person in
+     * ten who wants to know why the app needs it at all, and it belongs behind
+     * the question mark rather than in front of everyone.
+     */
+    val summary: String,
     /** Why we ask. Every entry says what breaks without it — no vague pleading. */
     val rationale: String,
     val need: SetupNeed,
@@ -41,6 +51,7 @@ enum class SetupStep(
     BLUETOOTH(
         id = "bluetooth",
         title = "Bluetooth access",
+        summary = "So the app can see your headphone.",
         rationale = "Needed to see which headphone is connected, read its codec, and " +
             "apply that device's profile. Without it the dashboard and the link " +
             "monitor stay empty.",
@@ -49,6 +60,7 @@ enum class SetupStep(
     MICROPHONE(
         id = "microphone",
         title = "Microphone",
+        summary = "So the hearing test can check the room is quiet.",
         rationale = "Used only for the ambient-noise check before a hearing test — a " +
             "few seconds of level measurement so you find out that the room is too " +
             "loud before the test, not after. Nothing is recorded and nothing is " +
@@ -62,6 +74,7 @@ enum class SetupStep(
     NOTIFICATIONS(
         id = "notifications",
         title = "Notifications",
+        summary = "The pairing code below is typed into one.",
         rationale = "The pairing code is typed into a notification, so the last step " +
             "here cannot be finished without this. Afterwards the app uses them for " +
             "one thing only: telling you when the equaliser has gone inactive.",
@@ -74,6 +87,7 @@ enum class SetupStep(
     HELPER(
         id = "helper",
         title = "Pairing and helper",
+        summary = "The phone starts the helper by pairing with itself.",
         rationale = "The helper is what reads what the Bluetooth stack negotiated, " +
             "sets codecs, and equalises players that hide their audio session. The " +
             "phone pairs with its own debugging service to start it — no computer, " +
@@ -86,7 +100,15 @@ enum class SetupStep(
     val optional: Boolean get() = need == SetupNeed.OPTIONAL
 }
 
-/** Live status of one step. */
+/**
+ * Live status of one step.
+ *
+ * There used to be a fourth, BLOCKED, for a step that could not be completed on
+ * this device at all. Nothing ever produced it — every environment reported
+ * every step as reachable — so it was a status the user could only reach by
+ * reading the source, and its copy ("Not available right now.") was a dead end
+ * that named no way forward. A state that cannot occur is not a safeguard.
+ */
 enum class SetupStepStatus {
     /** Requirement met. */
     DONE,
@@ -96,12 +118,6 @@ enum class SetupStepStatus {
 
     /** Not met, but explicitly skipped — the process stops nagging. */
     SKIPPED,
-
-    /**
-     * Not met and not reachable on this device/build. Counted as outstanding
-     * but the UI says so instead of offering a button that would do nothing.
-     */
-    BLOCKED,
 }
 
 /**
@@ -131,9 +147,6 @@ enum class SetupPhase {
  */
 interface SetupEnvironment {
     fun isSatisfied(step: SetupStep): Boolean
-
-    /** False when the step cannot currently be completed at all. */
-    fun isReachable(step: SetupStep): Boolean = true
 }
 
 data class SetupStepState(
@@ -155,7 +168,6 @@ object SetupStatus {
             val status = when {
                 environment.isSatisfied(step) -> SetupStepStatus.DONE
                 skipped.contains(step.id) -> SetupStepStatus.SKIPPED
-                !environment.isReachable(step) -> SetupStepStatus.BLOCKED
                 else -> SetupStepStatus.PENDING
             }
             SetupStepState(step, status)
@@ -178,9 +190,9 @@ object SetupStatus {
         else -> SetupPhase.READY
     }
 
-    /** Steps still worth showing a badge for: pending or blocked, never skipped. */
+    /** Steps still worth showing a badge for: pending, never skipped. */
     fun outstanding(states: List<SetupStepState>): List<SetupStepState> =
-        states.filter { it.status == SetupStepStatus.PENDING || it.status == SetupStepStatus.BLOCKED }
+        states.filter { it.status == SetupStepStatus.PENDING }
 
     /** Whether any *required* step is still unmet — skipping cannot clear these. */
     fun hasUnmetRequirements(states: List<SetupStepState>): Boolean =

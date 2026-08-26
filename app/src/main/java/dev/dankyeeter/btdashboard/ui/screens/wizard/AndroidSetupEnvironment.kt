@@ -68,7 +68,6 @@ class AndroidSetupEnvironment(context: Context) : SetupEnvironment {
     fun secureSettingsGranted(): Boolean =
         SystemGraph.secureSettings.state() == SecureSettingsState.GRANTED
 
-    override fun isReachable(step: SetupStep): Boolean = true
 
     private fun granted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(appContext, permission) == PackageManager.PERMISSION_GRANTED

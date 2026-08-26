@@ -1,12 +1,18 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +33,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
@@ -56,6 +63,10 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
  * Stretches the sampler slept through are greyed across every lane. A lane
  * drawn straight through a gap would turn "nobody looked" into "nothing
  * happened", which are opposite statements.
+ *
+ * The lane list above is also what the Monitor screen's timeline panel says
+ * behind its question mark — this text is its source. Keep the two in step; a
+ * legend printed under the chart itself would be longer than the chart.
  */
 @Composable
 fun LinkTimeline(
@@ -85,6 +96,9 @@ fun LinkTimeline(
     val rates = remember(samples) { spansOf(samples) { it.sampleRateHz } }
     val coverage = remember(samples) { coverageSpans(samples) }
     val hasRssi = remember(samples) { hasAny(samples) { it.rssiDbm } }
+    // Every codec in this window, in the order it first appeared: the tint each
+    // one gets in the lane, and the order the legend names them in.
+    val codecOrder = remember(codecs) { codecs.map { it.value }.distinct() }
 
     val fromMs = minOf(
         samples.minOfOrNull { it.timestampMs } ?: Long.MAX_VALUE,
@@ -96,6 +110,7 @@ fun LinkTimeline(
     )
     val span = (toMs - fromMs).coerceAtLeast(1L)
     val xOf: DrawScope.(Long) -> Float = { ms -> ((ms - fromMs).toFloat() / span) * size.width }
+    val hasGaps = remember(coverage, fromMs, toMs) { hasGaps(coverage, fromMs, toMs) }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
@@ -119,12 +134,13 @@ fun LinkTimeline(
             codecs.forEachIndexed { index, s ->
                 val left = xOf(s.fromMs)
                 val width = barWidth(left, xOf(s.toMs))
-                // The fill only groups; it is deliberately not asked to carry
-                // the information, because a tint dark enough to sit behind
-                // text cannot also clear 3:1 against a black surface. The
-                // divider and the label carry it instead, and both do clear it.
+                // The fill still does not carry the information on its own — a
+                // tint dark enough to sit behind text cannot clear 3:1 against
+                // a black surface — but one tint per codec lets a span whose
+                // label did not fit still be matched to a name, which is what
+                // the legend under the lane is for.
                 drawRect(
-                    color = colors.primary.copy(alpha = 0.18f),
+                    color = colors.primary.copy(alpha = codecAlpha(codecOrder.indexOf(s.value))),
                     topLeft = Offset(left, 0f),
                     size = Size(width, size.height),
                 )
@@ -142,6 +158,11 @@ fun LinkTimeline(
             }
             if (codecs.isEmpty()) drawBaseline(colors.outline)
         }
+
+        // A short span cannot hold its own label, and on a two-hour axis a codec
+        // that held for a minute is a sliver. Without this the name was simply
+        // gone with nowhere to look it up.
+        if (codecOrder.isNotEmpty()) CodecLegend(codecOrder, colors.primary)
 
         Lane("Sample rate", 30.dp) {
             drawGaps(coverage, fromMs, toMs, colors.outline, xOf)
@@ -189,11 +210,17 @@ fun LinkTimeline(
             }
         }
 
-        Text(
-            "Grey stretches are time the sampler slept through, not silence.",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.outline,
-        )
+        // Only when there is grey on screen to explain. The full account of the
+        // lanes and the window lives in the panel's explainer; this one line
+        // stays because grey is the one thing on the chart that means the
+        // opposite of what it looks like.
+        if (hasGaps) {
+            Text(
+                "Grey means nothing was recorded then.",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.outline,
+            )
+        }
     }
 }
 
@@ -207,13 +234,66 @@ private fun Lane(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             label,
-            modifier = Modifier.width(78.dp),
+            modifier = Modifier.width(LaneLabelWidth),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Canvas(Modifier.fillMaxWidth().height(height)) { draw() }
     }
 }
+
+/** Lane labels and anything aligned to the drawing area share this gutter. */
+private val LaneLabelWidth = 78.dp
+
+/**
+ * Names every codec tint in the lane above, indented to sit under the drawing.
+ *
+ * Flowing rather than a single row: four codecs with names as long as
+ * "aptX Adaptive" do not fit one phone width, and a legend that runs off the
+ * edge is the same failure as a label that does not fit its bar.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CodecLegend(codecs: List<CodecFamily>, accent: Color) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(start = LaneLabelWidth),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        codecs.forEachIndexed { index, codec ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The swatch carries exactly the tint the lane is painted with,
+                // so the two can be compared by eye. A brighter "legible"
+                // swatch would name a colour that is not on the chart.
+                Box(
+                    Modifier
+                        .size(10.dp)
+                        .background(accent.copy(alpha = codecAlpha(index)))
+                        .border(1.dp, accent.copy(alpha = 0.45f)),
+                )
+                Text(
+                    codec.displayName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The lane tint for the n-th codec in the window.
+ *
+ * One hue stepped in opacity rather than a second colour: the panel owns a
+ * single accent, and a rainbow of hues in it would read as a different kind of
+ * chart. Four steps is more than any two-hour window has ever needed; beyond
+ * that they repeat, and the legend still names every one in order.
+ */
+private fun codecAlpha(index: Int): Float =
+    0.16f + 0.16f * (index.coerceAtLeast(0) % 4)
 
 /**
  * A span of a single sample is zero wide. Give every bar a visible minimum so
@@ -228,6 +308,26 @@ private fun DrawScope.drawBaseline(color: Color) {
         end = Offset(size.width, size.height / 2f),
         strokeWidth = 1f,
     )
+}
+
+/**
+ * Whether [drawGaps] will actually paint anything.
+ *
+ * Same walk as the drawing, so the sentence about grey can only appear when
+ * there is grey — a legend for a colour that is not on screen is a puzzle.
+ */
+private fun hasGaps(
+    coverage: List<TimelineSpan<Unit>>,
+    fromMs: Long,
+    toMs: Long,
+): Boolean {
+    if (coverage.isEmpty()) return false
+    var cursor = fromMs
+    coverage.forEach { span ->
+        if (span.fromMs > cursor) return true
+        cursor = maxOf(cursor, span.toMs)
+    }
+    return cursor < toMs
 }
 
 /** Greys out everything the coverage spans do not cover. */

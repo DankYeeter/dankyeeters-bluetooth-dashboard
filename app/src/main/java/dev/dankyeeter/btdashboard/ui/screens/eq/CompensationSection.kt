@@ -8,18 +8,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -39,7 +33,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.CompensationResult
@@ -54,7 +47,9 @@ import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
 import dev.dankyeeter.btdashboard.ui.theme.Readout
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 
 /**
  * The compensation flow of COMPENSATION.md, rendered on the EQ screen:
@@ -62,15 +57,14 @@ import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
  * -> apply, plus named profiles.
  *
  * Every disclaimer visible here is deliberate. The numbers are consumer
- * calibration for headphone EQ, and the UI states what the numbers mean where
- * actually looks.
+ * calibration for headphone EQ, and the UI states what the numbers mean at the
+ * point where the user actually looks at them.
  */
 @Composable
 internal fun CompensationSection(
     state: CompensationUiState,
     earView: EarView,
     currentEq: EqSettings,
-    onSelectPreset: (String) -> Unit,
     onIntensityChange: (Float) -> Unit,
     onIntensityChangeFinished: () -> Unit,
     onApply: () -> Unit,
@@ -79,6 +73,7 @@ internal fun CompensationSection(
     onSaveIntoActive: () -> Unit,
     onLoadProfile: (CompensationProfile) -> Unit,
     onDeleteProfile: (String) -> Unit,
+    onOpenHearingTest: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Panel(modifier) {
@@ -87,28 +82,31 @@ internal fun CompensationSection(
             "Your sound profile shows which frequencies you hear less well. This " +
                 "lifts exactly those, so quiet detail comes back without making " +
                 "everything else louder. It is built from your test automatically — " +
-                "the controls below only decide how far it goes.",
+                "the controls below only decide how far it goes. When the generated " +
+                "curve is active the EQ moves to " +
+                "${AdjustedReference.LAYOUT.bandCount} bands: on the coarser default " +
+                "grid, two of the eight tones you were tested at — 3 kHz and 6 kHz, " +
+                "where age and loud noise show up first — fall between the bands and " +
+                "never reach the sound at all.",
         )
 
         AudiogramSummary(state)
-        PresetPicker(state, onSelectPreset)
+        CalibrationRow(state)
         IntensityControl(state, onIntensityChange, onIntensityChangeFinished)
 
         val result = state.result
         if (result == null) {
+            // A dead end otherwise: the one thing that would fix this state is
+            // on another screen, so the way there belongs here.
             Text(
-                "Complete a hearing test to see a compensation curve here.",
+                "No hearing test yet — there is nothing to correct for.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+            GoldOutlinedButton(onClick = onOpenHearingTest) { Text("Run a hearing test") }
         } else {
             if (result.severeLossWarning) {
-                Text(
-                    "Your thresholds are outside the range this EQ can correct — the " +
-                        "gain needed here would clip long before it helped.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                SevereLossNotice()
             }
             DeadRegionNotice(result)
             CompensationPreview(result, earView)
@@ -131,40 +129,85 @@ internal fun CompensationSection(
             onSaveIntoActive,
             onLoadProfile,
             onDeleteProfile,
+            onOpenHearingTest,
         )
     }
 }
 
+/**
+ * The one honest thing to say when the measurement is past the reach of the
+ * tool, and the reason it is not simply "turn it up".
+ *
+ * Deliberately not a refusal: the correction below still does something for the
+ * quietest detail, and hiding it would leave a user with a severe loss with
+ * nothing at all. The heading names the limit, the line underneath says what is
+ * still true, and the rest — why gain is the wrong instrument here — sits behind
+ * the question mark rather than turning a warning into a lecture.
+ */
+@Composable
+private fun SevereLossNotice() {
+    ExplainedHeader(
+        "Beyond what an EQ can fix",
+        "Correcting a loss this large needs gain that would clip the music long " +
+            "before it restored the detail, and level alone does not bring back " +
+            "clarity once the sensory cells are gone. An equaliser is the wrong " +
+            "instrument for it — a fitted hearing aid compresses loudness rather " +
+            "than just raising it, which is the part that is missing here. What " +
+            "this app can still do is make the quietest detail audible: keep the " +
+            "strength low and judge it by ear.",
+    )
+    Text(
+        "Your thresholds are past what an EQ can correct. What is applied below " +
+            "still helps, but only partly.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
 @Composable
 private fun AudiogramSummary(state: CompensationUiState) {
+    // Counted out in words up to three, because the number is the whole point
+    // of the sentence and "1 run(s)" makes the reader do the work of deciding
+    // whether that is enough.
     val text = when {
-        state.audiogram == null -> "Run a sound profile first — the Sound Profiling tab."
+        state.audiogram == null -> "No hearing test yet."
         state.runCount == 0 -> "Loaded from a saved preset."
-        state.runCount < 3 ->
-            "Based on ${state.runCount} run(s). Do at least three: single runs " +
-                "disagree by a few dB, and the app uses the middle value of yours."
+        state.runCount == 1 -> "Based on one run — two more make it steady."
+        state.runCount == 2 -> "Based on two runs — one more makes it steady."
         else -> "Based on ${state.runCount} runs — enough to be steady."
     }
     Text(text, style = MaterialTheme.typography.bodySmall)
 }
 
+/**
+ * Which headphone the thresholds were measured through, stated and not offered.
+ *
+ * No model list. The supported headphones are shipped support, not a catalogue
+ * to shop from: the preset belongs to the device and is set under Devices, and
+ * a picker here would let a curve measured through one headphone be
+ * reinterpreted through another one's correction.
+ */
 @Composable
-private fun PresetPicker(state: CompensationUiState, onSelect: (String) -> Unit) {
+private fun CalibrationRow(state: CompensationUiState) {
     val preset = state.preset
-
-    // No model list. The supported headphones are shipped support, not a
-    // catalogue to shop from: the connected device decides which curve is in
-    // force, and this only states which one that is.
-    Text(
-        when {
-            preset == null -> "No device calibration."
-            preset.id == CalibrationPresetRepository.GENERIC_ID ->
-                "No calibration for this device — running uncorrected."
-            else -> "Calibrated for ${preset.displayName}."
-        },
-        style = MaterialTheme.typography.bodyMedium,
-    )
-
+    ExplainedRow(
+        label = "Device calibration",
+        explanation = "Every headphone colours the test tones before they reach your " +
+            "ear, so a threshold measured through one is not the same number " +
+            "measured through another. A calibration preset subtracts that " +
+            "colouring, which is what makes the correction about your ears rather " +
+            "than about the driver. Presets are set per headphone under Devices; " +
+            "without one the test result is used raw.",
+    ) {
+        Text(
+            if (preset == null || preset.id == CalibrationPresetRepository.GENERIC_ID) {
+                "Not set"
+            } else {
+                preset.displayName
+            },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
 }
 
 /**
@@ -183,9 +226,14 @@ private fun PresetPicker(state: CompensationUiState, onSelect: (String) -> Unit)
  * The rest — that the prescription is itself a half-gain rule, and why that is
  * deliberate — sits behind the question mark. It is the honest explanation and
  * it is also four sentences long; on the surface it would bury the control it
- * describes. Same affordance as the `?` icons elsewhere on this screen
- * (ui.theme.ExplainedRow), built inline only because the disclosure has to sit
- * beside the slider track rather than in front of a label.
+ * describes. This is also the one place on the screen that tells the reader how
+ * to judge the result by ear: the same advice used to be repeated beside the
+ * dead-region notice and the severe-loss warning, where it read as three
+ * separate cautions instead of one instruction.
+ *
+ * Uses [ExplainedBlock] rather than [ExplainedRow] only because the disclosure
+ * has to sit beside the slider track instead of in front of a label; the state
+ * and the styling are the shared ones.
  */
 @Composable
 private fun IntensityControl(
@@ -193,9 +241,26 @@ private fun IntensityControl(
     onChange: (Float) -> Unit,
     onChangeFinished: () -> Unit,
 ) {
-    var explain by rememberSaveable { mutableStateOf(false) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    ExplainedBlock(
+        label = "Correction strength",
+        explanation = "100 % is the whole correction this app prescribes for your " +
+            "ears — not the whole size of your hearing loss. The rule it follows " +
+            "(NAL-R) asks for about half a decibel of lift per decibel of " +
+            "measured loss, so 100 % here makes up roughly 46 % of what you " +
+            "measured, and the 60 % it starts at lands near 28 %.\n\n" +
+            "That gap is the point, not a shortcoming. Restoring a loss in " +
+            "full over-lifts everything that was already audible: quiet detail " +
+            "comes back, but loud passages turn harsh, because a damaged ear's " +
+            "loudness grows faster with level than a healthy one's, not slower. " +
+            "When the same laboratory later measured its own prescriptions " +
+            "against real listeners, the numbers moved down rather than up — " +
+            "nearly half of the people tested wanted less gain than the theory " +
+            "called for.\n\n" +
+            "So the slider is taste inside a range that stays sane at both ends. " +
+            "Judge it with \"Compare with EQ off\" rather than by the number, and " +
+            "give a change a few days: a setting that felt right on day one often " +
+            "feels thin by day five.",
+    ) { toggle ->
         // The percentage is the number this whole section is about, so it gets
         // the app's readout treatment instead of sitting at label size on the
         // far side of a row, where it read as a unit tacked onto a caption.
@@ -209,45 +274,10 @@ private fun IntensityControl(
                 valueRange = 0f..1f,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { explain = !explain }) {
-                Icon(
-                    Icons.Outlined.HelpOutline,
-                    contentDescription = if (explain) {
-                        "Hide explanation"
-                    } else {
-                        "What does correction strength mean?"
-                    },
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            toggle()
         }
 
         EffectReadOut(state.result)
-
-        AnimatedVisibility(explain) {
-            Text(
-                "100 % is the whole correction this app prescribes for your ears — " +
-                    "not the whole size of your hearing loss. The rule it follows " +
-                    "(NAL-R) asks for about half a decibel of lift per decibel of " +
-                    "measured loss, so 100 % here makes up roughly 46 % of what you " +
-                    "measured, and the 60 % it starts at lands near 28 %.\n\n" +
-                    "That gap is the point, not a shortcoming. Restoring a loss in " +
-                    "full over-lifts everything that was already audible: quiet detail " +
-                    "comes back, but loud passages turn harsh, because a damaged ear's " +
-                    "loudness grows faster with level than a healthy one's, not slower. " +
-                    "When the same laboratory later measured its own prescriptions " +
-                    "against real listeners, the numbers moved down rather than up — " +
-                    "nearly half of the people tested wanted less gain than the theory " +
-                    "called for.\n\n" +
-                    "So the slider is taste inside a range that stays sane at both ends. " +
-                    "Judge it with \"Compare with EQ off\" rather than by the number, and " +
-                    "give a change a few days: a setting that felt right on day one often " +
-                    "feels thin by day five.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
@@ -288,10 +318,12 @@ private fun EffectReadOut(result: CompensationResult?) {
  * that decides it (TEN) needs calibrated presentation levels no consumer
  * headphone can produce.
  *
- * So this says "cannot check" and stops. It is not a diagnosis, and its absence
- * is not an all-clear either — that is why the notice never appears in the
- * negative. Below the flagging threshold there is no notice at all, because for
- * a mild or moderate loss a false alarm costs more than the warning is worth.
+ * So the heading names what may happen and stops. It is not a diagnosis, and its
+ * absence is not an all-clear either — that is why the notice never appears in
+ * the negative. Below the flagging threshold there is no notice at all, because
+ * for a mild or moderate loss a false alarm costs more than the warning is
+ * worth. It is also not an error: nothing has gone wrong and nothing needs
+ * fixing, so it is set in the ordinary colour rather than in red.
  */
 @Composable
 private fun DeadRegionNotice(result: CompensationResult) {
@@ -300,23 +332,18 @@ private fun DeadRegionNotice(result: CompensationResult) {
 
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
-            "Cannot check: " + flagged.joinToString(", ") { it.toFloat().bandLabel() },
+            "May not respond to boosting: " +
+                flagged.joinToString(", ") { it.toFloat().bandLabel() },
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.error,
         )
         Text(
-            (if (flagged.size == 1) {
-                "Your measured threshold at that frequency is "
-            } else {
-                "Your measured thresholds at those frequencies are "
-            }) +
-                "high enough that the sensory cells there may no longer be working. " +
-                "Where that is the case, lifting the band adds loudness and roughness " +
-                "rather than detail — but this app has no way to find out: the test for " +
-                "it needs calibrated equipment, which a Bluetooth headphone is not. " +
-                "The compensation is applied there unchanged; judge those frequencies " +
-                "with \"Compare with EQ off\" and turn the strength down if they sound " +
-                "coarse rather than clearer.",
+            "Your measured threshold there is high enough that the sensory cells may " +
+                "no longer be working. Where that is the case, lifting the band adds " +
+                "loudness and roughness rather than detail — but this app cannot find " +
+                "out which: the test for it needs calibrated equipment, and a " +
+                "Bluetooth headphone is not that. The correction is applied unchanged; " +
+                "turn the strength down if those frequencies sound coarse rather than " +
+                "clearer.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -327,6 +354,12 @@ private fun DeadRegionNotice(result: CompensationResult) {
  * Band-gain curves plus the numbers underneath, following the screen's ear
  * selector: both ears overlaid by default ([EarView.LINKED]), or a single ear
  * when the user is working on one side.
+ *
+ * The per-band table is collapsed by default. On the generated curve it is
+ * thirty-one rows of decibels, which pushed the apply button and the presets
+ * off the bottom of the screen for a reader who only wanted to see the shape —
+ * and the chart above already shows that shape. Anyone comparing bands can open
+ * it, which is a deliberate act rather than a wall to scroll past every time.
  */
 @Composable
 private fun CompensationPreview(result: CompensationResult, earView: EarView) {
@@ -391,35 +424,47 @@ private fun CompensationPreview(result: CompensationResult, earView: EarView) {
                 color = MaterialTheme.colorScheme.outline,
             )
         }
-        centres.forEachIndexed { i, hz ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        var showNumbers by rememberSaveable { mutableStateOf(false) }
+        TextButton(onClick = { showNumbers = !showNumbers }) {
+            Text(if (showNumbers) "Hide the numbers" else "Show the numbers")
+        }
+        AnimatedVisibility(showNumbers) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                centres.forEachIndexed { i, hz ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            buildString {
+                                append(hz.bandLabel())
+                                if (i in extrapolated) append("  (extrapolated)")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (i in extrapolated) {
+                                MaterialTheme.colorScheme.outline
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                        Text(
+                            when {
+                                showLeft && showRight -> "L %+.1f   R %+.1f".format(left[i], right[i])
+                                showLeft -> "L %+.1f".format(left[i])
+                                else -> "R %+.1f".format(right[i])
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+                // "Pre-gain" is the implementation's word for it. What the
+                // reader can check against the numbers above is that everything
+                // sits that far below where it started.
                 Text(
-                    buildString {
-                        append(hz.bandLabel())
-                        if (i in extrapolated) append("  (extrapolated)")
-                    },
+                    "Everything is lowered by ${"%.1f".format(abs(result.eq.preGainDb))} dB " +
+                        "so the boosts cannot overflow.",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (i in extrapolated) {
-                        MaterialTheme.colorScheme.outline
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                )
-                Text(
-                    when {
-                        showLeft && showRight -> "L %+.1f   R %+.1f".format(left[i], right[i])
-                        showLeft -> "L %+.1f".format(left[i])
-                        else -> "R %+.1f".format(right[i])
-                    },
-                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
                 )
             }
         }
-        Text(
-            "Headroom (pre-gain): ${"%+.1f".format(result.eq.preGainDb)} dB",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
     }
 }
 
@@ -454,11 +499,17 @@ private fun EarDifference(result: CompensationResult) {
  * curve, but it is deliberately not one of them: no name field, no delete, no
  * sliders. Below the run threshold it stays visible and says what is missing —
  * hiding it would leave no trace of why the hearing test is worth finishing.
+ *
+ * Its caller only draws it *below* that threshold; once the curve is ready it
+ * becomes a dropdown entry instead. So there is no "use it" button and no
+ * band-count notice here: both would only ever render in a state this card is
+ * never shown in. The band count is stated in the section header instead, where
+ * it is read before the switch rather than after it.
  */
 @Composable
 private fun AdjustedReferenceCard(
     state: CompensationUiState,
-    onSelect: () -> Unit,
+    onOpenHearingTest: () -> Unit,
 ) {
     val ready = state.adjustedReferenceReady
     val active = state.adjustedReferenceActive
@@ -478,36 +529,33 @@ private fun AdjustedReferenceCard(
         Text(
             when {
                 !ready && state.runCount == 0 ->
-                    "Generated from your hearing test. Run the Sound Profiling tab " +
-                        "${AdjustedReference.REQUIRED_RUNS} times and it appears here."
+                    "Generated from your hearing test. " +
+                        "${AdjustedReference.REQUIRED_RUNS.spelledOut()} runs and it " +
+                        "appears here."
                 !ready ->
-                    "${state.runCount} of ${AdjustedReference.REQUIRED_RUNS} runs done \u2014 " +
-                        "${state.runsStillNeeded} more and this becomes available."
+                    "${state.runCount} of ${AdjustedReference.REQUIRED_RUNS} runs done."
                 else ->
-                    "Median of ${state.runCount} runs. Not adjustable by hand: it is a " +
-                        "measurement of your hearing, not a taste setting."
+                    "Median of ${state.runCount} runs. Not adjustable by hand — it " +
+                        "is a measurement, not a taste setting."
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline,
         )
-        if (ready) {
-            // Worth a line on the surface, because it visibly changes the
-            // band list when this profile is selected — and because the
-            // reason is a real defect rather than a preference.
-            Text(
-                "Uses ${AdjustedReference.LAYOUT.bandCount} bands instead of " +
-                    "${EqBandLayout.DEFAULT.bandCount}. On the coarser grid two of the " +
-                    "eight tones you were tested at — 3 kHz and 6 kHz, where age and " +
-                    "loud noise show up first — fall between the bands and never reach " +
-                    "the sound at all. The band count stays fixed while this is active.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        }
-        if (ready && !active) {
-            GoldOutlinedButton(onClick = onSelect) { Text("Use it") }
+        // The card only exists to explain a missing measurement, so it carries
+        // the way to take it. Without this the reader is told what is needed
+        // and left to go hunting for the screen that provides it.
+        if (!ready) {
+            GoldOutlinedButton(onClick = onOpenHearingTest) { Text("Run a hearing test") }
         }
     }
+}
+
+/** A small count reads as a word in prose; the digit belongs in "2 of 3". */
+private fun Int.spelledOut(): String = when (this) {
+    1 -> "One"
+    2 -> "Two"
+    3 -> "Three"
+    else -> toString()
 }
 
 @Composable
@@ -520,9 +568,11 @@ private fun ProfileList(
     onSaveIntoActive: () -> Unit,
     onLoad: (CompensationProfile) -> Unit,
     onDelete: (String) -> Unit,
+    onOpenHearingTest: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
+    var confirmingDelete by remember { mutableStateOf(false) }
 
     val activeProfile = state.profiles.firstOrNull { it.id == state.activeProfileId }
     val activeName = when {
@@ -544,7 +594,7 @@ private fun ProfileList(
         // what is missing; once it is ready it becomes a dropdown entry and
         // the card would only repeat the menu.
         if (!state.adjustedReferenceReady) {
-            AdjustedReferenceCard(state, onSelectAdjustedReference)
+            AdjustedReferenceCard(state, onOpenHearingTest)
         }
 
         // One control instead of a list: pick, or add. Selecting applies
@@ -596,7 +646,7 @@ private fun ProfileList(
             }
         }
         if (activeProfile != null) {
-            TextButton(onClick = { onDelete(activeProfile.id) }) { Text("Delete this EQ") }
+            TextButton(onClick = { confirmingDelete = true }) { Text("Delete this EQ") }
         }
     }
 
@@ -607,6 +657,35 @@ private fun ProfileList(
                 onCreate(name)
             },
             onDismiss = { naming = false },
+        )
+    }
+
+    // Asked for, because a preset is the one thing on this screen that cannot be
+    // dialled back: the bands can always be moved again, but a name and the
+    // curve stored under it are gone with nothing to restore them from. The
+    // question says which name is going, so a mis-tap on the wrong active preset
+    // is caught here rather than discovered later.
+    if (confirmingDelete && activeProfile != null) {
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text("Delete this EQ?") },
+            text = {
+                Text(
+                    "“${activeProfile.name}” is removed. The bands stay as they are; " +
+                        "only the saved name goes.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmingDelete = false
+                        onDelete(activeProfile.id)
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
+            },
         )
     }
 }

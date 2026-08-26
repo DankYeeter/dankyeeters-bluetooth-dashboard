@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
@@ -36,11 +35,10 @@ import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
-import dev.dankyeeter.btdashboard.ui.theme.GoldCard
-import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.screens.dashboard.ForeignEqSection
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 
 /**
@@ -57,7 +55,10 @@ internal enum class EarView(val label: String) {
 }
 
 @Composable
-fun EqScreen(viewModel: EqViewModel = viewModel()) {
+fun EqScreen(
+    viewModel: EqViewModel = viewModel(),
+    onOpenHearingTest: () -> Unit = {},
+) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val status by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val bypass by viewModel.bypass.collectAsStateWithLifecycle()
@@ -76,13 +77,27 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
         Text("System EQ", style = MaterialTheme.typography.displayMedium)
 
         Panel {
-                Text("Where the EQ acts", style = MaterialTheme.typography.titleSmall)
-                Text(status.describe(playingApps), style = MaterialTheme.typography.bodySmall)
+            ExplainedHeader(
+                "Where the EQ acts",
+                "With the helper running, the EQ attaches to the output mix and every " +
+                    "app is equalised, including players that keep their playback to " +
+                    "themselves. Without it the EQ can only follow apps that announce " +
+                    "their audio session, so a player that stays quiet about it plays " +
+                    "uncorrected — which is why the line below names apps rather than " +
+                    "counting sessions. Whether a given player announces itself varies " +
+                    "by Android build.",
+            )
+            Text(status.describe(playingApps), style = MaterialTheme.typography.bodySmall)
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        ExplainedRow(
+            label = "EQ enabled",
+            explanation = "The master switch. Off, the audio effect is detached " +
+                "entirely — nothing is processed and nothing is added to the signal " +
+                "path. Your curve, presets and hearing runs are all kept; this only " +
+                "decides whether any of it is playing.",
+        ) {
             Switch(checked = settings.enabled, onCheckedChange = viewModel::setEnabled)
-            Text("  EQ enabled")
         }
         ExplainedRow(
             label = "Output limiter",
@@ -98,9 +113,8 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             explanation = "Plays your music untouched so you can hear the difference, " +
                 "without losing your settings — flip it back and the curve returns. " +
                 "Both sides play at the same loudness on purpose: louder always sounds " +
-                "better at first, and that would make the comparison worthless. That match " +
-                "comes from the automatic headroom — with it switched off a boosted curve " +
-                "really is the louder one, and the comparison is no longer fair.",
+                "better at first, and that would make the comparison worthless. Switch " +
+                "the automatic headroom off and that match is gone with it.",
         ) {
             Switch(checked = bypass, onCheckedChange = viewModel::setBypass)
         }
@@ -120,19 +134,28 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             Switch(checked = settings.autoHeadroom, onCheckedChange = viewModel::setAutoHeadroom)
         }
 
+        // Just the state and the number. What the number is for is one tap away
+        // in the row above it, and repeating the reason here is what made the
+        // headroom the most explained control on the screen.
         Text(
             if (settings.autoHeadroom) {
-                "Headroom: ${"%.1f".format(settings.preGainDb)} dB — turn the volume up to " +
-                    "get the boost you set."
+                "Headroom: ${"%.1f".format(settings.preGainDb)} dB"
             } else {
-                "Headroom off — boosts are louder, and loud passages may clip."
+                "Headroom off"
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Ear view", style = MaterialTheme.typography.titleSmall)
+            ExplainedHeader(
+                "Ear view",
+                "Both moves the two ears together, which is what you want for taste. " +
+                    "Left and Right split them, which is what a measurement usually " +
+                    "needs — hearing is rarely symmetrical. The choice drives the band " +
+                    "sliders and the compensation preview together, so the chart never " +
+                    "shows a different ear than the sliders under it.",
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 EarView.entries.forEach { view ->
                     FilterChip(
@@ -142,18 +165,13 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
                     )
                 }
             }
-            Text(
-                "Applies to the band sliders and to the compensation preview below.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
         }
 
         CompensationSection(
             state = compensation,
             earView = earView,
             currentEq = settings,
-            onSelectPreset = viewModel::selectPreset,
+            onOpenHearingTest = onOpenHearingTest,
             onIntensityChange = viewModel::setIntensity,
             onIntensityChangeFinished = viewModel::applyCompensationIfActive,
             onApply = viewModel::applyCompensation,
@@ -166,22 +184,28 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
 
         ForeignEqSection()
 
-        PanelHeader("Bands")
-
-        // The generated profile states why its sliders do not move. A control
-        // that silently ignores a drag is worse than no control at all.
+        // The generated profile states why its sliders do not move, and the
+        // heading itself carries the state: a control that silently ignores a
+        // drag is worse than no control at all. The reasoning is a paragraph,
+        // so it goes behind the question mark and only the way out stays on the
+        // surface.
         if (compensation.adjustedReferenceActive) {
+            ExplainedHeader(
+                "Bands are locked",
+                "${AdjustedReference.NAME} is generated from your hearing-test runs, " +
+                    "so its bands cannot be edited \u2014 that is what makes it a " +
+                    "reference rather than a taste setting. The band count is fixed " +
+                    "with them: on a coarser grid the 3 kHz and 6 kHz tones you were " +
+                    "tested at fall between the bands and never reach the sound at all.",
+            )
             Text(
-                "${AdjustedReference.NAME} is generated from your " +
-                    "${compensation.runCount} hearing-test runs, so its bands cannot be " +
-                    "edited \u2014 that is what makes it a reference rather than a taste " +
-                    "setting. The band count is fixed with them: on a coarser grid the " +
-                    "3 kHz and 6 kHz tones you were tested at never reach the sound at " +
-                    "all. Save a copy under a new name to tune it by hand, or reset to " +
-                    "flat to leave it.",
+                "Save a copy under a new name to tune it by hand, or reset to flat to " +
+                    "leave it.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
             )
+        } else {
+            PanelHeader("Bands")
         }
 
         // Layout picker. Switching resamples the curve onto the new centres, so
@@ -198,8 +222,17 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
                 ) { Text(layout.label) }
             }
         }
+        // A disabled segmented row with its usual caption underneath reads as a
+        // bug. While the generated curve is in force the caption says why the
+        // buttons do not respond instead of describing a grid that cannot be
+        // chosen.
         Text(
-            settings.layout.description,
+            if (compensation.adjustedReferenceActive) {
+                "Fixed while ${AdjustedReference.NAME} is active — the grid is part " +
+                    "of the measurement."
+            } else {
+                settings.layout.description
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline,
         )
@@ -226,7 +259,18 @@ fun EqScreen(viewModel: EqViewModel = viewModel()) {
             )
         }
 
-        TextButton(onClick = viewModel::resetFlat) { Text("Reset to flat") }
+        // Named for what it clears and followed by what it does not: "Reset to
+        // flat" beside a list of saved presets reads like it might take those
+        // with it.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            TextButton(onClick = viewModel::resetFlat) { Text("Reset bands to flat") }
+            Text(
+                "Clears the curve that is playing. Saved EQs and hearing runs are " +
+                    "untouched.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
+import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidateScan
 import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqScanResult
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
@@ -19,10 +20,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** One row on the dashboard: a device plus whatever we know about its codec. */
+/**
+ * One row on the dashboard: a device plus whatever we know about its codec.
+ *
+ * The codec arrives as two fields rather than one " · "-joined badge. The
+ * dashboard shows the name large and the rest as a caption, and it used to
+ * recover those two halves by splitting the badge back apart on its separator —
+ * a formatting decision made in one place and reverse-engineered in another.
+ */
 data class DeviceCodecRow(
     val device: BtAudioDevice,
-    val codecBadge: String,
+    /** "LDAC", or "Unknown" when nothing could be read. */
+    val codecName: String,
+    /** "96 kHz · 24 bit · 990 kbps", or null when only the name is known. */
+    val codecDetail: String? = null,
     val codecKnown: Boolean,
     val codecNote: String? = null,
     /**
@@ -89,14 +100,15 @@ class BluetoothDashboardViewModel : ViewModel() {
                 when (val status = source.codecStatus(device.address)) {
                     is CodecReadResult.Available -> DeviceCodecRow(
                         device = device,
-                        codecBadge = status.status.badge,
+                        codecName = status.status.label,
+                        codecDetail = status.status.detailLine(),
                         codecKnown = true,
                         beacon = beacon.takeIf { device.isAppleAudio() },
                     )
 
                     is CodecReadResult.Unsupported -> DeviceCodecRow(
                         device = device,
-                        codecBadge = "Codec unknown",
+                        codecName = "Unknown",
                         codecKnown = false,
                         codecNote = status.reason,
                         beacon = beacon.takeIf { device.isAppleAudio() },
@@ -104,7 +116,7 @@ class BluetoothDashboardViewModel : ViewModel() {
 
                     is CodecReadResult.Failed -> DeviceCodecRow(
                         device = device,
-                        codecBadge = "Codec unknown",
+                        codecName = "Unknown",
                         codecKnown = false,
                         codecNote = status.reason,
                         beacon = beacon.takeIf { device.isAppleAudio() },
@@ -122,6 +134,32 @@ class BluetoothDashboardViewModel : ViewModel() {
                 },
             )
     }
+
+    /**
+     * Re-reads the device list once, right after the user answered the
+     * Bluetooth permission dialog.
+     *
+     * This is not the refresh button [observeConnections] argues against. The
+     * push flow follows Bluetooth broadcasts, and *granting a permission is not
+     * a Bluetooth event* — nothing is broadcast, no device changes state, so
+     * the screen would keep saying "Bluetooth access is missing" until
+     * something unrelated happened to move a device. One read, tied to the one
+     * moment the answer can have changed silently.
+     */
+    fun refreshAfterPermissionGrant() {
+        viewModelScope.launch { render(MonitorGraph.codecSource.connectedDevices()) }
+    }
+
+    /**
+     * Everything the badge says apart from the codec's own name.
+     *
+     * Taken off the badge rather than rebuilt from the fields: sample rates are
+     * formatted in one place in `core-monitor` (and that formatter is internal
+     * to it), so composing a second "96 kHz" here would be the same decision
+     * made twice, free to drift.
+     */
+    private fun CodecStatus.detailLine(): String? =
+        badge.removePrefix(label).removePrefix(" · ").ifBlank { null }
 
     fun startBeaconScan() = airPods.start()
 

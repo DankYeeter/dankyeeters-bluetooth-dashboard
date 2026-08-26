@@ -30,6 +30,7 @@ import dev.dankyeeter.btdashboard.hearing.protocol.ProtocolConfig
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
+import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -87,6 +88,7 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
     private val store = HearingGraph.audiogramStore
     private val aggregator = HearingGraph.aggregator
     private val ambientCheck = MicAmbientNoiseCheck(application)
+    private val deviceProfiles = SystemGraph.deviceProfiles
 
     private var toneGenerator: NativeToneGenerator? = null
     private var controller: HughsonWestlakeTestController? = null
@@ -201,9 +203,12 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                 busy = false,
                 lastRun = run,
                 lastReliability = controller?.reliability,
+                // No advice to delete it here: the result screen carries the
+                // two buttons, and telling someone to delete a run on a screen
+                // with no delete button is the whole complaint.
                 message = controller?.reliability?.takeIf { it.unreliable }?.let {
-                    "This run looks unreliable: ${it.summary} Presses on silent catch trials mean the " +
-                        "thresholds are probably too good. Consider deleting it and testing again."
+                    "This run looks unreliable: ${it.summary} Presses during the silent checks " +
+                        "mean the thresholds came out better than they are."
                 },
             )
         }
@@ -288,7 +293,7 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
             val config = HearingTestConfig(
                 ear = null,
                 frequenciesHz = frequencies,
-                calibrationPresetId = CalibrationPresetRepository.GENERIC_ID,
+                calibrationPresetId = calibrationPresetId(),
                 ancMode = AncMode.UNKNOWN,
                 runAmbientNoiseCheck = runAmbientCheck,
             )
@@ -338,11 +343,33 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /**
+     * The preset this run is measured through, not the one it wishes it had.
+     *
+     * A run stores the preset id because the id is what turns raw output levels
+     * into dB HL - the same button press means a different threshold on a
+     * headphone with a different sensitivity curve. Stamping every run as
+     * generic while the user had chosen a preset for this headphone in its
+     * profile made the stored number a claim about a measurement that never
+     * happened, and nothing downstream could tell the difference afterwards.
+     *
+     * Generic when there is no device, no profile, or no preset chosen in it:
+     * that is honestly what was used.
+     */
+    private suspend fun calibrationPresetId(): String {
+        val key = DeviceKey.fromAddress(activeDevice.value?.address)
+            ?: return CalibrationPresetRepository.GENERIC_ID
+        return deviceProfiles.profileFor(key)?.calibrationPresetId
+            ?: CalibrationPresetRepository.GENERIC_ID
+    }
+
     private fun describe(reason: AbortReason): String = when (reason) {
         AbortReason.USER_CANCELLED -> "Test cancelled."
+        // Short, because the screen now offers "Start again" underneath it: the
+        // sentence explaining why a threshold measured at another loudness is
+        // worthless was doing the work a button does in one tap.
         AbortReason.VOLUME_CHANGED ->
-            "Media volume changed during the run, so every threshold measured so far refers to a " +
-                "different loudness. The run was discarded — set your usual volume and start again."
+            "Media volume changed, so the run was discarded. Set your usual volume and start again."
         AbortReason.DEVICE_DISCONNECTED -> "The audio device disconnected. The run was discarded."
         AbortReason.AUDIO_ERROR -> "The audio stream failed. The run was discarded."
     }

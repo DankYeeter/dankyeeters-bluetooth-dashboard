@@ -1,8 +1,11 @@
 package dev.dankyeeter.btdashboard.ui.screens.devices
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,9 +54,10 @@ import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
 import dev.dankyeeter.btdashboard.system.devices.BluetoothDeveloperOptions
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
-import dev.dankyeeter.btdashboard.system.devices.ProfileAction
 import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
 import kotlin.math.roundToInt
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 import dev.dankyeeter.btdashboard.ui.theme.GoldCard
 import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
@@ -76,6 +81,7 @@ fun DeviceProfilesScreen(
     val bonded by viewModel.bonded.collectAsStateWithLifecycle()
     val editing by viewModel.editing.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val messageDeviceKey by viewModel.messageDeviceKey.collectAsStateWithLifecycle()
     val lastAutoApply by viewModel.lastAutoApply.collectAsStateWithLifecycle()
 
     // Every device we could show, profile-backed ones first.
@@ -94,25 +100,57 @@ fun DeviceProfilesScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Device profiles", style = MaterialTheme.typography.displayMedium)
+
+        // The way out sits at the top, where a reader looking for it first
+        // looks. At the bottom it was behind every card on the screen: on a
+        // phone with six paired headphones, leaving meant scrolling past all
+        // of them.
+        TextButton(onClick = onBack) { Text("Back to Bluetooth") }
+
+        ExplainedHeader(
+            "Device profiles",
+            "A profile can set the compensation curve, media volume, " +
+                "absolute-volume preference and Bluetooth codec. Addresses are " +
+                "stored hashed — the raw MAC is never written down.",
+        )
         Text(
-            "When one of these headphones connects, the app applies its profile: " +
-                "compensation curve, media volume, absolute-volume preference, " +
-                "Bluetooth codec. Addresses are stored hashed — the raw MAC is " +
-                "never written down.",
+            "When one of these headphones connects, the app applies its profile.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
 
-        lastAutoApply?.let { AutoApplyCard(it) }
+        lastAutoApply?.let { AutoApplyCard(it, viewModel) }
 
         if (!viewModel.hasBluetoothPermission()) {
             Panel {
-                    PanelHeader("Bluetooth access missing")
+                    ExplainedHeader(
+                        "Bluetooth access missing",
+                        "Profiles for devices already seen still work — the permission " +
+                            "is only what lets Android name the devices this phone is " +
+                            "paired with.",
+                    )
                     Text(
-                        "Without BLUETOOTH_CONNECT the paired-device list stays empty. " +
-                            "Profiles for devices already seen still work.",
+                        "Without Bluetooth access the paired-device list stays empty.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    // Asking here rather than sending the reader to the setup
+                    // wizard: the panel names a missing permission, and the
+                    // system dialog that grants it is one call away. `refresh()`
+                    // re-reads the bonded list, which is what the panel was
+                    // complaining about, and drops the panel on success.
+                    val launcher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestMultiplePermissions(),
+                    ) { viewModel.refresh() }
+                    GoldButton(
+                        onClick = {
+                            launcher.launch(
+                                arrayOf(
+                                    Manifest.permission.BLUETOOTH_CONNECT,
+                                    Manifest.permission.BLUETOOTH_SCAN,
+                                ),
+                            )
+                        },
+                    ) { Text("Grant Bluetooth access") }
             }
         }
 
@@ -139,37 +177,46 @@ fun DeviceProfilesScreen(
                     onApply = { profile?.let(viewModel::applyNow) },
                 )
             }
-        }
-
-        message?.let { text ->
-            Panel {
-                    Text(text, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = viewModel::dismissMessage) { Text("Dismiss") }
+            // The answer stands with the question. Collected at the foot of the
+            // screen, "Codec still reads SBC" appeared below every other
+            // headphone's card, and nothing on it said which card had produced
+            // it — the reader had to remember what they had just tapped.
+            if (messageDeviceKey == device.deviceKey) {
+                message?.let { MessageNote(it, viewModel::dismissMessage) }
             }
         }
 
-        TextButton(onClick = onBack) { Text("Back") }
+        // A result whose device has left the list — deleted, or never bonded —
+        // still has to be shown somewhere, and the foot of the screen is the
+        // only place left.
+        if (known.none { it.deviceKey == messageDeviceKey }) {
+            message?.let { MessageNote(it, viewModel::dismissMessage) }
+        }
+    }
+}
+
+/** One applied-or-failed result, shown under the card that caused it. */
+@Composable
+private fun MessageNote(text: String, onDismiss: () -> Unit) {
+    Panel {
+            Text(text, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onDismiss) { Text("Dismiss") }
     }
 }
 
 @Composable
-private fun AutoApplyCard(result: ApplyResult) {
+private fun AutoApplyCard(result: ApplyResult, viewModel: DeviceProfilesViewModel) {
     val text = when (result) {
-        // "Applied (n actions)" counted the unconfirmed ones too. Observed on a
-        // Focal Bathys: the profile asked for aptX HD, the headphone does not
-        // offer it in that negotiation, the stack ignored the request — and the
-        // line still read "applied (2 actions)". Requesting is not applying,
-        // and this screen is the only place that ever says what happened.
-        is ApplyResult.Applied -> {
-            val unconfirmed = result.actions.count { it is ProfileAction.CodecNotObserved }
-            val confirmed = result.actions.size - unconfirmed
-            buildString {
-                append("Last connect: applied \"${result.profile.name}\" ")
-                append("($confirmed action(s)")
-                if (unconfirmed > 0) append(", $unconfirmed requested but not confirmed")
-                append(").")
-            }
-        }
+        // Counting actions said the least of anything that could be said here.
+        // Observed on a Focal Bathys: the profile asked for aptX HD, the
+        // headphone does not offer it in that negotiation, the stack ignored
+        // the request — and the line read "applied (2 actions)", which is both
+        // a wrong count and no help. The per-action sentences the "Apply now"
+        // path already writes name what actually happened, so this reuses them
+        // rather than inventing a second, vaguer vocabulary for the same events.
+        is ApplyResult.Applied ->
+            "Last connect: applied \"${result.profile.name}\". " +
+                viewModel.describe(result.actions)
         is ApplyResult.AutoApplyDisabled ->
             "Last connect: \"${result.profile.name}\" has auto-apply switched off."
         is ApplyResult.NoProfile -> "Last connect: an unknown device — no profile was applied."
@@ -206,7 +253,9 @@ private fun DeviceRowCard(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GoldButton(onClick = onEdit) { Text(if (profile == null) "Create profile" else "Edit") }
+                GoldButton(onClick = onEdit) {
+                    Text(if (profile == null) "Create profile" else "Edit profile")
+                }
                 if (profile != null) GoldOutlinedButton(onClick = onApply) { Text("Apply now") }
             }
     }
@@ -258,6 +307,26 @@ internal fun ProfileEditorCard(
      * filed, so every caller that passes `enabled = false` also says why.
      */
     note: String? = null,
+    /**
+     * The long version of [note], behind the header's question mark.
+     *
+     * The single line above has to be readable at a glance; the reasoning
+     * behind it — why an address cannot be matched, what still works anyway —
+     * is worth having but not worth three sentences of always-on prose above
+     * the controls.
+     */
+    headerExplanation: String? = null,
+    /**
+     * Fold absolute volume, developer options and codec behind one expander.
+     *
+     * The Bluetooth tab is the app's start screen, and this card is on it in
+     * full: name, icon, EQ, volume, three sections of Bluetooth internals and
+     * auto-apply, which is more scrolling than any first screen should ask for.
+     * The everyday fields stay in the open, the ones you set once fold away.
+     * The profiles screen, where you went *in order to* edit a profile, keeps
+     * everything expanded.
+     */
+    collapsibleAdvanced: Boolean = false,
 ) {
     val compensationProfiles by viewModel.compensationProfiles.collectAsStateWithLifecycle()
     val absoluteStatus by viewModel.absoluteVolumeStatus.collectAsStateWithLifecycle()
@@ -284,9 +353,16 @@ internal fun ProfileEditorCard(
     var autoApply by remember(initial.deviceKey) { mutableStateOf(initial.autoApply) }
     var devOptions by remember(initial.deviceKey) { mutableStateOf(initial.developerOptions) }
     var codec by remember(initial.deviceKey) { mutableStateOf(initial.codecPreference) }
+    // Saveable, so a rotation does not fold the section the user just opened.
+    var advancedOpen by rememberSaveable(initial.deviceKey) { mutableStateOf(false) }
+    val showAdvanced = !collapsibleAdvanced || advancedOpen
 
     Panel {
-            PanelHeader(header)
+            if (headerExplanation != null) {
+                ExplainedHeader(header, headerExplanation)
+            } else {
+                PanelHeader(header)
+            }
 
             note?.let {
                 Text(
@@ -319,7 +395,7 @@ internal fun ProfileEditorCard(
                     modifier = Modifier.size(32.dp),
                 )
                 PickerMenu(
-                    label = "Device type / icon",
+                    label = "Device type",
                     selectedLabel = viewModel.calibrationPresets
                         .firstOrNull { it.id == presetId }?.displayName ?: "Generic",
                     options = listOf<Pair<String?, String>>(null to "Generic") +
@@ -337,11 +413,16 @@ internal fun ProfileEditorCard(
                     compensationProfiles.map { it.id as String? to it.name },
                 onSelect = { compensationId = it },
                 enabled = enabled,
+                explanation = "A preset is a compensation curve saved on the EQ screen — " +
+                    "set by hand or measured with the hearing test — and given a name. " +
+                    "Bind one here and it is applied whenever this device connects.",
             )
             if (compensationProfiles.isEmpty()) {
+                // Just the fact. The instructions for making one are behind the
+                // question mark on the row above: an empty list is not the
+                // moment to teach a workflow the reader may not want.
                 Text(
-                    "No saved presets yet. Set a curve on the EQ screen — by hand or from " +
-                        "a hearing test — save it under a name, then bind it here.",
+                    "No saved presets yet.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -368,50 +449,60 @@ internal fun ProfileEditorCard(
 
             HorizontalDivider()
 
-            AbsoluteVolumeEditor(
-                status = absoluteStatus,
-                wish = absoluteEnabled,
-                systemDefault = absoluteSystemDefault,
-                onWishChange = { chosen ->
-                    // The two fields are one control: choosing a value clears
-                    // the reset flag, choosing reset clears the value. Letting
-                    // both stand would store a profile that argues with itself.
-                    absoluteEnabled = chosen
-                    absoluteSystemDefault = false
-                },
-                onSystemDefault = {
-                    absoluteEnabled = null
-                    absoluteSystemDefault = true
-                },
-                onWriteNow = viewModel::setAbsoluteVolumeNow,
-                context = context,
-                enabled = enabled,
-            )
+            if (collapsibleAdvanced) {
+                TextButton(onClick = { advancedOpen = !advancedOpen }) {
+                    Text(if (advancedOpen) "Hide advanced settings" else "Advanced device settings")
+                }
+            }
 
-            HorizontalDivider()
+            if (showAdvanced) {
+                AbsoluteVolumeEditor(
+                    status = absoluteStatus,
+                    wish = absoluteEnabled,
+                    systemDefault = absoluteSystemDefault,
+                    onWishChange = { chosen ->
+                        // The two fields are one control: choosing a value clears
+                        // the reset flag, choosing reset clears the value. Letting
+                        // both stand would store a profile that argues with itself.
+                        absoluteEnabled = chosen
+                        absoluteSystemDefault = false
+                    },
+                    onSystemDefault = {
+                        absoluteEnabled = null
+                        absoluteSystemDefault = true
+                    },
+                    // The key travels with the write so the result lands under
+                    // this card rather than at the foot of the list screen.
+                    onWriteNow = { on -> viewModel.setAbsoluteVolumeNow(initial.deviceKey, on) },
+                    context = context,
+                    enabled = enabled,
+                )
 
-            DeveloperOptionsEditor(
-                selected = devOptions,
-                live = liveDevOptions,
-                permissionMissing = absoluteStatus is AbsoluteVolumeStatus.PermissionMissing,
-                onChange = { key, value -> devOptions = devOptions + (key to value) },
-                enabled = enabled,
-            )
+                HorizontalDivider()
 
-            HorizontalDivider()
+                DeveloperOptionsEditor(
+                    selected = devOptions,
+                    live = liveDevOptions,
+                    permissionMissing = absoluteStatus is AbsoluteVolumeStatus.PermissionMissing,
+                    onChange = { key, value -> devOptions = devOptions + (key to value) },
+                    enabled = enabled,
+                )
 
-            CodecEditor(
-                preference = codec,
-                helperConnected = helperConnected,
-                onChange = { codec = it },
-                enabled = enabled,
-                offeredCodecs = offeredCodecs,
-                negotiatedCodec = negotiatedCodec,
-                negotiated = negotiatedStatus,
-                deviceConnected = deviceConnected,
-            )
+                HorizontalDivider()
 
-            HorizontalDivider()
+                CodecEditor(
+                    preference = codec,
+                    helperConnected = helperConnected,
+                    onChange = { codec = it },
+                    enabled = enabled,
+                    offeredCodecs = offeredCodecs,
+                    negotiatedCodec = negotiatedCodec,
+                    negotiated = negotiatedStatus,
+                    deviceConnected = deviceConnected,
+                )
+
+                HorizontalDivider()
+            }
 
             SwitchRow(
                 label = "Apply automatically on connect",
@@ -463,6 +554,12 @@ internal fun ProfileEditorCard(
  * default" when it is unset, which is what a fresh phone reads. Storing
  * "Use System Default" is different from storing nothing: it actively clears
  * the key on every connect, undoing values any earlier writer left behind.
+ *
+ * Without the permission the pickers stay on screen, disabled. Returning early
+ * removed the whole section instead, which answered a question nobody had
+ * asked: the reader wanted to know what these settings *are* and whether their
+ * headphone could have them, and got a sentence about a permission and an empty
+ * space where the controls should be.
  */
 @Composable
 private fun DeveloperOptionsEditor(
@@ -472,23 +569,26 @@ private fun DeveloperOptionsEditor(
     onChange: (String, String) -> Unit,
     enabled: Boolean = true,
 ) {
-    Text("Bluetooth developer options", style = MaterialTheme.typography.titleSmall)
-    Text(
+    ExplainedHeader(
+        "Bluetooth developer options",
         "Android keeps one value for each of these, not one per headphone \u2014 so they " +
             "are re-applied whenever this device connects. If two headphones want " +
-            "different values, the last one to connect wins.",
+            "different values, the last one to connect wins. Writing them needs the " +
+            "WRITE_SECURE_SETTINGS permission, which the app's helper grants itself " +
+            "as soon as it is running.",
+    )
+    Text(
+        "One value for the whole system, re-applied on connect.",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.outline,
     )
 
     if (permissionMissing) {
         Text(
-            "WRITE_SECURE_SETTINGS is not granted, so none of these can be written. " +
-                "Grant it in the setup wizard first.",
+            "These need system access, which is not granted yet.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
         )
-        return
     }
 
     BluetoothDeveloperOptions.all.forEach { option ->
@@ -504,12 +604,8 @@ private fun DeveloperOptionsEditor(
                 BluetoothDeveloperOptions.USE_SYSTEM_DEFAULT to "Use System Default",
             ) + option.values.map { it.raw to it.label },
             onSelect = { onChange(option.key, it) },
-            enabled = enabled,
-        )
-        Text(
-            option.explanation,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
+            enabled = enabled && !permissionMissing,
+            explanation = option.explanation,
         )
         if (current != null && option.needsBluetoothRestart) {
             Text(
@@ -552,7 +648,9 @@ private fun codecDisplayName(stored: String): String = when (stored) {
  * renegotiates on every connect, which is why this is stored as a wish and
  * re-applied rather than set once and forgotten.
  *
- * Three things are said outright rather than implied:
+ * Three things are said outright rather than implied — the first on screen, the
+ * other two behind the section's question mark, because they are background
+ * rather than news:
  *
  *  - it needs the privileged helper, and without one nothing here can be tried
  *    **or checked** — the section says so instead of offering a control that
@@ -583,20 +681,27 @@ private fun CodecEditor(
     /** Full live status, so sub-settings can name what "default" resolves to. */
     negotiated: CodecStatus? = null,
 ) {
-    Text("Bluetooth codec", style = MaterialTheme.typography.titleSmall)
-    Text(
+    ExplainedHeader(
+        "Bluetooth codec",
         "Asks the Bluetooth stack to renegotiate this device onto a chosen codec " +
             "whenever it connects. The app then reads the codec back and reports what " +
-            "it actually found — a request is not a result.",
+            "it actually found — a request is not a result. These are the codecs the " +
+            "app can ask for, not the ones this headphone advertises. aptX Adaptive is " +
+            "not among them: its codec id is a vendor value that has moved between " +
+            "Android versions, so it can be read and named but not requested without " +
+            "guessing. Setting or reading a codec at all needs the app's helper; " +
+            "anything stored here is applied the next time this device connects with " +
+            "the helper running.",
+    )
+    Text(
+        "Requested on every connect, then read back.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline,
     )
 
     if (!helperConnected) {
         Text(
-            "The privileged helper is not running, so the codec can be neither set nor " +
-                "checked. Start it from the setup screen; anything stored here is applied " +
-                "the next time this device connects with the helper running.",
+            "The helper is not running, so the codec cannot be set or read.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
         )
@@ -615,8 +720,12 @@ private fun CodecEditor(
 
     PickerMenu<String>(
         label = "Codec on connect",
-        selectedLabel = shownCodec?.let(::codecDisplayName)
-            ?: if (origin == CodecOrigin.UNREADABLE) "Cannot be read" else "Not connected",
+        // With nothing stored and nothing readable, the honest value of this
+        // *field* is System Default — that is what will happen on connect.
+        // "Cannot be read" and "Not connected" described the link instead of
+        // the setting, which put a failure where a choice belongs; the status
+        // line below already carries both of those states.
+        selectedLabel = shownCodec?.let(::codecDisplayName) ?: "System Default",
         // System Default leads the list and never greys out: handing the
         // decision back is possible on every device, always.
         options = listOf(BluetoothCodecOptions.SYSTEM_DEFAULT to "System Default") +
@@ -639,6 +748,9 @@ private fun CodecEditor(
             )
         },
         enabled = enabled,
+        explanation = "Changing the codec briefly interrupts playback while the link " +
+            "renegotiates. The stored choice is requested again on every connect, " +
+            "because the stack negotiates afresh each time.",
     )
 
     // Showing the live codec in a field labelled "on connect" would otherwise
@@ -667,14 +779,11 @@ private fun CodecEditor(
     // the codec choice back would be a contradiction, and isKnown() rejects it.
     if (current.codec == BluetoothCodecOptions.SYSTEM_DEFAULT) return
 
-    Text(
-        "These are the codecs the app can ask for, not the ones this headphone " +
-            "advertises. aptX Adaptive is not among them: its codec id is a vendor value " +
-            "that has moved between Android versions, so it can be read and named but not " +
-            "requested without guessing.",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.outline,
-    )
+    // Which codecs the list can and cannot contain, and why aptX Adaptive is
+    // absent, now live in this section's header explanation. They answer a
+    // question that arises once, when somebody hunts for a codec they know
+    // their headphone has — not one worth a paragraph above every sub-setting
+    // on every visit.
 
     // 0 means "Use System Default": the write sends the NONE mask, and the
     // stack picks — proven by the diagnostic, which cycles codecs with
@@ -729,17 +838,18 @@ private fun CodecEditor(
                 },
             onSelect = { onChange(current.copy(ldacQuality = it)) },
             enabled = enabled,
+            explanation = "LDAC trades bitrate against link stability. The higher rates " +
+                "drop out sooner at distance; adaptive lets the stack choose.",
         )
         Text(
-            "LDAC trades bitrate against link stability. The higher rates drop out " +
-                "sooner at distance; adaptive lets the stack choose.",
+            "Higher LDAC rates drop out sooner at distance.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline,
         )
     }
 
     Text(
-        "Changing the codec briefly interrupts playback while the link renegotiates.",
+        "Changing this briefly interrupts playback.",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -748,8 +858,13 @@ private fun CodecEditor(
 /**
  * Absolute volume is one *global* Android setting, and the UI says so. The
  * per-device field is a wish applied on connect; the "set it now" button
- * writes the live value, and both disappear behind an honest explanation when
- * WRITE_SECURE_SETTINGS is missing.
+ * writes the live value.
+ *
+ * Without WRITE_SECURE_SETTINGS the section says what is true of this app
+ * today: the helper grants that permission by itself, so the useful fact is
+ * that the helper is not running — not a command to type on a computer. The
+ * ADB line survives one layer down, for the case where the helper will not
+ * start at all.
  */
 @Composable
 private fun AbsoluteVolumeEditor(
@@ -763,13 +878,16 @@ private fun AbsoluteVolumeEditor(
     enabled: Boolean = true,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Absolute volume", style = MaterialTheme.typography.titleSmall)
+        ExplainedHeader(
+            "Absolute volume",
+            "With absolute volume on, the phone's slider drives the headphone's own " +
+                "volume. Off, the phone keeps a separate and finer scale, which helps " +
+                "on headphones whose own steps are coarse. Android keeps one value for " +
+                "the whole system, so a profile can only ask for it when that device " +
+                "connects.",
+        )
         Text(
-            "With absolute volume on, the phone's volume slider drives the headphone's " +
-                "own volume. Turning it off gives the phone a separate, finer scale — " +
-                "which helps on devices whose own steps are too coarse. This is a " +
-                "single system-wide Android setting, so a profile can only ask for it " +
-                "when that device connects.",
+            "One system-wide switch, re-applied when this device connects.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
@@ -792,18 +910,32 @@ private fun AbsoluteVolumeEditor(
 
             is AbsoluteVolumeStatus.PermissionMissing -> {
                 Text(
-                    buildString {
-                        append("WRITE_SECURE_SETTINGS is not granted, so the app cannot change ")
-                        append("this. ")
-                        append(
-                            when (status.enabled) {
-                                true -> "It is currently on system-wide."
-                                false -> "It is currently off system-wide."
-                                null -> "The current value could not be read either."
-                            },
-                        )
-                    },
+                    "The helper grants this automatically. It is not running.",
                     style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    when (status.enabled) {
+                        true -> "It is currently on system-wide."
+                        false -> "It is currently off system-wide."
+                        null -> "The current value cannot be read either."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                ExplainedRow(
+                    label = "If the helper will not start",
+                    explanation = "The same permission can be granted once from a " +
+                        "computer over ADB. It is the fallback, not the route: the " +
+                        "helper grants it on its own the moment it connects, and this " +
+                        "line is only useful when it never does.",
+                    // No control of its own: the question mark carries the whole
+                    // row, and what it explains is the command printed below.
+                    control = {},
+                )
+                Text(
+                    "Fallback — run this once from a computer:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
                 )
                 CopyableCommand(context, status.adbCommand)
             }
@@ -876,6 +1008,15 @@ private fun <T> PickerMenu(
     onSelect: (T) -> Unit,
     enabled: Boolean = true,
     /**
+     * The long answer for this one control, behind a question mark.
+     *
+     * Given here rather than as a paragraph under the picker because that is
+     * what turned this editor into a wall: every control carried its own
+     * explanation, always open, and the controls themselves were what the
+     * reader had come for.
+     */
+    explanation: String? = null,
+    /**
      * Values this *device* cannot do — as opposed to values the app declines to
      * offer, which simply are not in [options] at all.
      *
@@ -894,11 +1035,18 @@ private fun <T> PickerMenu(
     val ordered = orderByAvailability(options, unavailable)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.outline,
-        )
+        if (explanation != null) {
+            // The control slot stays empty on purpose: the thing being explained
+            // is the button on the next line, and putting it inside the row
+            // would lay a dropdown out as though it were a switch.
+            ExplainedRow(label = label, explanation = explanation, control = {})
+        } else {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.outline,
+            )
+        }
         GoldOutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text(selectedLabel) }
         // `expanded` cannot be set while disabled, but a menu left open when the
         // card switches to disabled would outlive the control that opened it.
@@ -935,7 +1083,13 @@ private fun <T> PickerMenu(
     if (showUnavailableNotice) {
         AlertDialog(
             onDismissRequest = { showUnavailableNotice = false },
-            text = { Text("Setting not available for this device") },
+            title = { Text("Not available on this headphone") },
+            text = {
+                Text(
+                    "Your headphone did not offer this codec in the current " +
+                        "negotiation. It stays listed so you can see it was considered.",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { showUnavailableNotice = false }) { Text("OK") }
             },

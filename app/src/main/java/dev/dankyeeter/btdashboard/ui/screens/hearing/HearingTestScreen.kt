@@ -20,6 +20,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -51,7 +55,7 @@ import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
-import dev.dankyeeter.btdashboard.ui.theme.Readout
+import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 
 /**
  * Hearing-test flow: plain-text intro, optional fit check, a distraction-free
@@ -112,7 +116,8 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
                     "reaches your ear, so a curve measured with it on fits only listening with " +
                     "it on. The volume is locked during the run so every tone keeps the level " +
                     "it was measured at. And one run carries one lapse in attention; the median " +
-                    "of three outvotes it.",
+                    "of three outvotes it. The microphone measures room noise once before the " +
+                    "run; nothing is recorded.",
             )
             Text(
                 "• A quiet room\n" +
@@ -124,12 +129,23 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         }
 
         Panel {
-            PanelHeader(
-                "Your headphones",
-                trailing = {
-                    if (state.fitCheckPassed) Pill("Fit check ✓", tone = PillTone.ACCENT)
-                },
-            )
+            // Why the two chips lead to different rules is acoustics, and
+            // acoustics is not what the person picking a chip is deciding. The
+            // caption underneath says what it means for them; the reason is
+            // behind the question mark for whoever wonders.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                ExplainedHeader(
+                    "Your headphones",
+                    explanation = "In-ears change their bass response completely with the seal, " +
+                        "so a run with a loose tip measures the tip and not your ear — that is " +
+                        "why the fit check is required for them. Over-ears are far less " +
+                        "sensitive to placement, so it is optional there, though still worth " +
+                        "20 seconds before a first run. The check plays two low tones and " +
+                        "compares them against the baseline it stored the first time.",
+                    modifier = Modifier.weight(1f),
+                )
+                if (state.fitCheckPassed) Pill("Fit check ✓", tone = PillTone.ACCENT)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = state.formFactor == DeviceFormFactor.IN_EAR,
@@ -144,9 +160,9 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             }
             Text(
                 if (state.formFactor.fitCheckMandatory) {
-                    "In-ears change their bass response completely with the seal, so the fit check is required."
+                    "Fit check required."
                 } else {
-                    "Over-ears are less sensitive to placement, so the fit check is optional here."
+                    "Fit check optional."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -156,7 +172,20 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         state.message?.let { message ->
             Panel {
                 Text(message, style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = viewModel::dismissMessage) { Text("Dismiss") }
+                // Most messages here are an aborted run, and an abort with only
+                // "Dismiss" under it leaves the person who came to test a
+                // hearing curve with nothing to press. The way back in is one
+                // tap, so it is one button.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GoldButton(
+                        onClick = {
+                            viewModel.dismissMessage()
+                            viewModel.startTest()
+                        },
+                        enabled = !state.busy && !state.fitCheckRequired,
+                    ) { Text("Start again") }
+                    TextButton(onClick = viewModel::dismissMessage) { Text("Dismiss") }
+                }
             }
         }
 
@@ -166,7 +195,7 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
                 onClick = viewModel::startFitCheck,
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (state.fitCheckPassed) "Fit check ✓ — run again" else "Run fit check (about 20 s)") }
+            ) { Text(if (state.fitCheckPassed) "Run fit check again" else "Run fit check") }
 
             GoldButton(
                 onClick = {
@@ -183,23 +212,15 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             if (state.fitCheckRequired) {
                 Pill("Run the fit check first.", tone = PillTone.WARN)
             }
-            Text(
-                "The microphone measures room noise once, before the run. Nothing is recorded.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
 
+        // A button, not a panel. The panel around it had a header saying
+        // "Stored runs", a large numeral, the word "runs" under the numeral and
+        // then this button with the count in it again - four renderings of one
+        // number, and only the button did anything.
         if (state.runs.isNotEmpty()) {
-            Panel {
-                PanelHeader("Stored runs")
-                Readout(
-                    value = state.runs.size.toString(),
-                    caption = if (state.runs.size == 1) "run" else "runs",
-                )
-                GoldOutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
-                    Text("Your runs (${state.runs.size})")
-                }
+            GoldOutlinedButton(onClick = viewModel::showHistory, modifier = Modifier.fillMaxWidth()) {
+                Text("Your runs (${state.runs.size})")
             }
         }
     }
@@ -307,8 +328,15 @@ private fun RunningContent(state: HearingUiState, viewModel: HearingTestViewMode
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                // Named for what it does once tones are running: there is no
+                // pause and no resume, so eight minutes of answers go with it.
+                // "Cancel test" read like backing out of something that had not
+                // started yet.
                 TextButton(onClick = viewModel::cancelRun) {
-                    Text("Cancel test", color = Color.White.copy(alpha = 0.7f))
+                    Text(
+                        if (state.presenting != null) "Stop and discard this run" else "Cancel",
+                        color = Color.White.copy(alpha = 0.7f),
+                    )
                 }
             }
         }
@@ -325,21 +353,49 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
     ) {
         Text("Run finished", style = MaterialTheme.typography.displayMedium)
 
-        state.message?.let {
-            Panel { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        state.message?.let { message ->
+            Panel {
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+                // The message says the run is probably too good to trust. Both
+                // answers to that are one tap, and neither used to exist here:
+                // the run could not be deleted from this screen and the message
+                // could not be got rid of at all.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.lastRun?.let { lastRun ->
+                        GoldButton(
+                            onClick = {
+                                viewModel.deleteRun(lastRun.id)
+                                viewModel.backToIntro()
+                            },
+                        ) { Text("Discard this run") }
+                    }
+                    TextButton(onClick = viewModel::dismissMessage) { Text("Keep it") }
+                }
+            }
         }
 
         // Only drawn when there is something in it: an empty panel with a
         // header is a promise of information the screen does not have.
         if (state.lastReliability != null || state.lastRun?.ambientNoiseDbA != null) {
             Panel {
-                PanelHeader("This run")
+                // Both numbers in here come with a caveat that decides how much
+                // weight to give them, and both caveats are a paragraph. The
+                // panel shows the figures; the paragraph is one tap away.
+                ExplainedHeader(
+                    "This run",
+                    explanation = "Some intervals during the test are deliberately silent. A " +
+                        "press during one of those is a false positive, and a run with several " +
+                        "of them has thresholds that look better than your hearing is. The " +
+                        "room-noise figure comes from the phone's microphone, which is not a " +
+                        "calibrated meter — it is good enough to tell a quiet room from a noisy " +
+                        "one and nothing finer.",
+                )
                 state.lastReliability?.let {
                     Text(it.summary, style = MaterialTheme.typography.bodySmall)
                 }
                 state.lastRun?.ambientNoiseDbA?.let {
                     Text(
-                        "Room noise before the run: about ${it.toInt()} dB (uncalibrated estimate).",
+                        "Room noise: roughly ${it.toInt()} dB.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -348,24 +404,49 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
         }
 
         Panel {
-            PanelHeader("Your hearing")
+            ExplainedHeader(
+                "Your hearing",
+                explanation = "Each point is the quietest level you still answered at that " +
+                    "frequency. A hollow point is one the test could not pin down: the tone was " +
+                    "still inaudible at the loudest level the app allows, or still audible at " +
+                    "the quietest. Both ends are limits of the measurement, not of your ears.",
+            )
             AudiogramChart(runs = state.runs, active = state.audiogram)
             AudiogramLegend()
 
+            // Counted the way the curve is actually built, not by counting
+            // every run on the phone.
+            //
+            // This line used to read state.runs.size, which is every run ever
+            // stored for every headphone - so a phone with six runs from two
+            // devices announced "6 runs stored — the thick curve is the median"
+            // over a curve drawn from three of them, or from none at all when
+            // they all belonged to a headphone that was not connected. The
+            // number the user is promised has to be the number in the curve.
+            val counted = remember(state.runs, state.selectedRunIds, state.currentDeviceKey) {
+                AudiogramStore.selectionOf(state.runs, state.selectedRunIds, state.currentDeviceKey).size
+            }
             Text(
-                when (state.runs.size) {
-                    1 -> "One run stored. Two more make the median meaningful."
-                    2 -> "Two runs stored. One more and the median is on solid ground."
-                    else -> "${state.runs.size} runs stored — the thick curve is the per-frequency median."
+                when (counted) {
+                    0 -> "No run from this headphone counts yet."
+                    1 -> "One run in the curve. Two more make the median meaningful."
+                    2 -> "Two runs in the curve. One more and it is on solid ground."
+                    else -> "Three runs in the curve — the thick line is the per-frequency median."
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
             state.audiogram?.let { audiogram ->
                 val hollow = (audiogram.left + audiogram.right).count { !it.converged }
                 if (hollow > 0) {
+                    // What is on screen, and nothing about why - the why is in
+                    // the header's explanation, where it is read once rather
+                    // than after every run.
                     Text(
-                        "$hollow point(s) did not converge and are drawn hollow: the tone was either " +
-                            "inaudible at the loudest allowed level or still audible at the quietest one.",
+                        if (hollow == 1) {
+                            "One point is drawn hollow."
+                        } else {
+                            "$hollow points are drawn hollow."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -395,12 +476,16 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
         Panel {
             ExplainedHeader(
                 "All runs overlaid",
+                // The "one run carries a lapse in attention, three outvote it"
+                // half of this already stands on the intro screen, under
+                // "Before you start". Said twice it is not twice as convincing;
+                // what is left here is the part only this screen answers, which
+                // is why the cap is three and not more.
                 explanation = "Every run is drawn thin; the thick curve is the median of the " +
                     "runs you chose, and that median is what the equaliser corrects for. " +
-                    "Three at most, because one run carries a lapse in attention and the " +
-                    "median of three outvotes it — while averaging a dozen sessions from " +
-                    "different weeks would blur the very change you would want to see. Keep " +
-                    "testing and swap which three count; nothing is lost by trying.",
+                    "Three at most — averaging a dozen sessions from different weeks would " +
+                    "blur the very change you would want to see. Swap which three count as " +
+                    "often as you like; nothing is lost by trying.",
             )
             Text(
                 "The thick curve is the median of the runs you chose — up to three count.",
@@ -448,7 +533,41 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
         }
 
         if (state.runs.isNotEmpty()) {
-            TextButton(onClick = viewModel::deleteAllRuns) { Text("Delete all runs") }
+            // Asked first, because this one takes more than the runs with it.
+            //
+            // Every other destructive control here removes a single run, which
+            // is a twenty-minute mistake at worst. This one also takes the
+            // generated compensation curve, which cannot be rebuilt without
+            // measuring three runs again - and it used to fire on the first
+            // tap, one thumb-width from the Back button.
+            var confirming by rememberSaveable { mutableStateOf(false) }
+
+            TextButton(onClick = { confirming = true }) { Text("Delete all runs") }
+
+            if (confirming) {
+                AlertDialog(
+                    onDismissRequest = { confirming = false },
+                    title = { Text("Delete all runs?") },
+                    text = {
+                        Text(
+                            "Every stored run is removed, and the generated " +
+                                "${AdjustedReference.NAME} curve goes with them. Saved EQ " +
+                                "presets keep the bands they already have.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                confirming = false
+                                viewModel.deleteAllRuns()
+                            },
+                        ) { Text("Delete all") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirming = false }) { Text("Cancel") }
+                    },
+                )
+            }
         }
         GoldButton(onClick = viewModel::backToIntro, modifier = Modifier.fillMaxWidth()) { Text("Back") }
     }
@@ -511,9 +630,12 @@ private fun RunRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // The point counts are gone: every run measures the same eight
+            // frequencies per ear, so "8 left / 8 right points" was printed on
+            // every row of every list and told nobody anything. The room noise
+            // genuinely differs between runs, which is why it is what remains.
             Text(
-                "${run.left.size} left / ${run.right.size} right points" +
-                    (run.ambientNoiseDbA?.let { " · room ≈ ${it.toInt()} dB" } ?: ""),
+                run.ambientNoiseDbA?.let { "Room ≈ ${it.toInt()} dB" }.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

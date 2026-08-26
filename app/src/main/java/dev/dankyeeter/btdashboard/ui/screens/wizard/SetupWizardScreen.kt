@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.ui.screens.wizard
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
@@ -46,6 +47,7 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
 import dev.dankyeeter.btdashboard.system.setup.SetupStepState
 import dev.dankyeeter.btdashboard.system.setup.SetupStepStatus
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -123,11 +125,9 @@ fun SetupWizardScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Setup", style = MaterialTheme.typography.displayMedium)
-        Text(
-            "Step ${index + 1} of ${viewModel.stepCount} · $done done",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // The bar says where you are and the "N of 4" pill on the checklist
+        // below says how much is done. A line spelling out both in words was a
+        // third rendering of the same two numbers.
         LinearProgressIndicator(
             progress = { (index + 1f) / viewModel.stepCount },
             modifier = Modifier.fillMaxWidth(),
@@ -209,41 +209,57 @@ private fun SetupStepStatus.label(): String = when (this) {
     SetupStepStatus.DONE -> "Done"
     SetupStepStatus.PENDING -> "Not set up"
     SetupStepStatus.SKIPPED -> "Skipped"
-    SetupStepStatus.BLOCKED -> "Blocked"
 }
 
 private fun SetupStepStatus.tone(): PillTone = when (this) {
     SetupStepStatus.DONE -> PillTone.ACCENT
     SetupStepStatus.PENDING, SetupStepStatus.SKIPPED -> PillTone.NEUTRAL
-    SetupStepStatus.BLOCKED -> PillTone.WARN
 }
 
 /**
  * The extra sentence a status needs, or null when the pill already said it.
- * "Skipped" and "Blocked" both leave an obvious question open; "Done" and
- * "Not set up" do not, and repeating them under the pill is noise.
+ *
+ * Only "Skipped" leaves a question open, and the answer has two halves: what
+ * the app will do without this step, and that the decision is not final. The
+ * note used to carry the second half alone, which told the user how to undo a
+ * choice without ever saying what the choice costs.
+ *
+ * Per step, because the cost is: the microphone is the only step that can be
+ * skipped today, but a generic "you can set it up later" would be exactly the
+ * sentence this replaces.
  */
-private fun SetupStepStatus.note(): String? = when (this) {
-    SetupStepStatus.SKIPPED -> "Skipped — you can still set it up here."
-    SetupStepStatus.BLOCKED -> "Not available right now."
+private fun SetupStepState.note(): String? = when (status) {
+    SetupStepStatus.SKIPPED -> when (step) {
+        SetupStep.MICROPHONE ->
+            "Skipped — the hearing test will run without the room-noise check. " +
+                "You can set it up here any time."
+
+        else -> "Skipped — you can still set it up here any time."
+    }
+
     SetupStepStatus.DONE, SetupStepStatus.PENDING -> null
 }
 
 @Composable
 private fun StepPanel(state: SetupStepState, viewModel: SetupWizardViewModel) {
     Panel {
-        PanelHeader(
-            state.step.title,
-            trailing = { Pill(state.status.label(), tone = state.status.tone()) },
-        )
-        state.status.note()?.let {
+        // The paragraph goes behind the question mark and one line stays on the
+        // face of the step. Four steps each fronted by a four-line rationale is
+        // a wall of text between the user and the four buttons they came for -
+        // and the reasoning still matters to whoever asks for it, so it moves
+        // rather than goes.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            ExplainedHeader(
+                state.step.title,
+                explanation = state.step.rationale,
+                modifier = Modifier.weight(1f),
+            )
+            Pill(state.status.label(), tone = state.status.tone())
+        }
+        state.note()?.let {
             Text(it, style = MaterialTheme.typography.labelLarge)
         }
-        Text(
-            state.step.rationale,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(state.step.summary, style = MaterialTheme.typography.bodyMedium)
 
         if (state.status != SetupStepStatus.DONE) {
             PanelDivider()
@@ -264,9 +280,12 @@ private fun StepPanel(state: SetupStepState, viewModel: SetupWizardViewModel) {
 
                 SetupStep.HELPER -> HelperAction()
             }
+            // Only where there is something to re-check. On a finished step it
+            // offered to look again at an answer the screen already re-reads on
+            // every resume, and the one outcome it could produce - the step
+            // falling back to "Not set up" - is not what the button promises.
+            GoldOutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
         }
-
-        GoldOutlinedButton(onClick = viewModel::refresh) { Text("Re-check") }
     }
 }
 
@@ -317,18 +336,46 @@ private fun PermissionAction(
     permissions: Array<String>,
     label: String,
 ) {
+    val context = LocalContext.current
+
+    // Said only once it has happened.
+    //
+    // Android stops showing the dialog after two refusals, and the button then
+    // does nothing visible - which reads as a broken app rather than as a
+    // decision the user made earlier. But printing that warning before the
+    // button has ever been pressed tells a first-time user that something is
+    // already wrong, so it waits for a launch that came back with nothing
+    // granted. That is the exact signature of a permanently denied permission.
+    var locked by rememberSaveable { mutableStateOf(false) }
+
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { viewModel.refresh() }
+    ) { results ->
+        locked = results.isNotEmpty() && results.values.none { it }
+        viewModel.refresh()
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         GoldButton(onClick = { launcher.launch(permissions) }) { Text(label) }
-        Text(
-            "If Android does not show a dialog, the permission was denied permanently — " +
-                "grant it in Settings → Apps → this app → Permissions.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (locked) {
+            Text(
+                "No dialog appeared, so Android has this one locked. Grant it in " +
+                    "the app's settings.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // The app knows where that screen is, so it opens it rather than
+            // describing the path through Settings.
+            GoldOutlinedButton(
+                onClick = {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.fromParts("package", context.packageName, null))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { context.startActivity(intent) }
+                        .onFailure { Log.w("SetupWizard", "cannot open app settings", it) }
+                },
+            ) { Text("Open app settings") }
+        }
     }
 }
 
@@ -355,33 +402,36 @@ private fun HelperAction() {
     val secureSettings = remember(helperRunning) { environment.secureSettingsGranted() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("App helper", style = MaterialTheme.typography.titleSmall)
-            Pill(
-                if (helperRunning) "Running" else "Not running",
-                tone = if (helperRunning) PillTone.ACCENT else PillTone.WARN,
-            )
-        }
-        // Reported, not gated on.
+        ExplainedHeader(
+            "App helper",
+            explanation = "The helper is a small process running at shell level — the same " +
+                "access \"adb shell\" has, not root. It dies whenever the phone restarts and " +
+                "this screen brings it back. The moment it attaches it also grants the app " +
+                "the one system permission it needs; that grant, unlike the helper, survives " +
+                "a reboot.",
+        )
+        // One row, because there is one thing to know: whether the helper is
+        // there, and whether it did its job on the way in.
         //
-        // The step counts as done when a helper is attached, because that is
-        // the thing the user acted on. The permission arrives milliseconds
-        // later on its own - but if it ever does not, saying so here is the
-        // difference between a known limp and a silent one: without it the app
-        // cannot close wireless debugging again by itself.
+        // This used to be two rows - "App helper: Not running" above "Secure
+        // settings: Not granted" - which is two negatives for one situation,
+        // and the second is not a thing the user can act on separately. The
+        // permission is still not swept away: it arrives milliseconds after the
+        // helper attaches, and on the rare occasion it does not, the pill says
+        // so. Without it the app cannot close wireless debugging by itself.
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Secure settings", style = MaterialTheme.typography.titleSmall)
+            Text("Status", style = MaterialTheme.typography.titleSmall)
             Pill(
-                if (secureSettings) "Granted" else "Not granted",
-                tone = if (secureSettings) PillTone.ACCENT else PillTone.NEUTRAL,
+                when {
+                    helperRunning && secureSettings -> "Running"
+                    helperRunning -> "Running, permission missing"
+                    else -> "Not running"
+                },
+                tone = if (helperRunning && secureSettings) PillTone.ACCENT else PillTone.WARN,
             )
         }
         ActivateStep()

@@ -1,9 +1,12 @@
 package dev.dankyeeter.btdashboard.ui.screens.dashboard
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,16 +14,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,13 +37,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidate
-import dev.dankyeeter.btdashboard.ui.theme.GoldCard
-import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
+import dev.dankyeeter.btdashboard.monitor.effects.EqCandidateScan
+import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqWarning
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.Headphones
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
+import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
@@ -90,8 +90,16 @@ fun BluetoothCodecSection(
 
     Panel {
         // No refresh affordance: the list is push-based now, so a button here
-        // would only teach the user to distrust what the screen says.
-        PanelHeader("Bluetooth audio")
+        // would only teach the user to distrust what the screen says. What the
+        // capture actually costs used to be crammed into the button's own
+        // label; it is a detail about the action, not part of its name.
+        ExplainedHeader(
+            "Bluetooth audio",
+            "The codec is negotiated between the phone and the headphone, so it can " +
+                "change on its own — this reads back whatever was agreed.\n\n" +
+                "Watch live turns the sampler up: a reading every ten seconds for the " +
+                "next five minutes, drawn on the Monitoring timeline. It stops by itself.",
+        )
 
             // The panel keeps its shape whether or not anything is connected.
             // Collapsing to a single line of prose made an idle screen look
@@ -99,10 +107,13 @@ fun BluetoothCodecSection(
             when {
                 state.loading -> WaitingDeviceRow("Reading codec status…")
 
-                !state.profileAvailable -> WaitingDeviceRow(
-                    "The Bluetooth audio profile is not reachable. Codec details need " +
-                        "the Bluetooth permission and a connected A2DP device.",
-                )
+                !state.profileAvailable -> {
+                    // Naming the missing thing is only half an answer; the other
+                    // half is the dialog that fixes it. Without the button this
+                    // was a statement the user could do nothing about.
+                    WaitingDeviceRow("Bluetooth access is missing, so no codec can be read.")
+                    GrantBluetoothButton(onResult = viewModel::refreshAfterPermissionGrant)
+                }
 
                 state.rows.isEmpty() -> WaitingDeviceRow(
                     "Connect a headphone and this fills in by itself.",
@@ -113,7 +124,8 @@ fun BluetoothCodecSection(
 
             // Present but disabled rather than absent: a control that appears
             // and disappears makes the screen feel like it is rearranging
-            // itself, and hides that the capture exists at all.
+            // itself, and hides that the capture exists at all. A disabled
+            // control still owes an answer to "why can I not press this".
             GoldOutlinedButton(
                 enabled = state.rows.isNotEmpty(),
                 onClick = {
@@ -122,9 +134,35 @@ fun BluetoothCodecSection(
                 },
             ) {
                 Icon(Icons.Filled.GraphicEq, contentDescription = null)
-                Text("  Watch live (10 s capture)")
+                Text("  Watch live")
+            }
+            if (state.rows.isEmpty()) {
+                Text(
+                    "Connect a headphone to capture.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
     }
+}
+
+/** Asks for the two Bluetooth permissions the codec read needs. */
+@Composable
+private fun GrantBluetoothButton(onResult: () -> Unit) {
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { onResult() }
+
+    GoldOutlinedButton(
+        onClick = {
+            launcher.launch(
+                arrayOf(
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_SCAN,
+                ),
+            )
+        },
+    ) { Text("Grant Bluetooth access") }
 }
 
 /**
@@ -171,11 +209,8 @@ private fun WaitingDeviceRow(note: String) {
 private fun DeviceRow(row: DeviceCodecRow) {
     // The codec is the answer this screen exists to give, so it is the largest
     // thing on it. Everything else — name, state, battery — is support around
-    // that number rather than a row of equal-weight text.
-    val parts = row.codecBadge.split(" · ")
-    val codecName = parts.firstOrNull().orEmpty()
-    val detail = parts.drop(1).joinToString(" · ").ifBlank { null }
-
+    // that number rather than a row of equal-weight text. The two halves come
+    // from the row model now; this used to split a joined badge back apart.
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
             Modifier.fillMaxWidth(),
@@ -187,10 +222,7 @@ private fun DeviceRow(row: DeviceCodecRow) {
                     row.device.name,
                     style = MaterialTheme.typography.headlineSmall,
                 )
-                Readout(
-                    value = if (row.codecKnown) codecName else "Unknown",
-                    caption = detail,
-                )
+                Readout(value = row.codecName, caption = row.codecDetail)
             }
             Icon(
                 Icons.Filled.Headphones,
@@ -234,12 +266,20 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
     val scan = state.foreignEq
     var expanded by rememberSaveable { mutableStateOf(false) }
 
-    // Collapsed by default and led by a count. This is a "check when something
-    // sounds wrong" surface, not a daily read: expanded by default it was the
-    // longest thing on the screen and buried the controls the user came for.
-    val attached = scan?.warnings?.size ?: 0
-    val vendors = scan?.vendorApps?.size ?: 0
-    val total = attached + vendors
+    // Collapsed by default. This is a "check when something sounds wrong"
+    // surface, not a daily read: expanded by default it was the longest thing
+    // on the screen and buried the controls the user came for.
+    val warnings = remember(scan) { scan?.warnings.orEmpty().distinctBy { it.packageName } }
+    val labels = rememberForeignEqLabels(warnings)
+    val vendorApps = scan?.vendorApps.orEmpty()
+    val total = warnings.size + vendorApps.size
+    // Names, never a count: "2" is not something anyone can check against what
+    // they are hearing, and an unresolvable app is "another app" rather than a
+    // package name nobody can act on.
+    val foundNames = remember(warnings, labels, vendorApps) {
+        (warnings.mapNotNull { labels[it.packageName] } + vendorApps.map { it.appLabel })
+            .distinct()
+    }
 
     Panel {
         PanelHeader(
@@ -253,7 +293,7 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
                         scan == null -> Pill("Not checked")
                         !scan.available -> Pill("Unavailable", tone = PillTone.WARN)
                         total == 0 -> Pill("None found", tone = PillTone.ACCENT)
-                        else -> Pill("$total", tone = PillTone.WARN)
+                        else -> Pill("Found", tone = PillTone.WARN)
                     }
                     IconButton(onClick = { expanded = !expanded }) {
                         Icon(
@@ -270,9 +310,13 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
             when {
                 scan == null ->
                     "Another equalizer stacking on top of this one silently undoes the curve."
+                // No button on this one: the check runs through the privileged
+                // helper, which the app's own gate starts — there is nothing
+                // here for the user to press, only a reason.
                 !scan.available -> scan.unavailableReason ?: "Check unavailable."
                 total == 0 -> "Nothing else is shaping your audio."
-                else -> "$total app(s) could be shaping your audio as well."
+                foundNames.isEmpty() -> "Another app could be shaping your audio too."
+                else -> "${listSentence(foundNames)} could be shaping your audio too."
             },
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -280,11 +324,15 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
         if (expanded) {
             PanelDivider()
 
-            scan?.warnings?.forEach { warning ->
-                Text(warning.message, style = MaterialTheme.typography.bodyMedium)
+            warnings.forEach { warning ->
                 Text(
-                    "Session ${warning.sessionId} — set that app's EQ to flat, " +
-                        "or disable it while using ours.",
+                    labels[warning.packageName]
+                        ?.let { "$it has an equalizer running on your audio." }
+                        ?: "Another app has an equalizer running on your audio.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Set its equalizer to flat, or turn it off while this one is on.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -293,22 +341,67 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
             // A companion app's EQ runs in the headphone itself and never enters
             // Android's audio path, so the scan above is structurally blind to
             // it. Saying "all clear" without this would be a false all-clear.
-            scan?.vendorApps?.forEach { app ->
-                Text("${app.appLabel} is installed.", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "Its equalizer runs inside the headphones, not on the phone, so no app " +
-                        "on Android can read it — this check included. If you set a curve " +
-                        "there it stacks on top of this one.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
+            vendorApps.forEach { app ->
+                ExplainedBlock(
+                    label = app.appLabel,
+                    explanation = "Its equalizer runs inside the headphones, not on the " +
+                        "phone, so no app on Android can read it — this check included. " +
+                        "If you set a curve there it stacks on top of this one.",
+                ) { toggle ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${app.appLabel} has its own equalizer inside the headphone.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        toggle()
+                    }
+                }
             }
 
-            TextButton(onClick = viewModel::scanForeignEq) { Text("Check now") }
+            TextButton(onClick = viewModel::scanForeignEq) { Text("Check running effects") }
             PanelDivider()
             EqCandidateList(viewModel)
         }
     }
+}
+
+/**
+ * App labels for the packages a foreign-EQ warning names.
+ *
+ * The warning carries whatever `ps` reported: usually a package name, sometimes
+ * with a `:process` suffix, sometimes already a friendly name from the
+ * detector's own list of known equalizers. Only PackageManager turns the first
+ * kind into something a user recognises, and anything it cannot resolve is
+ * dropped here so the sentence can fall back to "another app" — a package name
+ * on screen is an identifier nobody can act on.
+ */
+@Composable
+private fun rememberForeignEqLabels(warnings: List<ForeignEqWarning>): Map<String, String> {
+    val context = LocalContext.current
+    val names = warnings.mapNotNull { it.packageName }.distinct()
+    return remember(names) {
+        val packages = context.packageManager
+        names.mapNotNull { reported ->
+            val candidate = reported.substringBefore(':')
+            val label = runCatching {
+                packages.getApplicationLabel(packages.getApplicationInfo(candidate, 0)).toString()
+            }.getOrNull() ?: candidate.takeIf { !it.looksLikeAPackageName() }
+            label?.let { reported to it }
+        }.toMap()
+    }
+}
+
+/** "com.pittvandewitt.wavelet" is an id; "Wavelet" is a name. */
+private fun String.looksLikeAPackageName(): Boolean = contains('.') && !contains(' ')
+
+/** "X", "X and Y", "X, Y and Z", then "X, Y, Z and others". */
+private fun listSentence(names: List<String>): String = when (names.size) {
+    0 -> ""
+    1 -> names[0]
+    2 -> "${names[0]} and ${names[1]}"
+    3 -> "${names[0]}, ${names[1]} and ${names[2]}"
+    else -> "${names.take(3).joinToString(", ")} and others"
 }
 
 /**
@@ -350,17 +443,11 @@ private fun EqCandidateList(viewModel: BluetoothDashboardViewModel) {
         }
     }
 
-    Text(
-        "These apps could have their own EQ — worth checking",
-        style = MaterialTheme.typography.titleSmall,
-    )
-    Text(
-        "This is a hint, not a verdict. It only sees what apps declare to Android: " +
-            "an app that filters audio in its own code, or in the headphones, cannot " +
-            "be detected at all — not by this app and not by any other.",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.outline,
-    )
+    // The disclaimer is the whole point of this list and it is three sentences
+    // long, which is two more than anyone reads above a list they are scanning.
+    // Behind the question mark it is still there for whoever wants to know how
+    // far to trust it — and that is also where the cost of the check belongs.
+    ExplainedHeader("Apps that might have an equalizer", candidateExplanation(scan))
 
     when {
         state.candidatesScanning && scan == null ->
@@ -376,9 +463,11 @@ private fun EqCandidateList(viewModel: BluetoothDashboardViewModel) {
             style = MaterialTheme.typography.bodySmall,
         )
 
+        // No "see the note above" any more: the note is behind the header's
+        // question mark, and a pointer to something that is not on screen is
+        // worse than no pointer at all.
         scan.isEmpty -> Text(
-            "No installed app declares an equalizer or asks for audio-effect access. " +
-                "That is not a guarantee — see the note above.",
+            "No installed app declares an equalizer.",
             style = MaterialTheme.typography.bodySmall,
         )
 
@@ -386,48 +475,63 @@ private fun EqCandidateList(viewModel: BluetoothDashboardViewModel) {
             scan.strong.forEach { candidate -> EqCandidateRow(candidate, context) }
 
             if (scan.weak.isNotEmpty()) {
-                TextButton(onClick = { showWeak = !showWeak }) {
-                    Text(
-                        if (showWeak) {
-                            "Hide the ${scan.weak.size} weaker matches"
-                        } else {
-                            "Show ${scan.weak.size} more that could merely attach an effect"
-                        },
-                    )
+                // What the weak tier really means was printed underneath the
+                // list once it was open — after the user had already decided
+                // to trust it. As the toggle's own explanation it is available
+                // before the list appears.
+                ExplainedBlock(
+                    label = "Weaker matches",
+                    explanation = "These only request the permission an equalizer would " +
+                        "need. Most of them use it for volume or routing and have no EQ " +
+                        "whatsoever.",
+                ) { toggle ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { showWeak = !showWeak }) {
+                            Text(if (showWeak) "Hide weaker matches" else "Show weaker matches")
+                        }
+                        toggle()
+                    }
                 }
                 if (showWeak) {
-                    Text(
-                        "These only request the permission an equalizer would need. Most of " +
-                            "them use it for volume or routing and have no EQ whatsoever.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
                     scan.weak.forEach { candidate -> EqCandidateRow(candidate, context) }
                 }
             }
 
             if (!scan.playbackKnown) {
+                // Built as one sentence. Appending a full stop to a note that
+                // already ended in one produced "… no permission.." on screen.
+                val note = scan.playbackNote?.trim()?.trimEnd('.')?.takeIf { it.isNotBlank() }
                 Text(
-                    "Cannot tell which app is playing right now" +
-                        (scan.playbackNote?.let { " — $it" } ?: "") + ".",
+                    note?.let { "Cannot tell which app is playing right now — $it." }
+                        ?: "Cannot tell which app is playing right now.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
-
-            // Say what the check cost. It runs once per app start, not on a
-            // timer, and the numbers are here so that claim is checkable.
-            Text(
-                "${scan.scannedPackages} installed apps checked in ${scan.durationMs} ms" +
-                    if (scan.fromCache) " (reusing that scan)" else "",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
         }
     }
 
     TextButton(onClick = { viewModel.scanEqCandidates(refresh = true) }) {
-        Text("Check installed apps again")
+        Text("Check installed apps")
+    }
+}
+
+/**
+ * What the list is worth, and what it cost.
+ *
+ * The disclaimer is fixed text; the numbers are the claim "this runs once, not
+ * on a timer" made checkable, which is why they are still here at all.
+ */
+private fun candidateExplanation(scan: EqCandidateScan?): String = buildString {
+    append(
+        "This is a hint, not a verdict. It only sees what apps declare to Android: " +
+            "an app that filters audio in its own code, or in the headphones, cannot " +
+            "be detected at all — not by this app and not by any other.",
+    )
+    scan?.takeIf { it.available && it.scannedPackages > 0 }?.let {
+        append("\n\nIt runs when this section opens and never on a timer: ")
+        append("${it.scannedPackages} installed apps checked in ${it.durationMs} ms")
+        append(if (it.fromCache) ", and that scan is being reused." else ".")
     }
 }
 

@@ -23,7 +23,17 @@ sealed interface ActivateState {
     /** adbd wants the six-digit code. [wrongCode] after a rejected attempt. */
     data class NeedsCode(val wrongCode: Boolean = false) : ActivateState
 
-    data class Failed(val reason: String, val fix: ActivateFix = ActivateFix.NONE) : ActivateState
+    /**
+     * [retryable] is false where another attempt cannot possibly go differently
+     * — a missing platform feature, not a missing switch. Offering "Try again"
+     * there invites the user to press it until they conclude the app is broken,
+     * when the honest answer is that this phone cannot do it at all.
+     */
+    data class Failed(
+        val reason: String,
+        val fix: ActivateFix = ActivateFix.NONE,
+        val retryable: Boolean = true,
+    ) : ActivateState
 
     data object Done : ActivateState
 }
@@ -54,8 +64,10 @@ enum class ActivateFix {
  *
  * The states exist because each step fails differently and a user can only act
  * on some of them. "The pairing dialog is not open" and "the code was wrong"
- * are both fixable and get their own words; a broken handshake is not, and says
- * so plainly instead of offering false hope.
+ * are both fixable and get their own words; so is most of what can go wrong
+ * inside the handshake, which is why [broken] translates each step rather than
+ * lumping them together. The one that genuinely cannot be retried says so and
+ * offers nothing, instead of a button that would fail identically.
  */
 class ActivateViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -148,8 +160,49 @@ class ActivateViewModel(application: Application) : AndroidViewModel(application
             HelperAutoStart.Outcome.NoWifi ->
                 ActivateState.Failed("Connect to Wi-Fi first — this needs it.", ActivateFix.WIFI)
 
-            is HelperAutoStart.Outcome.Broken ->
-                ActivateState.Failed("Could not reach the debugging service (${outcome.step}).")
+            is HelperAutoStart.Outcome.Broken -> broken(outcome.step)
         }
+    }
+
+    /**
+     * A failed handshake step, said as something a person can act on.
+     *
+     * The step names are the app's own internal markers - "tls-exporter",
+     * "identity" - and they used to be printed straight into the reason, which
+     * told the user nothing and looked like a crash dump. Each one has a real
+     * meaning and, for most of them, a real next move; the detail behind them
+     * stays in the log, where it is of use to whoever reads logs.
+     */
+    private fun broken(step: String): ActivateState.Failed = when (step) {
+        // The one permanent failure: some OEM builds do not expose the TLS
+        // keying material the pairing handshake is defined in terms of. No
+        // number of retries changes that, so nothing is offered.
+        "tls-exporter" -> ActivateState.Failed(
+            "This Android build does not expose what the pairing handshake needs, so " +
+                "the app cannot start the helper by itself on this phone.",
+            ActivateFix.NONE,
+            retryable = false,
+        )
+
+        "helper" -> ActivateState.Failed(
+            "Pairing worked, but the helper did not come up. Try again — if it keeps " +
+                "failing, restart the phone and activate once more.",
+        )
+
+        // Someone else's phone answered. Worth naming precisely, because the
+        // fix is on a different device and nothing here can reach it.
+        "identity" -> ActivateState.Failed(
+            "The debugging service that answered is not on this phone, so the app " +
+                "refused to connect to it. Turn off wireless debugging on any other " +
+                "device on this network.",
+        )
+
+        "certificate" -> ActivateState.Failed(
+            "The app's own key could not be read. Reinstalling the app rebuilds it.",
+        )
+
+        else -> ActivateState.Failed(
+            "The handshake with the debugging service failed. Try again.",
+        )
     }
 }

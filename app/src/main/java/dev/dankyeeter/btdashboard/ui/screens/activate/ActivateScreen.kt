@@ -40,6 +40,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 
 /**
  * One button, and only what the moment needs after that.
@@ -61,6 +62,7 @@ fun ActivateScreen(
     onSubmitCode: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onDisclosureAccepted: () -> Unit,
+    onDisclosureDismissed: () -> Unit,
     onDone: () -> Unit,
     onOpenWifiSettings: () -> Unit = {},
 ) {
@@ -72,8 +74,16 @@ fun ActivateScreen(
         if (service != null || state is ActivateState.Done) onDone()
     }
 
+    // "Not now" puts the screen back, it does not open the app.
+    //
+    // Dismissing used to call onDone, which closed the gate and let the user
+    // into an app whose equaliser reaches only some players and whose codec
+    // readout is blank - with no explanation, because the dialog they had just
+    // waved away was the explanation. Declining a disclosure is a decision
+    // about a connection, not a decision to run the app crippled; the way past
+    // this screen is the same one it always was, which is to activate.
     if (state is ActivateState.Disclosure) {
-        LocalConnectionDisclosure(onAccept = onDisclosureAccepted, onDismiss = onDone)
+        LocalConnectionDisclosure(onAccept = onDisclosureAccepted, onDismiss = onDisclosureDismissed)
     }
 
     Box(
@@ -135,19 +145,38 @@ fun ActivateActions(
                 Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
                     Text("Activate")
                 }
-                ActivationHelp()
+                // What not activating costs, in one line under the button that
+                // fixes it. Someone who declines the disclosure lands back
+                // here, and without this the app looks like it simply works -
+                // until the EQ silently misses a player.
+                Text(
+                    "Until the helper starts, the EQ reaches only apps that announce " +
+                        "their audio, and the codec cannot be read.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                ActivationHelp(initiallyExpanded = helpExpanded)
             }
 
             is ActivateState.Working -> {
                 CircularProgressIndicator()
                 Text(state.step, style = MaterialTheme.typography.bodyLarge)
+                StalledHint(state = state, onOpenSettings = onOpenSettings)
             }
 
-            is ActivateState.NeedsCode -> PairingCodeEntry(
-                error = state.wrongCode,
-                onOpenSettings = onOpenSettings,
-                onSubmit = onSubmitCode,
-            )
+            is ActivateState.NeedsCode -> {
+                PairingCodeEntry(
+                    error = state.wrongCode,
+                    onOpenSettings = onOpenSettings,
+                    onSubmit = onSubmitCode,
+                )
+                // Collapsed, because someone holding six digits in their head
+                // does not want a numbered list in the way - but this was the
+                // one state that could not reach the steps at all, and it is
+                // also the state people get stuck in.
+                ActivationHelp(initiallyExpanded = false)
+            }
 
             is ActivateState.Failed -> {
                 Text(
@@ -176,15 +205,57 @@ fun ActivateActions(
                     ActivateFix.NONE -> Unit
                 }
                 // Second, because the fix above has to happen before another
-                // attempt can do anything.
-                GoldOutlinedButton(onClick = onActivate) { Text("Try again") }
+                // attempt can do anything - and only where another attempt
+                // could end differently at all.
+                if (state.retryable) {
+                    GoldOutlinedButton(onClick = onActivate) { Text("Try again") }
+                }
                 // Open already: a failed attempt is the one moment the steps
                 // are worth reading.
                 ActivationHelp(initiallyExpanded = true)
             }
 
-            is ActivateState.Done -> Unit
+            // Only ever seen for the instant before the caller reacts - the
+            // gate closes itself and the setup process moves on. It still says
+            // something, because inside the setup panel that instant used to be
+            // an empty box where the activation control had been.
+            is ActivateState.Done -> Text(
+                "Helper running.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+            )
         }
+    }
+}
+
+/**
+ * The way out when discovery never answers.
+ *
+ * Wireless debugging switched off is the ordinary cause, and the app cannot
+ * tell that apart from a slow network: mDNS simply stays silent either way, and
+ * the discovery step has no failure to report because nothing failed. Waiting
+ * is right for the first seconds and a dead end after that, so after fifteen it
+ * offers the one switch that explains the silence.
+ *
+ * Keyed on the state so a new attempt starts the clock again rather than
+ * showing the hint immediately.
+ */
+@Composable
+private fun StalledHint(state: ActivateState.Working, onOpenSettings: () -> Unit) {
+    var stalled by remember(state) { mutableStateOf(false) }
+
+    LaunchedEffect(state) {
+        delay(STALL_HINT_MS)
+        stalled = true
+    }
+
+    if (stalled) {
+        Text(
+            "This is taking longer than it should. Wireless debugging may be off.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+        )
+        GoldOutlinedButton(onClick = onOpenSettings) { Text("Open wireless debugging") }
     }
 }
 
@@ -259,6 +330,7 @@ fun ActivateRoute(onDone: () -> Unit) {
         onOpenSettings = wiring.onOpenSettings,
         onOpenWifiSettings = wiring.onOpenWifiSettings,
         onDisclosureAccepted = wiring.onDisclosureAccepted,
+        onDisclosureDismissed = wiring.onDisclosureDismissed,
         onDone = onDone,
     )
 }
@@ -316,9 +388,11 @@ private fun PairingCodeEntry(
     // wants is to tap a field first.
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
+    // The procedure itself is one tap away in [ActivationHelp] below, and
+    // saying it twice in two wordings is how two wordings start to disagree.
+    // What is left here is only what this screen needs right now.
     Text(
-        "Open Wireless debugging, tap \"Pair device with pairing code\", and " +
-            "type the six digits here. Leave that screen open while you do.",
+        "Type the six digits from Android's pairing dialog. Leave that dialog open.",
         style = MaterialTheme.typography.bodyMedium,
         textAlign = TextAlign.Center,
     )
@@ -363,17 +437,20 @@ private fun PairingCodeEntry(
 private fun LocalConnectionDisclosure(onAccept: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("This connects to your phone") },
+        title = { Text("The app will talk to your phone's own debugging service") },
         text = {
+            // Two sentences, because this is a dialog standing between a person
+            // and the button they just pressed. The long version explained the
+            // loopback address, the permission, and the trust boundary in five
+            // sentences, which is how a disclosure gets dismissed unread - and
+            // an unread disclosure discloses nothing. The honesty is intact:
+            // the permission is named, and so is the fact that it is required
+            // for this connection like any other.
             Text(
-                "To start its helper without a computer, this app opens a " +
-                    "connection to the debugging service running on this phone. " +
-                    "It always connects to 127.0.0.1 — your device talking to " +
-                    "itself — so nothing is sent anywhere.\n\n" +
-                    "Android requires the internet permission for any connection " +
-                    "at all, including this one. The app has no code that " +
-                    "contacts a remote server, but you are trusting that, not a " +
-                    "locked door. Continue at your own discretion.",
+                "To start its helper without a computer, the app opens a connection " +
+                    "to 127.0.0.1 — your phone talking to itself. Nothing is sent " +
+                    "anywhere. Android requires the internet permission for any " +
+                    "connection at all, including this one.",
             )
         },
         confirmButton = { TextButton(onClick = onAccept) { Text("Continue") } },
@@ -382,6 +459,15 @@ private fun LocalConnectionDisclosure(onAccept: () -> Unit, onDismiss: () -> Uni
 }
 
 private const val CODE_LENGTH = 6
+
+/**
+ * How long "Looking for the debugging service…" is allowed to stand alone.
+ *
+ * Long enough that a discovery which is merely slow finishes without the screen
+ * second-guessing it, short enough that nobody sits watching a spinner decide
+ * the app is broken.
+ */
+private const val STALL_HINT_MS = 15_000L
 
 /**
  * The setup procedure, folded away.
