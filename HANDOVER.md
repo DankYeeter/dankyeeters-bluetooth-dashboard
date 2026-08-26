@@ -4027,7 +4027,28 @@ gruen. **Auf dem Pixel 11 installiert ist noch der Stand von Commit 8c59522**
 (QA-Runde) — die grosse Welle danach (klinischer Anker, BT-Settings,
 Live-Link-Datenschicht, NAL-R-Fix) ist committet, aber NICHT installiert.
 
-### Drei Worker liefen beim Pausieren noch (Hintergrund)
+### Nachtrag beim tatsaechlichen Pausieren: alle drei Worker sind gelandet
+
+Die unten beschriebenen Worker sind fertig, integriert und committet
+(748 Tests gruen, APK gebaut). Der Wiederaufnahme-Schritt 1/2 entfaellt —
+es bleibt: **installieren + Kabel ziehen** (Helfer v4), dann Task 15/16.
+
+**Zentraler Befund der ABR-Inferenz** (aus dem echten Dump der Morgen-
+Session): 4.693.895 Frames / 389.197 Pakete = 12,06 Frames/Paket, konstant
+ueber ~104 Minuten. Bei 96 kHz passt das nur zu 330 kbps — der Link lief
+die GANZE Session auf LDACs Boden, nie 660/990, dazu 788 Underflows.
+Daniels angekuendigte Konsequenz ("wenn es durchgehend niedrig ist…")
+steht an; das Panel macht es ab jetzt live sichtbar.
+
+Drei offene Entscheidungen des Daten-Workers: (1) VERBOSE-Logging-Probe
+nicht gelaufen (setprop = Systemzustand, braucht Daniels Ok; Rezept steht
+im Task-Output); (2) Pin-Kalibrierung nur in-memory — Room-Entity wuerde
+wegen fallbackToDestructiveMigration die Monitor-Historie loeschen, braucht
+bewusste Migration; (3) echter Bug: Codec-Typ 7 ist auf diesem Telefon
+LHDCv5, aptxAdaptiveVendorIds beansprucht ihn aber — app-weit falsches
+Label, im Live-Paket umgangen und als Task-Chip abgelegt.
+
+### Drei Worker liefen beim Pausieren noch (inzwischen gelandet)
 
 1. **Live-Monitoring-UI**: neues "Live link"-Panel auf dem Monitoring-Tab
    gegen MonitorGraph.liveLink* (Kontrakt in core-monitor/link/live/
