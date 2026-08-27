@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -11,6 +12,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxStats
 import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkObservability
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveDeviceSnapshot
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
@@ -37,7 +39,12 @@ class LiveLinkPanelScreenTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
-    private fun render(snapshot: LinkLiveSnapshot) {
+    private fun render(
+        snapshot: LinkLiveSnapshot,
+        overview: LiveTrace = LiveTrace.overview(2_000L),
+        closeUp: LiveTrace = LiveTrace.closeUp(500L),
+        closeUpEnabled: Boolean = false,
+    ) {
         composeRule.setContent {
             BtDashboardTheme {
                 LiveLinkPanel(
@@ -47,10 +54,30 @@ class LiveLinkPanelScreenTest {
                     ldacTuning = LdacTuningState(),
                     onLdacQuality = {},
                     onDismissLdacMessage = {},
+                    overviewTrace = overview,
+                    closeUpTrace = closeUp,
+                    closeUpEnabled = closeUpEnabled,
+                    onCloseUpEnabled = {},
                 )
             }
         }
         composeRule.waitForIdle()
+    }
+
+    /** A minute of steady link with one lossy window in the middle. */
+    private fun overviewWithLoss(): LiveTrace {
+        var trace = LiveTrace.overview(2_000L)
+        (0 until 20).forEach { i ->
+            trace = trace.plus(
+                TracePoint(
+                    timestampMs = 1_000L + i * 2_000L,
+                    packetsPerSecond = if (i == 10) 120.0 else 431.0,
+                    framesPerPacket = 4.0,
+                    lossCount = if (i == 10) 3 else 0,
+                ),
+            )
+        }
+        return trace
     }
 
     private fun assertShows(text: String) =
@@ -112,6 +139,21 @@ class LiveLinkPanelScreenTest {
     }
 
     @Test
+    fun `an unnamed device is identified without printing a real address`() {
+        // A userdebug build does not redact the dump, so the panel does its own
+        // masking rather than trusting the source. The two octets that stay are
+        // what tells two connected headphones apart.
+        render(
+            snapshot(codecSpecific1 = 0L).let { base ->
+                base.copy(device = base.device?.copy(name = null))
+            },
+        )
+
+        assertShows("XX:XX:XX:XX:37:8F")
+        composeRule.onAllNodesWithText("AC:DE:48", substring = true).assertCountEquals(0)
+    }
+
+    @Test
     fun `an offloaded codec says its tx counters do not apply`() {
         render(
             snapshot(codecSpecific1 = 0L).let { base ->
@@ -122,13 +164,63 @@ class LiveLinkPanelScreenTest {
         assertShows("encoded by the controller")
     }
 
+    @Test
+    fun `both graphs are labelled with the window they cover`() {
+        render(snapshot(codecSpecific1 = 0L), overview = overviewWithLoss())
+
+        assertShows("Last 60 seconds")
+        assertShows("Last 10 seconds")
+    }
+
+    @Test
+    fun `the overview caption reads the rate and the loss off the window`() {
+        render(snapshot(codecSpecific1 = 0L), overview = overviewWithLoss())
+
+        assertShows("431 packets/s now")
+        assertShows("peak 431")
+        assertShows("3 loss marks")
+    }
+
+    @Test
+    fun `an empty close-up says it is off rather than drawing a flat line`() {
+        render(snapshot(codecSpecific1 = 0L), overview = overviewWithLoss())
+
+        assertShows("Watch closely")
+        assertShows("reads the Bluetooth stack twice a second")
+    }
+
+    @Test
+    fun `switching the close-up on changes what the chip says`() {
+        render(snapshot(codecSpecific1 = 0L), closeUpEnabled = true)
+
+        assertShows("Watching")
+        // The cost line belongs to the off state; once it is running the user
+        // has already been told.
+        composeRule.onAllNodesWithText("Off by default", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun `an offloaded link explains the empty graph instead of plotting zero`() {
+        val offloaded = LiveTrace.overview(2_000L).withReason(
+            "AAC is encoded by the controller, so the host cannot see the stream — " +
+                "there is no throughput to plot.",
+            LinkObservability.OFFLOADED,
+        )
+
+        render(snapshot(codecSpecific1 = 0L), overview = offloaded)
+
+        assertShows("no throughput to plot")
+    }
+
     private fun snapshot(
         codecSpecific1: Long,
         sampleRateHz: Int = 96_000,
     ) = LinkLiveSnapshot(
         timestampMs = 1_700_000_000_000L,
         device = LiveDeviceSnapshot(
-            address = "AC:DE:48:00:11:22",
+            // The address from the field report, so the masking assertions read
+            // against the same string the owner's phone produced.
+            address = "AC:DE:48:00:37:8F",
             name = "Bathys",
             isConnected = true,
             isActive = true,

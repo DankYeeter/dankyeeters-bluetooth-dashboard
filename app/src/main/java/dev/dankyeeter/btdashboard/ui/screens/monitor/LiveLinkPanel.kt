@@ -66,6 +66,10 @@ fun LiveLinkPanel(
     onLdacQuality: (Long) -> Unit,
     onDismissLdacMessage: () -> Unit,
     modifier: Modifier = Modifier,
+    overviewTrace: LiveTrace = LiveTrace.overview(intervalMs),
+    closeUpTrace: LiveTrace = LiveTrace.closeUp(500L),
+    closeUpEnabled: Boolean = false,
+    onCloseUpEnabled: (Boolean) -> Unit = {},
 ) {
     Panel(modifier) {
         ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
@@ -91,6 +95,7 @@ fun LiveLinkPanel(
                 LdacSection(snapshot, ldacTuning, onLdacQuality, onDismissLdacMessage)
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
+                TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
             }
         }
 
@@ -121,9 +126,13 @@ private fun LinkHeader(snapshot: LinkLiveSnapshot) {
     ) {
         Text(
             // The address is the fallback, never the first choice: a name is
-            // what the user calls the thing sitting on their head.
+            // what the user calls the thing sitting on their head. Masked when
+            // it is used, because the dump is only redacted on user builds and
+            // this panel must not be the one screen that prints a real MAC on a
+            // developer build. The last two octets stay, which is all it takes
+            // to tell two connected headphones apart.
             device?.name?.takeIf { it.isNotBlank() }
-                ?: device?.address
+                ?: device?.address?.let(::maskAddress)
                 ?: "No device",
             style = MaterialTheme.typography.titleMedium,
         )
@@ -333,6 +342,53 @@ private fun TxRows(snapshot: LinkLiveSnapshot) {
     }
 }
 
+/**
+ * The two graphs: a minute to look back over, and ten seconds to watch.
+ *
+ * They are stacked rather than tabbed because they answer in sequence — the
+ * minute says *whether and roughly when*, the close-up says *exactly when* — and
+ * a user chasing a stutter wants to switch the second one on while the first
+ * one is still showing the mark that made them look.
+ */
+@Composable
+private fun TraceSection(
+    overview: LiveTrace,
+    closeUp: LiveTrace,
+    closeUpEnabled: Boolean,
+    onCloseUpEnabled: (Boolean) -> Unit,
+) {
+    ExplainedHeader("Throughput", TRACE_EXPLANATION)
+
+    LabelledTraceGraph("Last 60 seconds", overview)
+
+    LabelledTraceGraph(
+        title = "Last 10 seconds",
+        trace = closeUp,
+        // This channel never reads the two dumps that carry app and mixer
+        // underruns, so its quiet state is narrower than the other graph's.
+        quietText = "no stack loss in this window",
+        trailing = {
+            // A switch would read as a setting. This is a thing you turn on for
+            // a minute while something is wrong, so it wears the same chip the
+            // rest of the panel uses for a choice.
+            FilterChip(
+                selected = closeUpEnabled,
+                onClick = { onCloseUpEnabled(!closeUpEnabled) },
+                label = { Text(if (closeUpEnabled) "Watching" else "Watch closely") },
+            )
+        },
+    )
+    if (!closeUpEnabled) {
+        Text(
+            // The cost is stated where the button is, not behind the question
+            // mark: it is the reason this one is not simply always on.
+            "Off by default — it reads the Bluetooth stack twice a second.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 /** How often the panel polls. The measured cost of each rate is in the explainer. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -402,6 +458,25 @@ private const val FRAMES_PROXY_EXPLANATION =
         "when LDAC changes rate. It is not a bitrate and cannot be converted into " +
         "one: the stack counts frames and never counts bytes, so turning this into " +
         "kbps would mean assuming the very LDAC mode that cannot be read."
+
+private const val TRACE_EXPLANATION =
+    "Media packets per second, which is what the Bluetooth stack actually hands to the " +
+        "radio. A steady line means the link is moving; a dip means it stalled. Every " +
+        "window that lost audio is marked in red on the same time axis, so a stutter has " +
+        "a place rather than only a memory.\n\n" +
+        "The axis ends at the newest reading, not at the clock: if the polling stalls the " +
+        "picture freezes instead of growing an empty stretch that would look measured. A " +
+        "reading that was missed or came late leaves a break in the line — nothing is " +
+        "drawn across a moment nobody measured.\n\n" +
+        "The 60-second graph rides the same pass as the rest of this panel, so its marks " +
+        "cover every place the path can lose audio: the app, the mixer and the Bluetooth " +
+        "stack.\n\n" +
+        "The 10-second close-up reads one dump instead of three so it can sample twice a " +
+        "second — 233 ms of work per reading, measured, which is why it is off until you " +
+        "ask for it. The two dumps it skips are the ones carrying app and mixer " +
+        "underruns, so its marks are the Bluetooth stack's own loss only: dropped " +
+        "packets, stack dropouts and encoder underflows. A quiet close-up is not proof " +
+        "the app kept up."
 
 private const val UPDATE_RATE_EXPLANATION =
     "How often the panel re-reads the link.\n\n" +

@@ -12,6 +12,11 @@ data class DumpsysDevice(
     val isConnected: Boolean = false,
     val isPlaying: Boolean = false,
     val codec: CodecFamily? = null,
+    /**
+     * The `mCodecType:` the dump printed, kept so a [CodecFamily.VENDOR] link
+     * can be labelled with the id that is the only thing identifying it.
+     */
+    val rawCodecType: Int? = null,
     val sampleRateHz: Int? = null,
     val bitsPerSample: Int? = null,
     val rssiDbm: Int? = null,
@@ -162,6 +167,7 @@ object DumpsysBluetoothParser {
                     edit(device) {
                         it.copy(
                             codec = config.family,
+                            rawCodecType = config.rawCodecType ?: it.rawCodecType,
                             sampleRateHz = config.sampleRateHz ?: it.sampleRateHz,
                             bitsPerSample = config.bitsPerSample ?: it.bitsPerSample,
                         )
@@ -174,6 +180,7 @@ object DumpsysBluetoothParser {
                         edit(device) {
                             it.copy(
                                 codec = config.family,
+                                rawCodecType = config.rawCodecType ?: it.rawCodecType,
                                 sampleRateHz = config.sampleRateHz ?: it.sampleRateHz,
                                 bitsPerSample = config.bitsPerSample ?: it.bitsPerSample,
                             )
@@ -213,6 +220,7 @@ object DumpsysBluetoothParser {
 
     private data class ParsedCodec(
         val family: CodecFamily,
+        val rawCodecType: Int?,
         val sampleRateHz: Int?,
         val bitsPerSample: Int?,
     )
@@ -221,17 +229,19 @@ object DumpsysBluetoothParser {
      * Reads one `{codecName:...}` blob. A capability entry lists several rates
      * as `0x3(44100|48000)`; only a single concrete value is accepted, so a
      * range can never be mistaken for the negotiated rate.
+     *
+     * The name outranks the type — see [CodecDecoding.codecFamily] — because a
+     * dump always prints both and only one of the two is trustworthy.
      */
     private fun readCodecFrom(line: String): ParsedCodec? {
-        val family = CODEC_NAME.find(line)?.groupValues?.getOrNull(1)
-            ?.let(CodecDecoding::codecFamilyFromName)
-            ?.takeIf { it != CodecFamily.UNKNOWN }
-            ?: CODEC_TYPE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                ?.let(CodecDecoding::codecFamily)
-                ?.takeIf { it != CodecFamily.UNKNOWN }
-            ?: return null
+        val rawType = CODEC_TYPE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val family = CodecDecoding.codecFamily(
+            codecName = CODEC_NAME.find(line)?.groupValues?.getOrNull(1),
+            rawType = rawType,
+        ).takeIf { it != CodecFamily.UNKNOWN } ?: return null
         return ParsedCodec(
             family = family,
+            rawCodecType = rawType,
             sampleRateHz = SAMPLE_RATE.find(line)?.let { firstInt(it.groupValues) },
             bitsPerSample = BITS.find(line)?.let { firstInt(it.groupValues) },
         )

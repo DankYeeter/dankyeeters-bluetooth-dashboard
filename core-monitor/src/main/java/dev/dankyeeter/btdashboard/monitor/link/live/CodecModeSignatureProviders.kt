@@ -18,13 +18,14 @@ import kotlin.math.roundToInt
  *
  * ## Why providers are matched by name as well as by family
  *
- * [CodecFamily] has no LHDC entry, and this phone advertises LHDCv5 as codec
- * **type 7** — which `CodecDecoding.aptxAdaptiveVendorIds` already claims for
- * aptX Adaptive. So on this device a type-7 link decodes to the wrong family
- * name, and a registry keyed only on the family would hand an LHDC link the
- * aptX Adaptive provider. Matching the codec name the dump prints verbatim
- * (`codecName:LHDCv5`) sidesteps that without changing the shared enum out from
- * under the rest of the app.
+ * `CodecDecoding` now decides the family by name first, so this no longer has
+ * to undo a misdecoded one — a `codecName:LHDCv5` link arrives as
+ * [CodecFamily.LHDC_V5] rather than as aptX Adaptive. The name lookup stays
+ * because it answers a question the family cannot: a source that reads the
+ * codec through the framework API gets a number and no name at all, and a
+ * type it cannot place lands here as [CodecFamily.VENDOR] — one family shared
+ * by every unidentified codec, which is exactly the kind of key that must not
+ * select a provider. A name matches a provider or nothing does.
  *
  * ## Codecs deliberately absent
  *
@@ -45,9 +46,10 @@ object CodecModeSignatureRegistry {
     /**
      * The provider for a link, preferring the codec name the dump printed.
      *
-     * Name first, because the name is what the stack actually wrote down and
-     * the family is this app's interpretation of a numeric type that OEMs
-     * reuse. When the two disagree the raw name is the more trustworthy of them.
+     * Name first, the same order `CodecDecoding` resolves a family in and for
+     * the same reason: the name is what the stack actually wrote down, the
+     * numeric type is an id OEMs reuse. [CodecFamily.VENDOR] deliberately
+     * matches no provider — it names no codec, so it can select none.
      */
     fun providerFor(family: CodecFamily?, rawCodecName: String? = null): CodecModeSignatures? {
         val name = rawCodecName?.trim()?.uppercase()?.replace("-", "")?.replace("_", "")
@@ -129,12 +131,16 @@ object LdacModeSignatures : CodecModeSignatures {
  * produces a plausible-looking mode, just the wrong one. Left refusing until a
  * real LHDC link can be captured and its frame rate falsified the same way
  * LDAC's was.
- *
- * [codec] is null because [CodecFamily] has no LHDC entry; this provider is
- * reachable only by the name the dump prints.
  */
 object LhdcV5ModeSignatures : CodecModeSignatures {
-    override val codec: CodecFamily? = null
+    override val codec: CodecFamily = CodecFamily.LHDC_V5
+
+    /**
+     * Matched on the bare stem, not on "LHDCV5": [CodecFamily.LHDC_V5] is the
+     * only LHDC this app names, so a dump printing some other LHDC version
+     * should still be refused with LHDC's reason rather than fall through to
+     * "no adjustable bitrate mode", which would be a claim about the codec.
+     */
     override val codecNames: Set<String> = setOf("LHDC")
     override val unverifiedReason: String =
         "LHDC v5 frame geometry has not been verified on a real link, so its bitrate " +

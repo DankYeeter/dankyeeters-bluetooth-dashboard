@@ -30,15 +30,21 @@ data class ModeSignatureSample(
 /**
  * Where learned signatures live.
  *
- * ## Why there is no Room-backed implementation here
+ * Lookup is **case-insensitive in the codec name** and exact in the other two
+ * parts of the key; every implementation has to honour that, because the name
+ * arrives from whichever dump printed it and its case is not something a caller
+ * can rely on.
  *
- * `MonitorDatabase` is built with `fallbackToDestructiveMigration()`, so adding
- * an entity bumps the schema version and **erases the user's monitor history**.
- * Wiping a timeline as a side effect of shipping a calibration feature is not a
- * trade this module gets to make quietly; persisting these belongs with a
- * deliberate, migrated schema change. Until then the interface is the contract
- * and [InMemoryCodecModeSignatureStore] is the implementation, which means a
- * calibration survives until the process dies and the UI should say so.
+ * The shipped implementation is `RoomCodecModeSignatureStore`, which persists to
+ * `MonitorDatabase`: a calibration outlives the process, so the UI should say it
+ * is saved rather than that it lasts until the app is killed. (An earlier note
+ * here said the opposite, and was correct at the time — the database was built
+ * with `fallbackToDestructiveMigration()`, so adding an entity would have wiped
+ * the user's monitor history. That fallback is gone and the schema change is
+ * migrated, which is what made persisting these affordable.)
+ *
+ * [InMemoryCodecModeSignatureStore] remains for tests and as the fallback when
+ * the database cannot be opened at all.
  */
 interface CodecModeSignatureStore {
     suspend fun signatures(deviceKey: String, codecName: String): List<ModeSignatureSample>
@@ -46,6 +52,7 @@ interface CodecModeSignatureStore {
     suspend fun clear(deviceKey: String, codecName: String)
 }
 
+/** The volatile implementation: test double, and the fallback for a dead database. */
 class InMemoryCodecModeSignatureStore : CodecModeSignatureStore {
 
     private val samples = mutableMapOf<Triple<String, String, Long>, ModeSignatureSample>()

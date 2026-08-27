@@ -26,6 +26,7 @@ class DumpsysBluetoothParserTest {
         val encore = snapshot.devices.first { it.address == "xx:xx:xx:xx:ab:cd" }
 
         assertEquals(CodecFamily.LDAC, encore.codec)
+        assertEquals(4, encore.rawCodecType)
         assertEquals(96_000, encore.sampleRateHz)
         assertEquals(24, encore.bitsPerSample)
         assertEquals(-62, encore.rssiDbm)
@@ -40,12 +41,19 @@ class DumpsysBluetoothParserTest {
         assertFalse(boom.isPlaying)
     }
 
+    /**
+     * Also the case that shows what "name first" buys: this dump prints
+     * `codecName=aptX Adaptive` next to `mCodecType=8`, and 8 is one of the ids
+     * this app no longer names. The label survives because it never depended on
+     * the number when a name was there.
+     */
     @Test
     fun `pixel 11 aptX Adaptive dump uses the other key spelling`() {
         val snapshot = DumpsysBluetoothParser.parse(load("bt_manager_pixel11_aptx_adaptive.txt"))
         val encore = snapshot.devices.first { it.address == "xx:xx:xx:xx:ab:cd" }
 
         assertEquals(CodecFamily.APTX_ADAPTIVE, encore.codec)
+        assertEquals(8, encore.rawCodecType)
         assertEquals(48_000, encore.sampleRateHz)
         assertEquals(24, encore.bitsPerSample)
         assertEquals(-58, encore.rssiDbm)

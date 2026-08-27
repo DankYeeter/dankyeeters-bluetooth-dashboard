@@ -101,8 +101,11 @@ data class ModeInference(
  */
 interface CodecModeSignatures {
 
-    /** Null when [CodecFamily] has no entry for this codec — LHDC, today. */
-    val codec: CodecFamily?
+    /**
+     * The family this provider is for. Non-null: a codec worth a provider is a
+     * codec worth naming, so [CodecFamily] has an entry for each of them.
+     */
+    val codec: CodecFamily
 
     /**
      * Codec names, uppercased and stripped of `-` and `_`, that this provider

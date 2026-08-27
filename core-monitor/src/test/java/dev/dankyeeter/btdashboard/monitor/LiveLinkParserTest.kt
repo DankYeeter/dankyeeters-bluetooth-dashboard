@@ -48,6 +48,10 @@ class LiveLinkParserTest {
         assertEquals(96_000, codec.sampleRateHz)
         assertEquals(32, codec.bitsPerSample)
         assertEquals(ChannelMode.STEREO, codec.channelMode)
+        // Both raw values are kept: the name is what picks a mode-signature
+        // provider, the type is what labels a link no name could identify.
+        assertEquals("LDAC", codec.rawCodecName)
+        assertEquals(4, codec.rawCodecType)
     }
 
     /**

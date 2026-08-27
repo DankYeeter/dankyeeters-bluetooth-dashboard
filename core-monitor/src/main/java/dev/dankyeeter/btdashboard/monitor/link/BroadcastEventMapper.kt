@@ -103,11 +103,19 @@ object BroadcastEventMapper {
             }
 
             BtActions.A2DP_CODEC_CONFIG_CHANGED -> {
-                val codec = raw.strings["codec"]?.let(CodecDecoding::codecFamilyFromName)
-                    ?: CodecDecoding.codecFamily(raw.ints["codecType"])
+                // The extra is a stringified BluetoothCodecStatus, which lists
+                // the codecs this link *could* have used as well as the one it
+                // did — so it is parsed for its negotiated section rather than
+                // searched for a brand. See CodecDecoding.codecFromStatusText.
+                val fromStatus = CodecDecoding.codecFromStatusText(raw.strings["codec"])
+                // A build that sends only the plain int extra and no status
+                // object still gets an answer, from the weaker of the two.
+                val rawType = fromStatus.rawCodecType ?: raw.ints["codecType"]
+                val codec = fromStatus.family.takeIf { it != CodecFamily.UNKNOWN }
+                    ?: CodecDecoding.codecFamily(rawType)
                 event(
                     MonitorEventType.CODEC_CHANGED,
-                    "Codec is now ${codec.displayName} on $name",
+                    "Codec is now ${codec.label(rawType)} on $name",
                     codec,
                 )
             }

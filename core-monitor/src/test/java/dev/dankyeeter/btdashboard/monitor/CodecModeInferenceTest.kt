@@ -221,22 +221,33 @@ class CodecModeInferenceTest {
     }
 
     /**
-     * This phone advertises LHDCv5 as codec **type 7**, which
-     * `CodecDecoding.aptxAdaptiveVendorIds` already claims for aptX Adaptive —
-     * so an LHDC link decodes to the wrong family. Matching the printed codec
-     * name first is what stops an LHDC stream being handed aptX Adaptive's
-     * provider and given aptX Adaptive's excuse.
+     * This phone advertises LHDCv5 as codec **type 7**, an id this app used to
+     * hand to aptX Adaptive. `CodecDecoding` now decides by name, so the family
+     * that arrives here is the right one — but the registry's own name-first
+     * lookup still has to hold, because a source that read the link through the
+     * framework API has a number and no name, and every number it cannot place
+     * arrives as the one shared [CodecFamily.VENDOR].
+     *
+     * Either way an LHDC stream must get LHDC's refusal and never aptX
+     * Adaptive's, which describes a codec it is not.
      */
     @Test
-    fun `LHDC is recognised by name even though its codec type decodes to aptX Adaptive`() {
-        val provider = CodecModeSignatureRegistry.providerFor(
-            family = CodecFamily.APTX_ADAPTIVE,
-            rawCodecName = "LHDCv5",
+    fun `LHDC is recognised by name whatever its codec type decoded to`() {
+        assertEquals(
+            LhdcV5ModeSignatures,
+            CodecModeSignatureRegistry.providerFor(
+                family = CodecFamily.VENDOR,
+                rawCodecName = "LHDCv5",
+            ),
         )
-        assertEquals(LhdcV5ModeSignatures, provider)
+        // And by family alone, now that the shared decoding can name it.
+        assertEquals(
+            LhdcV5ModeSignatures,
+            CodecModeSignatureRegistry.providerFor(family = CodecFamily.LHDC_V5),
+        )
 
         val inference = CodecModeInference.infer(
-            codec = CodecFamily.APTX_ADAPTIVE,
+            codec = CodecFamily.VENDOR,
             sampleRateHz = 96_000,
             framesPerPacket = 12.0,
             framesPerSecond = 750.0,

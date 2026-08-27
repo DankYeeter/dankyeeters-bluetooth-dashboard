@@ -77,6 +77,9 @@ class FallbackCodecStatusSource(
         return CodecReadResult.Available(
             CodecStatus(
                 family = family,
+                // Carried through so a codec the dump named only by number is
+                // labelled with that number instead of a bare "Vendor codec".
+                rawCodecType = device.rawCodecType,
                 sampleRateHz = device.sampleRateHz,
                 bitsPerSample = device.bitsPerSample,
                 readVia = CodecReadPath.DUMPSYS,

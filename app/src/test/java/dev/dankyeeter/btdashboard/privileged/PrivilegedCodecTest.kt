@@ -81,14 +81,28 @@ class PrivilegedCodecTest {
     }
 
     @Test
-    fun `aptX Adaptive can be read but never requested`() {
-        // Its id is a vendor value that has moved between Android versions -
-        // CodecDecoding keeps a *set* of observed ids for exactly that reason.
-        // Naming one we read is safe; picking one to write is a guess.
-        assertEquals(CodecFamily.APTX_ADAPTIVE, CodecDecoding.codecFamily(7))
+    fun `aptX Adaptive can be read by name but never requested`() {
+        // Only the name reads it. The ids this used to assert - 7 first among
+        // them - name no codec: a Pixel 11 Pro dump prints type 7 as LHDCv5,
+        // so a number in that range is a vendor codec and nothing more.
+        assertEquals(CodecFamily.APTX_ADAPTIVE, CodecDecoding.codecFamily("aptX Adaptive", 7))
+        assertEquals(CodecFamily.VENDOR, CodecDecoding.codecFamily(7))
         assertNull(A2dpCodecMasks.codecType(CodecFamily.APTX_ADAPTIVE))
         assertFalse(CodecFamily.APTX_ADAPTIVE in A2dpCodecMasks.writableFamilies)
         assertNotNull(A2dpCodecMasks.reject(CodecRequest(CodecFamily.APTX_ADAPTIVE)))
+    }
+
+    /**
+     * The families that exist only to label what was read. Requesting one means
+     * sending a codec type, and neither has an id this app is entitled to pick.
+     */
+    @Test
+    fun `vendor families are readable labels, not requestable codecs`() {
+        listOf(CodecFamily.LHDC_V5, CodecFamily.VENDOR).forEach { family ->
+            assertNull(family.name, A2dpCodecMasks.codecType(family))
+            assertFalse(family.name, family in A2dpCodecMasks.writableFamilies)
+            assertNotNull(family.name, A2dpCodecMasks.reject(CodecRequest(family)))
+        }
     }
 
     @Test

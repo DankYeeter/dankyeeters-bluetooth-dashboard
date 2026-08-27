@@ -20,6 +20,19 @@ android {
     }
 }
 
+/**
+ * Where Room writes the schema JSON for each version.
+ *
+ * `MonitorDatabase` sets `exportSchema = true` and no longer falls back to a
+ * destructive migration, which means every future version bump has to be
+ * written by hand against the previous schema. This directory is that previous
+ * schema, in the repository, rather than something reconstructed from whatever
+ * the entity classes looked like at the time.
+ */
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     api(libs.kotlinx.coroutines.android)
@@ -33,4 +46,11 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    // The database tests need real SQLite and a real Context. Both artifacts
+    // are already in the catalog and already on :app's test classpath, so this
+    // adds nothing new to the build - and the alternative, an instrumented
+    // test, cannot run in `./gradlew test` at all.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

@@ -189,12 +189,13 @@ object A2dpCodecMasks {
     /**
      * The AOSP codec type id for a family, or null when we must not guess.
      *
-     * [CodecFamily.APTX_ADAPTIVE] is deliberately absent: its id is a vendor
-     * value that has moved between Android versions (see
-     * [CodecDecoding.aptxAdaptiveVendorIds] — a *set* of observed ids, not a
-     * constant). Reading one and naming it is safe; writing one means picking
-     * a number and hoping, and a wrong codec type is a request to renegotiate
-     * into something nobody asked for.
+     * The vendor families are deliberately absent. AOSP fixes 0..6 and nothing
+     * above, so every id past that means whatever the build says it means —
+     * `CodecDecoding` stopped naming any of them after a Pixel 11 Pro dump
+     * printed type 7 as LHDCv5, an id this app had been assigning to aptX
+     * Adaptive. Reading such a link and labelling it by its number is safe;
+     * *writing* a number means picking one and hoping, and a wrong codec type
+     * is a request to renegotiate into something nobody asked for.
      */
     fun codecType(family: CodecFamily): Int? = when (family) {
         CodecFamily.SBC -> CodecDecoding.SOURCE_CODEC_TYPE_SBC
@@ -204,7 +205,11 @@ object A2dpCodecMasks {
         CodecFamily.LDAC -> CodecDecoding.SOURCE_CODEC_TYPE_LDAC
         CodecFamily.LC3 -> CodecDecoding.SOURCE_CODEC_TYPE_LC3
         CodecFamily.OPUS -> CodecDecoding.SOURCE_CODEC_TYPE_OPUS
-        CodecFamily.APTX_ADAPTIVE, CodecFamily.UNKNOWN -> null
+        CodecFamily.APTX_ADAPTIVE,
+        CodecFamily.LHDC_V5,
+        CodecFamily.VENDOR,
+        CodecFamily.UNKNOWN,
+        -> null
     }
 
     /** Every family the app is willing to *ask* for, in the editor's order. */

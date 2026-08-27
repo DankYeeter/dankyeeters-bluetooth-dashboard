@@ -22,7 +22,48 @@ enum class CodecFamily(val displayName: String) {
     LDAC("LDAC"),
     LC3("LC3"),
     OPUS("Opus"),
+
+    /**
+     * LHDC v5, which the Pixel 11 Pro build prints as `codecName:LHDCv5` on
+     * codec **type 7** — the id this app used to hand to aptX Adaptive.
+     * Reachable by name only: no numeric id names it, because the same 7 is
+     * something else on another build.
+     */
+    LHDC_V5("LHDC v5"),
+
+    /**
+     * A codec that *is* negotiated and whose type id we can read, but whose
+     * identity we cannot establish.
+     *
+     * Distinct from [UNKNOWN], where nothing was readable at all. The id is the
+     * only identifying thing such a link has, so it is carried into the label
+     * by [label] rather than being guessed into a brand name.
+     */
+    VENDOR("Vendor codec"),
+
     UNKNOWN("Unknown"),
+    ;
+
+    /**
+     * The text to put on screen for this family.
+     *
+     * Only [VENDOR] differs from [displayName], and it differs because
+     * "Vendor codec" on its own leaves the user with nothing to look up, while
+     * "Vendor codec (type 7)" is a fact they can search for. Every other family
+     * ignores the id — the name is already the whole answer.
+     */
+    fun label(rawCodecType: Int? = null): String =
+        if (this == VENDOR && rawCodecType != null) "$displayName (type $rawCodecType)" else displayName
+}
+
+/**
+ * One codec, as a single text source described it.
+ *
+ * The two halves are only meaningful together: the name settles what the codec
+ * is, and the id is what labels it in the case where the name settled nothing.
+ */
+data class CodecReading(val family: CodecFamily, val rawCodecType: Int? = null) {
+    val label: String get() = family.label(rawCodecType)
 }
 
 /**
@@ -44,12 +85,12 @@ data class CodecStatus(
     /** Which mechanism produced these values. Never hidden from the user. */
     val readVia: CodecReadPath = CodecReadPath.SYSTEM_API,
 ) {
-    val label: String get() = family.displayName
+    val label: String get() = family.label(rawCodecType)
 
     /** Short badge line for the dashboard, e.g. "LDAC · 96 kHz · 24 bit". */
     val badge: String
         get() = buildList {
-            add(family.displayName)
+            add(family.label(rawCodecType))
             sampleRateHz?.let { add(formatSampleRate(it)) }
             bitsPerSample?.let { add("$it bit") }
             bitrateKbps?.let { add("$it kbps") }

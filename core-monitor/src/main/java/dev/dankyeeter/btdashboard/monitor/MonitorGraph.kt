@@ -11,6 +11,7 @@ import dev.dankyeeter.btdashboard.monitor.codec.FallbackCodecStatusSource
 import dev.dankyeeter.btdashboard.monitor.data.InMemoryMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.MonitorRepository
+import dev.dankyeeter.btdashboard.monitor.data.RoomCodecModeSignatureStore
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
@@ -62,6 +63,7 @@ object MonitorGraph {
     @Volatile private var appContext: Context? = null
     private val lock = Any()
 
+    private var _db: MonitorDatabase? = null
     private var _repository: MonitorRepository? = null
     private var _codecSource: CodecStatusSource? = null
     private var _a2dp: A2dpCodecStatusSource? = null
@@ -146,12 +148,26 @@ object MonitorGraph {
             _repository ?: buildRepository().also { _repository = it }
         }
 
-    private fun buildRepository(): MonitorRepository = runCatching {
-        RoomMonitorRepository(MonitorDatabase.create(ctx()).monitorDao()) as MonitorRepository
-    }.getOrElse {
-        // A broken database must never take the app down; history is expendable.
-        InMemoryMonitorRepository()
-    }
+    /**
+     * The one Room instance in the process.
+     *
+     * Cached because two consumers now want it — the history repository and the
+     * calibration store — and building two `MonitorDatabase` handles onto the
+     * same file gives each its own connection pool and its own invalidation
+     * tracker for no benefit whatsoever.
+     *
+     * Null only when construction itself throws. Note that Room opens the file
+     * lazily, so an unopenable or un-migratable database does not fail here: it
+     * fails on the first DAO call, which is why every consumer wraps its own
+     * calls rather than trusting this.
+     */
+    private fun database(): MonitorDatabase? =
+        _db ?: runCatching { MonitorDatabase.create(ctx()) }.getOrNull()?.also { _db = it }
+
+    private fun buildRepository(): MonitorRepository =
+        database()?.monitorDao()?.let { RoomMonitorRepository(it) }
+            // A broken database must never take the app down; history is expendable.
+            ?: InMemoryMonitorRepository()
 
     /**
      * The one `dumpsys bluetooth_manager` reader in the process.
@@ -228,16 +244,24 @@ object MonitorGraph {
     /**
      * Bitrate-mode signatures learned by [codecModeCalibrator].
      *
-     * In memory only, and deliberately: persisting these needs a Room entity,
-     * and `MonitorDatabase` uses `fallbackToDestructiveMigration()`, so the
-     * schema bump would erase the user's monitor history. See
-     * [CodecModeSignatureStore] — the UI should say a calibration lasts until
-     * the app is killed rather than imply it is saved.
+     * Persisted, so a calibration survives a restart and the UI may say it is
+     * saved. Reads stay in memory — the store hydrates itself from the table
+     * once, on [monitorScope], and writes through afterwards — because the live
+     * panel asks for these on every poll. See `RoomCodecModeSignatureStore`.
+     *
+     * Falls back to the volatile store when the database cannot be built, on
+     * the same principle as [buildRepository]: losing a calibration is a
+     * nuisance, refusing to run is not an option.
      */
     val codecModeSignatures: CodecModeSignatureStore
         get() = synchronized(lock) {
-            _signatures ?: InMemoryCodecModeSignatureStore().also { _signatures = it }
+            _signatures ?: buildSignatureStore().also { _signatures = it }
         }
+
+    private fun buildSignatureStore(): CodecModeSignatureStore =
+        database()?.codecModeSignatureDao()
+            ?.let { RoomCodecModeSignatureStore(it, monitorScope) }
+            ?: InMemoryCodecModeSignatureStore()
 
     /**
      * Installs the privileged path that can pin a codec's bitrate mode.

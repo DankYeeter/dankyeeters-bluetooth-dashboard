@@ -432,8 +432,17 @@ internal class HelperBluetooth(private val context: Context) {
             val config = call(status, "getCodecConfig") ?: error("no codec config in the status")
 
             val rawType = call(config, "getCodecType") as? Int
-            val family = CodecDecoding.codecFamily(rawType)
+            // Absent on some builds, hence the same optional reflection as the
+            // rest. Present, it decides — the type id alone is not enough to
+            // tell one vendor codec from another.
+            val rawName = call(config, "getCodecName") as? String
+            val family = CodecDecoding.codecFamily(rawName, rawType)
             CodecObservation(
+                // A vendor codec crosses as VENDOR and loses its type id: the
+                // CODEC line is a fixed nine fields and widening it is a
+                // protocol break for a label detail. The app still shows
+                // "Vendor codec" rather than a guessed brand, which is the
+                // part that was actually wrong.
                 family = if (family == CodecFamily.UNKNOWN) "" else family.name,
                 sampleRateHz = (call(config, "getSampleRate") as? Int)
                     ?.let(CodecDecoding::sampleRate) ?: 0,

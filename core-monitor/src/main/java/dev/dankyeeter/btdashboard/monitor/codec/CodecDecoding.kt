@@ -6,10 +6,10 @@ package dev.dankyeeter.btdashboard.monitor.codec
  * This lives apart from the reflection wrapper so the fiddly part — bitmasks
  * that OEMs fill in inconsistently — is covered by plain JVM unit tests.
  *
- * Codec type ids follow AOSP `BluetoothCodecConfig.SOURCE_CODEC_TYPE_*`.
- * Qualcomm builds add vendor ids for aptX Adaptive that are *not* stable
- * across Android versions, hence [aptxAdaptiveVendorIds] being a set of
- * observed values rather than a constant.
+ * Codec type ids follow AOSP `BluetoothCodecConfig.SOURCE_CODEC_TYPE_*`, which
+ * fixes 0..6 and nothing above. Every id past that is vendor territory where
+ * the same number means different codecs on different builds, so this file
+ * names none of them — see [codecFamily].
  */
 object CodecDecoding {
 
@@ -21,9 +21,20 @@ object CodecDecoding {
     const val SOURCE_CODEC_TYPE_LC3 = 5
     const val SOURCE_CODEC_TYPE_OPUS = 6
 
-    /** aptX Adaptive ids seen in the wild on Qualcomm/OEM builds. */
-    val aptxAdaptiveVendorIds: Set<Int> = setOf(7, 8, 9, 10)
-
+    /**
+     * Decodes a numeric codec type. **A fallback**: prefer the two-argument
+     * [codecFamily] whenever the source also printed a name.
+     *
+     * No id here maps to aptX Adaptive, and that absence is the point. This
+     * used to claim 7, 8, 9 and 10 for it, on the theory that a vendor id which
+     * moves between Android versions can be covered by listing every value ever
+     * observed. A Pixel 11 Pro dump settles it the other way:
+     * `{codecName:LHDCv5,mCodecType:7,...}`. The set was not merely incomplete,
+     * it was wrong — every LHDC link on that build was badged "aptX Adaptive"
+     * in the device list, the profile editor and the monitor at once. A number
+     * that names two different codecs names neither, so ids we cannot place
+     * become [CodecFamily.VENDOR] and carry the number itself to the screen.
+     */
     fun codecFamily(rawType: Int?): CodecFamily = when (rawType) {
         null -> CodecFamily.UNKNOWN
         SOURCE_CODEC_TYPE_SBC -> CodecFamily.SBC
@@ -33,9 +44,31 @@ object CodecDecoding {
         SOURCE_CODEC_TYPE_LDAC -> CodecFamily.LDAC
         SOURCE_CODEC_TYPE_LC3 -> CodecFamily.LC3
         SOURCE_CODEC_TYPE_OPUS -> CodecFamily.OPUS
-        in aptxAdaptiveVendorIds -> CodecFamily.APTX_ADAPTIVE
-        else -> CodecFamily.UNKNOWN
+        // Negative values are not codec types at all — they are the "invalid"
+        // and "not read" markers the framework and this app pass around — so
+        // they stay UNKNOWN instead of becoming a vendor codec whose label
+        // would print a number that identifies nothing.
+        else -> if (rawType >= 0) CodecFamily.VENDOR else CodecFamily.UNKNOWN
     }
+
+    /**
+     * The family for a link, deciding by **name** and only then by number.
+     *
+     * The name is what the Bluetooth stack itself wrote down for this link; the
+     * numeric type is an id vendors reuse. When the two disagree the name is
+     * the one that is right, which is the whole lesson of type 7 being LHDCv5
+     * on one build and something else on another.
+     *
+     * Written as one function rather than left to each caller because the
+     * obvious spelling of it at the call site is subtly wrong: `name?.let
+     * (::codecFamilyFromName)` yields UNKNOWN — not null — for a name that
+     * matches nothing, so the elvis fallback to the number never runs and a
+     * readable type is thrown away.
+     */
+    fun codecFamily(codecName: String?, rawType: Int?): CodecFamily =
+        codecFamilyFromName(codecName)
+            .takeIf { it != CodecFamily.UNKNOWN }
+            ?: codecFamily(rawType)
 
     /**
      * Matches a codec name from text sources (dumpsys, broadcasts).
@@ -44,11 +77,16 @@ object CodecDecoding {
      * spelled `AptX-HD` in dumpsys, `aptX_HD` in some broadcasts and `aptX HD`
      * in others — and "APTX" is a prefix of all of them, so an unnormalised
      * name falls through to plain aptX and silently downgrades the badge.
+     *
+     * Only versions that have actually been seen printed get a name. `LHDCv5`
+     * has; a bare `LHDC` has not, and it falls through to the numeric path and
+     * its honest "Vendor codec (type N)" rather than being assumed to be v5.
      */
     fun codecFamilyFromName(name: String?): CodecFamily {
         val n = name?.trim()?.uppercase()?.replace('_', ' ')?.replace('-', ' ')
             ?: return CodecFamily.UNKNOWN
         return when {
+            n.contains("LHDC") && n.contains("V5") -> CodecFamily.LHDC_V5
             n.contains("ADAPTIVE") -> CodecFamily.APTX_ADAPTIVE
             n.contains("APTX HD") || n.contains("APTXHD") -> CodecFamily.APTX_HD
             n.contains("APTX") -> CodecFamily.APTX
@@ -59,6 +97,44 @@ object CodecDecoding {
             n.contains("OPUS") -> CodecFamily.OPUS
             else -> CodecFamily.UNKNOWN
         }
+    }
+
+    /** `mCodecConfig:{...}`, `codecConfig:{...}` or `codecConfig{...}`. */
+    private val NEGOTIATED_CONFIG = Regex("""m?[Cc]odec[Cc]onfig\s*[:=]?\s*\{([^}]*)}""")
+    private val CODEC_NAME_FIELD = Regex("""codecName\s*[:=]\s*([^,}\]]+)""")
+    private val CODEC_TYPE_FIELD = Regex("""mCodecType\s*[:=]\s*(\d+)""")
+
+    /**
+     * Decodes a whole `BluetoothCodecStatus`-shaped blob of text.
+     *
+     * The A2DP codec-change broadcast carries the status object itself, and its
+     * class is hidden — `toString()` is the only portable way to read it. That
+     * string holds the negotiated config **and** every codec the phone and the
+     * headphone could have agreed on instead, so scanning all of it for a brand
+     * name asks the wrong question: it answers with whichever codec this file's
+     * `when` order reaches first, from a list of possibilities.
+     *
+     * That is not hypothetical. On a Pixel 11 Pro an LDAC link
+     * (`codecName:LDAC,mCodecType:4`) was announced in the monitor's event list
+     * as "Codec is now aptX HD", because aptX HD sits in the capability list
+     * that follows the config and "APTX HD" is tested before "LDAC".
+     *
+     * So the negotiated section is isolated first and only then decoded, by the
+     * same name-first rule as every other source.
+     */
+    fun codecFromStatusText(statusText: String?): CodecReading {
+        val text = statusText?.takeIf { it.isNotBlank() }
+            ?: return CodecReading(CodecFamily.UNKNOWN)
+        val scope = NEGOTIATED_CONFIG.find(text)?.groupValues?.getOrNull(1)
+            // No config section, but the blob is still field-shaped: take the
+            // *first* `codecName`, which is where every AOSP spelling seen so
+            // far prints the negotiated one. Never the whole text.
+            ?: text.takeIf { it.contains("codecName", ignoreCase = true) }
+            // Not a blob at all — some sources hand over a bare codec name.
+            ?: return CodecReading(codecFamilyFromName(text))
+        val name = CODEC_NAME_FIELD.find(scope)?.groupValues?.getOrNull(1)?.trim()
+        val rawType = CODEC_TYPE_FIELD.find(scope)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        return CodecReading(codecFamily(name, rawType), rawType)
     }
 
     private val sampleRates = linkedMapOf(

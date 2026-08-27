@@ -284,12 +284,20 @@ data class LiveCodecSnapshot(
     /**
      * MEASURED: the `codecName:` the dump printed, verbatim.
      *
-     * Kept alongside [family] because the two can disagree. This phone
-     * advertises LHDCv5 as codec type 7, which `CodecDecoding` already assigns
-     * to aptX Adaptive — so on a type-7 link the family is wrong and the name
-     * is right. Anything that must not be fooled by that keys off this.
+     * [family] is now decided by this name first, so the two no longer
+     * disagree — but the name still says more than the family can. [CodecFamily]
+     * has one entry per codec this app can badge, while the name distinguishes
+     * codecs it cannot, which is what [CodecModeSignatureRegistry] matches on.
      */
     val rawCodecName: String? = null,
+    /**
+     * MEASURED: the `mCodecType:` the dump printed.
+     *
+     * Only interesting when the name identified nothing: a
+     * [CodecFamily.VENDOR] link is labelled with this number, because it is
+     * then the only fact about the codec's identity anyone has.
+     */
+    val rawCodecType: Int? = null,
     val sampleRateHz: Int? = null,
     val bitsPerSample: Int? = null,
     val channelMode: ChannelMode = ChannelMode.UNKNOWN,

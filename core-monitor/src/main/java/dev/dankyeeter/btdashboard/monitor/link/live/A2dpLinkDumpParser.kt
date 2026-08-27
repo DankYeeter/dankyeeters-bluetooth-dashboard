@@ -182,18 +182,18 @@ object A2dpLinkDumpParser {
 
     private fun readCodec(line: String): LiveCodecSnapshot? {
         val rawName = CODEC_NAME.find(line)?.groupValues?.getOrNull(1)?.trim()
-        val family = rawName
-            ?.let(CodecDecoding::codecFamilyFromName)
-            ?.takeIf { it != CodecFamily.UNKNOWN }
-            ?: CODEC_TYPE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                ?.let(CodecDecoding::codecFamily)
+        val rawType = CODEC_TYPE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val family = CodecDecoding.codecFamily(rawName, rawType)
+            .takeIf { it != CodecFamily.UNKNOWN }
             ?: return null
         return LiveCodecSnapshot(
             family = family,
-            // Kept verbatim: the numeric type is ambiguous on this hardware
-            // (LHDCv5 is type 7, which decodes to aptX Adaptive) and the name
-            // is not. See LiveCodecSnapshot.rawCodecName.
+            // Both raw values are kept even though the family is already
+            // decided by them: the name is what the mode-signature registry
+            // matches on (it knows codecs CodecFamily has no entry for), and
+            // the type is what labels a link the name could not identify.
             rawCodecName = rawName,
+            rawCodecType = rawType,
             sampleRateHz = SAMPLE_RATE.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull(),
             bitsPerSample = BITS.find(line)?.groupValues?.getOrNull(1)?.toIntOrNull(),
             channelMode = CHANNEL_MODE.find(line)?.groupValues?.getOrNull(1)

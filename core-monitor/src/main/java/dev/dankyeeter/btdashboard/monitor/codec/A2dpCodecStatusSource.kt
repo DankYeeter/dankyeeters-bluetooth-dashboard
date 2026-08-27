@@ -178,7 +178,12 @@ class A2dpCodecStatusSource(
 
     private fun readConfig(config: Any): CodecStatus {
         val rawType = invokeOrNull(config, "getCodecType") as? Int
-        val family = CodecDecoding.codecFamily(rawType)
+        // `getCodecName()` is not on every build, which is why it goes through
+        // the same reflection as the rest and is allowed to be absent. When it
+        // is there it outranks the type — see CodecDecoding.codecFamily — and
+        // when it is not, the number is all there is.
+        val rawName = invokeOrNull(config, "getCodecName") as? String
+        val family = CodecDecoding.codecFamily(rawName, rawType)
         val sampleRate = (invokeOrNull(config, "getSampleRate") as? Int)
             ?.let(CodecDecoding::sampleRate)
         val bits = (invokeOrNull(config, "getBitsPerSample") as? Int)

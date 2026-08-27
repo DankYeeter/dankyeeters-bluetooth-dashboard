@@ -62,6 +62,11 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val liveLink by viewModel.liveLink.collectAsStateWithLifecycle()
     val liveInterval by viewModel.liveIntervalMs.collectAsStateWithLifecycle()
     val ldacTuning by viewModel.ldacTuning.collectAsStateWithLifecycle()
+    // Two more lifecycle-bound collections, and the close-up's probe only runs
+    // while this one is collected *and* the user has switched it on.
+    val overviewTrace by viewModel.overviewTrace.collectAsStateWithLifecycle()
+    val closeUpTrace by viewModel.closeUpTrace.collectAsStateWithLifecycle()
+    val closeUpEnabled by viewModel.closeUpEnabled.collectAsStateWithLifecycle()
 
     // The sampler only polls on a lit screen while somebody is actually
     // looking at link data. The ViewModel covers screen-open/close; this
@@ -102,6 +107,10 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             ldacTuning = ldacTuning,
             onLdacQuality = viewModel::setLdacQuality,
             onDismissLdacMessage = viewModel::dismissLdacMessage,
+            overviewTrace = overviewTrace,
+            closeUpTrace = closeUpTrace,
+            closeUpEnabled = closeUpEnabled,
+            onCloseUpEnabled = viewModel::setCloseUpEnabled,
         )
 
         Panel {
