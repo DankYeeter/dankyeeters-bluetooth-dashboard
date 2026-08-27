@@ -4213,3 +4213,23 @@ Offen fuer naechste Session: Task 16 (synthetische Tests, ICU-Lehre),
 Task 24 (A16-Abnahme nach PLAN-A16-ABNAHME.md, solange das Pixel 8 Pro
 da ist), Backlog 18-20. Der Hoertest fuer Daniels echte
 Kopfhoerer-Kalibrierung steht weiter aus (braucht seine Ohren).
+
+---
+
+## Nachtrag: Task 16 (synthetische Tests) abgeschlossen
+
+Commit 3ce5021, 963 Tests gruen, installiert. 113 neue Tests in zwei
+Worker-Wellen: Regex-ICU-Lint (beisst nachweislich auf die historische
+nackte Brace), Fixture-Sweep + Trunkierungs-Robustheit ueber alle
+Parser (Absenz statt Null), Settle-Regel-Properties, Backup-Roundtrip
+ueber 19 Zustaende, Einheiten-Kontrakt-Waechter, MAC-Redaktions-
+Invariante, Loudness-Grenzfaelle, Dirty-Regel parametrisiert.
+
+Zwei echte Funde dabei gefixt: Copy-Report leakte rohe MACs in die
+Zwischenablage; firstInt las das '0' des 0x-Praefixes als Wert, wenn
+der Klammerwert fehlte/abgeschnitten war. Dokumentierte Grenze:
+Vorzeichen-Flip ist fuer CalibrationTransfer unsichtbar — Konvention
+bleibt Aufrufer-Pflicht (als Identitaet im Test festgehalten).
+
+Es bleiben: Task 24 (A16-Abnahme, braucht das Pixel 8 Pro am Kabel),
+Backlog 18–20, frischer Hoertest fuer die Transfer-Ableitung.
