@@ -4233,3 +4233,52 @@ bleibt Aufrufer-Pflicht (als Identitaet im Test festgehalten).
 
 Es bleiben: Task 24 (A16-Abnahme, braucht das Pixel 8 Pro am Kabel),
 Backlog 18–20, frischer Hoertest fuer die Transfer-Ableitung.
+
+---
+
+## Handover 27. August, Pause — Backlog-Welle im Flug
+
+Stand: Commits bis 3ce5021 + Handover-Nachtraege, 963 Tests gruen,
+dieser Stand ist installiert (Pixel 11, Helper v4 aktiv). Task 16 fertig.
+
+### Zwei Worker liefen beim Pausieren (Ergebnisse bei Wiederaufnahme einsammeln)
+
+1. **ISO-226-Lautstaerke-Tilt (Task 20)** — :core-audio + EQ-Screen:
+   echter ISO-226-Kern (Koeffiziententabelle, keine erfundenen Zahlen),
+   Tilt = Form-Differenz zwischen Referenz- und aktueller Lautheit,
+   Mitten normiert auf 0, Cap +-12 dB, nie Absenkung ueber Referenz;
+   Fraction->Phon-Annahme als dokumentierte Konstanten; komponiert mit
+   Kompensation/Loudness-Restoration im preEq-Pfad inkl. Auto-Headroom;
+   reagiert live auf Volume-Aenderungen; Toggle default AUS, als
+   Schaetzung beschriftet; BackupEq-Feld defaulted.
+2. **ISO-7029-Altersprior (19) + Drift-Tracking (18)** — :core-hearing
+   + Hoertest-Screen, sequenziell in einem Worker: Alterskurve als
+   gedaempfte Chart-Referenz, Geburtsjahr im Store, NIEMALS
+   automatisch in den EQ (dokumentierte Grenze), Plausibilitaets-
+   Einzeiler bei grossem konvergiertem Abstand; Drift nur bei
+   anhaltendem Signal (Median ueber >=3 vergleichbare Runs, >=10 dB
+   auf >=2 Frequenzen — wegen 8-17 dB Sitzungs-RMSD), Zustaende
+   NOT_ENOUGH_DATA/STABLE/DRIFT_SUSPECTED, ruhige Karte, keine
+   Notifications.
+
+### Wiederaufnahme
+
+1. Worker-Ergebnisse einsammeln (git status; Task-Notifications),
+   volle Suite (`gradlew --no-daemon testDebugUnitTest
+   :app:assembleDebug`), committen, installieren, am Geraet kurz
+   pruefen (EQ-Toggle, Chart-Referenz, Drift-Karte).
+2. **Dann als Letztes laut Daniel: Android-16-Abnahme** nach
+   PLAN-A16-ABNAHME.md — braucht das Pixel 8 Pro am Kabel; danach darf
+   es weg.
+3. Weiter offen: frischer Hoertest (Daniels Ohren) fuer die echte
+   Kalibrier-Ableitung; danach steht die volle Kette Klinik->Transfer->
+   Preset->EQ.
+
+### Sicherheitsnetz-Notizen fuer die naechste Session
+
+- Regex: ICU-Lint-Test faengt nackte Braces (RegexIcuCompatibilityTest).
+- Parallel-Gradle: Worker raeumen build/tmp/kotlin-classes bei
+  Lock/lookups.tab-Fehlern selbst.
+- UI-Automation: Chip-Positionen verschieben sich nach Outcome-
+  Meldungen — vor jedem Tap frisch dumpen; Klinik-Dialog hat jetzt
+  Discard-Schutz.
