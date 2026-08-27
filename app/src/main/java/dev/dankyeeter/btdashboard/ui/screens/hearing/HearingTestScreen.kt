@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -440,9 +441,14 @@ private fun CalibrationTransferSection(
  * The frequency list is the clinical one, not [dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ]:
  * this is a transcription of a document, so it has to have a line for every line
  * on the document, and a form with 750 Hz filled in would otherwise lose it.
+ *
+ * Internal rather than private so `ClinicalAudiogramDialogTest` can drive it on
+ * its own. What that test pins is the dismissal guard below, and the guard only
+ * matters in the state that is expensive to reach through the whole screen: a
+ * form with values typed into it and nothing saved yet.
  */
 @Composable
-private fun ClinicalAudiogramDialog(
+internal fun ClinicalAudiogramDialog(
     existing: ClinicalAudiogram?,
     onSave: (ClinicalAudiogram) -> Unit,
     onClear: () -> Unit,
@@ -461,8 +467,76 @@ private fun ClinicalAudiogramDialog(
     var measuredOn by remember(existing) { mutableStateOf(existing?.measuredOn.orEmpty()) }
     var source by remember(existing) { mutableStateOf(existing?.source.orEmpty()) }
 
+    // The editor as it stood when it opened, in the same text form the fields
+    // hold. Compared as text rather than as parsed values on purpose: a
+    // half-typed "-" or "4" that does not parse yet is still typing somebody
+    // did, and it is exactly the state a stray swipe interrupts.
+    val opened = remember(existing) {
+        OpenedForm(
+            left = existing?.leftDbHl?.mapValues { it.value.asEntryText() }.orEmpty(),
+            right = existing?.rightDbHl?.mapValues { it.value.asEntryText() }.orEmpty(),
+            measuredOn = existing?.measuredOn.orEmpty(),
+            source = existing?.source.orEmpty(),
+        )
+    }
+    val dirty = left.entered() != opened.left ||
+        right.entered() != opened.right ||
+        measuredOn != opened.measuredOn ||
+        source != opened.source
+
+    var confirmingDiscard by remember(existing) { mutableStateOf(false) }
+
+    /**
+     * Every way out that is not a button.
+     *
+     * `onDismissRequest` is what a tap outside the dialog and a press of the
+     * system Back key both arrive at, and routing them straight to `onDismiss`
+     * is what silently threw away two full transcriptions of an ENT form on the
+     * phone. Sixteen hand-typed values are minutes of work and, once the form
+     * has been put away, not re-creatable at all — while an accidental swipe
+     * near the edge of a tall scrolling dialog is a gesture people make by
+     * accident constantly.
+     *
+     * So the gesture is not blocked (a dialog Back cannot leave is its own
+     * trap); it is intercepted, once, and only while there is something to
+     * lose. A pristine form still closes on the first tap, because there the
+     * confirmation would be a question with no stakes.
+     */
+    val requestDismiss = {
+        if (dirty) confirmingDiscard = true else onDismiss()
+    }
+
+    if (confirmingDiscard) {
+        // Shown *instead of* the editor rather than stacked on top of it. The
+        // typed values live in this composable's own scope, above the dialog, so
+        // they survive the swap intact — "Keep editing" brings back every
+        // character, which is the whole promise this dialog is making.
+        AlertDialog(
+            onDismissRequest = { confirmingDiscard = false },
+            title = { Text("Discard entered values?") },
+            text = {
+                Text(
+                    "The values you typed have not been saved. Going back now loses them.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmingDiscard = false }) { Text("Keep editing") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        confirmingDiscard = false
+                        onDismiss()
+                    },
+                ) { Text("Discard") }
+            },
+        )
+        return
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestDismiss,
         title = { Text("Clinical audiogram") },
         text = {
             Column(
@@ -495,8 +569,16 @@ private fun ClinicalAudiogramDialog(
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.width(56.dp),
                         )
-                        DbHlField(left[hz].orEmpty(), { left[hz] = it }, Modifier.weight(1f))
-                        DbHlField(right[hz].orEmpty(), { right[hz] = it }, Modifier.weight(1f))
+                        DbHlField(
+                            left[hz].orEmpty(),
+                            { left[hz] = it },
+                            Modifier.weight(1f).testTag(cellTag(Ear.LEFT, hz)),
+                        )
+                        DbHlField(
+                            right[hz].orEmpty(),
+                            { right[hz] = it },
+                            Modifier.weight(1f).testTag(cellTag(Ear.RIGHT, hz)),
+                        )
                     }
                 }
                 OutlinedTextField(
@@ -552,6 +634,43 @@ private fun DbHlField(value: String, onValueChange: (String) -> Unit, modifier: 
         modifier = modifier,
     )
 }
+
+/**
+ * Snapshot of the editor's contents at the moment it opened, used to tell an
+ * untouched form from one somebody has typed into.
+ *
+ * Held as text, in the same shape the fields hold, so the comparison is
+ * character for character. Comparing the *parsed* audiogram instead would call
+ * a form pristine while a half-typed "-" sat in a cell — and a half-typed cell
+ * is a form actively being filled in, which is precisely when a stray swipe is
+ * most expensive.
+ */
+/**
+ * Identifies one threshold cell to a test.
+ *
+ * The twenty-two cells are otherwise indistinguishable: same placeholder, no
+ * label, and their only distinguishing text is the value that may or may not be
+ * in them yet. A test that has to type into "the left 250 Hz box" needs a
+ * handle, and this is the cheapest one that costs the shipped UI nothing.
+ */
+internal fun cellTag(ear: Ear, hz: Int): String =
+    "clinical-cell-${ear.name.lowercase()}-$hz"
+
+private data class OpenedForm(
+    val left: Map<Int, String>,
+    val right: Map<Int, String>,
+    val measuredOn: String,
+    val source: String,
+)
+
+/**
+ * The cells that hold something.
+ *
+ * Typing into a cell and then clearing it leaves an empty string behind in the
+ * state map, which is not a value and must not read as a change — otherwise the
+ * dialog would start guarding a form that is back exactly where it started.
+ */
+private fun Map<Int, String>.entered(): Map<Int, String> = filterValues { it.isNotBlank() }
 
 /**
  * Text to stored values: unparseable and out-of-range entries are dropped
