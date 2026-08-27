@@ -4196,3 +4196,20 @@ aufnehmen (die bisherigen Fixtures sind ohne sie).
 2. Task 16 (synthetische Tests) mit der ICU-Lehre.
 3. A16-Abnahme nach PLAN-A16-ABNAHME.md, solange das Pixel 8 Pro da ist.
 4. Backlog: 18 (Drift), 19 (ISO 7029), 20 (ISO-226-Tilt).
+
+---
+
+## Nachtrag 27. August, spaeter Abend: der Umbau ist gelandet und installiert
+
+Commit 6eedd5d, 850 Tests gruen, auf dem Pixel 11 installiert und live
+verifiziert: Panel zeigt "Adaptive - 396 kbps right now (measured)",
+beide Graphen plotten die gemessenen kbps, die Proxy-Zeile ist weg.
+Erledigt damit: Task 25 komplett, plus zwei weitere Live-Funde des
+Abends (A2dpStateMachine-Block lief ins HFP-Profil und meldete
+spielende Links als getrennt; Aktivierungs-Sackgasse "Helper running."
+ohne Ausgang - stale Done nach forget()).
+
+Offen fuer naechste Session: Task 16 (synthetische Tests, ICU-Lehre),
+Task 24 (A16-Abnahme nach PLAN-A16-ABNAHME.md, solange das Pixel 8 Pro
+da ist), Backlog 18-20. Der Hoertest fuer Daniels echte
+Kopfhoerer-Kalibrierung steht weiter aus (braucht seine Ohren).
