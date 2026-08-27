@@ -12,6 +12,7 @@ import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,13 +20,23 @@ import org.junit.Test
  * Calibration: pinning each bitrate mode long enough to learn what it looks
  * like on one particular link.
  *
- * The fake link below is the point of the exercise made concrete — it produces
- * a different frames-per-packet for each pinned mode, exactly as a real link
- * does, and the calibrator's job is to notice and write it down. What it must
- * *also* do is put the link back, which is what several of these tests are
- * really checking: this is the one operation in the module that changes the
- * device, and a half-finished run that leaves a headphone pinned to 330 kbps
- * would be a worse bug than never calibrating at all.
+ * ## What these tests are for now
+ *
+ * Two of the three reasons this class existed are gone: the rate it was
+ * reconstructing is printed outright on this build, and the ratio it learns was
+ * falsified as a mode signature (see `CodecModeInference`). So the tests below
+ * split in two.
+ *
+ * The **refusals** are the live behaviour, and the newest of them is the point:
+ * a link whose bitrate the phone already reports must be turned down before it
+ * is touched, because this is the one operation in the module that changes the
+ * device and each mode it pins is an audible gap in the music.
+ *
+ * The **mechanics** — learns three bands, stores them, restores the previous
+ * mode even when a step fails — are kept because the seam is kept. A codec that
+ * neither prints its rate nor is offloaded would need exactly this shape, and a
+ * half-finished run that left a headphone pinned to 330 kbps would be a worse
+ * bug than never calibrating at all.
  */
 class CodecModeCalibrationTest {
 
@@ -123,7 +134,6 @@ class CodecModeCalibrationTest {
             // 750/s. Without an advancing clock the window is zero and no delta
             // exists at all.
             clock = { now += FakeLdacLink.MILLIS_PER_READ; now },
-            signatures = store,
         )
         val calibrator = CodecModeCalibrator(source, pinner, store) { now }
     }
@@ -166,24 +176,53 @@ class CodecModeCalibrationTest {
     }
 
     /**
-     * The payoff. Twelve frames per packet was resolvable analytically only
-     * because one plausible MTU happened to fit; four is ambiguous without help
-     * — and after a calibration run this link has simply told us what four
-     * means on it.
+     * What a finished run no longer buys, and why that is right.
+     *
+     * The bands are still learned and still stored — the seam works — but
+     * nothing reads them, because what they measure is
+     * `A2dpTxDelta.framesPerEnqueue` and the enqueue counter turned out to be a
+     * 20 ms media timer rather than a radio packet. A live reading on this
+     * fixture (which has no LDAC state section) therefore stays UNKNOWN, and it
+     * must: a calibrated-looking label built on that ratio would be a duty cycle
+     * wearing a bitrate's name.
      */
     @Test
-    fun `the live inference switches to CALIBRATED once a run has finished`() = runTest {
+    fun `a finished run does not turn duty-cycle bands into a claimed mode`() = runTest {
         val rig = rig()
         rig.calibrator.calibrate(address, deviceKey = address)
+        assertEquals(3, rig.store.signatures(address, "LDAC").size)
 
         rig.link.pinned = 0L
         rig.link.packingByMode = rig.link.packingByMode + (0L to 4)
         val first = rig.source.readOnce()
         val second = rig.source.readOnce(first)
 
-        assertEquals(InferenceConfidence.CALIBRATED, second.modeInference.confidence)
-        assertEquals(LdacModeSignatures.highQuality.rawValue, second.modeInference.mode?.rawValue)
-        assertEquals(990, second.modeInference.nominalKbps)
+        assertEquals(InferenceConfidence.UNKNOWN, second.modeInference.confidence)
+        assertNull(second.modeInference.mode)
+        assertNull(second.modeInference.measuredKbps)
+    }
+
+    /**
+     * The gate that matters now. On a build that prints the rate outright there
+     * is nothing to learn by pinning — and pinning costs the user three audible
+     * renegotiations, so it must be refused before the link is touched.
+     */
+    @Test
+    fun `refuses to calibrate a link whose rate the phone already reports`() = runTest {
+        val live = fixture("bt_manager_pixel11_ldac_state_abr.txt")
+        val store = InMemoryCodecModeSignatureStore()
+        val pinner = FakePinner(FakeLdacLink(""))
+        val calibrator = CodecModeCalibrator(
+            LiveLinkSource(DynamicShell({ live }, "", ""), clock = { 1_000L }),
+            pinner,
+            store,
+        )
+
+        val report = calibrator.calibrate(address, deviceKey = address)
+
+        assertFalse(report.succeeded)
+        assertTrue(report.note, report.note.contains("directly"))
+        assertTrue("the link must not have been touched", pinner.requested.isEmpty())
     }
 
     /**
@@ -219,7 +258,6 @@ class CodecModeCalibrationTest {
             LiveLinkSource(
                 shell = DynamicShell({ stillSilent }, "", ""),
                 clock = { 1_000L },
-                signatures = rig.store,
             ),
             rig.pinner,
             rig.store,
@@ -257,7 +295,6 @@ class CodecModeCalibrationTest {
             LiveLinkSource(
                 shell = DynamicShell({ offloaded }, "", ""),
                 clock = { 1_000L },
-                signatures = store,
             ),
             pinner,
             store,

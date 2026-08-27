@@ -65,13 +65,26 @@ fun ActivateScreen(
     onDisclosureDismissed: () -> Unit,
     onDone: () -> Unit,
     onOpenWifiSettings: () -> Unit = {},
+    /**
+     * Called when the screen is showing a finished activation that the helper
+     * connection does not back up. The caller turns that back into the button.
+     */
+    onStale: () -> Unit = {},
 ) {
     val service by PrivilegedConnection.service.collectAsStateWithLifecycle()
 
-    // Arriving with a live helper means the problem solved itself while the
-    // notification sat in the shade.
     LaunchedEffect(service, state) {
-        if (service != null || state is ActivateState.Done) onDone()
+        when {
+            // "Helper running." with no helper: the stranded screen. Nothing
+            // here can navigate — this surface replaces the whole app on
+            // purpose — so the way out is to stop making the claim, which puts
+            // the Activate button back.
+            service == null && state is ActivateState.Done -> onStale()
+
+            // Arriving with a live helper means the problem solved itself while
+            // the notification sat in the shade.
+            else -> if (service != null || state is ActivateState.Done) onDone()
+        }
     }
 
     // "Not now" puts the screen back, it does not open the app.
@@ -108,6 +121,10 @@ fun ActivateScreen(
             onSubmitCode = onSubmitCode,
             onOpenSettings = onOpenSettings,
             onOpenWifiSettings = onOpenWifiSettings,
+            // This surface replaces the whole app, so every state it can rest
+            // in needs its own way out — including the one that is only ever
+            // supposed to last an instant.
+            onContinue = onDone,
         )
     }
 }
@@ -135,6 +152,17 @@ fun ActivateActions(
      * single tap and a numbered list would be noise.
      */
     helpExpanded: Boolean = false,
+    /**
+     * The way on from a finished activation, where there is one.
+     *
+     * Null inside the setup process, which moves on by itself and sits in a
+     * panel with the rest of the steps around it. Non-null at the gate, where
+     * this screen *is* the app: a state whose only content is one sentence has
+     * to carry its own exit, or a caller that fails to react leaves the user on
+     * a black screen with nothing to tap. That is not hypothetical — see
+     * [reconciled].
+     */
+    onContinue: (() -> Unit)? = null,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -215,15 +243,23 @@ fun ActivateActions(
                 ActivationHelp(initiallyExpanded = true)
             }
 
-            // Only ever seen for the instant before the caller reacts - the
-            // gate closes itself and the setup process moves on. It still says
-            // something, because inside the setup panel that instant used to be
-            // an empty box where the activation control had been.
-            is ActivateState.Done -> Text(
-                "Helper running.",
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-            )
+            // Meant to be seen for an instant before the caller reacts - the
+            // gate closes itself and the setup process moves on. It was seen
+            // for much longer than that twice on the device, as the only thing
+            // on a black screen, so the instant now carries a way out of itself
+            // wherever one exists.
+            is ActivateState.Done -> {
+                Text(
+                    "Helper running.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
+                onContinue?.let { continueOn ->
+                    Button(onClick = continueOn, modifier = Modifier.fillMaxWidth()) {
+                        Text("Continue")
+                    }
+                }
+            }
         }
     }
 }
@@ -284,6 +320,8 @@ private class ActivateWiring(
     val onOpenWifiSettings: () -> Unit,
     val onDisclosureAccepted: () -> Unit,
     val onDisclosureDismissed: () -> Unit,
+    /** Tells the view model what the helper connection is really doing. */
+    val onHelperConnectionChanged: (Boolean) -> Unit,
 )
 
 @Composable
@@ -313,6 +351,7 @@ private fun rememberActivateWiring(): ActivateWiring {
         },
         onDisclosureAccepted = viewModel::onDisclosureAccepted,
         onDisclosureDismissed = viewModel::dismissDisclosure,
+        onHelperConnectionChanged = viewModel::onHelperConnectionChanged,
     )
 }
 
@@ -332,6 +371,9 @@ fun ActivateRoute(onDone: () -> Unit) {
         onDisclosureAccepted = wiring.onDisclosureAccepted,
         onDisclosureDismissed = wiring.onDisclosureDismissed,
         onDone = onDone,
+        // The helper is gone but the state still says otherwise: drop the claim
+        // rather than sit on a screen made of one sentence.
+        onStale = { wiring.onHelperConnectionChanged(false) },
     )
 }
 
@@ -344,6 +386,14 @@ fun ActivateRoute(onDone: () -> Unit) {
 @Composable
 fun ActivateStep() {
     val wiring = rememberActivateWiring()
+    val service by PrivilegedConnection.service.collectAsStateWithLifecycle()
+
+    // The same reconciliation the gate does, because it is the same view model:
+    // this panel is reached again long after an activation, and a step that
+    // still reads "Helper running." over a dead connection would send the user
+    // looking for a problem somewhere else.
+    LaunchedEffect(service) { wiring.onHelperConnectionChanged(service != null) }
+
     if (wiring.state is ActivateState.Disclosure) {
         LocalConnectionDisclosure(
             onAccept = wiring.onDisclosureAccepted,

@@ -31,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.dankyeeter.btdashboard.system.setup.SetupPhase
+import dev.dankyeeter.btdashboard.system.setup.SetupSignals
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateRoute
 import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesScreen
@@ -62,6 +63,24 @@ const val ROUTE_ACTIVATE = "activate"
 
 /** Full-screen flows: the bottom bar would only offer a way to lose your place. */
 private val FULL_SCREEN_ROUTES = setOf(ROUTE_ONBOARDING, ROUTE_WIZARD, ROUTE_ACTIVATE)
+
+/**
+ * Whether this route gets the bottom bar. The Scaffold's own rule, named so it
+ * can be asserted against rather than re-derived in a test.
+ */
+internal fun showsBottomBar(route: String?): Boolean = route !in FULL_SCREEN_ROUTES
+
+/**
+ * Whether a restored destination has to be left immediately.
+ *
+ * Only the activation screen, and only when nothing in this session asked for
+ * it. Restoring it is how the app came back — after being away long enough for
+ * the process to die — on a full-screen route with no bottom bar and a state
+ * belonging to a session that is over. Every other destination is somewhere the
+ * user chose to be and is restored as it always was.
+ */
+internal fun leavesRestoredRoute(restoredRoute: String?, requestedRoute: String?): Boolean =
+    restoredRoute == ROUTE_ACTIVATE && requestedRoute != ROUTE_ACTIVATE
 
 /**
  * What the Scaffold gives every other screen, for the two that render in front
@@ -145,7 +164,13 @@ fun BtDashboardApp(
         return
     }
     if (phase == SetupPhase.ACTIVATION_ONLY) {
-        GateSurface { ActivateRoute(onDone = {}) }
+        // Not a no-op any more. The gate closes because the phase is recomputed,
+        // and the phase is only recomputed when the helper connection changes or
+        // a signal ticks — so a screen reporting that it is finished has to be
+        // able to ask for that recount. Without it, a gate that opened over a
+        // stale "Helper running." had no way to shut again, which is exactly the
+        // black screen this fixes.
+        GateSurface { ActivateRoute(onDone = { SetupSignals.refresh() }) }
         return
     }
 
@@ -153,19 +178,46 @@ fun BtDashboardApp(
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
+    // A restored back stack must never come back on a full-screen flow nobody
+    // asked for.
+    //
+    // Navigation restores whatever was on top when the process died, and
+    // "activate" is a legitimate destination the boot notification opens. Coming
+    // back to it later means a screen with no bottom bar (by design, it is in
+    // [FULL_SCREEN_ROUTES]) showing a one-line state that may no longer be true
+    // — one of the two ways the app was found stuck on "Helper running." with
+    // nothing to tap. A request in this session is a different matter and is
+    // honoured below.
+    LaunchedEffect(Unit) {
+        if (leavesRestoredRoute(navController.currentBackStackEntry?.destination?.route, requestedRoute)) {
+            navController.navigate(Destination.BLUETOOTH.route) {
+                popUpTo(ROUTE_ACTIVATE) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
     // A screen asked for from outside - today the boot notification's
     // "Activate" button. It is a deliberate request, so it wins over whatever
     // the app would otherwise have opened on.
     LaunchedEffect(requestedRoute) {
         val route = requestedRoute ?: return@LaunchedEffect
-        runCatching { navController.navigate(route) }
+        runCatching {
+            navController.navigate(route) {
+                // Straight above the dashboard, and only ever one copy: popping
+                // this screen then always lands on something with a bottom bar
+                // rather than on another activation screen or an empty stack.
+                popUpTo(Destination.BLUETOOTH.route)
+                launchSingleTop = true
+            }
+        }
             .onFailure { Log.w("BtDashboardApp", "cannot open requested route $route", it) }
         onRouteHandled()
     }
 
     Scaffold(
         bottomBar = {
-            if (currentRoute !in FULL_SCREEN_ROUTES) {
+            if (showsBottomBar(currentRoute)) {
                 NavigationBar {
                     Destination.entries.forEach { dest ->
                         NavigationBarItem(

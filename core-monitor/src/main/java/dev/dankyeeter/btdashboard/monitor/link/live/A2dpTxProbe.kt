@@ -19,6 +19,18 @@ data class TxProbeReading(
     val timestampMs: Long,
     /** MEASURED: `btif_a2dp_source`'s counters, or null when they do not apply. */
     val stats: A2dpTxStats? = null,
+    /**
+     * MEASURED: the stack's own LDAC state, from the same single dump.
+     *
+     * This is the close-up graph's actual subject. It costs nothing extra — the
+     * `A2DP LDAC State:` block is in the dump this probe already runs, so the
+     * measured 233 ms per pass is unchanged and the probe's whole reason for
+     * existing (one exec, so 2 Hz is possible) still holds.
+     *
+     * Unlike [stats] it is a **reading, not a difference**, so it is present on
+     * the very first pass.
+     */
+    val ldacStack: LdacStackState? = null,
     val observability: LinkObservability = LinkObservability.UNKNOWN,
     /** Why [stats] is null. Shown, never swallowed. */
     val unavailable: String? = null,
@@ -34,12 +46,24 @@ data class TxProbeReading(
 data class TxProbeSample(
     val timestampMs: Long,
     val delta: A2dpTxDelta? = null,
+    /**
+     * MEASURED: the encoder's live bitrate at this instant, in kbps.
+     *
+     * Deliberately not inside [delta]: it is not derived from two readings and
+     * does not disappear when they cannot be compared. A counter reset blanks
+     * the delta and leaves this standing, which is correct — the rate was still
+     * read.
+     */
+    val bitrateKbps: Int? = null,
+    /** MEASURED, verbatim: the stack's quality-mode token, e.g. `ABR`. */
+    val qualityModeLabel: String? = null,
     val observability: LinkObservability = LinkObservability.UNKNOWN,
     val unavailable: String? = null,
 )
 
 /**
- * A deliberately narrow reader of `btif_a2dp_source`'s tx counters, for the
+ * A deliberately narrow reader of the Bluetooth stack's own encoder state — the
+ * LDAC transmission bitrate and `btif_a2dp_source`'s loss counters — for the
  * close-up graph that samples twice a second.
  *
  * ## Why this exists next to [LiveLinkSource] rather than inside it
@@ -112,6 +136,9 @@ class A2dpTxProbe(
             timestampMs = now,
             // Only host-encoded links own these counters; see the class KDoc.
             stats = dump.tx?.takeIf { observability == LinkObservability.HOST_ENCODED },
+            // Same gate, for the same reason: a controller-encoded link has no
+            // host-side encoder state, so anything found here would be stale.
+            ldacStack = dump.ldacStack?.takeIf { observability == LinkObservability.HOST_ENCODED },
             observability = observability,
             unavailable = when {
                 observability == LinkObservability.OFFLOADED ->
@@ -145,6 +172,10 @@ class A2dpTxProbe(
         }
         return TxProbeSample(
             timestampMs = current.timestampMs,
+            // Read from the current pass alone, so it survives the first sample
+            // of a run and a counter reset — both of which blank the delta.
+            bitrateKbps = current.ldacStack?.transmissionKbps,
+            qualityModeLabel = current.ldacStack?.qualityMode,
             delta = enqueued?.let {
                 A2dpTxDelta(
                     windowMs = windowMs,

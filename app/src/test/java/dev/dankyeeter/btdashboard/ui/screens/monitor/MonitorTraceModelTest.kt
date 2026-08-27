@@ -4,6 +4,8 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxDelta
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxStats
 import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LdacStackState
+import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkObservability
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
@@ -21,13 +23,27 @@ import org.junit.Test
  * silently kept old points would draw a minute-long line over a window nobody
  * measured; one that joined across a missed reading would draw the smoothest
  * possible link over the exact moment the phone was too busy to look.
+ *
+ * The plotted series is now the **measured** LDAC bitrate, with the enqueue rate
+ * as a liveness fallback for a link that does not report one. Every rule below
+ * is stated against `plotValue` rather than against either series by name,
+ * because the gap and window rules must hold whichever of the two is being
+ * drawn — and the last tests in the file pin which one that is.
  */
 class MonitorTraceModelTest {
 
+    /** A point on the fallback series: a link that reports no bitrate. */
     private fun point(atMs: Long, rate: Double? = 400.0, loss: Long = 0) = TracePoint(
         timestampMs = atMs,
         packetsPerSecond = rate,
-        framesPerPacket = 4.0,
+        lossCount = loss,
+    )
+
+    /** A point on the primary series: a link whose rate the stack prints. */
+    private fun kbpsPoint(atMs: Long, kbps: Double? = 396.0, loss: Long = 0) = TracePoint(
+        timestampMs = atMs,
+        bitrateKbps = kbps,
+        packetsPerSecond = 50.0,
         lossCount = loss,
     )
 
@@ -92,8 +108,8 @@ class MonitorTraceModelTest {
 
         assertTrue(trace.breakBefore(1))
         assertTrue(trace.breakBefore(2))
-        assertEquals(400.0, trace.peakPacketsPerSecond!!, 0.001)
-        assertEquals(400.0, trace.latestPacketsPerSecond!!, 0.001)
+        assertEquals(400.0, trace.peakValue!!, 0.001)
+        assertEquals(400.0, trace.latestValue!!, 0.001)
     }
 
     @Test
@@ -101,9 +117,44 @@ class MonitorTraceModelTest {
         val trace = closeUp()
 
         assertFalse(trace.hasRate)
-        assertNull(trace.peakPacketsPerSecond)
+        assertNull(trace.peakValue)
         assertNull(trace.newestMs)
         assertEquals(0L, trace.lossTotal)
+    }
+
+    /**
+     * The measured bitrate is the line, and the enqueue rate beside it is not.
+     *
+     * They differ by an order of magnitude on a real link — about 50 handovers a
+     * second against a few hundred kbps — so plotting the wrong one is not a
+     * subtle error, and the caption's unit has to follow the same choice.
+     */
+    @Test
+    fun `the measured bitrate is what gets plotted when it is there`() {
+        var trace = closeUp()
+        listOf(330.0, 396.0, 660.0).forEachIndexed { i, kbps ->
+            trace = trace.plus(kbpsPoint(1_000L + i * 500L, kbps))
+        }
+
+        assertTrue(trace.isMeasuredBitrate)
+        assertEquals("kbps", trace.unitLabel)
+        assertEquals(660.0, trace.peakValue!!, 0.001)
+        assertEquals(660.0, trace.latestValue!!, 0.001)
+    }
+
+    /**
+     * And on a link that reports no rate the fallback is drawn and *named* as
+     * the fallback. A caption saying "kbps" over the enqueue rate would turn a
+     * stand-in into a claim about throughput.
+     */
+    @Test
+    fun `a link with no reported rate falls back and says which series it is`() {
+        val trace = closeUp().plus(point(1_000L, rate = 50.0)).plus(point(1_500L, rate = 50.0))
+
+        assertTrue(trace.hasRate)
+        assertFalse(trace.isMeasuredBitrate)
+        assertEquals("packets/s", trace.unitLabel)
+        assertEquals(50.0, trace.latestValue!!, 0.001)
     }
 
     @Test
@@ -118,14 +169,35 @@ class MonitorTraceModelTest {
                 underflows = 2,
                 framesEncoded = 864,
             ),
+            bitrateKbps = 492,
+            qualityModeLabel = "ABR",
             observability = LinkObservability.HOST_ENCODED,
         )
 
         val point = sample.toTracePoint()
 
+        assertEquals(492.0, point.bitrateKbps!!, 0.001)
+        assertEquals("the measured rate wins the line", 492.0, point.plotValue!!, 0.001)
         assertEquals(432.0, point.packetsPerSecond!!, 0.001)
-        assertEquals(4.0, point.framesPerPacket!!, 0.001)
         assertEquals(4L, point.lossCount)
+    }
+
+    /**
+     * The rate is a reading and the loss is a difference, so the very first
+     * close-up sample already draws a point instead of half a second of nothing.
+     */
+    @Test
+    fun `the close-up's first sample plots a rate with no delta to difference`() {
+        val point = TxProbeSample(
+            timestampMs = 1_000L,
+            delta = null,
+            bitrateKbps = 396,
+            observability = LinkObservability.HOST_ENCODED,
+        ).toTracePoint()
+
+        assertEquals(396.0, point.plotValue!!, 0.001)
+        assertNull(point.packetsPerSecond)
+        assertEquals(0L, point.lossCount)
     }
 
     @Test
@@ -153,6 +225,31 @@ class MonitorTraceModelTest {
         // Three app underruns plus one dropped packet plus one underflow: the
         // full pass sees all three places the path can lose audio.
         assertEquals(5L, point.lossCount)
+    }
+
+    /** The overview plots the same measured series the close-up does. */
+    @Test
+    fun `the overview plots the snapshot's measured bitrate`() {
+        val snapshot = LinkLiveSnapshot(
+            timestampMs = 2_000L,
+            codec = LiveCodecSnapshot(family = CodecFamily.LDAC, sampleRateHz = 96_000),
+            ldac = LdacState.from(
+                codecSpecific1 = 0L,
+                sampleRateHz = 96_000,
+                stack = LdacStackState(qualityMode = "ABR", transmissionKbps = 396),
+            ),
+            observability = LinkObservability.HOST_ENCODED,
+        )
+
+        val trace = LiveTrace.overview(2_000L).append(snapshot, 2_000L)
+
+        assertTrue(trace.hasRate)
+        assertEquals("kbps", trace.unitLabel)
+        assertEquals(396.0, trace.latestValue!!, 0.001)
+        assertNull(
+            "a measured rate needs no second reading, so there is nothing to explain",
+            trace.unavailable,
+        )
     }
 
     @Test

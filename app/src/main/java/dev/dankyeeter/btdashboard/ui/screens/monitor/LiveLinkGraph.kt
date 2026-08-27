@@ -22,15 +22,20 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /**
- * One live throughput graph: packets per second across a fixed window, with
- * every window that lost audio marked on the same axis.
+ * One live rate graph across a fixed window, with every window that lost audio
+ * marked on the same axis.
  *
  * ## What it is for
  *
- * Two questions, answered by looking rather than reading: **was the link
- * moving**, and **exactly when did it stop**. A dropout is a dip in the line
- * and a mark under it at the same x, so "it stuttered just now" becomes a place
- * on an axis instead of a memory.
+ * Two questions, answered by looking rather than reading: **what rate is the
+ * link running at**, and **exactly when did it dip**. A dropout is a fall in the
+ * line and a mark under it at the same x, so "it stuttered just now" becomes a
+ * place on an axis instead of a memory.
+ *
+ * The plotted series is [TracePoint.plotValue]: the measured LDAC bitrate where
+ * the stack reports it, and the enqueue rate as a liveness fallback where it
+ * does not. The caption names which of the two it is — the shapes look alike and
+ * only one of them is the thing the user came for.
  *
  * ## Drawn by hand, and why the axis ends where it does
  *
@@ -77,7 +82,7 @@ fun LinkTraceGraph(
     // The line is scaled against its own peak with a little headroom, so a
     // steady link fills the box and a dip is visible rather than a rounding
     // error on an axis that runs to some invented maximum.
-    val peak = (trace.peakPacketsPerSecond ?: 1.0).coerceAtLeast(1.0) * 1.15
+    val peak = (trace.peakValue ?: 1.0).coerceAtLeast(1.0) * 1.15
 
     Canvas(modifier.fillMaxWidth().height(height)) {
         val xOf = { ms: Long ->
@@ -121,7 +126,7 @@ private fun DrawScope.drawTrace(
         } else if (runLength == 1) {
             // A single reading with nobody to join is still a measurement, and
             // a path of one point draws nothing at all.
-            lastPoint?.packetsPerSecond?.let { value ->
+            lastPoint?.plotValue?.let { value ->
                 drawCircle(
                     color = color,
                     radius = 2.5f,
@@ -134,7 +139,7 @@ private fun DrawScope.drawTrace(
     }
 
     trace.points.forEachIndexed { index, point ->
-        val value = point.packetsPerSecond
+        val value = point.plotValue
         if (value == null) {
             flush()
             lastPoint = null
@@ -224,12 +229,19 @@ fun LabelledTraceGraph(
     }
 }
 
-/** "431 packets/s now · peak 440 · 2 loss marks", with only the parts that exist. */
+/**
+ * "396 kbps now · peak 660 · 2 loss marks", with only the parts that exist.
+ *
+ * The unit is read off the window rather than hard-coded, because the same graph
+ * draws two different series — the measured bitrate, and the enqueue rate as a
+ * liveness fallback on a link that does not report one. A caption that said
+ * "kbps" over the fallback would turn a stand-in into a claim.
+ */
 private fun LiveTrace.caption(quietText: String): String {
     if (!hasRate) return ""
     return buildList {
-        latestPacketsPerSecond?.let { add("${it.roundToInt()} packets/s now") }
-        peakPacketsPerSecond?.let { add("peak ${it.roundToInt()}") }
+        latestValue?.let { add("${it.roundToInt()} $unitLabel now") }
+        peakValue?.let { add("peak ${it.roundToInt()}") }
         add(
             when (lossTotal) {
                 0L -> quietText

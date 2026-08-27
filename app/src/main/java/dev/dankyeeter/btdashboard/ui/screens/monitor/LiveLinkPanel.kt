@@ -37,19 +37,28 @@ import kotlin.math.roundToInt
  *
  * ## The rule every row here follows
  *
- * `LinkLiveSnapshot` labels each of its fields MEASURED, DERIVED, NOMINAL,
- * PROXY or UNAVAILABLE, and this panel renders that distinction rather than
- * flattening it into numbers that all look equally solid:
+ * `LinkLiveSnapshot` labels each of its fields MEASURED, DERIVED, NOMINAL or
+ * UNAVAILABLE, and this panel renders that distinction rather than flattening it
+ * into numbers that all look equally solid:
  *
- *  - **measured and derived** values are printed plainly — they are facts;
+ *  - **measured and derived** values are printed plainly — they are facts. The
+ *    LDAC rate says "(measured)" out loud, because the whole history of this
+ *    screen is people being shown a codec's headline number and taking it for a
+ *    reading;
  *  - **nominal** values say what they are ("990 kbps (pinned)", with the note
  *    behind the question mark spelling out that it is the spec figure for the
- *    mode and not a measurement of what crossed the air);
- *  - **proxy** values carry "(proxy)" in the line itself, because
- *    `framesPerPacketAvg` correlates with the LDAC rate and is not one;
- *  - **unavailable** values are never guessed. LDAC in adaptive mode has no
- *    readable rate on this hardware, so the panel prints the data layer's own
- *    sentence about *why*, verbatim, instead of the codec's headline number.
+ *    mode). Where the stack also reports what it is really sending, both are
+ *    printed side by side so the two can be compared instead of trusted;
+ *  - **unavailable** values are never guessed. On a build that does not print
+ *    the LDAC state block there is no readable rate, so the panel prints the
+ *    data layer's own sentence about *why*, verbatim.
+ *
+ * There is no "(proxy)" row any more. There used to be one — frames per packet,
+ * offered as a stand-in for the rate — and the device falsified it: the counter
+ * under it turns out to be a 20 ms timer tick, so the row was reporting the
+ * playing duty cycle in the shape of a quality indicator. It is gone rather than
+ * relabelled, because a rate-shaped row next to the real rate would be read as a
+ * second opinion about the rate.
  *
  * The loss row is the reason the panel is at the top of the screen: it is quiet
  * when nothing was lost and loud when something was, and every non-zero window
@@ -199,21 +208,15 @@ private fun LdacSection(
     val sampleRateHz = snapshot.codec?.sampleRateHz
 
     // First layer: one short line. The note behind it is the data layer's own
-    // sentence and is printed verbatim — it explains that the rate is inside
-    // the encoder, that the system does not report it, and that pinning a
-    // quality makes the mode readable. Summarising it would lose exactly the
+    // sentence and is printed verbatim — summarising it would lose exactly the
     // part a user needs in order to do something about it.
     ExplainedRow(
-        label = when {
-            ldac.mode.isAdaptive -> "Adaptive — rate not observable"
-            ldac.nominalKbps != null -> "${ldac.nominalKbps} kbps (pinned)"
-            else -> "LDAC quality not readable"
-        },
+        label = ldac.rateLine(),
         explanation = ldac.note,
         control = {
             Pill(
                 ldac.mode.label,
-                tone = if (ldac.mode.isAdaptive) PillTone.NEUTRAL else PillTone.ACCENT,
+                tone = if (ldac.isAdaptive) PillTone.NEUTRAL else PillTone.ACCENT,
             )
         },
     )
@@ -325,19 +328,23 @@ private fun TxRows(snapshot: LinkLiveSnapshot) {
     }
 
     snapshot.txDelta?.packetsPerSecond?.let { pps ->
-        Text(
-            "Encoder queue: ${pps.roundToInt()} packets/s",
-            style = MaterialTheme.typography.bodyMedium,
+        // Not a throughput row and no longer worded as one. The counter behind
+        // it ticks with the 20 ms media timer rather than with the radio, so it
+        // says whether the stack is handing audio over at all — which is worth a
+        // line, and is a different question from how much.
+        ExplainedRow(
+            label = "Encoder queue: ${pps.roundToInt()} handovers/s",
+            explanation = ENQUEUE_EXPLANATION,
+            control = {},
         )
     }
 
-    snapshot.tx?.framesPerPacketAvg?.let { avg ->
-        // "(proxy)" is in the label rather than only in the explanation: the
-        // line has to be honest to somebody who never taps the question mark.
-        ExplainedRow(
-            label = "$avg frames per packet (proxy)",
-            explanation = FRAMES_PROXY_EXPLANATION,
-            control = {},
+    snapshot.ldac?.stack?.savedTxQueueLength?.takeIf { it > 0 }?.let { queued ->
+        // Only when it is not zero: a "0" here every second trains the eye past
+        // the row, and a backlog is exactly the thing worth noticing.
+        Text(
+            "LDAC transmit queue backlog: $queued",
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
@@ -432,38 +439,43 @@ private const val LIVE_LINK_EXPLANATION =
     "One reading of the whole audio path, from the app that is playing to the " +
         "Bluetooth radio.\n\n" +
         "Plain numbers are measured or worked out from measurements. A rate marked " +
-        "\"pinned\" is the figure the spec assigns to that mode, not a measurement of " +
-        "what crossed the air. Anything marked \"(proxy)\" moves with the thing you are " +
-        "asking about but is not it. Where a value cannot be read on this phone, the " +
-        "panel says why instead of guessing.\n\n" +
+        "\"measured\" is what the Bluetooth stack says it is sending right now; a rate " +
+        "marked \"pinned\" is the figure the spec assigns to that mode, and where both " +
+        "are shown they can be compared. Where a value cannot be read on this phone, " +
+        "the panel says why instead of guessing.\n\n" +
         "It polls only while this screen is in front of you."
 
 private const val LDAC_TUNING_EXPLANATION =
     "Pins LDAC to one playback quality for the headphone that is connected now, the " +
         "same setting Developer options offers and the same one a device profile " +
         "stores.\n\n" +
-        "Pinning is also what makes the rate readable at all: in adaptive mode the " +
-        "encoder moves between the rates on its own and reports nothing, so there is " +
-        "no number to show.\n\n" +
+        "What pinning is actually for, measured on this phone: adaptive was never once " +
+        "seen to reach 990 kbps, even sitting next to the phone on a clean link. It " +
+        "moves between about 330 and 660 and uses steps in between. If you want 990, " +
+        "pin High quality — adaptive will not choose it for you.\n\n" +
         "The change renegotiates the codec, which interrupts playback briefly. It is " +
         "not permanent — the stack renegotiates on every reconnect, so store it in the " +
         "device's profile if you want it back next time.\n\n" +
         "It needs the privileged helper; without it nothing can be set and, just as " +
         "importantly, nothing can be read back."
 
-private const val FRAMES_PROXY_EXPLANATION =
-    "How many codec frames the stack fits into one Bluetooth packet, averaged over " +
-        "the session.\n\n" +
-        "It is shown because it moves with the encoder's output size, so it changes " +
-        "when LDAC changes rate. It is not a bitrate and cannot be converted into " +
-        "one: the stack counts frames and never counts bytes, so turning this into " +
-        "kbps would mean assuming the very LDAC mode that cannot be read."
+private const val ENQUEUE_EXPLANATION =
+    "How often the Bluetooth stack hands a buffer of encoded audio to the radio.\n\n" +
+        "This is a liveness figure, not a throughput one, and the difference is worth " +
+        "stating because the counter behind it is labelled \"packets\" by the system. " +
+        "Measured on this phone it sits at about 50 per second in every LDAC mode, " +
+        "including pinned 990 and pinned 330 — it is the encoder's 20 ms timer, not the " +
+        "air. So a steady figure means audio is flowing and a fall to zero means it " +
+        "stopped; the rate it is flowing at is the kbps figure above."
 
 private const val TRACE_EXPLANATION =
-    "Media packets per second, which is what the Bluetooth stack actually hands to the " +
-        "radio. A steady line means the link is moving; a dip means it stalled. Every " +
-        "window that lost audio is marked in red on the same time axis, so a stutter has " +
-        "a place rather than only a memory.\n\n" +
+    "The bitrate the LDAC encoder reports it is sending, read from the Bluetooth stack " +
+        "once per reading. Adaptive moves this on its own, so the line is the link " +
+        "changing its mind about quality. Every window that lost audio is marked in red " +
+        "on the same time axis, so a stutter has a place rather than only a memory.\n\n" +
+        "On a link whose rate the phone does not report, the line falls back to how " +
+        "often the stack hands audio to the radio — a liveness signal, not a rate. The " +
+        "caption under each graph names which of the two it is drawing.\n\n" +
         "The axis ends at the newest reading, not at the clock: if the polling stalls the " +
         "picture freezes instead of growing an empty stretch that would look measured. A " +
         "reading that was missed or came late leaves a break in the line — nothing is " +
@@ -512,6 +524,33 @@ private fun ChannelMode.label(): String? = when (this) {
     ChannelMode.STEREO -> "stereo"
     ChannelMode.DUAL_CHANNEL -> "dual channel"
     ChannelMode.UNKNOWN -> null
+}
+
+/**
+ * The one line the LDAC row leads with, in four states.
+ *
+ * The states are deliberately not collapsed. "Adaptive and here is what it is
+ * doing" and "adaptive and this build will not say" look similar and mean
+ * opposite things to somebody deciding whether to pin a quality, and the pinned
+ * case shows the spec figure *and* the measurement precisely so that a link
+ * quietly not delivering its pinned rate is visible rather than assumed away.
+ *
+ * "(measured)" is in the first layer rather than only behind the question mark:
+ * the line has to be honest to somebody who never taps it, and this is the
+ * number that used to be impossible to show at all.
+ */
+private fun LdacState.rateLine(): String {
+    val measured = measuredKbps
+    return when {
+        measured != null && isAdaptive -> "Adaptive — $measured kbps right now (measured)"
+        measured != null && nominalKbps != null ->
+            "$nominalKbps kbps (pinned) · $measured kbps measured"
+
+        measured != null -> "$measured kbps right now (measured)"
+        isAdaptive -> "Adaptive — rate not observable"
+        nominalKbps != null -> "$nominalKbps kbps (pinned)"
+        else -> "LDAC quality not readable"
+    }
 }
 
 /**

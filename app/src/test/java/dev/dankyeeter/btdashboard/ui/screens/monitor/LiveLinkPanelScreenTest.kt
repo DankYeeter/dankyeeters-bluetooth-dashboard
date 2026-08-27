@@ -10,6 +10,7 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxDelta
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxStats
 import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LdacStackState
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkObservability
@@ -27,10 +28,12 @@ import org.robolectric.annotation.Config
  *
  * The smoke test only proves the screen composes, and it composes with an empty
  * snapshot — which is exactly the state in which none of the honesty rules can
- * be broken. These render a populated link instead and assert the four claims
- * the panel must never get wrong: an adaptive LDAC link shows no rate, a pinned
- * one shows the rate of the *right* sample-rate family, a lossless window says
- * so quietly, and a lossy one says how much and over how long.
+ * be broken. These render a populated link instead and assert the claims the
+ * panel must never get wrong: an adaptive LDAC link shows the rate it is
+ * actually running at *and labels it a measurement*, a pinned one shows the spec
+ * figure and the measurement side by side, a build that reports neither still
+ * refuses honestly, a lossless window says so quietly, and a lossy one says how
+ * much and over how long.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -64,15 +67,20 @@ class LiveLinkPanelScreenTest {
         composeRule.waitForIdle()
     }
 
-    /** A minute of steady link with one lossy window in the middle. */
+    /**
+     * A minute of a measured LDAC link with one lossy window in the middle.
+     *
+     * The plotted series is the bitrate, so the dip is a rate drop rather than a
+     * packet-rate dip — which is what the graph is now about.
+     */
     private fun overviewWithLoss(): LiveTrace {
         var trace = LiveTrace.overview(2_000L)
         (0 until 20).forEach { i ->
             trace = trace.plus(
                 TracePoint(
                     timestampMs = 1_000L + i * 2_000L,
-                    packetsPerSecond = if (i == 10) 120.0 else 431.0,
-                    framesPerPacket = 4.0,
+                    bitrateKbps = if (i == 10) 330.0 else 492.0,
+                    packetsPerSecond = 50.0,
                     lossCount = if (i == 10) 3 else 0,
                 ),
             )
@@ -83,15 +91,45 @@ class LiveLinkPanelScreenTest {
     private fun assertShows(text: String) =
         composeRule.onAllNodesWithText(text, substring = true).onFirst().assertExists()
 
-    @Test
-    fun `adaptive ldac shows no bitrate`() {
-        // codecSpecific1 = 0: nobody pinned a quality, so the stack runs ABR and
-        // there is no rate to print. A "990" here would be the exact lie the
-        // whole live module is built to avoid.
-        render(snapshot(codecSpecific1 = 0L))
+    private fun assertHides(text: String) =
+        composeRule.onAllNodesWithText(text, substring = true).assertCountEquals(0)
 
-        assertShows("Adaptive")
-        assertShows("not observable")
+    /** What the stack's `LDAC quality mode` prints for a given pin. */
+    private fun stackToken(codecSpecific1: Long): String = when (codecSpecific1) {
+        1000L -> "HIGH"
+        1001L -> "MID"
+        1002L -> "LOW"
+        else -> "ABR"
+    }
+
+    /**
+     * The state the whole rebuild was for: unpinned, so the *configuration* is
+     * adaptive, and the rate is nonetheless a reading rather than a refusal.
+     *
+     * "(measured)" has to be in the first layer. This is the number people have
+     * been shown as a codec headline figure for years, and the one thing that
+     * separates this panel from that is saying which kind of number it is
+     * without being asked.
+     */
+    @Test
+    fun `adaptive ldac shows the rate it is actually running at`() {
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = 396))
+
+        assertShows("Adaptive — 396 kbps right now (measured)")
+        assertHides("not observable")
+    }
+
+    /**
+     * Both figures, because they answer different questions and can disagree: a
+     * link pinned to High quality that is only managing 660 is a story, and one
+     * number would hide it.
+     */
+    @Test
+    fun `pinned ldac shows the spec figure and the measurement side by side`() {
+        render(snapshot(codecSpecific1 = 1000L, measuredKbps = 660))
+
+        assertShows("990 kbps (pinned)")
+        assertShows("660 kbps measured")
     }
 
     @Test
@@ -100,6 +138,36 @@ class LiveLinkPanelScreenTest {
         render(snapshot(codecSpecific1 = 1000L, sampleRateHz = 44_100))
 
         assertShows("909 kbps (pinned)")
+    }
+
+    /**
+     * The fallback is not dead wording: it is what every build without an
+     * `A2DP LDAC State:` section says, and it must stay exactly as honest as it
+     * was before the direct read existed.
+     */
+    @Test
+    fun `a build that reports no rate still refuses instead of guessing`() {
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = null))
+
+        assertShows("Adaptive — rate not observable")
+        // The chips still offer "990 kbps" as a thing to pin, which is fine —
+        // what must not appear is a claim that anything was measured.
+        assertHides("(measured)")
+    }
+
+    /**
+     * The row that used to sit under the rate, offering frames-per-packet as a
+     * stand-in for it. The counter under that row turned out to be a 20 ms timer
+     * tick, so the row was reporting the playing duty cycle in the shape of a
+     * quality indicator. Nothing on this panel may imply packing or rate from
+     * those counters again.
+     */
+    @Test
+    fun `the falsified frames-per-packet proxy is gone from the panel`() {
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = 396))
+
+        assertHides("frames per packet")
+        assertHides("(proxy)")
     }
 
     @Test
@@ -174,10 +242,12 @@ class LiveLinkPanelScreenTest {
 
     @Test
     fun `the overview caption reads the rate and the loss off the window`() {
-        render(snapshot(codecSpecific1 = 0L), overview = overviewWithLoss())
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = 396), overview = overviewWithLoss())
 
-        assertShows("431 packets/s now")
-        assertShows("peak 431")
+        // The caption names the measured series and its unit, not the enqueue
+        // rate that shares the same graph shape an order of magnitude lower.
+        assertShows("492 kbps now")
+        assertShows("peak 492")
         assertShows("3 loss marks")
     }
 
@@ -215,6 +285,8 @@ class LiveLinkPanelScreenTest {
     private fun snapshot(
         codecSpecific1: Long,
         sampleRateHz: Int = 96_000,
+        /** Null models a build with no `A2DP LDAC State:` section. */
+        measuredKbps: Int? = null,
     ) = LinkLiveSnapshot(
         timestampMs = 1_700_000_000_000L,
         device = LiveDeviceSnapshot(
@@ -233,9 +305,19 @@ class LiveLinkPanelScreenTest {
             channelMode = ChannelMode.STEREO,
             codecSpecific1 = codecSpecific1,
         ),
-        ldac = LdacState.from(codecSpecific1, sampleRateHz),
+        ldac = LdacState.from(
+            codecSpecific1,
+            sampleRateHz,
+            // The stack's token follows the pin, as it does on the device: pin
+            // 1000 and the block reports HIGH rather than ABR. Deriving it here
+            // keeps the two halves of the fixture from contradicting each other.
+            measuredKbps?.let {
+                LdacStackState(qualityMode = stackToken(codecSpecific1), transmissionKbps = it)
+            },
+        ),
+        // framesPerPacketAvg is still parsed and still must never reach a row.
         tx = A2dpTxStats(enqueueCount = 8_000, framesPerPacketAvg = 4),
-        txDelta = A2dpTxDelta(windowMs = 2_000, enqueued = 862),
+        txDelta = A2dpTxDelta(windowMs = 2_000, enqueued = 100),
         inputs = listOf(
             InputStreamSnapshot(
                 uid = 10_123,

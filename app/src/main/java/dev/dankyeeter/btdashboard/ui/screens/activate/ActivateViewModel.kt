@@ -39,6 +39,30 @@ sealed interface ActivateState {
 }
 
 /**
+ * [ActivateState.Done] with no helper on the other end is not a state, it is a
+ * stale claim — so it is turned back into the button that fixes it.
+ *
+ * This exists because of a black screen seen twice on the device: the whole app
+ * replaced by the words "Helper running." and nothing else, no bottom bar and
+ * nothing tappable, recoverable only by force-stopping.
+ *
+ * The route into it is short. `Done` is written once when activation succeeds
+ * and was never cleared, while the view model outlives any single screen. The
+ * gate re-opens the moment the helper connection goes away — and it can go away
+ * under a perfectly healthy app, because a privileged call that throws calls
+ * `PrivilegedConnection.forget()` (the `getCodecStatus unavailable:
+ * InvocationTargetException` line in the log is exactly such a call). The gate
+ * then rendered a view model still saying `Done`, whose only content is that
+ * sentence, on a full-screen surface that has no navigation by design.
+ *
+ * Pure and separate from the view model so the rule can be tested without an
+ * Android context, and so the two surfaces that show activation cannot disagree
+ * about it.
+ */
+internal fun reconciled(state: ActivateState, helperConnected: Boolean): ActivateState =
+    if (state is ActivateState.Done && !helperConnected) ActivateState.Idle else state
+
+/**
  * What the user can do about a failure, as something the screen can act on
  * rather than something it can only say.
  *
@@ -100,6 +124,18 @@ class ActivateViewModel(application: Application) : AndroidViewModel(application
      */
     fun dismissDisclosure() {
         _state.value = ActivateState.Idle
+    }
+
+    /**
+     * Told by the screen what the helper connection is actually doing.
+     *
+     * The view model cannot answer that itself — the connection lives in
+     * `PrivilegedConnection`, which the composables already observe — and it
+     * must not be allowed to keep saying "Helper running." after the thing it is
+     * describing has gone. See [reconciled] for the screen this prevents.
+     */
+    fun onHelperConnectionChanged(connected: Boolean) {
+        _state.value = reconciled(_state.value, connected)
     }
 
     fun onDisclosureAccepted() {

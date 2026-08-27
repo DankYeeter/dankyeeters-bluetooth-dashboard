@@ -25,10 +25,15 @@ enum class MonitorEventType {
     DROPOUT,
 
     /**
-     * The codec's configured bitrate *mode* changed — LDAC being pinned to a
-     * quality, or unpinned back to adaptive. Deliberately not "the bitrate
-     * changed": LDAC's adaptive rate is not observable, so an event claiming to
-     * have seen it move would be invented. See `link.live.LdacState`.
+     * The link's bitrate changed, in one of two ways.
+     *
+     * Either the configured *mode* moved — LDAC pinned to a quality or handed
+     * back to adaptive — or the **measured** rate the stack reports moved and
+     * stayed moved. The second kind used to be impossible to state honestly and
+     * is now a direct reading; it is filtered so that ABR's ordinary
+     * second-to-second wobble does not fill the timeline. See
+     * `link.live.LdacStackState` for the reading and
+     * `link.live.MeasuredBitrateTracker` for the filter.
      */
     BITRATE_MODE_CHANGED,
 

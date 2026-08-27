@@ -227,9 +227,12 @@ object MonitorGraph {
     // that matter most for not misleading anyone:
     //
     //  - `ldac.nominalKbps` is **null whenever LDAC is adaptive**, which on an
-    //    untouched phone is always. There is no live LDAC bitrate to show on
-    //    this hardware; `ldac.note` is the sentence explaining that, and it is
-    //    meant to be printed rather than summarised.
+    //    untouched phone is always: an adaptive link has no single spec figure
+    //    to name. What it does have is `ldac.measuredKbps`, read straight out of
+    //    the stack's own `A2DP LDAC State:` block on builds that print one —
+    //    that is the live rate, and it is a measurement rather than a table
+    //    lookup. Where the block is absent both are null and `ldac.note` is the
+    //    sentence explaining that, meant to be printed rather than summarised.
     //  - `tx.*` counters are **null unless the codec is host-encoded**. An
     //    offloaded codec bypasses the stack that maintains them, and the
     //    warning list says so.
@@ -277,8 +280,11 @@ object MonitorGraph {
     /** The poller itself. Screens normally want [liveLinkUpdates] instead. */
     val liveLink: LiveLinkSource
         get() = synchronized(lock) {
-            _liveLink ?: LiveLinkSource(shell, signatures = codecModeSignatures)
-                .also { _liveLink = it }
+            // No signature store here any more: the live reading comes from the
+            // stack's own bitrate field, and the learned bands it used to
+            // consult were measured off a counter that turned out not to be a
+            // packet counter. See CodecModeCalibrator.
+            _liveLink ?: LiveLinkSource(shell).also { _liveLink = it }
         }
 
     /**

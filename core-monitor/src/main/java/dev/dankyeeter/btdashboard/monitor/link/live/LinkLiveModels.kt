@@ -26,7 +26,17 @@ enum class Honesty(val label: String) {
      */
     NOMINAL("nominal"),
 
-    /** Correlates with the thing asked about but is not it. Must be labelled. */
+    /**
+     * Correlates with the thing asked about but is not it. Must be labelled.
+     *
+     * Nothing carries this today, and the reason is worth keeping: the one value
+     * that did — frames per packet, offered as a stand-in for the LDAC rate —
+     * turned out not to correlate with the rate at all (see
+     * [A2dpTxDelta.framesPerEnqueue]), and the rate itself turned out to be
+     * directly readable. Both halves of that are a warning about this category:
+     * a proxy is a claim that something tracks something else, and it needs the
+     * same evidence as any other claim here.
+     */
     PROXY("proxy"),
 
     /** Not readable on this device. The UI shows the reason, never a guess. */
@@ -154,18 +164,97 @@ data class MixerOutputSnapshot(
 // ---- link side --------------------------------------------------------------
 
 /**
+ * The Bluetooth stack's own `A2DP LDAC State:` section, read verbatim.
+ *
+ * ## Why this type exists, and what it replaced
+ *
+ * `dumpsys bluetooth_manager` prints, for the negotiated LDAC link:
+ *
+ * ```
+ * LDAC quality mode                : ABR
+ * LDAC transmission bitrate (Kbps) : 396
+ * LDAC saved transmit queue length : 0
+ * Effective MTU: 883
+ * ```
+ *
+ * [transmissionKbps] is the **live** figure. Under ABR it is the rate the
+ * adaptive encoder has settled on right now, and it uses intermediate steps
+ * rather than only the 990/660/330 ladder — 330, 396, 492 and 660 were all
+ * measured on one Pixel 11 Pro session, and 990 appeared only while a quality
+ * was pinned. So this is the answer to "what bitrate is LDAC running at", and it
+ * is MEASURED, not inferred.
+ *
+ * Before this section was found, the module tried to reconstruct the rate from
+ * `btif_a2dp_source`'s packet counters. That reconstruction is falsified — see
+ * [A2dpTxDelta.framesPerEnqueue] — and this type is what replaced it.
+ *
+ * ## Absent is a real answer
+ *
+ * Only some builds and only some codecs print a section like this. Nothing here
+ * is defaulted or guessed: a missing section produces a null [LdacStackState],
+ * and the panel then falls back to saying the rate is not observable, which on
+ * such a build is the truth.
+ */
+data class LdacStackState(
+    /**
+     * MEASURED, verbatim: the `LDAC quality mode` token, e.g. `ABR`, `HIGH`.
+     *
+     * Kept as the raw string rather than parsed into an enum, because the set
+     * of tokens is the stack's business and a value this app has never seen
+     * must reach the screen as itself rather than as "unknown".
+     */
+    val qualityMode: String? = null,
+    /** MEASURED: `LDAC transmission bitrate (Kbps)`. Live under ABR. */
+    val transmissionKbps: Int? = null,
+    /** MEASURED: `Effective MTU` — the media channel's, for this codec's block. */
+    val effectiveMtu: Int? = null,
+    /** MEASURED: `LDAC saved transmit queue length`. Backlog, not throughput. */
+    val savedTxQueueLength: Int? = null,
+) {
+    /** True when the section was found but held nothing worth carrying. */
+    val isEmpty: Boolean get() = qualityMode == null && transmissionKbps == null
+
+    /**
+     * Whether the stack says this link is running adaptive, or null when the
+     * token is one this app has not seen before.
+     *
+     * Null rather than false on an unknown token: "not ABR" and "a mode nobody
+     * here recognises" are different claims, and only the first one licenses the
+     * UI to call the rate pinned.
+     */
+    val isAdaptive: Boolean?
+        get() = qualityMode?.trim()?.uppercase()?.let { token ->
+            when {
+                token in ADAPTIVE_TOKENS -> true
+                token in PINNED_TOKENS -> false
+                else -> null
+            }
+        }
+
+    companion object {
+        /** The stack's spelling for adaptive bitrate. */
+        private val ADAPTIVE_TOKENS = setOf("ABR")
+
+        /** Tokens seen for a fixed eqmid. Anything else passes through as unknown. */
+        private val PINNED_TOKENS = setOf("HIGH", "MID", "STANDARD", "LOW", "HQ", "SQ", "MQ")
+    }
+}
+
+/**
  * What the LDAC encoder was told to do.
  *
- * ## The thing this deliberately does not claim
+ * ## Configuration, not rate
  *
- * The values here describe the **configuration**, never the instantaneous
- * bitrate. `mCodecSpecific1` is the user's Developer-Options choice, and on an
- * untouched phone it is `0` — the framework never writes one, so the stack runs
- * its default, which is ABR. ABR then moves between 990/660/330 inside the
- * encoder without telling anybody: it is not in `dumpsys` and, on the Pixel 11
- * Pro build this was measured on, not in `logcat` either. So [NOT_PINNED] and
- * [ADAPTIVE] both report a null [LdacState.nominalKbps], and the reason is
- * carried in [LdacState.note] rather than papered over with "990".
+ * The values here describe the **configuration**. `mCodecSpecific1` is the
+ * user's Developer-Options choice, and on an untouched phone it is `0` — the
+ * framework never writes one, so the stack runs its default, which is ABR. That
+ * makes [NOT_PINNED] and [ADAPTIVE] carry a null [LdacState.nominalKbps]: there
+ * is no single spec figure to name for a mode that moves.
+ *
+ * What the *encoder is actually doing* now comes from [LdacStackState], which is
+ * a measurement rather than a table. The two are kept apart because they answer
+ * different questions: this one is what the user chose, that one is what the
+ * radio is carrying.
  */
 enum class LdacQualityMode(val label: String) {
     /** `mCodecSpecific1 = 1000` — pinned to the top rate. */
@@ -196,23 +285,42 @@ enum class LdacQualityMode(val label: String) {
 }
 
 /**
- * LDAC's configured rate, as far as it is knowable.
+ * LDAC's rate: what was configured, and — where the stack prints it — what is
+ * actually being sent.
  *
  * @property mode MEASURED — read straight out of `mCodecConfig`'s `mCodecSpecific1`.
  * @property nominalKbps NOMINAL — the rate the spec assigns to [mode] at the
  *   negotiated sample rate. Null whenever [mode] is adaptive, because there is
  *   no single rate to name.
- * @property liveBitrateHonesty always [Honesty.UNAVAILABLE] on the builds
- *   measured so far. Kept as a field rather than a constant so a device that
- *   *does* report a running bitrate can raise it without the UI changing.
+ * @property stack MEASURED — the stack's own `A2DP LDAC State:` block, when this
+ *   build prints one. Null is the honest "this build does not report it".
+ * @property liveBitrateHonesty [Honesty.MEASURED] when [stack] carried a
+ *   bitrate, [Honesty.UNAVAILABLE] when it did not. This is the field the panel
+ *   branches on, so a build without the section keeps the old honest refusal
+ *   without any other code changing.
  * @property note a sentence the UI can print verbatim explaining the above.
  */
 data class LdacState(
     val mode: LdacQualityMode,
     val nominalKbps: Int? = null,
+    val stack: LdacStackState? = null,
     val liveBitrateHonesty: Honesty = Honesty.UNAVAILABLE,
     val note: String = "",
 ) {
+
+    /** MEASURED: what the encoder is sending right now, or null on a build without the section. */
+    val measuredKbps: Int? get() = stack?.transmissionKbps
+
+    /**
+     * Whether this link is running adaptive, preferring the stack's own word.
+     *
+     * The stack is asked first because it reports what the encoder is doing,
+     * while `mCodecSpecific1` reports what somebody asked for. They agree on
+     * every link measured so far; when they cannot both be had, the measurement
+     * wins.
+     */
+    val isAdaptive: Boolean get() = stack?.isAdaptive ?: mode.isAdaptive
+
     companion object {
 
         /**
@@ -244,14 +352,31 @@ data class LdacState(
             else -> LdacQualityMode.UNKNOWN
         }
 
-        /** Builds the state, including the sentence that explains what is missing. */
-        fun from(codecSpecific1: Long?, sampleRateHz: Int?): LdacState {
+        /**
+         * Builds the state, including the sentence that explains what it is.
+         *
+         * [stack] decides which of two worlds this link is in. With it the rate
+         * is a measurement and the note says so; without it the note is the old
+         * refusal, which on a build that prints no LDAC section is still exactly
+         * true.
+         */
+        fun from(
+            codecSpecific1: Long?,
+            sampleRateHz: Int?,
+            stack: LdacStackState? = null,
+        ): LdacState {
             val mode = modeOf(codecSpecific1)
+            val measured = stack?.transmissionKbps
+            val adaptive = stack?.isAdaptive ?: mode.isAdaptive
             return LdacState(
                 mode = mode,
                 nominalKbps = nominalKbps(mode, sampleRateHz),
-                liveBitrateHonesty = Honesty.UNAVAILABLE,
+                stack = stack,
+                liveBitrateHonesty =
+                    if (measured != null) Honesty.MEASURED else Honesty.UNAVAILABLE,
                 note = when {
+                    measured != null && adaptive -> MEASURED_ADAPTIVE_NOTE
+                    measured != null -> MEASURED_PINNED_NOTE
                     mode == LdacQualityMode.NOT_PINNED -> ADAPTIVE_NOTE_DEFAULT
                     mode == LdacQualityMode.ADAPTIVE -> ADAPTIVE_NOTE_CHOSEN
                     mode == LdacQualityMode.UNKNOWN -> "LDAC quality index not readable in this dump."
@@ -260,16 +385,31 @@ data class LdacState(
             )
         }
 
+        private const val MEASURED_ADAPTIVE_NOTE =
+            "LDAC is running adaptive bitrate, and this phone's Bluetooth stack prints " +
+                "the rate it has settled on. The figure is that reading, not a spec " +
+                "number: it is what the encoder is producing right now and it moves on " +
+                "its own.\n\n" +
+                "Adaptive uses steps in between the headline ones — 330, 396, 492 and " +
+                "660 kbps were all measured on one session — and it was never seen to " +
+                "reach 990 by itself. Pinning High quality is the only way observed to " +
+                "get 990."
+
+        private const val MEASURED_PINNED_NOTE =
+            "LDAC is pinned to a fixed quality. The first figure is the spec rate for " +
+                "that mode; the second is what the stack reports it is actually " +
+                "sending, so the two can be compared instead of trusted."
+
         private const val ADAPTIVE_NOTE_DEFAULT =
             "No LDAC quality is pinned, so the stack runs adaptive bitrate. " +
-                "The rate it picks moment to moment is inside the encoder and is not " +
-                "reported by the system, so no live kbps figure can be shown. " +
-                "Pinning a quality in Developer options makes the mode readable."
+                "This build does not print an \"A2DP LDAC State\" section, so the rate " +
+                "the encoder picks moment to moment cannot be read on it. " +
+                "Pinning a quality in Developer options at least makes the mode readable."
 
         private const val ADAPTIVE_NOTE_CHOSEN =
-            "LDAC is set to adaptive bitrate. The rate it picks moment to moment is " +
-                "inside the encoder and is not reported by the system, so no live kbps " +
-                "figure can be shown."
+            "LDAC is set to adaptive bitrate, and this build does not print an " +
+                "\"A2DP LDAC State\" section, so the rate the encoder picks moment to " +
+                "moment cannot be read on it."
 
         private const val PINNED_NOTE =
             "LDAC is pinned to a fixed quality, so the rate below is the one the " +
@@ -328,7 +468,15 @@ data class LiveCodecSnapshot(
  * [LiveCodecSnapshot.isOffloaded].
  */
 data class A2dpTxStats(
-    /** Media packets handed to the tx queue. */
+    /**
+     * The stack's enqueue counter.
+     *
+     * Named "media packets" by `btif_a2dp_source`, and **not** a count of radio
+     * packets. Measured on the device: it ticks at a constant ~50/s while audio
+     * plays, in every LDAC mode including pinned 990 and pinned 330. That is the
+     * media timer's 20 ms period, not the air. It is a fine liveness and
+     * duty-cycle signal and it is not a throughput signal.
+     */
     val enqueueCount: Long? = null,
     /** Packets the L2CAP layer took off it. */
     val dequeueCount: Long? = null,
@@ -337,10 +485,18 @@ data class A2dpTxStats(
     val framesPerPacketTotal: Long? = null,
     val framesPerPacketMax: Int? = null,
     /**
-     * MEASURED, but see [LinkLiveSnapshot] before showing it: how many codec
-     * frames fit in one packet moves with the encoder's output size, so it
-     * *correlates* with the LDAC rate. It is not a rate and must never be
-     * relabelled as one.
+     * MEASURED, and **not** a rate indicator. Never render this.
+     *
+     * `btif_a2dp_source` labels it "frames per packet", which invites reading it
+     * as the encoder's packing and therefore as an inverse stand-in for the
+     * bitrate. It is not. Because [enqueueCount] counts 20 ms timer ticks rather
+     * than radio packets, frames-divided-by-enqueues is
+     * `playing duty cycle x 15` and carries no mode information at all: on the
+     * device, pinned 990 gave 13.5 and pinned 330 gave 10.5, which is the duty
+     * cycle of those two runs and nothing else.
+     *
+     * Kept only because it is what the dump says. The live rate comes from
+     * [LdacStackState.transmissionKbps].
      */
     val framesPerPacketAvg: Int? = null,
     /** Queue flushes — the stack threw away buffered audio to catch up. */
@@ -382,32 +538,45 @@ data class A2dpTxDelta(
     /** Anything the user would have heard. */
     val hasLoss: Boolean get() = dropped > 0 || dropouts > 0 || underflows > 0
 
-    /** DERIVED: media packets per second across the window. */
+    /**
+     * DERIVED: enqueue ticks per second across the window.
+     *
+     * A liveness signal, not a throughput one — see [A2dpTxStats.enqueueCount]
+     * for why this sits near 50/s in every mode. It stays because a line that
+     * dips to zero really does mean the stack stopped handing audio over, which
+     * is worth seeing; it is never the rate series when a measured bitrate is
+     * available.
+     */
     val packetsPerSecond: Double?
         get() = if (windowMs > 0) enqueued * 1000.0 / windowMs else null
 
     /**
      * DERIVED: codec frames per second across the window.
      *
-     * The closest thing to a measured throughput this device offers. It is a
-     * *frame* rate, not a bit rate: the stack counts frames and never counts
-     * bytes, so converting this to kbps would require assuming the very LDAC
-     * mode we cannot read.
+     * A *frame* rate, and mode-independent by construction: LDAC's frame is a
+     * fixed 128 samples per channel, so at 96 kHz a link that is encoding at all
+     * produces 750 frames/s whatever bitrate it spends on them. Useful as a
+     * "is the encoder actually running" check and for nothing else.
      */
     val framesPerSecond: Double?
         get() = if (windowMs > 0) framesEncoded * 1000.0 / windowMs else null
 
     /**
-     * DERIVED: encoded frames per media packet across this window.
+     * DERIVED encoder-duty diagnostic. **Not** a packing and not a rate.
      *
-     * The key to which bitrate mode an adaptive codec is running in — see
-     * [CodecModeInference] — and useful on its own even when the mode cannot be
-     * named, because for a fixed link it is exactly inverse-monotone in the
-     * bitrate. A bigger frame is a higher rate and fewer of them fit in a
-     * packet, so a rise here is a drop in quality, always, with no table or MTU
-     * assumed.
+     * Frames encoded divided by enqueue ticks. It was built as
+     * "frames per packet" — the inverse-monotone stand-in for the LDAC rate the
+     * whole old inference rested on — and the device falsified that: enqueues
+     * are 20 ms media-timer ticks, not radio packets, so this ratio is
+     * `playing duty cycle x 15`. Pinned 990 measured 13.5 and pinned 330
+     * measured 10.5, i.e. both runs reported their duty cycle and neither
+     * reported its mode.
+     *
+     * Renamed rather than deleted so that nothing can read it as packing by
+     * accident, and so the old graphs' series has a name that says what it is.
+     * The rate lives in [LdacStackState.transmissionKbps].
      */
-    val framesPerPacket: Double?
+    val framesPerEnqueue: Double?
         get() = if (enqueued > 0) framesEncoded.toDouble() / enqueued else null
 }
 
@@ -460,17 +629,17 @@ data class LinkLiveSnapshot(
     val device: LiveDeviceSnapshot? = null,
     val codec: LiveCodecSnapshot? = null,
     /**
-     * The LDAC **configuration**, present only when [codec] is LDAC.
+     * LDAC's rate, present only when [codec] is LDAC.
      *
-     * Says which mode the user pinned, which on an untouched phone is "none,
-     * run adaptive". For which rate the adaptive encoder actually settled on,
-     * read [modeInference] — the two answer different questions and only one of
-     * them is about what is happening right now.
+     * Carries both halves: [LdacState.mode] is what the user pinned (on an
+     * untouched phone, nothing — so the stack runs adaptive), and
+     * [LdacState.measuredKbps] is what the stack says the encoder is sending
+     * right now, where the build prints it.
      */
     val ldac: LdacState? = null,
     /**
-     * Which bitrate mode the encoder is **running** in, worked out from the
-     * packet counters. Never null: when it cannot be established it carries
+     * What the encoder is **running** at, from the stack's own fields. Never
+     * null: when no build field carries it, it holds
      * [InferenceConfidence.UNKNOWN] and the reason why.
      */
     val modeInference: ModeInference = ModeInference.unknown(null, "no reading yet"),

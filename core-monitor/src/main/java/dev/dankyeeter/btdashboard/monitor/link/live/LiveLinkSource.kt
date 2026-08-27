@@ -7,7 +7,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
-import kotlin.math.abs
 
 /**
  * Polls the three dumps that together describe the live audio path and turns
@@ -18,7 +17,7 @@ import kotlin.math.abs
  *
  * | dump | what it contributes |
  * |------|---------------------|
- * | `dumpsys bluetooth_manager` | negotiated codec, LDAC quality index, whether the codec is offloaded, and `btif_a2dp_source`'s tx-queue counters |
+ * | `dumpsys bluetooth_manager` | negotiated codec, LDAC quality index, **the LDAC encoder's live bitrate**, whether the codec is offloaded, and `btif_a2dp_source`'s tx-queue counters |
  * | `dumpsys media.audio_flinger` | the output thread the Bluetooth route sits on, its underrun counters, and per-track underruns |
  * | `dumpsys audio` | which apps are playing and at what sample rate and channel count |
  *
@@ -29,7 +28,9 @@ import kotlin.math.abs
  * contained no LDAC, ABR, or bitrate line of any kind — the stack does not log
  * quality-mode transitions at default log levels. Widening what a shell-uid
  * process is allowed to run, in exchange for a stream that is empty, is a bad
- * trade in both directions.
+ * trade in both directions. The first dump turned out to print the bitrate
+ * outright anyway, in its `A2DP LDAC State:` block, which is where the live rate
+ * now comes from.
  *
  * ## Why it polls rather than streams
  *
@@ -56,20 +57,19 @@ import kotlin.math.abs
 class LiveLinkSource(
     private val shell: ShellRunner,
     private val clock: () -> Long = System::currentTimeMillis,
-    /**
-     * Signatures learned by [CodecModeCalibrator]. Absent is the normal case
-     * and simply leaves the mode inference on its analytic path.
-     */
-    private val signatures: CodecModeSignatureStore = InMemoryCodecModeSignatureStore(),
-    /**
-     * How the calibration store is keyed. Defaults to the device address, which
-     * is what the store's own KDoc assumes; injectable because a redacted
-     * address is not a stable key across builds.
-     */
-    private val deviceKey: (LiveDeviceSnapshot) -> String = { it.address },
 ) {
 
     val isAvailable: Boolean get() = shell.isAvailable
+
+    /**
+     * The settling filter behind [LinkEvent.MeasuredBitrateChanged].
+     *
+     * Held here rather than derived from two snapshots because the rule needs
+     * more than two readings — see [MeasuredBitrateTracker]. That makes
+     * [eventsBetween] order-dependent for this one event and for no other, which
+     * is called out on that function.
+     */
+    private val bitrate = MeasuredBitrateTracker()
 
     /**
      * One complete reading.
@@ -117,7 +117,7 @@ class LiveLinkSource(
         val inputs = joinInputs(players, mixerThread, previous)
         val ldac = link.codec
             ?.takeIf { it.family == CodecFamily.LDAC }
-            ?.let { LdacState.from(it.codecSpecific1, it.sampleRateHz) }
+            ?.let { LdacState.from(it.codecSpecific1, it.sampleRateHz, link.ldacStack) }
 
         // The tx counters are only meaningful for a codec the host encodes. On
         // an offloaded codec btif_a2dp_source is bypassed entirely and its
@@ -139,7 +139,7 @@ class LiveLinkSource(
             device = link.device,
             codec = link.codec,
             ldac = ldac,
-            modeInference = inferMode(link.device, link.codec, delta, observability),
+            modeInference = inferMode(link.codec, link.ldacStack, observability),
             observability = observability,
             tx = tx,
             txDelta = delta,
@@ -150,18 +150,19 @@ class LiveLinkSource(
     }
 
     /**
-     * Works out the running bitrate mode, when the codec is one the host
-     * encodes and there are two polls to difference.
+     * The rate the encoder is running at, from the stack's own fields.
      *
-     * The offloaded case is answered before anything is computed rather than
-     * after: with no host counters there is no frames-per-packet, and an
-     * inference built on absent numbers would come back UNKNOWN for the wrong
-     * reason — "ambiguous" instead of "this codec is not visible from here".
+     * Available on the **first** poll, unlike the counter reconstruction this
+     * replaced: a printed bitrate is a reading, not a difference, so there is
+     * nothing to wait for.
+     *
+     * The offloaded case is still answered first. A controller-encoded codec
+     * prints no host-side state block either, and "this codec is not visible
+     * from here" is a sharper answer than "no section found".
      */
-    private suspend fun inferMode(
-        device: LiveDeviceSnapshot?,
+    private fun inferMode(
         codec: LiveCodecSnapshot?,
-        delta: A2dpTxDelta?,
+        ldacStack: LdacStackState?,
         observability: LinkObservability,
     ): ModeInference {
         if (observability == LinkObservability.OFFLOADED) {
@@ -173,28 +174,9 @@ class LiveLinkSource(
         return CodecModeInference.infer(
             codec = codec?.family,
             sampleRateHz = codec?.sampleRateHz,
-            framesPerPacket = delta?.framesPerPacket,
-            framesPerSecond = delta?.framesPerSecond,
             rawCodecName = codec?.rawCodecName,
-            calibration = learnedSignatures(device, codec),
+            stack = ldacStack,
         )
-    }
-
-    /**
-     * Signatures for this device and codec, or none.
-     *
-     * Read on every poll rather than cached across them, because a calibration
-     * run finishing must take effect on the very next reading — the whole point
-     * of pressing the button is to watch the panel start naming modes.
-     */
-    private suspend fun learnedSignatures(
-        device: LiveDeviceSnapshot?,
-        codec: LiveCodecSnapshot?,
-    ): List<ModeSignatureSample> {
-        if (device == null) return emptyList()
-        val name = codec?.rawCodecName ?: codec?.family?.displayName ?: return emptyList()
-        return runCatching { signatures.signatures(deviceKey(device), name) }
-            .getOrDefault(emptyList())
     }
 
     /**
@@ -313,6 +295,11 @@ class LiveLinkSource(
      * Only differences produce events. Nothing here fires on a steady state,
      * so an idle link writes nothing to the timeline no matter how long it is
      * watched.
+     *
+     * One exception to "between two readings":
+     * [LinkEvent.MeasuredBitrateChanged] is decided by [MeasuredBitrateTracker],
+     * which needs a run of readings rather than a pair. Calling this out of order
+     * or on unrelated snapshots therefore affects that event and no other.
      */
     fun eventsBetween(previous: LinkLiveSnapshot, current: LinkLiveSnapshot): List<LinkEvent> {
         val events = mutableListOf<LinkEvent>()
@@ -340,6 +327,12 @@ class LiveLinkSource(
 
         val fromCodec = previous.codec?.family
         val toCodec = current.codec?.family
+        if (toCodec != fromCodec) {
+            // A settled level belongs to the codec it was measured on. Carrying
+            // it across a renegotiation would compare LDAC's kbps to whatever
+            // the next codec reports and call the difference a step.
+            bitrate.reset()
+        }
         if (toCodec != null && fromCodec != null && toCodec != fromCodec) {
             events += LinkEvent.CodecChanged(
                 timestampMs = at,
@@ -364,56 +357,44 @@ class LiveLinkSource(
             )
         }
 
-        inferredModeEvent(previous, current)?.let(events::add)
+        measuredBitrateEvent(current)?.let(events::add)
         lossEvent(current)?.let(events::add)
         return events
     }
 
     /**
-     * The adaptive-bitrate step, if one happened.
+     * The adaptive-bitrate step, once it has settled.
      *
-     * Triggered by the **measured** frames-per-packet changing by a whole
-     * frame, not by the inferred label changing. Two reasons: a label can flip
-     * because calibration arrived rather than because the link moved, and — the
-     * important one — a step is worth showing even on a link whose modes cannot
-     * be named. Frames-per-packet is exactly inverse-monotone in the bitrate,
-     * so "it went down and stayed down" is answerable with the mode column
-     * empty, which is the state most users will be in.
+     * Both ends are measured kbps out of the stack, so this reports what the
+     * radio did rather than what a table says a mode costs. The filtering — why
+     * an ABR link that swings between 492 and 660 every few seconds writes
+     * nothing — is [MeasuredBitrateTracker]'s, documented there in full.
      */
-    private fun inferredModeEvent(
-        previous: LinkLiveSnapshot,
+    private fun measuredBitrateEvent(
         current: LinkLiveSnapshot,
-    ): LinkEvent.InferredModeChanged? {
-        val before = previous.modeInference.framesPerPacket ?: return null
-        val after = current.modeInference.framesPerPacket ?: return null
-        // A whole frame, so counter skew and a window that clips a packet
-        // cannot manufacture a step. Real mode changes move this by at least
-        // 50% of its value.
-        if (abs(after - before) < 1.0) return null
-
-        val to = current.modeInference.mode
-        val from = previous.modeInference.mode
-        val direction = if (after > before) "down" else "up"
-        return LinkEvent.InferredModeChanged(
+    ): LinkEvent.MeasuredBitrateChanged? {
+        val step = bitrate.onReading(
             timestampMs = current.timestampMs,
-            from = from,
-            to = to,
-            fromFramesPerPacket = before,
-            toFramesPerPacket = after,
-            confidence = current.modeInference.confidence,
-            nominalKbps = to?.nominalKbps,
+            kbps = current.ldac?.measuredKbps,
+            sampleRateHz = current.codec?.sampleRateHz,
+        ) ?: return null
+
+        val token = current.ldac?.stack?.qualityMode
+        return LinkEvent.MeasuredBitrateChanged(
+            timestampMs = step.timestampMs,
+            fromKbps = step.fromKbps,
+            toKbps = step.toKbps,
+            reason = step.reason,
+            qualityModeLabel = token,
             detail = buildString {
-                append("Encoder bitrate stepped $direction")
-                if (from != null && to != null) {
-                    append(": ${from.label} to ${to.label}")
-                } else if (to != null) {
-                    append(" to ${to.label}")
+                if (step.fromKbps == null) {
+                    append("Measured bitrate settled at ${step.toKbps} kbps")
+                } else {
+                    append("Measured bitrate ")
+                    append(if (step.fell) "dropped" else "rose")
+                    append(" from ${step.fromKbps} to ${step.toKbps} kbps")
                 }
-                to?.nominalKbps?.let { append(" (${it} kbps)") }
-                append(
-                    " — %.1f to %.1f frames per packet".format(before, after),
-                )
-                if (to == null) append("; the exact mode is not identifiable on this link")
+                token?.takeIf { it.isNotBlank() }?.let { append(" (quality mode $it)") }
             },
         )
     }

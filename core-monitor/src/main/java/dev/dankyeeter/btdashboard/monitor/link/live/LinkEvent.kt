@@ -28,9 +28,12 @@ sealed interface LinkEvent {
     ) : LinkEvent
 
     /**
-     * The LDAC quality *mode* changed — which is a configuration change, not
-     * ABR moving between 990 and 330. ABR movement is not observable; see
-     * [LdacState].
+     * The LDAC quality *mode* changed — which is a configuration change: somebody
+     * pinned a quality or handed the link back to ABR.
+     *
+     * Distinct from [MeasuredBitrateChanged], which is ABR moving on its own
+     * inside whatever mode is configured. One is a decision, the other is the
+     * radio.
      */
     data class LdacModeChanged(
         override val timestampMs: Long,
@@ -41,27 +44,28 @@ sealed interface LinkEvent {
     ) : LinkEvent
 
     /**
-     * The rate the encoder is actually running at moved — the ABR event the
-     * whole inference exists for.
+     * The rate the encoder is actually sending moved, and stayed moved.
      *
-     * Fires on a change in **measured frames per packet**, not on a change in
-     * an inferred label, so a step is reported even when neither side of it can
-     * be named. [from] and [to] are null in exactly that case, and
-     * [framesPerPacketRose] still says which way it went: more frames per
-     * packet means smaller frames means a lower bitrate, always.
+     * Both figures are **measured** kbps out of the stack's own LDAC state — no
+     * inference, no spec table. Which is also why it needs a filter: ABR changes
+     * the number constantly, so this only fires for a level that settled and is
+     * far enough from the last reported one to be worth a line.
+     * [MeasuredBitrateTracker] holds that rule and the measurements behind it.
      */
-    data class InferredModeChanged(
+    data class MeasuredBitrateChanged(
         override val timestampMs: Long,
-        val from: CodecMode?,
-        val to: CodecMode?,
-        val fromFramesPerPacket: Double,
-        val toFramesPerPacket: Double,
-        val confidence: InferenceConfidence,
-        val nominalKbps: Int?,
+        /** MEASURED: the last level this event stream reported, or null for the first. */
+        val fromKbps: Int?,
+        /** MEASURED: the level that has now settled. */
+        val toKbps: Int,
+        /** Which gate let it through, for anyone auditing the timeline's noise. */
+        val reason: BitrateStepReason,
+        /** MEASURED, verbatim: the stack's quality-mode token at the time, e.g. `ABR`. */
+        val qualityModeLabel: String?,
         override val detail: String,
     ) : LinkEvent {
-        /** True when the rate dropped. See the class note on monotonicity. */
-        val framesPerPacketRose: Boolean get() = toFramesPerPacket > fromFramesPerPacket
+        /** True when the link got worse — the direction a listener notices. */
+        val fell: Boolean get() = fromKbps != null && toKbps < fromKbps
     }
 
     /**
@@ -123,7 +127,7 @@ fun LinkEvent.toMonitorEvent(
     type = when (this) {
         is LinkEvent.CodecChanged -> MonitorEventType.CODEC_CHANGED
         is LinkEvent.LdacModeChanged -> MonitorEventType.BITRATE_MODE_CHANGED
-        is LinkEvent.InferredModeChanged -> MonitorEventType.BITRATE_MODE_CHANGED
+        is LinkEvent.MeasuredBitrateChanged -> MonitorEventType.BITRATE_MODE_CHANGED
         is LinkEvent.LossDetected -> MonitorEventType.DROPOUT
         is LinkEvent.PlaybackChanged ->
             if (isPlaying) MonitorEventType.PLAYING_STARTED else MonitorEventType.PLAYING_STOPPED
@@ -132,14 +136,14 @@ fun LinkEvent.toMonitorEvent(
     },
     detail = detail,
     codec = (this as? LinkEvent.CodecChanged)?.to,
-    // Only ever a figure that was established, never a fallback. A pinned mode
-    // supplies its spec rate; an inferred one supplies its rate only once the
-    // inference actually resolved. A bitrate column that quietly falls back to
-    // the codec's headline number is the exact lie this module is built to
-    // avoid, so an unresolved inference leaves it empty.
+    // Only ever a figure that was established, never a fallback. A measured step
+    // supplies the rate the stack reported; a pinned mode supplies its spec
+    // figure, which is all a configuration change has. A bitrate column that
+    // quietly falls back to the codec's headline number is the exact lie this
+    // module is built to avoid, so an adaptive mode change leaves it empty.
     bitrateKbps = when (this) {
         is LinkEvent.LdacModeChanged -> nominalKbps
-        is LinkEvent.InferredModeChanged -> nominalKbps
+        is LinkEvent.MeasuredBitrateChanged -> toKbps
         else -> null
     },
 )

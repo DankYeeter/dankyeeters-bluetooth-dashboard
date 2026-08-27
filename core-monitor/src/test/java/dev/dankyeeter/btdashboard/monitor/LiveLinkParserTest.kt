@@ -4,6 +4,7 @@ import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpLinkDumpParser
 import dev.dankyeeter.btdashboard.monitor.link.live.AudioFlingerTrackParser
+import dev.dankyeeter.btdashboard.monitor.link.live.Honesty
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.MixerOutputSnapshot
@@ -38,6 +39,26 @@ class LiveLinkParserTest {
 
     private val pixel11 by lazy { fixture("bt_manager_pixel11_ldac_txqueue.txt") }
     private val flinger by lazy { fixture("audio_flinger_pixel11_threads.txt") }
+
+    /**
+     * The capture that ended the guessing: a live LDAC link with the
+     * `A2DP LDAC State:` block in it, taken while music was playing and ABR had
+     * settled on 396 kbps. Verbatim apart from the MAC addresses.
+     */
+    private val ldacState by lazy { fixture("bt_manager_pixel11_ldac_state_abr.txt") }
+
+    /**
+     * Rewrites one `label : value` row, ignoring the device's own padding.
+     *
+     * Line-based rather than a substring replace so that a test does not depend
+     * on the exact run of spaces the phone happened to print — that is
+     * formatting, and pinning it here would make a harmless build change look
+     * like a parser bug.
+     */
+    private fun rewriteLabel(dump: String, label: String, value: String): String =
+        dump.lineSequence().joinToString("\n") { line ->
+            if (line.trim().startsWith(label)) line.substringBefore(':') + ": " + value else line
+        }
 
     // ---- the negotiated link -------------------------------------------------
 
@@ -121,6 +142,139 @@ class LiveLinkParserTest {
         assertEquals(330, LdacState.nominalKbps(LdacQualityMode.CONNECTION_PRIORITY, 96_000))
         assertNull(LdacState.nominalKbps(LdacQualityMode.ADAPTIVE, 96_000))
         assertNull(LdacState.nominalKbps(LdacQualityMode.NOT_PINNED, 96_000))
+    }
+
+    /**
+     * A live link must not be read as a finished one because another profile
+     * printed the same field name later in the dump.
+     *
+     * `Profile: HeadsetService`'s state machine prints `mConnectionState: 2` —
+     * HFP's numeric spelling, containing no `STATE_CONNECTED` — about 850 lines
+     * after the A2DP block. While the A2DP block ran to the end of the dump,
+     * that line was the last one read and a connected, playing LDAC link came
+     * back as disconnected. The verbatim capture is the only reason this was
+     * found at all.
+     */
+    @Test
+    fun `a later profile's state machine does not disconnect the A2DP link`() {
+        val device = present(A2dpLinkDumpParser.parse(ldacState).device, "device")
+        assertTrue("the capture really does contain the decoy", ldacState.contains("mConnectionState: 2"))
+        assertTrue(device.isConnected)
+        assertTrue(device.isPlaying)
+    }
+
+    // ---- the LDAC encoder's own state ----------------------------------------
+
+    /**
+     * The section this whole rebuild rests on, read off the verbatim capture.
+     *
+     * Every value here is one the app used to claim was unknowable. If a build
+     * ever stops printing them this test goes red, which is the point: the panel
+     * must fall back to saying so rather than keep showing the last figure it
+     * happened to have.
+     */
+    @Test
+    fun `reads the live LDAC bitrate off a real Pixel 11 dump`() {
+        val stack = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
+        assertEquals("ABR", stack.qualityMode)
+        assertEquals(396, stack.transmissionKbps)
+        assertEquals(883, stack.effectiveMtu)
+        assertEquals(0, stack.savedTxQueueLength)
+        assertEquals(true, stack.isAdaptive)
+    }
+
+    /**
+     * The whole chain on the same capture: an unpinned link (`mCodecSpecific1`
+     * is 0, so the *configuration* is adaptive) whose *rate* is nonetheless a
+     * measurement. That combination is exactly what the old code could not say.
+     */
+    @Test
+    fun `an unpinned link now reports a measured rate rather than a refusal`() {
+        val parsed = A2dpLinkDumpParser.parse(ldacState)
+        val codec = present(parsed.codec, "codec")
+        assertEquals(0L, codec.codecSpecific1)
+
+        val ldac = LdacState.from(codec.codecSpecific1, codec.sampleRateHz, parsed.ldacStack)
+        assertEquals(LdacQualityMode.NOT_PINNED, ldac.mode)
+        assertTrue(ldac.isAdaptive)
+        assertEquals(396, ldac.measuredKbps)
+        assertEquals(Honesty.MEASURED, ldac.liveBitrateHonesty)
+        assertNull("adaptive still has no single spec figure to name", ldac.nominalKbps)
+        assertFalse(
+            "the note must not still claim the rate is unreadable",
+            ldac.note.contains("cannot be read"),
+        )
+    }
+
+    /**
+     * `Effective MTU:` is printed by **every** codec's state block, and the six
+     * codecs that are not negotiated all print `0`. A whole-dump scan for the
+     * label would therefore report whichever one it reached first.
+     */
+    @Test
+    fun `the MTU comes from the LDAC block and not from an idle codec's`() {
+        val stack = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
+        assertEquals(883, stack.effectiveMtu)
+        // The same dump has AptX-HD, AptX, AAC and SBC blocks printing 0.
+        assertTrue("the capture must still contain the decoy blocks", ldacState.contains("A2DP AptX-HD State:"))
+    }
+
+    /**
+     * A build without the section must produce absence, not a zero. The older
+     * captures are exactly that case, which is why they are kept.
+     */
+    @Test
+    fun `a dump without the LDAC state section reports absence and says why`() {
+        val parsed = A2dpLinkDumpParser.parse(pixel11)
+        assertNull(parsed.ldacStack)
+        assertTrue(parsed.warnings.any { it.contains("A2DP LDAC State") })
+
+        val codec = present(parsed.codec, "codec")
+        val ldac = LdacState.from(codec.codecSpecific1, codec.sampleRateHz, parsed.ldacStack)
+        assertNull(ldac.measuredKbps)
+        assertEquals(Honesty.UNAVAILABLE, ldac.liveBitrateHonesty)
+    }
+
+    /**
+     * The mode token is data, not an enum. A stack that prints something this
+     * app has never seen must pass it through, and must not be forced into
+     * "adaptive" or "pinned" on the strength of not matching.
+     */
+    @Test
+    fun `an unknown quality mode token is carried through rather than decided`() {
+        val odd = rewriteLabel(ldacState, "LDAC quality mode", "TURBO")
+        val stack = present(A2dpLinkDumpParser.parse(odd).ldacStack, "LDAC state")
+        assertEquals("TURBO", stack.qualityMode)
+        assertNull("an unrecognised token decides nothing", stack.isAdaptive)
+        // The rate is still a measurement — the token being strange says nothing
+        // about the number beside it.
+        assertEquals(396, stack.transmissionKbps)
+    }
+
+    /**
+     * `Config: Invalid` is the stack's own way of saying this codec is not the
+     * one running. Its zeros are not a link at 0 kbps.
+     */
+    @Test
+    fun `an invalid LDAC config is absence rather than a link at zero`() {
+        val idle = ldacState
+            .replace("Config: Rate=96000 Bits=32 Mode=STEREO", "Config: Invalid")
+        assertNull(A2dpLinkDumpParser.parse(idle).ldacStack)
+    }
+
+    /** An LDAC block beside a non-LDAC link describes a codec that is not running. */
+    @Test
+    fun `the LDAC block is not attached to a link negotiated on another codec`() {
+        val sbc = ldacState.lineSequence().joinToString("\n") { line ->
+            if (line.trim().startsWith("mCodecConfig")) {
+                line.replace("codecName:LDAC,mCodecType:4", "codecName:SBC,mCodecType:0")
+            } else {
+                line
+            }
+        }
+        val parsed = A2dpLinkDumpParser.parse(sbc)
+        assertEquals(CodecFamily.SBC, parsed.codec?.family)
+        assertNull(parsed.ldacStack)
     }
 
     // ---- btif_a2dp_source media statistics -----------------------------------

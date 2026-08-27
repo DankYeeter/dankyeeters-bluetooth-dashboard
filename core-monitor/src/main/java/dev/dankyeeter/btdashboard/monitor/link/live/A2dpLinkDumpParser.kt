@@ -9,6 +9,11 @@ data class A2dpLinkDump(
     val device: LiveDeviceSnapshot? = null,
     val codec: LiveCodecSnapshot? = null,
     val tx: A2dpTxStats? = null,
+    /**
+     * The `A2DP LDAC State:` block, when this build prints one **and** LDAC is
+     * the codec actually configured. Null is the honest "not reported here".
+     */
+    val ldacStack: LdacStackState? = null,
     val warnings: List<String> = emptyList(),
 )
 
@@ -21,7 +26,7 @@ data class A2dpLinkDump(
  *
  * ## What it takes and what it deliberately ignores
  *
- * Three things are read:
+ * Four things are read:
  *
  *  - the `A2dpStateMachine` block of the connected device, for the negotiated
  *    `mCodecConfig` (including `mCodecSpecific1`, which is LDAC's quality
@@ -31,14 +36,27 @@ data class A2dpLinkDump(
  *    never passes through `btif_a2dp_source`, so its tx queue sits at zero and
  *    would read as a perfectly healthy link;
  *  - the `A2DP State:` block, which is `btif_a2dp_source`'s own media
- *    statistics dump.
+ *    statistics dump;
+ *  - the `A2DP LDAC State:` block, which is the one place on this phone that
+ *    prints the LDAC encoder's **live** bitrate. See [LdacStackState].
  *
- * The last one is why the section boundaries below are strict rather than a
- * convenient grep. `Counts (underflow)` is printed by three different
- * subsystems in the same dump — A2DP, the Hearing Aid audio HAL and the LE
- * Audio HAL client — and the other two sit at zero on a phone with neither
- * connected. Scanning the whole dump for the label therefore finds a real
- * counter, a zero and a zero, in an order nothing guarantees.
+ * The last two are why the section boundaries below are strict rather than a
+ * convenient grep, and they fail in opposite directions. `Counts (underflow)`
+ * is printed by three different subsystems in the same dump — A2DP, the Hearing
+ * Aid audio HAL and the LE Audio HAL client — and the other two sit at zero on
+ * a phone with neither connected, so a whole-dump scan finds a real counter, a
+ * zero and a zero in an order nothing guarantees. `Effective MTU:` is worse:
+ * **every** codec prints one, and the six codecs that are not negotiated all
+ * print `0`.
+ *
+ * ## No new regexes here
+ *
+ * The two section readers below are plain string work on purpose. Android's ICU
+ * regex engine rejects lax JVM-isms — a bare `}` outside a character class
+ * throws `PatternSyntaxException` — while the JVM the unit tests run on accepts
+ * them, so a regex can pass every test and then kill this object's static init
+ * on the phone. That happened once already; see the note on `NEGOTIATED_CONFIG`
+ * in `CodecDecoding`. Label matching needs no regex, so it uses none.
  */
 object A2dpLinkDumpParser {
 
@@ -68,6 +86,7 @@ object A2dpLinkDumpParser {
         val offloaded = offloadedCodecs(dump)
         val device = readStateMachine(dump)
         val tx = readTxStats(dump)
+        val ldacStack = readLdacStackState(dump)
 
         if (device == null) warnings += "no A2dpStateMachine block in dump"
         if (tx == null) warnings += "no 'A2DP State:' section in dump"
@@ -75,10 +94,19 @@ object A2dpLinkDumpParser {
         val codec = device?.codec?.copy(
             isOffloaded = device.codec.family in offloaded,
         )
+        // Only attach the LDAC block to an LDAC link. Every codec keeps a state
+        // block whether or not it is the negotiated one, and a stale LDAC block
+        // beside an AAC link would be a bitrate for a codec that is not running.
+        val ldacForThisLink = ldacStack?.takeIf { codec?.family == CodecFamily.LDAC }
+        if (codec?.family == CodecFamily.LDAC && ldacForThisLink == null) {
+            warnings += "no 'A2DP LDAC State:' section in dump — this build does not " +
+                "report LDAC's live bitrate"
+        }
         return A2dpLinkDump(
             device = device?.device,
             codec = codec,
             tx = tx,
+            ldacStack = ldacForThisLink,
             warnings = warnings,
         )
     }
@@ -100,6 +128,16 @@ object A2dpLinkDumpParser {
      * connected block wins; if none is connected the first block is returned
      * with `isConnected = false`, which the UI shows as "last session" rather
      * than as now.
+     *
+     * ## Why a block ends at column 0
+     *
+     * It used to end only at the next `A2dpStateMachine` header, i.e. at the end
+     * of the dump when there was one device. That reached 850 lines past the
+     * A2DP profile and into `Profile: HeadsetService`, whose own state machine
+     * prints `mConnectionState: 2` — HFP's numeric spelling, which contains no
+     * `STATE_CONNECTED` — and quietly turned a live LDAC link into "last
+     * session". Every top-level `Profile:` header sits at column 0, so the block
+     * ends there, the same boundary rule [readTxStats] uses.
      */
     private fun readStateMachine(dump: String): DeviceAndCodec? {
         val activeAddress = activeAddress(dump)
@@ -132,6 +170,13 @@ object A2dpLinkDumpParser {
             STATE_MACHINE_HEADER.find(line)?.let { m ->
                 flush()
                 address = MAC.find(m.groupValues[1])?.value ?: MAC.find(line)?.value
+            }
+            // The block's own header is indented, so an unindented non-blank
+            // line is always the start of the next top-level section and never
+            // part of this device. See the KDoc for what reading past it did.
+            if (line.isNotBlank() && line.first() != ' ' && line.first() != '\t') {
+                flush()
+                continue
             }
             if (address == null) continue
 
@@ -289,6 +334,74 @@ object A2dpLinkDumpParser {
             dequeuePremature = at(DEQUEUE_DEVIATION, 1),
         ).takeUnless { it.isEmpty }
     }
+
+    // ---- the LDAC encoder's own state ---------------------------------------
+
+    /**
+     * The `A2DP LDAC State:` block — the live bitrate, straight from the stack.
+     *
+     * Scoped exactly like [readTxStats] and for a sharper version of the same
+     * reason: this dump prints one `A2DP <codec> State:` block per codec the
+     * phone can do, so `Effective MTU:` appears seven times and six of them are
+     * `0`. Reading the labels anywhere but inside this one block would pick up
+     * whichever unnegotiated codec happened to sort first.
+     *
+     * A block whose `Config:` line says `Invalid` is the stack's own way of
+     * saying "this codec is not the one running", and it is rejected here rather
+     * than passed on as a bitrate of zero.
+     */
+    private fun readLdacStackState(dump: String): LdacStackState? {
+        var inBlock = false
+        var sawBlock = false
+        var invalidConfig = false
+        var qualityMode: String? = null
+        var kbps: Int? = null
+        var mtu: Int? = null
+        var savedQueue: Int? = null
+
+        for (raw in dump.lineSequence()) {
+            val line = raw.trimEnd()
+            if (line.isBlank()) continue
+            val unindented = line.first() != ' ' && line.first() != '\t'
+            if (unindented) {
+                inBlock = line.trim() == LDAC_STATE_HEADER
+                if (inBlock) sawBlock = true
+                continue
+            }
+            if (!inBlock) continue
+
+            val body = line.trim()
+            val label = body.substringBefore(':').trim()
+            if (label == body) continue // a bare header line, no value
+            val value = body.substringAfter(':').trim()
+            when (label) {
+                LDAC_CONFIG -> invalidConfig = value.equals("Invalid", ignoreCase = true)
+                LDAC_QUALITY_MODE -> qualityMode = value.takeIf { it.isNotEmpty() }
+                LDAC_BITRATE -> kbps = value.toIntOrNull()
+                LDAC_EFFECTIVE_MTU -> mtu = value.toIntOrNull()
+                LDAC_SAVED_QUEUE -> savedQueue = value.toIntOrNull()
+            }
+        }
+        if (!sawBlock || invalidConfig) return null
+        return LdacStackState(
+            qualityMode = qualityMode,
+            // A bitrate of zero is what a block prints when nothing is flowing.
+            // Carrying it would draw a link that stopped; absent is the truth.
+            transmissionKbps = kbps?.takeIf { it > 0 },
+            effectiveMtu = mtu?.takeIf { it > 0 },
+            savedTxQueueLength = savedQueue,
+        ).takeUnless { it.isEmpty }
+    }
+
+    // Labels exactly as the stack prints them, same rule as the tx block below:
+    // a silent rename upstream should fail one obvious test rather than quietly
+    // turn the live bitrate into "not reported".
+    private const val LDAC_STATE_HEADER = "A2DP LDAC State:"
+    private const val LDAC_CONFIG = "Config"
+    private const val LDAC_QUALITY_MODE = "LDAC quality mode"
+    private const val LDAC_BITRATE = "LDAC transmission bitrate (Kbps)"
+    private const val LDAC_EFFECTIVE_MTU = "Effective MTU"
+    private const val LDAC_SAVED_QUEUE = "LDAC saved transmit queue length"
 
     // Labels exactly as `btif_a2dp_source_debug_dump` prints them. Kept as
     // constants because a silent rename upstream should fail one obvious test,

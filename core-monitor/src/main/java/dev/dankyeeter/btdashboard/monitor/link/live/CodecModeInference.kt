@@ -1,8 +1,6 @@
 package dev.dankyeeter.btdashboard.monitor.link.live
 
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * One selectable bitrate mode of one codec.
@@ -20,27 +18,26 @@ data class CodecMode(
     val nominalKbps: Int?,
 )
 
-/** One mode plus the encoded frame size that identifies it on the air. */
+/**
+ * One mode plus its encoded frame size in bytes.
+ *
+ * [frameBytes] is real arithmetic on verified constants and is no longer read by
+ * [CodecModeInference]: what it was for — identifying a mode from how many
+ * frames fit in a packet — needed a packet counter this stack does not have. It
+ * stays with the calibration seam, which is the only thing that could ever use a
+ * per-mode signature again.
+ */
 data class CodecModeSignature(val mode: CodecMode, val frameBytes: Int)
 
-/** How the running mode was established. Ordered best first. */
+/** How the running rate was established. Ordered best first. */
 enum class InferenceConfidence {
     /**
-     * Matched against a band this app measured on *this* device while the mode
-     * was pinned. No assumption about the link MTU survives here — the phone
-     * watched the same headphone produce this packet rate under a known mode.
+     * The Bluetooth stack printed the rate and this read it. No arithmetic, no
+     * table, no assumption — see [LdacStackState].
      */
-    CALIBRATED,
+    MEASURED,
 
-    /**
-     * Solved from the codec's frame geometry: exactly one (mode, MTU) pair in
-     * the plausible set produces the frames-per-packet actually measured.
-     * Arithmetic on measured counters, so DERIVED — but it does rest on the
-     * link MTU being one of [CodecModeInference.PLAUSIBLE_MEDIA_MTUS].
-     */
-    ANALYTIC,
-
-    /** Ambiguous, unverified, or not applicable. The UI shows the reason. */
+    /** Not reported on this build for this codec. The UI shows the reason. */
     UNKNOWN,
 }
 
@@ -50,46 +47,53 @@ enum class InferenceConfidence {
  *
  * The distinction is the entire point. `mCodecConfig`'s `mCodecSpecific1` says
  * which mode the *user* pinned, and on an untouched phone that is "none, run
- * adaptive". This says which rate the adaptive encoder settled on, which is the
+ * adaptive". This says what the adaptive encoder is producing, which is the
  * question a listener actually has.
  */
 data class ModeInference(
     val codec: CodecFamily?,
-    /** Null whenever [confidence] is [InferenceConfidence.UNKNOWN]. */
+    /**
+     * The named mode, when the stack's own quality token maps onto one. Null is
+     * ordinary and not a failure: under ABR there *is* no named mode, and
+     * [measuredKbps] is the answer regardless.
+     */
     val mode: CodecMode?,
     val confidence: InferenceConfidence,
-    /** Everything still possible. One entry means [mode] is that entry. */
-    val candidates: List<CodecMode> = emptyList(),
     /**
-     * MEASURED (as a ratio of two counters): encoded frames per media packet.
+     * MEASURED: what the stack says is going out right now, in kbps.
      *
-     * The single most useful number here even when [mode] is unknown, because
-     * for a fixed link it is an **exactly inverse-monotone** stand-in for the
-     * bitrate: a bigger frame is a higher rate and fewer of them fit in a
-     * packet. So "did it drop, and did it stay down" is answerable from this
-     * alone, with no assumption about MTU, frame tables, or codec at all.
+     * The field the panel and both graphs are drawn from. Under ABR it moves on
+     * its own and uses steps the mode ladder has no rung for.
      */
-    val framesPerPacket: Double? = null,
-    /** DERIVED: the media payload size [mode] and [framesPerPacket] imply. */
-    val impliedPayloadBytes: IntRange? = null,
+    val measuredKbps: Int? = null,
+    /** MEASURED, verbatim: the stack's quality-mode token, e.g. `ABR`. */
+    val qualityModeLabel: String? = null,
+    /** MEASURED: the media channel's effective MTU, where the stack printed it. */
+    val effectiveMtu: Int? = null,
     val reason: String = "",
 ) {
     /** Where this sits on the module's honesty scale. */
     val honesty: Honesty
         get() = when (confidence) {
-            InferenceConfidence.CALIBRATED, InferenceConfidence.ANALYTIC -> Honesty.DERIVED
+            InferenceConfidence.MEASURED -> Honesty.MEASURED
             InferenceConfidence.UNKNOWN -> Honesty.UNAVAILABLE
         }
 
+    /**
+     * The spec figure for [mode], and only that.
+     *
+     * Kept apart from [measuredKbps] rather than merged, because "the number the
+     * table assigns this mode" and "the number the radio is carrying" are
+     * different claims and this module's whole job is not to blur them.
+     */
     val nominalKbps: Int? get() = mode?.nominalKbps
 
     companion object {
-        fun unknown(codec: CodecFamily?, reason: String, framesPerPacket: Double? = null) =
+        fun unknown(codec: CodecFamily?, reason: String) =
             ModeInference(
                 codec = codec,
                 mode = null,
                 confidence = InferenceConfidence.UNKNOWN,
-                framesPerPacket = framesPerPacket,
                 reason = reason,
             )
     }
@@ -137,244 +141,151 @@ interface CodecModeSignatures {
 }
 
 /**
- * Works out which bitrate mode an adaptive codec is running in, from counters
- * the Bluetooth stack already keeps.
+ * Reads what the encoder is running at out of the stack's own fields, and
+ * refuses honestly when no field carries it.
  *
- * ## The idea
+ * ## What this used to be, and why none of that is left
  *
- * A codec with a fixed frame length in samples emits a fixed number of frames
- * per second. What the bitrate mode changes is how many **bytes** each of those
- * frames costs. The stack packs as many whole frames into a media packet as the
- * link MTU allows, so
+ * This object used to reconstruct the LDAC bitrate from `btif_a2dp_source`'s
+ * counters. The idea was that a codec with a fixed frame length emits a fixed
+ * number of frames per second, that the bitrate decides how many **bytes** each
+ * frame costs, and that the stack fits `floor((mtu - headers) / frameBytes)`
+ * whole frames into each media packet — so frames-per-packet would be a
+ * per-mode signature, measured on both sides.
  *
- * ```
- * framesPerPacket = floor((mtu - headers) / frameBytes(mode))
- * ```
+ * The device falsified the premise. Two measurements did it:
  *
- * and for a fixed link, frames-per-packet is a per-mode signature. Both sides
- * of it are measured: `btif_a2dp_source` counts frames and packets, and the
- * ratio of two deltas is the frames-per-packet of that window.
+ *  - the **enqueue counter ticks at a constant ~50/s in every mode**, including
+ *    pinned 990 and pinned 330. It counts 20 ms media-timer ticks, not radio
+ *    packets, so it is not the packet side of that equation and there is no
+ *    packet side available;
+ *  - consequently frames-divided-by-enqueues is `playing duty cycle x 15`.
+ *    Pinned 990 measured 13.5, pinned 330 measured 10.5. Both figures are duty
+ *    cycles. Neither carries any information about the mode.
  *
- * ## What it will not do
+ * That also retired the "plausible media MTU" table this used to solve against:
+ * the MTU is now simply printed (`Effective MTU: 883`), and nothing needs
+ * solving.
  *
- * The MTU of the A2DP **media** channel is not in any dump this app can read —
- * `dumpsys bluetooth_manager` prints the AVDTP *signalling* channel MTU and
- * nothing else. So the equation has two unknowns and one measurement, and the
- * analytic path only answers when exactly one (mode, MTU) pair in
- * [PLAUSIBLE_MEDIA_MTUS] fits. Two fits that disagree produce
- * [InferenceConfidence.UNKNOWN] with both listed, never the more likely one.
+ * ## What it is now
  *
- * [CodecModeCalibrator] removes the second unknown properly: pin a mode, watch
- * the packet rate, and the link has told you its own signature.
+ * A direct read. `dumpsys bluetooth_manager`'s `A2DP LDAC State:` block prints
+ * the quality-mode token and the transmission bitrate in kbps, live, and under
+ * ABR that bitrate is what the encoder has settled on this second. When the
+ * block is there the answer is [InferenceConfidence.MEASURED]; when it is not,
+ * the answer is [InferenceConfidence.UNKNOWN] with the reason — never the
+ * counters again, and never the codec's headline number.
+ *
+ * [CodecModeSignatureRegistry] is still consulted, but only to say *why* a
+ * codec has no rate: "no adjustable bitrate mode" and "this codec has one and
+ * this build does not print it" are different sentences.
  */
 object CodecModeInference {
-
-    /**
-     * A2DP media-channel MTUs worth testing against.
-     *
-     * Not a wish list — each is a size the transport actually produces:
-     * 339/679/1021 are the DH5, 2-DH5 and 3-DH5 ACL payload limits that A2DP
-     * implementations commonly clamp to; 663 and 1008 are caps AOSP's own
-     * encoders apply; 672 is the AVDTP signalling MTU this device reports, kept
-     * because some stacks use one size for both channels; 895 and 1024 are
-     * widely seen negotiated values.
-     *
-     * Widening this list makes the analytic path *less* decisive, never more —
-     * every entry added is another chance for two modes to both fit and for the
-     * answer to fall back to UNKNOWN. That is the correct direction for a guess
-     * to fail in.
-     */
-    val PLAUSIBLE_MEDIA_MTUS: List<Int> = listOf(339, 663, 672, 679, 895, 1008, 1021, 1024)
-
-    /**
-     * Bytes of packet header before the first codec frame: a 12-byte RTP header
-     * plus a one-byte codec media header. Both values are tried because the
-     * one-byte header is codec-specific and its presence must not decide the
-     * answer — if 12 and 13 disagree about the mode, the result is UNKNOWN.
-     */
-    private val HEADER_BYTES = listOf(12, 13)
-
-    /**
-     * How far the measured frame rate may sit from the codec's fixed rate.
-     *
-     * Generous on purpose: the frame and packet counters are read from a text
-     * dump microseconds apart and are not snapshotted together, which on the
-     * real capture showed up as a 0.5% skew.
-     */
-    private const val FRAME_RATE_TOLERANCE = 0.05
-
-    /**
-     * How close frames-per-packet must sit to a whole number to be usable.
-     *
-     * A window that straddles a mode change averages two different packings and
-     * lands between two integers. That window cannot identify either mode, and
-     * saying so is better than rounding to whichever is nearer.
-     */
-    private const val INTEGER_TOLERANCE = 0.2
 
     /**
      * @param rawCodecName the `codecName:` the dump printed, when available.
      *   Preferred over [codec] for provider lookup — see
      *   [CodecModeSignatureRegistry].
-     * @param calibration signatures previously learned on this device for this
-     *   codec. Empty is normal and simply drops to the analytic path.
+     * @param stack the codec's own state block, when the build printed one.
+     *   This is the only source of a rate.
      */
     fun infer(
         codec: CodecFamily?,
         sampleRateHz: Int?,
-        framesPerPacket: Double?,
-        framesPerSecond: Double?,
         rawCodecName: String? = null,
-        calibration: List<ModeSignatureSample> = emptyList(),
+        stack: LdacStackState? = null,
     ): ModeInference {
         if (codec == null || sampleRateHz == null) {
             return ModeInference.unknown(codec, "no negotiated codec to reason about")
         }
+
+        val measured = stack?.transmissionKbps
+        if (measured != null) {
+            return measured(codec, sampleRateHz, stack, measured)
+        }
+
         val provider = CodecModeSignatureRegistry.providerFor(codec, rawCodecName)
             ?: return ModeInference.unknown(
                 codec,
-                "${codec.displayName} has no adjustable bitrate mode to infer",
+                "${codec.displayName} has no adjustable bitrate mode to report",
             )
-        provider.unverifiedReason?.let { return ModeInference.unknown(codec, it, framesPerPacket) }
+        provider.unverifiedReason?.let { return ModeInference.unknown(codec, it) }
 
-        if (framesPerPacket == null || framesPerPacket <= 0.0) {
-            return ModeInference.unknown(codec, "no packet counters yet — needs two polls")
-        }
-
-        // Mode-independent gate. A frame rate that disagrees with the codec's
-        // fixed geometry means the stream is not what the config says, and
-        // every step below would be arithmetic on the wrong premise.
-        val expectedFrameRate = provider.framesPerSecond(sampleRateHz)
-        if (expectedFrameRate != null && framesPerSecond != null && framesPerSecond > 0.0) {
-            val error = abs(framesPerSecond - expectedFrameRate) / expectedFrameRate
-            if (error > FRAME_RATE_TOLERANCE) {
-                return ModeInference.unknown(
-                    codec,
-                    "measured ${framesPerSecond.roundToInt()} frames/s but " +
-                        "${codec.displayName} at ${sampleRateHz / 1000} kHz emits " +
-                        "${expectedFrameRate.roundToInt()} — the stream is not the negotiated one",
-                    framesPerPacket,
-                )
-            }
-        }
-
-        val signatures = provider.signatures(sampleRateHz)
-        if (signatures.isEmpty()) {
-            return ModeInference.unknown(
-                codec,
-                "no verified frame sizes for ${codec.displayName} at ${sampleRateHz / 1000} kHz",
-                framesPerPacket,
-            )
-        }
-
-        calibrated(signatures, calibration, framesPerPacket)?.let { return it }
-
-        val whole = framesPerPacket.roundToInt()
-        if (abs(framesPerPacket - whole) > INTEGER_TOLERANCE || whole <= 0) {
-            return ModeInference.unknown(
-                codec,
-                "frames per packet measured %.2f — this window straddles a change"
-                    .format(framesPerPacket),
-                framesPerPacket,
-            )
-        }
-        return analytic(codec, signatures, whole, framesPerPacket)
-    }
-
-    /**
-     * A band this phone measured on this headphone under a pinned mode.
-     *
-     * Beats the analytic path whenever it exists and is unambiguous, because it
-     * carries no assumption at all: the link demonstrated the signature itself.
-     */
-    private fun calibrated(
-        signatures: List<CodecModeSignature>,
-        calibration: List<ModeSignatureSample>,
-        framesPerPacket: Double,
-    ): ModeInference? {
-        if (calibration.isEmpty()) return null
-        val hits = calibration.filter { framesPerPacket in it.framesPerPacket }
-        val modes = hits.mapNotNull { hit ->
-            signatures.firstOrNull { it.mode.rawValue == hit.modeRawValue }?.mode
-        }.distinct()
-        if (modes.size != 1) {
-            // Overlapping bands mean the calibration itself cannot tell these
-            // modes apart on this link. Falling through to the analytic path
-            // would be answering a question the better evidence just declined.
-            if (hits.isEmpty()) return null
-            return ModeInference(
-                codec = modes.firstOrNull()?.codec,
-                mode = null,
-                confidence = InferenceConfidence.UNKNOWN,
-                candidates = modes,
-                framesPerPacket = framesPerPacket,
-                reason = "the calibrated bands for ${modes.joinToString { it.label }} overlap " +
-                    "at this packet rate — recalibrate on a quieter link",
-            )
-        }
-        val mode = modes.single()
-        val frameBytes = signatures.first { it.mode == mode }.frameBytes
-        val whole = framesPerPacket.roundToInt()
-        return ModeInference(
-            codec = mode.codec,
-            mode = mode,
-            confidence = InferenceConfidence.CALIBRATED,
-            candidates = listOf(mode),
-            framesPerPacket = framesPerPacket,
-            impliedPayloadBytes = whole * frameBytes until (whole + 1) * frameBytes,
-            reason = "matches the band measured on this device while ${mode.label} was pinned",
+        // A codec that *does* have named modes, on a build that does not print
+        // its live rate. This is the honest end of the road: the packet counters
+        // that used to be tried here were falsified as a rate source, so there
+        // is nothing left to fall back to.
+        return ModeInference.unknown(
+            codec,
+            "this build does not print an \"A2DP ${codec.displayName} State\" section, " +
+                "so the rate ${codec.displayName} is running at is not readable on it",
         )
     }
 
-    private fun analytic(
+    /**
+     * The stack's own reading, with the mode named only when it names it.
+     *
+     * The token is matched against the codec's pinnable modes so a pinned link
+     * still gets a label, and left null under ABR — where there genuinely is no
+     * named mode and [ModeInference.measuredKbps] is the whole answer.
+     */
+    private fun measured(
         codec: CodecFamily,
-        signatures: List<CodecModeSignature>,
-        framesPerPacket: Int,
-        measured: Double,
+        sampleRateHz: Int,
+        stack: LdacStackState,
+        measuredKbps: Int,
     ): ModeInference {
-        val fits = signatures.filter { signature ->
-            PLAUSIBLE_MEDIA_MTUS.any { mtu ->
-                HEADER_BYTES.any { header ->
-                    val usable = mtu - header
-                    usable > 0 && usable / signature.frameBytes == framesPerPacket
-                }
-            }
-        }
-        val modes = fits.map { it.mode }
-        return when (modes.size) {
-            1 -> {
-                val fit = fits.single()
-                ModeInference(
-                    codec = codec,
-                    mode = fit.mode,
-                    confidence = InferenceConfidence.ANALYTIC,
-                    candidates = modes,
-                    framesPerPacket = measured,
-                    impliedPayloadBytes = framesPerPacket * fit.frameBytes until
-                        (framesPerPacket + 1) * fit.frameBytes,
-                    reason = "$framesPerPacket frames per packet fits only " +
-                        "${fit.mode.label} (${fit.frameBytes} B/frame) across every " +
-                        "plausible link MTU",
-                )
-            }
+        val token = stack.qualityMode?.trim()
+        val mode = namedMode(codec, sampleRateHz, token)
+        return ModeInference(
+            codec = codec,
+            mode = mode,
+            confidence = InferenceConfidence.MEASURED,
+            measuredKbps = measuredKbps,
+            qualityModeLabel = token,
+            effectiveMtu = stack.effectiveMtu,
+            reason = when {
+                stack.isAdaptive == true ->
+                    "the Bluetooth stack reports $measuredKbps kbps going out right now " +
+                        "under adaptive bitrate"
 
-            0 -> ModeInference.unknown(
-                codec,
-                "$framesPerPacket frames per packet fits no known " +
-                    "${codec.displayName} mode at any plausible link MTU",
-                measured,
-            )
+                mode != null ->
+                    "the Bluetooth stack reports ${mode.label} at $measuredKbps kbps"
 
-            else -> ModeInference(
-                codec = codec,
-                mode = null,
-                confidence = InferenceConfidence.UNKNOWN,
-                candidates = modes,
-                framesPerPacket = measured,
-                reason = "$framesPerPacket frames per packet is consistent with " +
-                    "${modes.joinToString { it.label }} — the link MTU is not readable, " +
-                    "so calibration is the only way to tell them apart",
-            )
-        }
+                // An unfamiliar token is passed through rather than swallowed:
+                // the rate is still a measurement, and the label is still what
+                // the stack wrote down.
+                token != null ->
+                    "the Bluetooth stack reports quality mode \"$token\" at $measuredKbps kbps"
+
+                else -> "the Bluetooth stack reports $measuredKbps kbps going out right now"
+            },
+        )
     }
+
+    /** The pinnable mode whose spelling matches the stack's token, if any. */
+    private fun namedMode(codec: CodecFamily, sampleRateHz: Int, token: String?): CodecMode? {
+        if (token.isNullOrEmpty()) return null
+        val normalised = token.uppercase().replace("_", "").replace(" ", "")
+        val provider = CodecModeSignatureRegistry.providerFor(codec) ?: return null
+        return provider.signatures(sampleRateHz)
+            .map { it.mode }
+            .firstOrNull { mode ->
+                STACK_TOKENS_BY_MODE[mode.rawValue]?.contains(normalised) == true
+            }
+    }
+
+    /**
+     * The stack's quality-mode tokens, per `codecSpecific1` value.
+     *
+     * Kept as a lookup rather than derived from the labels because the two
+     * vocabularies are unrelated: the app says "Connection priority" where the
+     * stack says `LOW`. A token that appears in none of these is not forced into
+     * one — it reaches the screen as itself.
+     */
+    private val STACK_TOKENS_BY_MODE: Map<Long, Set<String>> = mapOf(
+        1000L to setOf("HIGH", "HQ", "HIGHQUALITY"),
+        1001L to setOf("MID", "SQ", "STANDARD"),
+        1002L to setOf("LOW", "MQ", "CONNECTIONPRIORITY"),
+    )
 }

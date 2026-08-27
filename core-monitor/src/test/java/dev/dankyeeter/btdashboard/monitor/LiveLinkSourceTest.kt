@@ -5,6 +5,7 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.link.live.InferenceConfidence
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkObservability
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
@@ -36,6 +37,17 @@ class LiveLinkSourceTest {
     private val baseBt by lazy { fixture("bt_manager_pixel11_ldac_txqueue.txt") }
     private val baseFlinger by lazy { fixture("audio_flinger_pixel11_threads.txt") }
     private val basePlayers by lazy { fixture("audio_players_tidal.txt") }
+
+    /** The capture that carries the `A2DP LDAC State:` block. Already connected and playing. */
+    private val ldacStateBt by lazy { fixture("bt_manager_pixel11_ldac_state_abr.txt") }
+
+    /**
+     * The same live capture with one number moved: the LDAC transmission
+     * bitrate. That is exactly what the device does when ABR steps, and moving
+     * only that field keeps every other fact in the dump honest.
+     */
+    private fun atBitrate(kbps: Int): String =
+        setCounter(connected(ldacStateBt), "LDAC transmission bitrate (Kbps)", "$kbps")
 
     /** The same dump with the link up and the stream running. */
     private fun connected(bt: String = baseBt): String = bt
@@ -174,76 +186,108 @@ class LiveLinkSourceTest {
     }
 
     /**
-     * The event the whole inference exists for: LDAC's adaptive bitrate
-     * actually moving.
+     * The link's rate, read rather than reconstructed, on the very first poll.
      *
-     * Three readings, because the first carries no delta and therefore no
-     * packing. Between the second and third the link goes from 12 frames per
-     * packet to 4 — at 96 kHz that is 55-byte frames giving way to 165-byte
-     * ones, which is the floor stepping back up to high quality.
+     * That is the shape change worth pinning: a printed bitrate is a reading, so
+     * unlike the counter arithmetic it replaced there is nothing to wait for and
+     * no delta to fail.
      */
     @Test
-    fun `an ABR step up is reported with its timestamp and rate`() = runTest {
-        val clock = TestClock(0L)
-        // 3000 frames per window over 4 s is LDAC's real 750 frames/s at 96 kHz,
-        // which the inference gate checks before believing any packing.
-        fun link(frames: Long, packets: Long) =
-            setCounter(
-                setCounter(connected(), "Counts (enqueue/dequeue/readbuf)", "$packets / $packets / $packets"),
-                "Frames per packet (total/max/ave)",
-                "$frames / 12 / 12",
-            )
+    fun `the measured LDAC bitrate is available from the first poll`() = runTest {
+        val snapshot = LiveLinkSource(shellOf(connected(ldacStateBt)), TestClock(0L)::now).readOnce()
 
-        val atFloor = LiveLinkSource(shellOf(link(4_693_895, 389_197)), clock::now).readOnce()
-        clock.advance(4_000)
-        val stillFloor = LiveLinkSource(shellOf(link(4_696_895, 389_447)), clock::now)
-            .readOnce(atFloor)
-        clock.advance(4_000)
-        val source = LiveLinkSource(shellOf(link(4_699_895, 390_197)), clock::now)
-        val recovered = source.readOnce(stillFloor)
-
-        assertEquals(12.0, requireNotNull(stillFloor.modeInference.framesPerPacket), 0.001)
-        assertEquals(330, stillFloor.modeInference.nominalKbps)
-        assertEquals(4.0, requireNotNull(recovered.modeInference.framesPerPacket), 0.001)
-        assertEquals(990, recovered.modeInference.nominalKbps)
-
-        val step = source.eventsBetween(stillFloor, recovered)
-            .filterIsInstance<LinkEvent.InferredModeChanged>()
-            .single()
-        assertEquals(8_000L, step.timestampMs)
-        assertEquals(990, step.nominalKbps)
-        assertEquals(InferenceConfidence.ANALYTIC, step.confidence)
-        assertFalse("fewer frames per packet means a higher rate", step.framesPerPacketRose)
-        assertTrue(step.detail.contains("stepped up"))
-        assertEquals(990, step.toMonitorEvent(null, null).bitrateKbps)
+        assertEquals(396, snapshot.ldac?.measuredKbps)
+        assertEquals("ABR", snapshot.ldac?.stack?.qualityMode)
+        assertEquals(InferenceConfidence.MEASURED, snapshot.modeInference.confidence)
+        assertEquals(396, snapshot.modeInference.measuredKbps)
+        assertNull("nothing has been differenced yet", snapshot.txDelta)
     }
 
     /**
-     * A steady link must not manufacture steps out of the half-frame wobble
-     * that two counters read microseconds apart produce.
+     * The ABR event, end to end through the source: a level that holds becomes
+     * one line with both measured figures on it.
+     *
+     * Four polls, because the first one produces no events at all and the
+     * settling rule then wants three readings of the new level. The filter
+     * itself is tested in `MeasuredBitrateTrackerTest`; what is being checked
+     * here is that the source feeds it the measured field and renders the
+     * result.
      */
     @Test
-    fun `an unchanged packing is not an ABR step`() = runTest {
+    fun `a settled change in the measured bitrate becomes one timeline event`() = runTest {
         val clock = TestClock(0L)
-        fun link(frames: Long, packets: Long) =
-            setCounter(
-                setCounter(connected(), "Counts (enqueue/dequeue/readbuf)", "$packets / $packets / $packets"),
-                "Frames per packet (total/max/ave)",
-                "$frames / 12 / 12",
-            )
+        val source = LiveLinkSource(shellOf(connected(ldacStateBt)), clock::now)
 
-        val first = LiveLinkSource(shellOf(link(4_693_895, 389_197)), clock::now).readOnce()
-        clock.advance(4_000)
-        val second = LiveLinkSource(shellOf(link(4_696_895, 389_447)), clock::now).readOnce(first)
-        clock.advance(4_000)
-        val source = LiveLinkSource(shellOf(link(4_699_895, 389_697)), clock::now)
-        val third = source.readOnce(second)
+        var snapshot: LinkLiveSnapshot =
+            LiveLinkSource(shellOf(atBitrate(330)), clock::now).readOnce()
+        val events = mutableListOf<LinkEvent>()
+        listOf(330, 330, 330, 660, 660, 660).forEach { kbps ->
+            clock.advance(2_000L)
+            val next = LiveLinkSource(shellOf(atBitrate(kbps)), clock::now).readOnce(snapshot)
+            events += source.eventsBetween(snapshot, next)
+            snapshot = next
+        }
 
-        assertTrue(
-            source.eventsBetween(second, third)
-                .filterIsInstance<LinkEvent.InferredModeChanged>()
-                .isEmpty(),
-        )
+        val steps = events.filterIsInstance<LinkEvent.MeasuredBitrateChanged>()
+        assertEquals("one announcement of 330, then one move to 660", 2, steps.size)
+        assertEquals(330, steps.first().toKbps)
+
+        val move = steps.last()
+        assertEquals(330, move.fromKbps)
+        assertEquals(660, move.toKbps)
+        assertFalse(move.fell)
+        assertEquals("ABR", move.qualityModeLabel)
+        assertTrue(move.detail.contains("330 to 660 kbps"))
+        // The timeline's bitrate column carries the measurement, not a spec figure.
+        assertEquals(660, move.toMonitorEvent(null, null).bitrateKbps)
+    }
+
+    /**
+     * The measured pendulum, through the real source. ABR was observed swinging
+     * between 492 and 660 for a whole session; each swing is a bigger jump than
+     * a genuine ladder step, so only the settling rule keeps the timeline clean.
+     */
+    @Test
+    fun `an ABR link that keeps changing its mind writes nothing`() = runTest {
+        val clock = TestClock(0L)
+        val source = LiveLinkSource(shellOf(connected(ldacStateBt)), clock::now)
+
+        var snapshot = LiveLinkSource(shellOf(atBitrate(492)), clock::now).readOnce()
+        val events = mutableListOf<LinkEvent>()
+        // Settle first, so the events below cannot be the opening announcement.
+        val series = listOf(492, 492, 492) + (1..12).map { if (it % 2 == 0) 492 else 660 }
+        series.forEach { kbps ->
+            clock.advance(2_000L)
+            val next = LiveLinkSource(shellOf(atBitrate(kbps)), clock::now).readOnce(snapshot)
+            events += source.eventsBetween(snapshot, next)
+            snapshot = next
+        }
+
+        val steps = events.filterIsInstance<LinkEvent.MeasuredBitrateChanged>()
+        assertEquals("only the opening level should be announced", 1, steps.size)
+        assertEquals(492, steps.single().toKbps)
+    }
+
+    /**
+     * A build with no LDAC state section keeps the old honest refusal. The
+     * fallback wording is not dead code — it is what every other build says.
+     */
+    @Test
+    fun `a build without the LDAC section reports no rate and no bitrate events`() = runTest {
+        val clock = TestClock(0L)
+        val source = LiveLinkSource(shellOf(connected()), clock::now)
+        var snapshot = source.readOnce()
+        val events = mutableListOf<LinkEvent>()
+        repeat(6) {
+            clock.advance(2_000L)
+            val next = source.readOnce(snapshot)
+            events += source.eventsBetween(snapshot, next)
+            snapshot = next
+        }
+
+        assertNull(snapshot.ldac?.measuredKbps)
+        assertEquals(InferenceConfidence.UNKNOWN, snapshot.modeInference.confidence)
+        assertTrue(events.filterIsInstance<LinkEvent.MeasuredBitrateChanged>().isEmpty())
     }
 
     @Test

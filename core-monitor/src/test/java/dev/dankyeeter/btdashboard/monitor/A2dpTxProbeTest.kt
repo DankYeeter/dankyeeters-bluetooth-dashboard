@@ -34,6 +34,13 @@ class A2dpTxProbeTest {
             .replace("mIsPlaying: false", "mIsPlaying: true")
     }
 
+    /**
+     * The newer capture, which carries the `A2DP LDAC State:` block. Kept beside
+     * [baseBt] rather than replacing it: the counter arithmetic above must keep
+     * working on a build that prints no such block, because most do not.
+     */
+    private val liveBt by lazy { fixture("bt_manager_pixel11_ldac_state_abr.txt") }
+
     /** Rewrites one `label : a / b / c` row, ignoring the device's own padding. */
     private fun setCounter(dump: String, label: String, values: String): String =
         dump.lineSequence().joinToString("\n") { line ->
@@ -137,6 +144,71 @@ class A2dpTxProbeTest {
         assertTrue(reading.unavailable!!.contains("encoded by the controller"))
         // And nothing downstream can build a rate out of it.
         assertNull(probe.sampleBetween(reading, reading).delta)
+    }
+
+    /**
+     * The close-up graph's actual subject, from the same single dump.
+     *
+     * The probe's whole justification is that it runs one exec so 2 Hz sampling
+     * is possible; the `A2DP LDAC State:` block is inside that same exec, so the
+     * measured bitrate costs nothing extra. The command list is asserted again
+     * here because "just read one more dump" is the easy way to lose that.
+     */
+    @Test
+    fun `it carries the measured LDAC bitrate without reading a second dump`() = runTest {
+        val shell = FakeShellRunner(
+            mapOf("dumpsys bluetooth_manager" to ShellResult(0, liveBt)),
+        )
+
+        val reading = A2dpTxProbe(shell) { 1_000L }.readOnce()
+
+        assertEquals(396, reading.ldacStack?.transmissionKbps)
+        assertEquals("ABR", reading.ldacStack?.qualityMode)
+        assertEquals(listOf(listOf("dumpsys", "bluetooth_manager")), shell.commands)
+    }
+
+    /**
+     * A rate is a reading, not a difference — so unlike every counter here it is
+     * on the very first sample of a run, and the graph draws a point instead of
+     * waiting half a second for something to subtract from.
+     */
+    @Test
+    fun `the first sample already carries a rate even though it has no delta`() = runTest {
+        val probe = probeOf(liveBt)
+
+        val sample = probe.sampleBetween(null, probe.readOnce())
+
+        assertNull("nothing to difference yet", sample.delta)
+        assertEquals(396, sample.bitrateKbps)
+        assertEquals("ABR", sample.qualityModeLabel)
+    }
+
+    /**
+     * A counter reset blanks the delta, and must not blank the rate with it: the
+     * stack restarting says nothing about what the encoder then reported.
+     */
+    @Test
+    fun `a counter reset loses the delta and keeps the rate`() = runTest {
+        val first = probeOf(liveBt) { 1_000L }.readOnce()
+        val restarted = setCounter(liveBt, "Counts (enqueue/dequeue/readbuf)", "12 / 8 / 20")
+        val second = probeOf(restarted) { 1_500L }.readOnce()
+
+        val sample = probeOf(liveBt).sampleBetween(first, second)
+
+        assertNull(sample.delta)
+        assertEquals(396, sample.bitrateKbps)
+    }
+
+    /**
+     * An offloaded codec has no host-side encoder state either, so a stale LDAC
+     * block found beside it would be a bitrate for a codec that is not running.
+     */
+    @Test
+    fun `an offloaded codec withholds the rate as well as the counters`() = runTest {
+        val reading = probeOf(withLdacOffloaded(liveBt)).readOnce()
+
+        assertNull(reading.stats)
+        assertNull(reading.ldacStack)
     }
 
     @Test

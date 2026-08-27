@@ -8,27 +8,41 @@ import dev.dankyeeter.btdashboard.monitor.link.live.TxProbeSample
 /**
  * One reading on a live graph.
  *
- * Everything here is DERIVED from two measured counter readings, which is why
- * every field is nullable: a window that cannot be measured — the first pass of
- * a run, a counter that restarted, a dump that failed — has no value, and the
- * graph draws a gap rather than a zero. A zero on a throughput line reads as
- * "the link stopped", and that is a completely different fact from "nobody
- * managed to measure this half-second".
+ * Every value is nullable, and that is the honesty rule of the whole file: a
+ * moment that could not be read — the first pass of a run, a counter that
+ * restarted, a dump that failed — has no value, and the graph draws a gap rather
+ * than a zero. A zero on a rate line reads as "the link stopped", and that is a
+ * completely different fact from "nobody managed to measure this half-second".
+ *
+ * The two series are not interchangeable and the difference is the point of this
+ * whole rebuild:
+ *
+ *  - [bitrateKbps] is **MEASURED** — the stack's own figure for what the encoder
+ *    is sending. When it is there it is what the graph plots, because it is the
+ *    thing the user is actually asking about;
+ *  - [packetsPerSecond] is DERIVED and is a liveness signal, not a throughput
+ *    one. It is the fallback for a link whose rate is not printed, where a line
+ *    that dips to zero still means "the stack stopped handing audio over".
  */
 data class TracePoint(
     val timestampMs: Long,
-    /** DERIVED: media packets per second across the window ending here. */
-    val packetsPerSecond: Double?,
-    /**
-     * DERIVED, and a PROXY for the encoder's rate: codec frames per packet
-     * across this window. It moves with the encoder's output size, so it steps
-     * when LDAC changes rate — it is not a bitrate and cannot become one.
-     */
-    val framesPerPacket: Double?,
+    /** MEASURED: the encoder's live bitrate at this instant, in kbps. */
+    val bitrateKbps: Double? = null,
+    /** DERIVED: enqueue ticks per second across the window ending here. */
+    val packetsPerSecond: Double? = null,
     /** DERIVED: everything audible counted in this window. Zero is a fact here. */
     val lossCount: Long = 0,
 ) {
     val hasLoss: Boolean get() = lossCount > 0
+
+    /**
+     * What this point contributes to the line, measured figure first.
+     *
+     * A single accessor rather than a branch at each call site, so the graph,
+     * the peak, the caption and the gap rule can never disagree about which
+     * series they are describing.
+     */
+    val plotValue: Double? get() = bitrateKbps ?: packetsPerSecond
 }
 
 /**
@@ -85,13 +99,26 @@ data class LiveTrace(
         copy(unavailable = reason, observability = observability)
 
     /** Whether anything at all can be drawn. */
-    val hasRate: Boolean get() = points.any { it.packetsPerSecond != null }
+    val hasRate: Boolean get() = points.any { it.plotValue != null }
 
-    val peakPacketsPerSecond: Double?
-        get() = points.mapNotNull { it.packetsPerSecond }.maxOrNull()
+    val peakValue: Double?
+        get() = points.mapNotNull { it.plotValue }.maxOrNull()
 
-    val latestPacketsPerSecond: Double?
-        get() = points.lastOrNull { it.packetsPerSecond != null }?.packetsPerSecond
+    val latestValue: Double?
+        get() = points.lastOrNull { it.plotValue != null }?.plotValue
+
+    /**
+     * What the plotted line is measuring, for the caption.
+     *
+     * Decided by the window rather than by the newest point, so a single reading
+     * that lost the bitrate field does not relabel the axis mid-graph. A window
+     * that carries any measured bitrate is a bitrate graph.
+     */
+    val unitLabel: String
+        get() = if (points.any { it.bitrateKbps != null }) "kbps" else "packets/s"
+
+    /** True when the line is the measured bitrate rather than the liveness fallback. */
+    val isMeasuredBitrate: Boolean get() = points.any { it.bitrateKbps != null }
 
     val lossTotal: Long get() = points.sumOf { it.lossCount }
 
@@ -111,7 +138,7 @@ data class LiveTrace(
         if (index <= 0 || index >= points.size) return true
         val previous = points[index - 1]
         val current = points[index]
-        if (previous.packetsPerSecond == null || current.packetsPerSecond == null) return true
+        if (previous.plotValue == null || current.plotValue == null) return true
         return current.timestampMs - previous.timestampMs > expectedIntervalMs * 2
     }
 
@@ -152,11 +179,14 @@ data class LiveTrace(
  * The loss it can count is the Bluetooth stack's own — this probe never reads
  * the two dumps that carry app and mixer underruns. That limit is stated in the
  * close-up's explainer; it must not be quietly rounded to "no loss".
+ *
+ * Note the bitrate comes from the reading and the loss from the difference, so
+ * at 2 Hz the very first sample of a run already draws a point.
  */
 fun TxProbeSample.toTracePoint(): TracePoint = TracePoint(
     timestampMs = timestampMs,
+    bitrateKbps = bitrateKbps?.toDouble(),
     packetsPerSecond = delta?.packetsPerSecond,
-    framesPerPacket = delta?.framesPerPacket,
     lossCount = delta?.let { it.dropped + it.dropouts + it.underflows } ?: 0L,
 )
 
@@ -169,8 +199,8 @@ fun TxProbeSample.toTracePoint(): TracePoint = TracePoint(
  */
 fun LinkLiveSnapshot.toTracePoint(): TracePoint = TracePoint(
     timestampMs = timestampMs,
+    bitrateKbps = ldac?.measuredKbps?.toDouble(),
     packetsPerSecond = txDelta?.packetsPerSecond,
-    framesPerPacket = txDelta?.framesPerPacket,
     lossCount = lossCountThisWindow(),
 )
 
@@ -203,6 +233,10 @@ internal fun LiveTrace.append(snapshot: LinkLiveSnapshot, expectedIntervalMs: Lo
  * seconds, and "no data" would hide which one the user is looking at.
  */
 private fun LinkLiveSnapshot.graphReason(): String? = when {
+    // A measured bitrate is a reading, not a difference, so once it is there
+    // none of the "waiting for a second poll" branches below apply.
+    ldac?.measuredKbps != null -> null
+
     observability == LinkObservability.OFFLOADED ->
         "${codec?.family?.displayName ?: "This codec"} is encoded by the controller, so the " +
             "host cannot see the stream — there is no throughput to plot."

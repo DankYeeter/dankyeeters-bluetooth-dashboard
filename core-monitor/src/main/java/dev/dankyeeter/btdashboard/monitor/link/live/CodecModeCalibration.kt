@@ -20,7 +20,14 @@ data class ModeSignatureSample(
     val codecName: String,
     val modeRawValue: Long,
     val sampleRateHz: Int,
-    /** MEASURED: the frames-per-packet band observed while the mode was pinned. */
+    /**
+     * MEASURED: the [A2dpTxDelta.framesPerEnqueue] band observed while the mode
+     * was pinned.
+     *
+     * The name is the one the database column carries and predates knowing what
+     * this ratio actually is — see [CodecModeCalibrator]'s note on the
+     * falsification. It is a duty-cycle band, not a packing.
+     */
     val framesPerPacket: ClosedFloatingPointRange<Double>,
     /** MEASURED: the packet rate observed alongside it. Diagnostic, not the key. */
     val packetsPerSecond: ClosedFloatingPointRange<Double>,
@@ -122,14 +129,30 @@ data class CalibrationReport(
 /**
  * Teaches the app what each bitrate mode looks like on one particular link.
  *
- * ## Why this is worth a mutating operation
+ * ## Read this before using it: it is a seam, not a live feature
  *
- * [CodecModeInference]'s analytic path is stuck behind one unknown: the A2DP
- * media MTU, which no dump on this phone prints. Pinning a mode removes it —
- * the link demonstrates its own frames-per-packet under a mode we chose, and
- * from then on that packing identifies that mode with no assumption left in the
- * chain. One ten-second pass replaces a table of plausible MTUs with a
- * measurement.
+ * This was built to remove the one unknown in the old counter-based inference —
+ * pin a mode, watch the packing, and the link has told you its own signature.
+ * Two things happened since.
+ *
+ *  1. **The rate is printed.** `dumpsys bluetooth_manager`'s
+ *     `A2DP LDAC State:` block reports the live transmission bitrate and the
+ *     effective MTU outright, so on a build that has it there is nothing left to
+ *     learn by pinning — and pinning costs the user three audible
+ *     renegotiations. [refusalFor] therefore turns this down for any link whose
+ *     rate is directly readable.
+ *  2. **The signal it learns was falsified.** What it measures is
+ *     [A2dpTxDelta.framesPerEnqueue], and the enqueue counter turned out to be a
+ *     20 ms media-timer tick rather than a radio packet — so that ratio is the
+ *     playing duty cycle times fifteen and identifies no mode at all. Which is
+ *     why [CodecModeInference] no longer reads what this writes.
+ *
+ * It is kept, wired and tested because the *seam* is still the right one: a
+ * codec that neither prints its rate nor is offloaded would need exactly this
+ * shape — pin, observe, store per (device, codec, mode) — over whatever signal
+ * turns out to carry its rate. [CodecModePinner] in particular is live: the
+ * panel's quality chips are built on it and are verified end to end on the
+ * device.
  *
  * ## What it does to the device
  *
@@ -229,6 +252,12 @@ class CodecModeCalibrator(
         codec.isOffloaded ->
             "${codec.family.displayName} is encoded by the controller, so the host " +
                 "cannot count its packets at all"
+        // The direct read makes this pointless rather than merely weak: the
+        // stack already prints the rate every mode produces, and the only thing
+        // three renegotiations would add is the gap in the music.
+        snapshot.modeInference.confidence == InferenceConfidence.MEASURED ->
+            "this phone reports ${codec.family.displayName}'s bitrate directly, so " +
+                "pinning each mode to learn it would interrupt the music for nothing"
         else -> null
     }
 
@@ -259,7 +288,7 @@ class CodecModeCalibrator(
         delay(dwellMs)
         val after = source.readOnce(before)
         val delta = after.txDelta
-        val framesPerPacket = delta?.framesPerPacket
+        val framesPerPacket = delta?.framesPerEnqueue
         val packetsPerSecond = delta?.packetsPerSecond
         if (framesPerPacket == null || packetsPerSecond == null || delta.enqueued <= 0) {
             return CalibrationStep(mode, null, "no packets moved while ${mode.label} was pinned")
