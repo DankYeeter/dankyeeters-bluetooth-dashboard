@@ -99,8 +99,15 @@ object CodecDecoding {
         }
     }
 
-    /** `mCodecConfig:{...}`, `codecConfig:{...}` or `codecConfig{...}`. */
-    private val NEGOTIATED_CONFIG = Regex("""m?[Cc]odec[Cc]onfig\s*[:=]?\s*\{([^}]*)}""")
+    /**
+     * `mCodecConfig:{...}`, `codecConfig:{...}` or `codecConfig{...}`.
+     *
+     * The closing brace must stay escaped: Android's ICU regex engine rejects
+     * a bare `}` outside a character class with PatternSyntaxException, while
+     * the JVM used by unit tests accepts it — so a bare brace passes every
+     * test and then kills the parser's static init on the phone.
+     */
+    private val NEGOTIATED_CONFIG = Regex("""m?[Cc]odec[Cc]onfig\s*[:=]?\s*\{([^}]*)\}""")
     private val CODEC_NAME_FIELD = Regex("""codecName\s*[:=]\s*([^,}\]]+)""")
     private val CODEC_TYPE_FIELD = Regex("""mCodecType\s*[:=]\s*(\d+)""")
 

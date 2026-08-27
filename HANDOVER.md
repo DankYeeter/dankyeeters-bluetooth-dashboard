@@ -4104,3 +4104,95 @@ Label, im Live-Paket umgangen und als Task-Chip abgelegt.
   nicht observierbar, daher die Paketraten-Inferenz.
 - Merke: parallele Gradle-Builds im selben Repo kollidieren (Locks, korrupte
   Inkremental-Caches); Workern das Kompilieren nur einzeln erlauben.
+
+---
+
+## Handover 27. August, Abend — Fable testet am Geraet, und die ABR-Frage ist geknackt
+
+Stand: Commits bis f435a89 plus ein uncommitteter ICU-Regex-Fix (dieser
+Commit). 808 Tests gruen. **Installiert auf dem Pixel 11: der finale
+Stand dieses Abends**, Helper v4 aktiv (Self-Activation dreimal
+durchlaufen — sie traegt).
+
+### DIE Erkenntnis des Abends: ABR ist direkt ablesbar, keine Inferenz noetig
+
+`dumpsys bluetooth_manager` hat eine Sektion **"A2DP LDAC State"**, die
+wortwoertlich druckt:
+
+    LDAC quality mode                : ABR | LOW | ...
+    LDAC transmission bitrate (Kbps) : 492
+    Effective MTU: 883
+
+Live gemessen (Noble, 96 kHz/32 bit, sauberer Link, Musik laeuft):
+
+- **ABR pendelt zwischen 492 und 660 kbps und erreicht 990 NIE** — auch
+  nicht unter Idealbedingungen neben dem Handy. ABR nutzt Zwischenstufen
+  (492!), nicht nur 330/660/990.
+- **Pinnen funktioniert Ende-zu-Ende**: 990-Chip -> mCodecSpecific1:1000,
+  Panel liest "990 kbps (pinned)" zurueck; 330 -> 1002; ABR -> 1003.
+  Daniels Konsequenz kann er jetzt selbst ziehen: Wer 990 will, pinnt 990
+  — ABR liefert es freiwillig nicht.
+- Die Renegotiation kostet hoerbar kurz Audio; die Verlust-Zeile weist
+  sie ehrlich aus (25 dropped packets beim Umschalten).
+
+### Genauso wichtig: die Paketraten-Inferenz ist FALSIFIZIERT
+
+Empirisch am Geraet: Der enqueue-Zaehler tickt **konstant ~50/s** in
+jedem Modus (er zaehlt Timer-Ticks, nicht Funkpakete), und "Frames per
+packet" aus den TxQueue-Zaehlern ist **Spielzeit-Anteil x 15**, keine
+Packung (990 gepinnt: 13,5; 330 gepinnt: 10,5 — beides Duty-Cycle).
+Damit ist auch die "Morgen-Session lag bei 330"-Analyse vom 26.8.
+unbewiesen (die Rohaufnahme enthielt die LDAC-State-Sektion nicht;
+rueckwirkend nicht mehr klaerbar — ab jetzt zeichnet die App live auf).
+
+**Wichtigster offener Punkt fuer die naechste Session:** Den
+Live-Link-Datenpfad auf die direkten Felder umbauen — `LDAC quality
+mode` + `LDAC transmission bitrate (Kbps)` als MEASURED in Snapshot,
+Panel und beide Graphen; die CodecModeInference auf diesen Feldern
+verankern oder zurueckbauen (ihre Zaehler-Basis traegt nicht); die
+Honesty-Texte anpassen ("Adaptive — rate not observable" stimmt auf
+diesem Build nicht mehr); neue Voll-Fixture mit der LDAC-State-Sektion
+aufnehmen (die bisherigen Fixtures sind ohne sie).
+
+### Behobene Live-Funde des Abends (alle committet)
+
+1. Pin-Chips reichten die maskierte Anzeige-Adresse an den Controller
+   (User-Builds maskieren dumpsys) -> raw-Aufloesung uebers A2DP-Profil.
+2. Event-Mapper scannte den ganzen Status-Blob -> LDAC-Links hiessen
+   "aptX HD" in der Event-Liste -> Config-Sektion wird erst isoliert.
+3. LHDCv5 (Typ 7) haette app-weit "aptX Adaptive" geheissen ->
+   name-first, unbekannte Vendor-Typen ehrlich "Vendor codec (type N)".
+4. Klinik-Dialog verwarf volle Formulare stumm bei Back/Outside-Tap
+   (zweimal live passiert) -> Discard-Rueckfrage bei angefasstem Formular.
+5. **ICU-Regex-Crash nur am Geraet**: nacktes `}` am Pattern-Ende laeuft
+   auf der JVM (alle Tests gruen!), wirft auf Android
+   PatternSyntaxException im <clinit> -> ganzes Live-Panel tot ("No
+   device"). Lehre fuer Task 16 (synthetische Tests): JVM-Regex-Gruen
+   beweist nichts fuer ICU; bare braces vermeiden.
+
+### Ausserdem heute abend erledigt
+
+- Room-Migration v1->2: Pin-Kalibrierung persistent, destruktiver
+  Fallback entfernt, exportSchema an, Migrationstest nachweislich
+  fail-faehig.
+- Live-Graphen: 60s-Uebersicht (alle drei Verlustquellen) + 10s-Nahblick
+  (2 Hz, eigener 233-ms-Probe, default aus, Kosten am Schalter).
+- Klinisches Audiogramm am Geraet erfasst (links flach 10, rechts 15 bei
+  125/250): "stored", Gate sagt korrekt "no loss to correct".
+  Kalibrier-Transfer verweigert ehrlich (zu wenig konvergierter Overlap
+  mit den 2 alten Runs) — fuer die echte Ableitung braucht Daniel einen
+  frischen Hoertest.
+- PLAN-A16-ABNAHME.md: finale Pixel-8-Pro-Abnahme vor der Weggabe
+  (Bloecke A-E, kritische Trennstellen markiert).
+- VERBOSE-Probe gefahren und zurueckgesetzt: bestaetigte 750 Frames/s
+  und 20-ms-Encoder-Intervall; keine EQMID-Zeilen im Log noetig, weil
+  die dumpsys-Felder alles liefern.
+
+### Wiederaufnahme
+
+1. Datenpfad auf die direkten LDAC-Felder umbauen (siehe oben) — das ist
+   der Rest von Task 13/15 und macht Daniels Graphen zur echten
+   ABR-Anzeige.
+2. Task 16 (synthetische Tests) mit der ICU-Lehre.
+3. A16-Abnahme nach PLAN-A16-ABNAHME.md, solange das Pixel 8 Pro da ist.
+4. Backlog: 18 (Drift), 19 (ISO 7029), 20 (ISO-226-Tilt).
