@@ -203,8 +203,25 @@ object DumpsysBluetoothParser {
         return DumpsysSnapshot(devices.values.toList(), warnings)
     }
 
+    /**
+     * The first group that matched, as a **physical** quantity.
+     *
+     * Zero is rejected rather than carried, and that is not tidiness. The
+     * patterns above accept two spellings, `0x4(96000)` and a bare `96000`, and
+     * the bare branch starts matching at the very character the hex branch does
+     * — so whenever the parenthesised value is missing or is not a number, the
+     * bare branch matches the `0` of the `0x` prefix and nothing else. Two ways
+     * that happens for real: `mBitsPerSample:0x0(NONE)`, which every
+     * unnegotiated capability entry prints, and a dump cut mid-line at
+     * `mSampleRate:0x4(9600`, which is what a truncated `dumpsys` read looks
+     * like.
+     *
+     * Both used to yield a confident `0`, and a rate of 0 Hz or a depth of 0
+     * bits is not a measurement — it is the parser failing while looking like it
+     * succeeded, which is the one outcome this file must not have.
+     */
     private fun firstInt(groups: List<String>): Int? =
-        groups.drop(1).firstOrNull { it.isNotEmpty() }?.toIntOrNull()
+        groups.drop(1).firstOrNull { it.isNotEmpty() }?.toIntOrNull()?.takeIf { it > 0 }
 
     /** Blocks whose `{codecName:...}` entries describe capabilities, not the live link. */
     private val IGNORED_BLOCK_HEADERS = listOf(

@@ -278,7 +278,11 @@ private fun DiagnosticCard(
                 }
                 Pill(marker, tone = tone)
                 Text(
-                    "${step.step.title}: ${step.outcome.detail}",
+                    // The detail is quoted from below: a codec read that failed
+                    // reports the reason it was given, and the layers under this
+                    // one work in real addresses. Same boundary rule as the LDAC
+                    // tuning message — see [redactAddresses].
+                    redactAddresses("${step.step.title}: ${step.outcome.detail}"),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -399,20 +403,33 @@ private fun SamplingMode.tone(): PillTone = when (this) {
 /**
  * The report as text somebody can paste somewhere else — the steps included,
  * because the verdict alone loses which check produced which finding.
+ *
+ * Redacted on the way out, and that is not belt-and-braces: [DiagnosticReport]
+ * carries the **raw** address, because it is built from the A2DP profile rather
+ * than from the redacted dump, and an unnamed headphone printed it verbatim into
+ * the one string on this screen whose whole purpose is to be pasted into a
+ * support ticket or a forum thread. Same rule as the live panel's header, which
+ * masks for the same reason: the platform's own dumps only redact on a user
+ * build, so the app cannot rely on its inputs being redacted for it.
+ *
+ * Internal rather than private so `MacRedactionInvariantTest` can walk it — the
+ * leak was in this function, and a rule nothing checks is a rule that comes back.
  */
-private fun DiagnosticReport.asPlainText(): String = buildString {
-    appendLine("Device test — ${deviceName ?: deviceAddress}")
-    appendLine("Duration: ${durationMs / 1000} s, $sampleCount samples")
-    appendLine()
-    steps.forEach { result ->
-        val marker = when (result.outcome) {
-            is StepOutcome.Passed -> "Passed"
-            is StepOutcome.Warned -> "Warning"
-            is StepOutcome.Failed -> "Failed"
-            is StepOutcome.Skipped -> "Skipped"
+internal fun DiagnosticReport.asPlainText(): String = redactAddresses(
+    buildString {
+        appendLine("Device test — ${deviceName ?: deviceAddress}")
+        appendLine("Duration: ${durationMs / 1000} s, $sampleCount samples")
+        appendLine()
+        steps.forEach { result ->
+            val marker = when (result.outcome) {
+                is StepOutcome.Passed -> "Passed"
+                is StepOutcome.Warned -> "Warning"
+                is StepOutcome.Failed -> "Failed"
+                is StepOutcome.Skipped -> "Skipped"
+            }
+            appendLine("$marker — ${result.step.title}: ${result.outcome.detail}")
         }
-        appendLine("$marker — ${result.step.title}: ${result.outcome.detail}")
-    }
-    appendLine()
-    append(verdict)
-}
+        appendLine()
+        append(verdict)
+    },
+)

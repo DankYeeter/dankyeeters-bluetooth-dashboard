@@ -59,6 +59,100 @@ class LoudnessRestorationMathTest {
         assertTrue(ratio.isFinite() && ratio > 0f)
     }
 
+    // ---- the property across the whole band range, not three hand-picked boosts ----
+
+    /**
+     * Every boost a slider can produce, in the 0.25 dB steps a drag makes.
+     *
+     * The three-value list above was chosen for readability, and a value chosen
+     * for readability is a value that cannot fail: the interesting boosts are the
+     * ones nobody would write down — 0.25, 14.75, and everything between.
+     */
+    private fun bandRangeBoosts(): List<Float> =
+        (0..(EqBands.MAX_GAIN_DB * 4).toInt()).map { it / 4f }
+
+    @Test
+    fun `net gain is zero at full scale for every boost the sliders can reach`() {
+        bandRangeBoosts().forEach { boost ->
+            assertEquals("boost $boost", 0f, netGainAt(0f, boost), 1e-3f)
+        }
+    }
+
+    @Test
+    fun `net gain is the full boost below the threshold for every boost`() {
+        bandRangeBoosts().forEach { boost ->
+            assertEquals("boost $boost", boost, netGainAt(-60f, boost), 1e-4f)
+        }
+    }
+
+    /**
+     * A larger boost has to be taken back harder, so the ratio may never dip as
+     * the boost grows. A non-monotone ratio would mean two boosts crossing over
+     * somewhere in the middle of the range — the band asked to lift more ending
+     * up compressed less — which no listening test would ever localise.
+     */
+    @Test
+    fun `the ratio never decreases as the boost grows`() {
+        var previous = 0f
+        var boost = 0f
+        while (boost <= -LoudnessRestorationMath.THRESHOLD_DB + 5f) {
+            val ratio = LoudnessRestorationMath.ratioFor(boost)
+            assertTrue("ratio fell from $previous to $ratio at boost $boost", ratio >= previous)
+            previous = ratio
+            boost += 0.25f
+        }
+    }
+
+    /**
+     * A boost small enough to be a rounding error must still be a compressor,
+     * not a bypass: the ratio leaves 1 as soon as the boost does, or the first
+     * quarter-decibel of a drag would be static gain that outlives full scale.
+     */
+    @Test
+    fun `a tiny boost is a tiny ratio rather than unity`() {
+        val range = -LoudnessRestorationMath.THRESHOLD_DB
+        listOf(0.05f, 0.25f, 1f).forEach { boost ->
+            val ratio = LoudnessRestorationMath.ratioFor(boost)
+            assertTrue("boost $boost gave ratio $ratio", ratio > 1f)
+            // range / (range - boost): still within a hair of unity, and exact.
+            assertEquals("boost $boost", range / (range - boost), ratio, 1e-4f)
+        }
+    }
+
+    /**
+     * The clamp's own edge, stated as the number it produces.
+     *
+     * [LoudnessRestorationMath.ratioFor] clamps the boost to one decibel short of
+     * the threshold depth, so the largest ratio it can ever return is
+     * `range / 1` — 35 today. Anything at or past that edge is the same finite
+     * ratio, which is what keeps a future wider gain range from inverting the
+     * curve instead of merely saturating it.
+     */
+    @Test
+    fun `at and past the range limit the ratio saturates at a finite value`() {
+        val range = -LoudnessRestorationMath.THRESHOLD_DB
+        val atLimit = LoudnessRestorationMath.ratioFor(range - 1f)
+
+        assertEquals(range, atLimit, 1e-3f)
+        listOf(range, range + 1f, 100f, 1_000f).forEach { boost ->
+            val ratio = LoudnessRestorationMath.ratioFor(boost)
+            assertEquals("boost $boost", atLimit, ratio, 1e-3f)
+            assertTrue("boost $boost gave $ratio", ratio.isFinite() && ratio > 0f)
+        }
+    }
+
+    /**
+     * A negative boost is a cut, and cuts do not live in this mode at all — the
+     * static pre-EQ keeps them. Asked about one anyway, the ratio must be unity
+     * rather than a value below 1, which the effect would read as *expansion*.
+     */
+    @Test
+    fun `a cut is not turned into an expander`() {
+        listOf(-0.25f, -6f, -EqBands.MAX_GAIN_DB).forEach { boost ->
+            assertEquals("boost $boost", 1f, LoudnessRestorationMath.ratioFor(boost), 1e-6f)
+        }
+    }
+
     @Test
     fun `restoration mode frees the automatic headroom`() {
         val boosted = EqSettings(
