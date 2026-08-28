@@ -4354,3 +4354,22 @@ Kleiner UX-Nachschliff moeglich: auf die Notification als Hauptweg
 verweisen statt aufs In-App-Feld.
 
 **Damit ist das Pixel 8 Pro abgenommen und darf weggegeben werden.**
+
+### Nachtrag zur A16-Abnahme: volle Funktionsbestaetigung + Regel fuer beide Versionen
+
+Spot-Checks der neuesten Features auf dem Pixel 8 Pro (Build dbcb1b5):
+Quiet-Listening-Tilt folgt der Lautstaerke live (20/25: "none at this
+volume"; 8/25: "+9 dB bass, +3 dB treble") — der Volume-Observer-Pfad
+laeuft auf A16. Preference-Test startet, A/B schaltet die Live-EQ-
+Kandidaten crashfrei, Abbruch sauber. Zusammen mit der Abnahme sind
+damit ALLE versionskritischen Schichten auf A16 bewiesen: Helper/
+app_process, DynamicsProcessing-Kette, dumpsys-Parsing inkl.
+LDAC-State-Sektion, Room-Migrationen, SAF-Backup, Volume-Observer.
+
+**Vereinbarung ab jetzt:** keine weiteren Installationen auf dem
+Pixel 8 Pro; Tests und Feinschliff nur noch auf dem Pixel 11 (A17).
+Bau-Regel dafuer: neue Features bleiben auf der bewiesenen API-Flaeche
+(pure Kotlin + die oben genannten Schichten); alles daroberhinaus wird
+versions-gegated mit ehrlicher Meldung statt stillem Bruch. Die
+Test-Suite traegt Fixtures beider Versionen (bt_manager_pixel8_ldac.txt
++ Pixel-11-Dumps), der ICU-Lint schuetzt die Regex-Flanke.
