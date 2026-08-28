@@ -99,22 +99,19 @@ object BluetoothReadOnlySettings {
     val a2dpHardwareOffload = ReadOnlySystemSetting(
         label = "A2DP hardware offload",
         liveValueKey = "persist.bluetooth.a2dp_offload.disabled",
-        explanation = "Whether Bluetooth audio is encoded by a dedicated chip instead " +
-            "of by the main processor. Offload saves battery, and it moves the audio " +
-            "out of the path this app's equaliser sits in.",
-        whyReadOnly = "A system property, not a setting. The init process owns " +
-            "properties and refuses writes from the shell — and the helper is the " +
-            "shell. Only a rooted phone can change it.",
+        explanation = "Whether a dedicated chip encodes Bluetooth audio instead of the " +
+            "main processor. Offload saves battery and takes the audio out of this " +
+            "app's equaliser path.",
+        whyReadOnly = "A system property, not a setting: only a rooted phone can " +
+            "change it.",
     )
 
     val maxConnectedAudioDevices = ReadOnlySystemSetting(
         label = "Maximum connected audio devices",
         liveValueKey = "persist.bluetooth.maxconnectedaudiodevices",
-        explanation = "How many audio devices may stay connected at once. More " +
-            "connections share the same radio, so raising it can cost stability on " +
-            "the one you are actually listening to.",
-        whyReadOnly = "Also a system property, and refused for the same reason: the " +
-            "helper runs as the shell, and the shell may not write it.",
+        explanation = "How many audio devices may stay connected at once. They share " +
+            "one radio, so raising it can cost stability on the one you are listening to.",
+        whyReadOnly = "A system property again — the shell may not write it.",
     )
 
     val hciSnoopLog = ReadOnlySystemSetting(
@@ -122,8 +119,7 @@ object BluetoothReadOnlySettings {
         liveValueKey = "persist.bluetooth.btsnooplogmode",
         explanation = "Records everything the Bluetooth radio sends and receives, for " +
             "debugging. No effect on sound quality.",
-        whyReadOnly = "A system property again — the shell may not write it, so neither " +
-            "can the helper.",
+        whyReadOnly = "A system property too, and not writable by the shell.",
     )
 
     val all: List<ReadOnlySystemSetting> =

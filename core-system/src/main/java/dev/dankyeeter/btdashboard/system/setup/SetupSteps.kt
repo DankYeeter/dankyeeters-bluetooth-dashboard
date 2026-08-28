@@ -52,7 +52,7 @@ enum class SetupStep(
         id = "bluetooth",
         title = "Bluetooth access",
         summary = "So the app can see your headphone.",
-        rationale = "Needed to see which headphone is connected, read its codec, and " +
+        rationale = "Lets the app see which headphone is connected, read its codec and " +
             "apply that device's profile. Without it the dashboard and the link " +
             "monitor stay empty.",
         need = SetupNeed.REQUIRED,
@@ -61,9 +61,8 @@ enum class SetupStep(
         id = "microphone",
         title = "Microphone",
         summary = "So the hearing test can check the room is quiet.",
-        rationale = "Used only for the ambient-noise check before a hearing test — a " +
-            "few seconds of level measurement. Nothing is recorded and nothing is " +
-            "stored.",
+        rationale = "Used only for the few seconds of level measurement before a " +
+            "hearing test. Nothing is recorded and nothing is stored.",
         need = SetupNeed.OPTIONAL,
     ),
     // Required since the app started pairing itself: Android's pairing code is
@@ -75,8 +74,8 @@ enum class SetupStep(
         title = "Notifications",
         summary = "The pairing code below is typed into one.",
         rationale = "The pairing code is typed into a notification, so the last step " +
-            "here cannot be finished without this. Afterwards the app uses them for " +
-            "one thing only: telling you when the equaliser has gone inactive.",
+            "here cannot be finished without this. Afterwards they are used for one " +
+            "thing: telling you when the equaliser has gone inactive.",
         need = SetupNeed.REQUIRED,
     ),
     // One step, because it is one action: the phone pairs with its own
@@ -87,10 +86,9 @@ enum class SetupStep(
         id = "helper",
         title = "Pairing and helper",
         summary = "The phone starts the helper by pairing with itself.",
-        rationale = "The helper reads what the Bluetooth stack negotiated, sets " +
-            "codecs, and equalises players that hide their audio session. The phone " +
-            "pairs with its own debugging service to start it — no computer, no " +
-            "second app. Wireless debugging is switched back off straight after.",
+        rationale = "The helper reads what the Bluetooth stack negotiated, sets codecs " +
+            "and equalises players that hide their audio session. The phone pairs with " +
+            "its own debugging service to start it, then switches that back off.",
         need = SetupNeed.ACTIVATION,
     ),
     ;

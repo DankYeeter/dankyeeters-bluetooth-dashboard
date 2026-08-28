@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.audio.eq.HeadroomMode
 import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeSource
 import dev.dankyeeter.btdashboard.audio.eq.withVolumeTilt
 import dev.dankyeeter.btdashboard.hearing.AncMode
@@ -187,6 +188,20 @@ data class CompensationUiState(
             clinical?.prescribesNothing == true
 
     /**
+     * True when the hearing measurement in force asks for no correction:
+     * because there is none, or because it is flat inside normal hearing.
+     *
+     * Assembled from the compensation pipeline's own answers rather than from a
+     * new threshold of this screen's invention — [activeAudiogram] for "no
+     * curve", [clinicalPrescribesNothing] for the clinical normal-limits gate,
+     * and [CompensationResult.peakBand] for the computed curve, which is null
+     * exactly when the curve lifts nothing worth naming. A second opinion about
+     * what counts as flat is how two parts of one screen end up disagreeing.
+     */
+    val hearingCurveIsFlat: Boolean
+        get() = activeAudiogram == null || clinicalPrescribesNothing || result?.peakBand == null
+
+    /**
      * Whether the generated curve has anything to stand on.
      *
      * Three runs, *or* a clinical audiogram. The run threshold exists because a
@@ -229,6 +244,17 @@ class EqViewModel(
     private val _bypass = MutableStateFlow(false)
     val bypass: StateFlow<Boolean> = _bypass.asStateFlow()
 
+    /**
+     * The layer being held out of the signal right now, or null.
+     *
+     * Transient by construction: it lives here and nowhere else, it is never
+     * written to the store, and it dies with the ViewModel. A layer comparison
+     * is a question ("what is this switch buying me?"), and a question must not
+     * change the answer the app remembers.
+     */
+    private val _heldLayer = MutableStateFlow<EqLayer?>(null)
+    val heldLayer: StateFlow<EqLayer?> = _heldLayer.asStateFlow()
+
     private val _compensation = MutableStateFlow(
         CompensationUiState(presets = HearingGraph.presets.all()),
     )
@@ -244,7 +270,10 @@ class EqViewModel(
                 // anything reads the settings or compares them against a
                 // preview. Sanitised with it, because a tilt without the
                 // headroom it costs is not a state this screen may show.
-                _settings.value = withTilt(loaded).sanitized()
+                // TRACK: a load is as settled as a state gets, and the stored
+                // pre-gain was computed for whatever volume the app was closed
+                // at rather than for this one.
+                _settings.value = withTilt(loaded).sanitized(HeadroomMode.TRACK)
                 _compensation.value = _compensation.value.withAppliedFlag(loaded)
                 settingsLoaded = true
                 syncGeneratedCurve()
@@ -257,7 +286,10 @@ class EqViewModel(
             mediaVolume.fraction.collect { fraction ->
                 val current = _settings.value
                 if (!current.volumeAwareTilt) return@collect
-                val next = withTilt(current, fraction).sanitized()
+                // TRACK: a volume step is a finished event, and the tilt it
+                // produces both costs and releases headroom — turning the
+                // volume back up has to give the level back with it.
+                val next = withTilt(current, fraction).sanitized(HeadroomMode.TRACK)
                 // Quantised gains mean most steps land on the curve that is
                 // already playing; comparing keeps those steps silent instead of
                 // rewriting every band of a live effect.
@@ -382,6 +414,14 @@ class EqViewModel(
      */
     private fun curveIsGenerated(): Boolean = _compensation.value.adjustedReferenceActive
 
+    /**
+     * A band moved. Mid-drag, so the headroom may only deepen.
+     *
+     * The asymmetry is the whole design: a boost has to be paid for in the same
+     * write that introduces it, or the next buffer clips, while giving level
+     * back on every intermediate value would make the music pump under the
+     * finger. [persist] closes the loop when the finger comes off.
+     */
     fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) {
         if (curveIsGenerated()) return
         compensationDrivesTheEq = false
@@ -414,24 +454,20 @@ class EqViewModel(
     /**
      * Boosts act on quiet passages only; loud passages pass as recorded.
      *
-     * sanitized() recomputes the headroom on commit: in this mode boosts live
-     * in the compressor and are gone again by full scale, so the automatic
-     * pre-gain lets go of them — switching this on audibly restores the level
-     * a boosted static curve had traded away.
+     * [commit] recomputes the headroom with [HeadroomMode.TRACK]: in this mode
+     * boosts live in the compressor and are gone again by full scale, so the
+     * automatic pre-gain lets go of them — switching this on audibly restores
+     * the level a boosted static curve had traded away, and switching it off
+     * charges for them again.
+     *
+     * Nothing is computed here. It used to pre-set `preGainDb` by hand on both
+     * edges, because the old deepen-only rule would not have let go of the
+     * headroom on its own; that hand computation also ignored the tilt, which
+     * stays static in this mode and still has to be paid for. Letting
+     * `sanitized()` read the peak off the static path answers both.
      */
-    fun setLoudnessRestoration(enabled: Boolean) {
-        val current = _settings.value
-        commit(
-            current.copy(
-                loudnessRestoration = enabled,
-                preGainDb = if (current.autoHeadroom) {
-                    if (enabled) 0f else EqSettings.headroomFor(current.leftGainsDb, current.rightGainsDb)
-                } else {
-                    current.preGainDb
-                },
-            ),
-        )
-    }
+    fun setLoudnessRestoration(enabled: Boolean) =
+        commit(_settings.value.copy(loudnessRestoration = enabled))
 
     /**
      * Switches the ISO 226 volume-aware tilt on or off.
@@ -451,17 +487,21 @@ class EqViewModel(
      * zero, so dragging a band upwards is heard as louder rather than as
      * everything else becoming quieter. That is what people expect, and it is
      * also how a track can clip; the limiter stays as the second net.
+     *
+     * Only the "off" edge sets a number: with the automatic headroom off,
+     * `sanitized()` keeps whatever pre-gain it is given, so the zero has to be
+     * written here or the last automatic value would be left behind as a
+     * mystery attenuation. On the "on" edge [commit] derives it, which is also
+     * the more correct answer — the hand computation this used to do read the
+     * user's bands only and so forgot the tilt, which stays static and still
+     * has to be paid for.
      */
     fun setAutoHeadroom(enabled: Boolean) {
         val current = _settings.value
         commit(
             current.copy(
                 autoHeadroom = enabled,
-                preGainDb = if (enabled) {
-                    EqSettings.headroomFor(current.leftGainsDb, current.rightGainsDb)
-                } else {
-                    0f
-                },
+                preGainDb = if (enabled) current.preGainDb else 0f,
             ),
         )
     }
@@ -479,6 +519,40 @@ class EqViewModel(
     fun setBypass(bypass: Boolean) {
         _bypass.value = bypass
         pushLive(effective(_settings.value, bypass))
+    }
+
+    /**
+     * Takes one layer out of the signal for as long as the control is held.
+     *
+     * The same mechanism as [setBypass] and for the same reason: the effect
+     * stays attached and only its gains change, so the comparison is instant
+     * and gap-free. Nothing is committed and nothing is saved — [_settings] is
+     * not touched, only what is pushed to the effect.
+     *
+     * This exists because two of the switches on this screen cannot be
+     * explained into being understood. "Loudness restoration" and the
+     * quiet-listening tilt are both claims about what the listener will hear,
+     * and a claim about hearing is settled by listening for two seconds, not
+     * by reading two paragraphs.
+     */
+    fun holdLayerBypass(layer: EqLayer) {
+        if (_heldLayer.value == layer) return
+        _heldLayer.value = layer
+        pushLive(effective(_settings.value, _bypass.value))
+    }
+
+    /**
+     * Puts [layer] back.
+     *
+     * Named rather than unconditional so that a stale release — the press
+     * gesture of a control that was recomposed away, or the initial emission of
+     * a press-state observer — cannot cancel a hold that belongs to the other
+     * control.
+     */
+    fun releaseLayerBypass(layer: EqLayer) {
+        if (_heldLayer.value != layer) return
+        _heldLayer.value = null
+        pushLive(effective(_settings.value, _bypass.value))
     }
 
     fun resetFlat() {
@@ -507,9 +581,28 @@ class EqViewModel(
         persist()
     }
 
-    /** Persists the current curve; call on slider release. */
+    /**
+     * The edit is over: settle the headroom, push it, and persist.
+     *
+     * Called on slider release. This is the other half of [setBandGain] — the
+     * drag itself may only make the pre-gain deeper, so without a recompute
+     * here a band pushed to +5 dB and dragged back to 0 left the music 5 dB
+     * down with nothing boosted to justify it, until "Reset bands to flat" was
+     * pressed. [HeadroomMode.TRACK] reads the pre-gain off the curve that is
+     * actually playing, in both directions.
+     *
+     * The push is conditional because most releases change nothing: a drag that
+     * ended where it started, or one whose peak never moved, must not rewrite
+     * every band of a live effect for the sake of an identical value.
+     */
     fun persist() {
-        viewModelScope.launch { store.save(_settings.value) }
+        val settled = withTilt(_settings.value).sanitized(HeadroomMode.TRACK)
+        if (settled != _settings.value) {
+            _settings.value = settled
+            _compensation.value = _compensation.value.withAppliedFlag(settled)
+            pushLive(effective(settled, _bypass.value))
+        }
+        viewModelScope.launch { store.save(settled) }
     }
 
     // ---- compensation flow ---------------------------------------------------
@@ -770,23 +863,25 @@ class EqViewModel(
      * keeps the derived layer in step with the layout, the switch and the
      * volume at the same time — a layout change alone would otherwise leave a
      * tilt list of the wrong length behind, and the model refuses that outright.
+     *
+     * It used to zero the pre-gain whenever the tilt changed size, because
+     * `sanitized()` could only ever *deepen* it and turning the volume back up
+     * would otherwise have left the music 12 dB down with nothing boosted to
+     * justify it. That reset is gone: it was a local patch for a rule that was
+     * wrong in general — a band pulled back to zero had exactly the same
+     * problem — and [HeadroomMode.TRACK] now fixes it at the source. Every
+     * caller of this function sanitises with TRACK, so the tilt's headroom is
+     * still derived from the curve that is actually playing, and it is derived
+     * by the same mechanism as everything else's.
      */
-    private fun withTilt(value: EqSettings, fraction: Float = mediaVolume.fraction.value): EqSettings {
-        val tilted = value.withVolumeTilt(fraction)
-        if (tilted.tiltGainsDb == value.tiltGainsDb || !tilted.autoHeadroom) return tilted
-        // The tilt just changed size, so the headroom it bought has to be
-        // recomputed rather than kept. `sanitized()` only ever *deepens* the
-        // pre-gain — that is deliberate, so a manually set headroom survives a
-        // slider drag — which means turning the volume back up, or switching the
-        // feature off, would otherwise leave the music 12 dB down with nothing
-        // boosted to justify it. Zeroing here lets sanitized() derive the
-        // correct value from the curve that is actually playing; every other
-        // path still keeps whatever headroom it had.
-        return tilted.copy(preGainDb = 0f)
-    }
+    private fun withTilt(value: EqSettings, fraction: Float = mediaVolume.fraction.value): EqSettings =
+        value.withVolumeTilt(fraction)
 
     private fun commit(value: EqSettings) {
-        val clean = withTilt(value).sanitized()
+        // A commit is by definition a settled state — a switch flipped, a
+        // preset loaded, a released slider — so the headroom is recomputed in
+        // both directions rather than only downwards.
+        val clean = withTilt(value).sanitized(HeadroomMode.TRACK)
         val layoutChanged = clean.layout != _settings.value.layout
         _settings.value = clean
         // A layout change invalidates the cached preview: it was computed for
@@ -797,7 +892,11 @@ class EqViewModel(
         viewModelScope.launch { store.save(clean) }
     }
 
-    private fun effective(value: EqSettings, bypass: Boolean): EqSettings =
+    private fun effective(
+        value: EqSettings,
+        bypass: Boolean,
+        held: EqLayer? = _heldLayer.value,
+    ): EqSettings =
         // A copy of the live state with the bands zeroed, not a fresh
         // EqSettings. Built from scratch it carried the *default* layout, so on
         // any other layout every A/B toggle changed the band count — and a band
@@ -809,11 +908,19 @@ class EqViewModel(
         // The tilt goes flat with the bands. "Compare with EQ off" promises the
         // music untouched, and a correction that survived the comparison would
         // be on both sides of it.
-        if (!bypass) value else value.copy(
-            leftGainsDb = List(value.layout.bandCount) { 0f },
-            rightGainsDb = List(value.layout.bandCount) { 0f },
-            tiltGainsDb = List(value.layout.bandCount) { 0f },
-        )
+        //
+        // The held layer is applied only when the whole thing is not bypassed
+        // already: with everything flat there is no layer left to remove, and
+        // asking would just be a second way of writing the same zeros.
+        if (!bypass) {
+            value.withoutLayer(held)
+        } else {
+            value.copy(
+                leftGainsDb = List(value.layout.bandCount) { 0f },
+                rightGainsDb = List(value.layout.bandCount) { 0f },
+                tiltGainsDb = List(value.layout.bandCount) { 0f },
+            )
+        }
 
     private fun pushLive(value: EqSettings) {
         // update() re-uses the existing attachment and falls back to a full
@@ -824,6 +931,61 @@ class EqViewModel(
 
 private fun List<Float>.replaceAt(index: Int, value: Float): List<Float> =
     toMutableList().also { it[index] = value }
+
+/**
+ * One layer of the composed curve, nameable on its own so it can be silenced on
+ * its own.
+ *
+ * These are the two features whose worth cannot be settled by reading: both are
+ * claims about what an ear will notice, and both are cheap to demonstrate
+ * because the effect is already attached and only its numbers change.
+ */
+enum class EqLayer {
+    /** The boosts that [EqSettings.compressorGainsFor] routes to the compressor. */
+    LOUDNESS_RESTORATION,
+
+    /** The ISO 226 correction in [EqSettings.tiltGainsDb]. */
+    QUIET_LISTENING_TILT,
+}
+
+/**
+ * The same settings with one layer's own gains zeroed, for the hold-to-compare
+ * controls.
+ *
+ * **The pre-gain is deliberately left alone.** That is what makes this a
+ * comparison rather than a level change: the tilt's boosts bought headroom, and
+ * handing that headroom back the moment the tilt is lifted would make the
+ * bypassed side louder — and louder always sounds better, which is precisely
+ * the judgement error the whole A/B idiom exists to prevent. `sanitized()` on
+ * the way into the effect only ever *deepens* the pre-gain
+ * ([HeadroomMode.DEEPEN_ONLY], its default), so the level survives the round
+ * trip without anyone having to remember to preserve it.
+ *
+ * Each branch is a no-op while its feature is switched off, so this removes
+ * exactly the layer that is actually in the signal and never a layer that only
+ * looks like one — with loudness restoration off the positive band gains are
+ * the static curve itself, and zeroing them there would silently be the
+ * "Compare with EQ off" switch under a different name.
+ *
+ * A free function so the rule can be tested without an Android graph behind it,
+ * the same reason [compensationLayoutFor] is one.
+ */
+internal fun EqSettings.withoutLayer(layer: EqLayer?): EqSettings = when (layer) {
+    null -> this
+    EqLayer.LOUDNESS_RESTORATION -> if (!loudnessRestoration) {
+        this
+    } else {
+        copy(
+            leftGainsDb = leftGainsDb.map { it.coerceAtMost(0f) },
+            rightGainsDb = rightGainsDb.map { it.coerceAtMost(0f) },
+        )
+    }
+    EqLayer.QUIET_LISTENING_TILT -> if (!volumeAwareTilt) {
+        this
+    } else {
+        copy(tiltGainsDb = List(layout.bandCount) { 0f })
+    }
+}
 
 /**
  * Which band grid the prescription is mapped onto: [live] normally, so a

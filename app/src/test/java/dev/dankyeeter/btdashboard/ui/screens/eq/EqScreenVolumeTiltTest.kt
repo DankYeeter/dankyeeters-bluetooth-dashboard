@@ -12,7 +12,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * The volume-aware tuning row is on the EQ screen, and it is off until asked.
+ * The quiet-listening tilt row is on the EQ screen, and it is off until asked.
  *
  * Like `BluetoothScreenSettingsTest` this has to name something, and it names
  * the control's label rather than the paragraph behind the question mark —
@@ -20,6 +20,11 @@ import org.robolectric.annotation.Config
  * one with teeth: the readout line only exists while the feature is on, so its
  * absence on a fresh install is what proves the default is off rather than
  * merely that a switch was drawn.
+ *
+ * The readout is matched on "At this volume" rather than on the feature's name,
+ * which it used to repeat. Once the row itself is called "Quiet-listening tilt"
+ * the old prefix said the same words twice and, worse, made the presence check
+ * unable to tell the label from the readout.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -38,12 +43,12 @@ class EqScreenVolumeTiltTest {
             .fetchSemanticsNodes()
 
     @Test
-    fun `the volume-aware tuning row is on the screen`() {
+    fun `the quiet-listening tilt row is on the screen`() {
         showScreen()
 
         assertTrue(
-            "expected the volume-aware tuning switch on the EQ screen",
-            nodesWith("Volume-aware tuning").isNotEmpty(),
+            "expected the quiet-listening tilt switch on the EQ screen",
+            nodesWith("Quiet-listening tilt").isNotEmpty(),
         )
     }
 
@@ -53,7 +58,32 @@ class EqScreenVolumeTiltTest {
 
         assertTrue(
             "the tilt readout must not appear while the feature is off",
-            nodesWith("Quiet-listening tilt").isEmpty(),
+            nodesWith("At this volume").isEmpty(),
+        )
+        assertTrue(
+            "the hold-to-compare control belongs to a layer that is running",
+            nodesWith("Hold to hear without it").isEmpty(),
+        )
+    }
+
+    /**
+     * Loudness restoration only re-routes boosts that are in the curve, and a
+     * fresh install has none. The row stays on screen — hiding it would make
+     * the feature undiscoverable for the people who will later have a curve
+     * worth restoring — and says so instead of waiting to be switched on and
+     * doing nothing.
+     */
+    @Test
+    fun `loudness restoration says why it is unavailable on a flat curve`() {
+        showScreen()
+
+        assertTrue(
+            "the row must stay visible",
+            nodesWith("Loudness restoration").isNotEmpty(),
+        )
+        assertTrue(
+            "expected the flat-curve line under the disabled row",
+            nodesWith("this would do nothing").isNotEmpty(),
         )
     }
 }

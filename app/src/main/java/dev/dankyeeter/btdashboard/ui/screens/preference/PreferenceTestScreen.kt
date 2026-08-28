@@ -95,22 +95,10 @@ internal fun PreferenceTestCard(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             ExplainedHeader(
                 "Preference test",
-                explanation = "This measures taste, not hearing. The hearing test finds what " +
-                    "you can and cannot hear; this one asks what you like, and there is no " +
-                    "right answer to it.\n\n" +
-                    "One song at a time: ten quick A/B comparisons over whatever you are " +
-                    "already playing, adjusting a bass shelf and a treble shelf. Those two are " +
-                    "where listeners actually disagree once a headphone is otherwise " +
-                    "corrected, which is why they are the only two knobs it moves.\n\n" +
-                    "Both sides of every comparison are matched for loudness on purpose. " +
-                    "Louder always sounds better at first, so without the match the test " +
-                    "would just find whichever curve had more gain in it. While it runs, your " +
-                    "usual EQ stays on underneath and the test rides on top — automatic " +
-                    "headroom, loudness restoration and the quiet-listening tilt are paused " +
-                    "so the two sides really do play at the same level.\n\n" +
-                    "Do it over a few different songs. One track's mastering pulls every " +
-                    "answer the same way, and the only way to see that is to ask again over " +
-                    "something else.",
+                explanation = "This measures taste, not hearing: it moves a bass and a " +
+                    "treble shelf and asks which you prefer, so there is no right answer. " +
+                    "Both sides are matched for loudness, because louder always sounds " +
+                    "better at first.",
                 modifier = Modifier.weight(1f),
             )
             if (stored != null) Pill("stored", tone = PillTone.ACCENT)
@@ -483,12 +471,10 @@ private fun ResultContent(state: PreferenceUiState, actions: PreferenceTestActio
         Panel {
             ExplainedHeader(
                 "Adjust it",
-                explanation = "The two sliders are the same two numbers the test was " +
-                    "searching for, so moving one is not overriding the result — it is " +
-                    "landing on a different point of the same space. Move them and the " +
-                    "curve is re-rendered and applied straight away.\n\n" +
-                    "Once you have, the app treats the curve as yours: adding another song " +
-                    "asks before replacing it, rather than quietly winning the argument.",
+                explanation = "The two sliders are the same numbers the test searched for, " +
+                    "so moving one lands on a different point of the same space rather than " +
+                    "overriding the result. Once you move them, adding another song asks " +
+                    "before replacing your curve.",
             )
             ShelfSlider(
                 label = "Bass",

@@ -446,45 +446,31 @@ private val INTERVALS = listOf(1_000L to "1 s", 2_000L to "2 s", 5_000L to "5 s"
 
 private const val LIVE_LINK_EXPLANATION =
     "One reading of the whole audio path, from the app that is playing to the " +
-        "Bluetooth radio.\n\n" +
-        "A rate marked \"measured\" is what the Bluetooth stack says it is sending right " +
-        "now; a rate marked \"pinned\" is the spec figure for that mode. Where a value " +
-        "cannot be read on this phone, the panel says why instead of guessing. It polls " +
-        "only while this screen is in front of you."
+        "Bluetooth radio. \"Measured\" is what the stack says it is sending and " +
+        "\"pinned\" is the spec figure for the mode; where a value cannot be read, the " +
+        "panel says why instead of guessing."
 
 private const val LDAC_TUNING_EXPLANATION =
-    "Pins LDAC to one playback quality for the headphone that is connected now.\n\n" +
-        "Measured on this phone, adaptive was never once seen to reach 990 kbps — it " +
-        "moves between about 330 and 660. If you want 990, pin High quality.\n\n" +
-        "The change interrupts playback briefly and does not survive a reconnect, so " +
-        "store it in the device's profile to get it back. It needs the privileged " +
-        "helper; without it nothing can be set or read back."
+    "Pins LDAC to one playback quality for the headphone connected now; it needs the " +
+        "privileged helper and is lost on reconnect unless the device's profile stores " +
+        "it. Measured on this phone, adaptive was never once seen to reach 990 kbps, so " +
+        "pin High quality if you want it."
 
 private const val ENQUEUE_EXPLANATION =
-    "How often the Bluetooth stack hands a buffer of encoded audio to the radio.\n\n" +
-        "This is a liveness figure, not a throughput one: measured on this phone it sits " +
-        "at about 50 per second in every LDAC mode, because it is the encoder's 20 ms " +
-        "timer rather than the air. A steady figure means audio is flowing; the rate it " +
-        "is flowing at is the kbps figure above."
+    "How often the Bluetooth stack hands a buffer of encoded audio to the radio. A " +
+        "liveness figure, not a throughput one — it follows the encoder's 20 ms timer, " +
+        "so the rate audio is flowing at is the kbps figure above."
 
 private const val TRACE_EXPLANATION =
-    "The bitrate the LDAC encoder reports it is sending, read from the Bluetooth stack " +
-        "once per reading; adaptive moves it on its own. Every window that lost audio is " +
-        "marked in red on the same time axis, and a reading that was missed or came late " +
-        "leaves a break in the line rather than a drawn-across guess.\n\n" +
-        "Where the phone reports no rate, the line falls back to how often the stack " +
-        "hands audio to the radio — a liveness signal, not a rate — and each graph's " +
-        "caption names which it is drawing.\n\n" +
-        "The 10-second close-up costs 233 ms of work per reading, measured, which is why " +
-        "it is off until you ask for it. It sees the Bluetooth stack's own loss only, so " +
-        "a quiet close-up is not proof the app kept up."
+    "The bitrate the LDAC encoder reports it is sending, with every window that lost " +
+        "audio marked red on the same time axis; a missed reading leaves a break rather " +
+        "than a drawn-across guess. The 10-second close-up sees stack loss only and " +
+        "costs a measured 233 ms per reading, which is why it is off until you ask."
 
 private const val UPDATE_RATE_EXPLANATION =
-    "How often the panel re-reads the link.\n\n" +
-        "One pass runs three system dumps and takes roughly half a second of work, " +
-        "measured — so at one second the phone spends about half its time producing this " +
-        "screen, at two seconds a quarter of it. One second is worth it while you are " +
-        "chasing a dropout; five seconds is for leaving the panel open."
+    "How often the panel re-reads the link. One pass takes roughly half a second of " +
+        "work, measured — one second is worth it while chasing a dropout, five seconds " +
+        "for leaving the panel open."
 
 // ---- formatting -------------------------------------------------------------
 

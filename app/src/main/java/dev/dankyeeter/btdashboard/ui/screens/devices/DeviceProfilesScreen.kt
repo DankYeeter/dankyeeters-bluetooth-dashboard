@@ -238,10 +238,9 @@ private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
     Panel {
         ExplainedHeader(
             "Bluetooth system",
-            "These belong to the phone, not to one headphone: Android keeps a single " +
-                "value for each, so setting one here changes it now and for every " +
-                "device. The profiles above can also ask for these on connect, and the " +
-                "last device to connect wins.",
+            "Android keeps one value for each of these, so setting one here changes it " +
+                "now and for every device. The profiles above can ask for them on " +
+                "connect, and the last device to connect wins.",
         )
         Text(
             "One value for the whole phone. Changed here, changed now.",
@@ -313,9 +312,8 @@ private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
         ExplainedHeader(
             "Shown but not changeable",
             "These affect Bluetooth audio and this app cannot write them, so they are " +
-                "here read-only rather than left out. Each is a system property guarded " +
-                "by the phone's init process, which refuses the shell — so only a rooted " +
-                "phone could change them.",
+                "shown read-only rather than left out. Each is a system property, which " +
+                "only a rooted phone can change.",
         )
         BluetoothReadOnlySettings.all.forEach { setting ->
             ExplainedRow(
@@ -767,9 +765,8 @@ private fun DeveloperOptionsEditor(
     ExplainedHeader(
         "Bluetooth developer options",
         "Android keeps one value for each of these, not one per headphone, so they are " +
-            "re-applied whenever this device connects \u2014 if two headphones want " +
-            "different values, the last one to connect wins. Writing them needs the " +
-            "WRITE_SECURE_SETTINGS permission, which the app's helper grants itself.",
+            "re-applied whenever this device connects. If two headphones want different " +
+            "values, the last one to connect wins.",
     )
     Text(
         "One value for the whole system, re-applied on connect.",
@@ -877,13 +874,10 @@ private fun CodecEditor(
 ) {
     ExplainedHeader(
         "Bluetooth codec",
-        "Asks the Bluetooth stack to renegotiate this device onto a chosen codec " +
-            "whenever it connects, then reads the codec back and reports what it " +
-            "actually found — a request is not a result. These are the codecs the app " +
-            "can ask for, not the ones this headphone advertises; aptX Adaptive is " +
-            "absent because its codec id is a vendor value that has moved between " +
-            "Android versions. Setting or reading a codec at all needs the app's " +
-            "helper.",
+        "Asks the Bluetooth stack to renegotiate this device onto a chosen codec on " +
+            "every connect, then reads the codec back — a request is not a result. " +
+            "These are the codecs the app can ask for, not the ones this headphone " +
+            "advertises.",
     )
     Text(
         "Requested on every connect, then read back.",
@@ -1071,11 +1065,9 @@ private fun HdAudioEditor(
 ) {
     ExplainedHeader(
         "HD audio",
-        "The switch behind Android's own \"HD audio\" row. Off, this headphone is " +
-            "held to SBC no matter what the codec section below asks for. Unlike the " +
-            "other Bluetooth settings here, Android stores this one per device, so " +
-            "changing it leaves your other headphones alone; reading or writing it " +
-            "needs the app's helper.",
+        "The switch behind Android's own \"HD audio\" row: off, this headphone is held " +
+            "to SBC whatever the codec section below asks for. Android stores it per " +
+            "device, so changing it leaves your other headphones alone.",
     )
 
     val known = live as? HdAudioState.Known
@@ -1127,8 +1119,7 @@ private fun HdAudioEditor(
         onSelect = onChange,
         enabled = enabled && helperConnected,
         explanation = "\"Use System Default\" is not the same as \"On\": it clears the " +
-            "stored preference so Android applies its own rule again, which is how a " +
-            "choice made here is withdrawn rather than merely replaced.",
+            "stored preference so Android applies its own rule again.",
     )
 
     if (wish != null) {
@@ -1167,8 +1158,7 @@ private fun AbsoluteVolumeEditor(
             "Absolute volume",
             "With absolute volume on, the phone's slider drives the headphone's own " +
                 "volume; off, the phone keeps a separate and finer scale. Android keeps " +
-                "one value for the whole system, so a profile can only ask for it when " +
-                "that device connects.",
+                "one value system-wide, so a profile can only ask for it on connect.",
         )
         Text(
             "One system-wide switch, re-applied when this device connects.",
@@ -1209,8 +1199,8 @@ private fun AbsoluteVolumeEditor(
                 ExplainedRow(
                     label = "If the helper will not start",
                     explanation = "The same permission can be granted once from a " +
-                        "computer over ADB. It is the fallback, not the route — the " +
-                        "helper grants it on its own the moment it connects.",
+                        "computer over ADB. It is the fallback — the helper grants it on " +
+                        "its own the moment it connects.",
                     // No control of its own: the question mark carries the whole
                     // row, and what it explains is the command printed below.
                     control = {},

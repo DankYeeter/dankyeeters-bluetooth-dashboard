@@ -139,9 +139,9 @@ private fun IntroContent(
             // not read about Hughson and Westlake first.
             ExplainedHeader(
                 "What happens",
-                explanation = "A pure-tone test at 250 to 8000 Hz, one ear at a time, stepping " +
-                    "quieter and louder around your threshold. Some intervals are deliberately " +
-                    "silent, so press only when you actually hear something, however faint.",
+                explanation = "A pure-tone test from 250 to 8000 Hz, one ear at a time, " +
+                    "stepping around your threshold. Some intervals are silent on purpose, so " +
+                    "press only when you really hear something.",
             )
             Text(
                 "Short beeps, one ear at a time — press whenever you hear one. " +
@@ -153,11 +153,10 @@ private fun IntroContent(
         Panel {
             ExplainedHeader(
                 "Before you start",
-                explanation = "Background noise masks exactly the tones being measured, and ANC " +
-                    "changes what reaches your ear — a curve measured with it on fits only " +
-                    "listening with it on. Three runs, because one lapse in attention is " +
-                    "outvoted by the median. The microphone measures room noise once before the " +
-                    "run; nothing is recorded.",
+                explanation = "Noise masks the tones being measured, and ANC changes what " +
+                    "reaches your ear — a curve measured with it on fits only listening with " +
+                    "it on. The microphone checks the room once before the run; nothing is " +
+                    "recorded.",
             )
             Text(
                 "• A quiet room\n" +
@@ -176,10 +175,9 @@ private fun IntroContent(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 ExplainedHeader(
                     "Your headphones",
-                    explanation = "In-ears change their bass response completely with the seal, " +
-                        "so a loose tip measures the tip and not your ear — that is why the fit " +
-                        "check is required for them. Over-ears are far less sensitive to " +
-                        "placement, so it is optional there.",
+                    explanation = "In-ears change their bass completely with the seal, so a " +
+                        "loose tip measures the tip and not your ear. That is why the fit check " +
+                        "is required for them and optional for over-ears.",
                     modifier = Modifier.weight(1f),
                 )
                 if (state.fitCheckPassed) Pill("Fit check ✓", tone = PillTone.ACCENT)
@@ -231,11 +229,9 @@ private fun IntroContent(
             PanelHeader("Run it")
             ExplainedRow(
                 label = "Quieter test level",
-                explanation = "Hollow points at the top of the chart mean the measurement is " +
-                    "hitting its own floor, not your ears. This locks the run to a lower " +
-                    "media volume, which shifts the measurable window down. Runs taken at " +
-                    "different levels never mix into one curve; the newest run decides " +
-                    "which level counts.",
+                explanation = "Locks the run to a lower media volume, which shifts the " +
+                    "measurable window down — use it when hollow points crowd the top of the " +
+                    "chart. Runs at different levels never mix into one curve.",
             ) {
                 Switch(checked = state.quietTest, onCheckedChange = viewModel::setQuietTest)
             }
@@ -320,13 +316,10 @@ private fun ClinicalAudiogramPanel(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             ExplainedHeader(
                 "Clinical audiogram",
-                explanation = "An audiometer at a practice is calibrated: 0 dB HL is the young, " +
-                    "normal-hearing average, and up to 20 dB HL reads as normal. Everything " +
-                    "this app measures itself is relative — it can describe the shape of your " +
-                    "hearing but never its level, so entering the clinic's values gives it " +
-                    "that missing level, to draw over your own curve and to build the " +
-                    "equaliser from. Nothing leaves the phone, and nothing here is a " +
-                    "diagnosis — it is the clinic's reading, stored as you type it.",
+                explanation = "Everything this app measures itself is relative: it can show " +
+                    "the shape of your hearing but never its level. The clinic's calibrated " +
+                    "dB HL values supply that level, for the chart and for the equaliser; " +
+                    "nothing leaves the phone.",
                 modifier = Modifier.weight(1f),
             )
             if (clinical != null) Pill("stored", tone = PillTone.ACCENT)
@@ -408,15 +401,9 @@ private fun CalibrationTransferSection(
 ) {
     ExplainedHeader(
         "Headphone calibration from your audiogram",
-        explanation = "The clinic measured your ears on calibrated equipment; this app " +
-            "measured the same ears through your headphones. Subtract one from the other " +
-            "and the ears cancel out — what is left is the headphone's own response, kept " +
-            "as a shape, since the overall level only reflects the volume the test ran " +
-            "at.\n\n" +
-            "Two honest limits: it describes these headphones on your ears and is useless " +
-            "to anybody else, and it is only as good as the two measurements behind it — " +
-            "which is why the app names the disagreements it can see instead of quietly " +
-            "averaging them away.",
+        explanation = "Kept as a shape only, since the overall level just reflects the " +
+            "volume the test ran at. It describes these headphones on your ears and is only " +
+            "as good as the two measurements behind it.",
     )
     Text(
         "Both measurements are of the same ears, so their difference is your headphones.",
@@ -757,18 +744,10 @@ internal fun AgeReferencePanel(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             ExplainedHeader(
                 "Age reference",
-                explanation = "This is population statistics, not a measurement of you. " +
-                    "ISO 7029 describes how a healthy population's hearing threshold drifts " +
-                    "with age — almost nothing below 1 kHz, steeply more at 4 to 8 kHz — with " +
-                    "half of any age group better than the line and half worse. It never " +
-                    "feeds the equaliser, and a clinical audiogram always outranks it. Men " +
-                    "and women are tabulated separately; leaving the question blank " +
-                    "averages the two columns.\n\n" +
-                    "One honest gap: the standard's parameters for how widely people scatter " +
-                    "around the median could not be reproduced here with confidence, so the " +
-                    "app draws the median alone. That is why it can say \"further from " +
-                    "typical than expected\" and never \"you are in the worst 10 % for your " +
-                    "age\".",
+                explanation = "The ISO 7029 median for your age — population statistics, not " +
+                    "a measurement of you, with half of any age group better than the line and " +
+                    "half worse. It never feeds the equaliser, and the app draws the median " +
+                    "alone because it cannot reproduce the standard's spread.",
                 modifier = Modifier.weight(1f),
             )
             if (stored != null) Pill("stored", tone = PillTone.ACCENT)
@@ -903,14 +882,11 @@ internal fun HearingOverTimePanel(drift: HearingDriftResult) {
     Panel {
         ExplainedHeader(
             "Hearing over time",
-            explanation = "Two runs of this test can differ by ten decibels from ears that " +
-                "did not change at all, so a single difference between runs is noise. This " +
-                "card therefore compares medians of ${HearingDrift.RUNS_PER_CLUSTER} runs at " +
-                "each end, only across runs taken through the same headphones at the same " +
-                "volume and calibration, and only once ${HearingDrift.MIN_SPAN_DAYS} days " +
-                "separate the oldest from the newest.\n\n" +
-                "So it stays quiet most of the time and will miss real changes a clinic " +
-                "would catch. Nothing here is a diagnosis, and nothing here notifies you.",
+            explanation = "Two runs can differ by ten decibels from ears that did not " +
+                "change, so this compares medians of ${HearingDrift.RUNS_PER_CLUSTER} runs at " +
+                "each end, once ${HearingDrift.MIN_SPAN_DAYS} days separate them. It " +
+                "therefore misses real changes a clinic would catch, and it never diagnoses " +
+                "or notifies.",
         )
         when (drift) {
             is HearingDriftResult.NotEnoughData -> Text(
@@ -1157,12 +1133,10 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
                 // panel shows the figures; the paragraph is one tap away.
                 ExplainedHeader(
                     "This run",
-                    explanation = "A press during one of the test's deliberately silent " +
-                        "intervals is a false positive, and a run with several of them has " +
-                        "thresholds that look better than your hearing is. The room-noise " +
-                        "figure comes from the phone's microphone, which is not a calibrated " +
-                        "meter — enough to tell a quiet room from a noisy one and nothing " +
-                        "finer.",
+                    explanation = "A press during one of the silent intervals is a false " +
+                        "positive; several of them make the thresholds look better than your " +
+                        "hearing is. The room-noise figure is uncalibrated — enough to tell a " +
+                        "quiet room from a noisy one, nothing finer.",
                 )
                 state.lastReliability?.let {
                     Text(it.summary, style = MaterialTheme.typography.bodySmall)
@@ -1183,14 +1157,11 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
             ExplainedHeader(
                 "Your hearing",
                 explanation = "Each point is the quietest level you still answered at that " +
-                    "frequency. A hollow point is one the test could not pin down: the tone was " +
-                    "still inaudible at the loudest level the app allows, or still audible at " +
-                    "the quietest. Both ends are limits of the measurement, not of your ears." +
+                    "frequency. A hollow one is a point the test could not pin down — a limit " +
+                    "of the measurement, not of your ears." +
                     if (state.clinicalAudiogram != null) {
-                        "\n\nThe dotted curve is your clinical audiogram. The two are drawn " +
-                            "against their own averages — without a measurement microphone " +
-                            "their scales cannot be lined up, so compare the shape, never the " +
-                            "height."
+                        "\n\nThe dotted curve is your clinical audiogram. The two scales " +
+                            "cannot be lined up, so compare the shape, never the height."
                     } else {
                         ""
                     },
@@ -1276,24 +1247,19 @@ private fun LowToneNotice(advice: LowToneArtifact.Advice) {
             "About the low tones in this run",
             explanation = buildString {
                 append(
-                    "Both of the things that go wrong in a home test hit the bottom of the " +
-                        "range hardest: a seal that leaks lets bass escape, and room noise is " +
-                        "bass-heavy almost everywhere. Either one raises 250 and 500 Hz while " +
-                        "leaving the middle of the range alone, which looks exactly like a " +
-                        "low-frequency hearing loss.",
+                    "A leaking seal lets bass escape and room noise is bass-heavy, so " +
+                        "either one raises 250 and 500 Hz and looks like a low-frequency loss.",
                 )
                 if (advice.clinicalContradicts) {
                     append(
                         "\n\nYour clinical audiogram is flat and normal at those same " +
-                            "frequencies, measured on calibrated equipment. Same ears, so the " +
-                            "raised lows in this run came from the headphones or the room.",
+                            "frequencies, so this came from the headphones or the room.",
                     )
                 }
                 if (advice.roomWasNoisy) {
                     append(
-                        "\n\nThe microphone measured this room as loud before the run. That is " +
-                            "an uncalibrated estimate, but loud enough to mask the quiet low " +
-                            "tones the test was asking about.",
+                        "\n\nThe microphone measured this room as loud before the run — an " +
+                            "estimate, but loud enough to mask these tones.",
                     )
                 }
                 append(
@@ -1329,9 +1295,9 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
                 // what is left here is the part only this screen answers, which
                 // is why the cap is three and not more.
                 explanation = "Every run is drawn thin; the thick curve is the median of the " +
-                    "runs you chose, and that median is what the equaliser corrects for. " +
-                    "Three at most — averaging a dozen sessions from different weeks would " +
-                    "blur the very change you would want to see.",
+                    "runs you chose, and that median is what the equaliser corrects for. Three " +
+                    "at most, because averaging a dozen sessions would blur the change you " +
+                    "want to see.",
             )
             Text(
                 "The thick curve is the median of the runs you chose — up to three count.",

@@ -97,8 +97,8 @@ fun BluetoothCodecSection(
             "Bluetooth audio",
             "The codec is negotiated between the phone and the headphone, so it can " +
                 "change on its own — this reads back whatever was agreed. Watch live " +
-                "turns the sampler up for five minutes, drawn on the Monitoring " +
-                "timeline, and stops by itself.",
+                "samples it closely for five minutes on the Monitoring timeline, then " +
+                "stops by itself.",
         )
 
             // The panel keeps its shape whether or not anything is connected.
@@ -528,9 +528,8 @@ private fun candidateExplanation(scan: EqCandidateScan?): String = buildString {
             "be detected at all.",
     )
     scan?.takeIf { it.available && it.scannedPackages > 0 }?.let {
-        append("\n\nIt runs when this section opens and never on a timer: ")
-        append("${it.scannedPackages} installed apps checked in ${it.durationMs} ms")
-        append(if (it.fromCache) ", and that scan is being reused." else ".")
+        append("\n\n${it.scannedPackages} apps checked in ${it.durationMs} ms")
+        append(if (it.fromCache) ", reused since." else ".")
     }
 }
 

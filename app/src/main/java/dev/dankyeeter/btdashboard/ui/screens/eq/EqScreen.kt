@@ -1,7 +1,10 @@
 package dev.dankyeeter.btdashboard.ui.screens.eq
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -19,9 +23,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -64,6 +71,7 @@ fun EqScreen(
     val status by viewModel.attachmentStatus.collectAsStateWithLifecycle()
     val bypass by viewModel.bypass.collectAsStateWithLifecycle()
     val compensation by viewModel.compensation.collectAsStateWithLifecycle()
+    val heldLayer by viewModel.heldLayer.collectAsStateWithLifecycle()
     var earView by remember { mutableStateOf(EarView.LINKED) }
 
     Column(
@@ -106,42 +114,77 @@ fun EqScreen(
         ) {
             Switch(checked = settings.limiterEnabled, onCheckedChange = viewModel::setLimiterEnabled)
         }
+        // One sentence, and it is the sentence the other switch does not
+        // answer: what makes this different from turning "EQ enabled" off. The
+        // matched-loudness clause stays because it is not decoration — without
+        // it the comparison rewards whichever side is louder.
         ExplainedRow(
             label = "Compare with EQ off",
-            explanation = "Plays your music untouched so you can hear the difference; " +
-                "flip it back and the curve returns. Both sides play at the same " +
-                "loudness on purpose, because louder always sounds better at first — " +
-                "switch the automatic headroom off and that match is gone with it.",
+            explanation = "Instant and gap-free because the effect stays attached and " +
+                "only the bands go flat, where \"EQ enabled\" tears the whole chain " +
+                "down and builds it again; both sides play at matched loudness unless " +
+                "you switch the automatic headroom off.",
         ) {
             Switch(checked = bypass, onCheckedChange = viewModel::setBypass)
         }
 
+        // Loudness restoration only ever re-routes the boosts that are in the
+        // curve. With none there it is a switch that does nothing, and a switch
+        // that does nothing while claiming to restore loudness is the kind of
+        // thing this app exists not to ship. Disabled and *stated*, rather than
+        // hidden: hiding it would make the feature undiscoverable for exactly
+        // the people who will later have a curve worth restoring.
+        val curveBoostsSomething =
+            settings.leftGainsDb.any { it > 0f } || settings.rightGainsDb.any { it > 0f }
         ExplainedRow(
             label = "Loudness restoration",
-            explanation = "A static boost raises a band by the same amount whether the " +
-                "signal there is a whisper or a full snare hit; a healthy ear does the " +
-                "opposite. With this on, every boost in your curve acts that way — quiet " +
-                "detail gets the full lift, loud passages pass as recorded, and by full " +
-                "scale the boost is gone entirely, so nothing can clip. Cuts stay as " +
-                "they are.",
+            explanation = "Your curve's boosts act on quiet passages only, band by " +
+                "band — loud passages pass as recorded, and in this mode a boost " +
+                "cannot clip. With a flat or near-flat curve there is almost nothing " +
+                "to lift, so the effect is small.",
         ) {
             Switch(
                 checked = settings.loudnessRestoration,
+                // Never trapped on: a curve flattened while this was running
+                // would otherwise leave a switch that cannot be switched back.
+                enabled = curveBoostsSomething || settings.loudnessRestoration,
                 onCheckedChange = viewModel::setLoudnessRestoration,
             )
         }
+        if (!curveBoostsSomething) {
+            Text(
+                // Two different facts, and saying the wrong one is worse than
+                // saying nothing: a measured loss that is simply not applied
+                // yet is not a flat hearing curve, and telling that user their
+                // hearing is flat would be a lie with a fix attached.
+                if (compensation.hearingCurveIsFlat) {
+                    "Your hearing curve is flat — this would do nothing."
+                } else {
+                    "Nothing is boosted yet — apply your hearing curve, or raise a " +
+                        "band, and this will act on it."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        } else if (settings.loudnessRestoration) {
+            HoldToCompare(
+                layer = EqLayer.LOUDNESS_RESTORATION,
+                held = heldLayer == EqLayer.LOUDNESS_RESTORATION,
+                onHold = viewModel::holdLayerBypass,
+                onRelease = viewModel::releaseLayerBypass,
+            )
+        }
 
+        // Named for what it does rather than for the input it reads. "Volume-
+        // aware tuning" required the paragraph behind the question mark before
+        // it meant anything; this name is the first layer.
         ExplainedRow(
-            label = "Volume-aware tuning",
-            explanation = "Quiet listening loses bass and treble — the equal-loudness " +
-                "contours of ISO 226 get steeper as the level drops. With this on, the " +
-                "EQ adds back what the current volume is costing you and adds nothing " +
-                "once you are at normal listening level; it never cuts and never " +
-                "changes the midrange.\n\n" +
-                "It is an estimate, not a measurement: the phone knows how far the " +
-                "volume slider is up, not how loud that is in your ears. The curve is " +
-                "shaped from the ISO 226 average ear, assuming two thirds of the slider " +
-                "is normal listening, and is capped at 12 dB.",
+            label = "Quiet-listening tilt",
+            explanation = "Turned down, the ear loses bass and treble before it loses " +
+                "midrange, so this adds a volume-dependent tilt that grows as you turn " +
+                "down and does exactly nothing at normal listening level. It is an " +
+                "estimate, not a measurement — the phone knows the slider position, not " +
+                "the level at your ears — and it never cuts, capped at 12 dB.",
         ) {
             Switch(
                 checked = settings.volumeAwareTilt,
@@ -151,43 +194,26 @@ fun EqScreen(
 
         if (settings.volumeAwareTilt) {
             val tilt = VolumeAwareTilt.summarise(settings.activeTiltDb, settings.layout)
+            // The line no longer repeats the label above it, which is what the
+            // rename made redundant; it answers the next question instead —
+            // how much, here, now.
             Text(
                 if (tilt.isFlat) {
-                    "Quiet-listening tilt: none at this volume (estimate)"
+                    "At this volume: no tilt (estimate)"
                 } else {
-                    "Quiet-listening tilt: %+.0f dB bass · %+.0f dB treble (estimate)"
+                    "At this volume: %+.0f dB bass · %+.0f dB treble (estimate)"
                         .format(tilt.bassDb, tilt.trebleDb)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            HoldToCompare(
+                layer = EqLayer.QUIET_LISTENING_TILT,
+                held = heldLayer == EqLayer.QUIET_LISTENING_TILT,
+                onHold = viewModel::holdLayerBypass,
+                onRelease = viewModel::releaseLayerBypass,
+            )
         }
-
-        ExplainedRow(
-            label = "Automatic headroom",
-            explanation = "Raising a band multiplies numbers that have a ceiling, so this " +
-                "lowers everything by however much the loudest band was raised and " +
-                "nothing can overflow. The cost is that the whole thing gets quieter; " +
-                "turn it up on your phone and you have what you asked for, without " +
-                "distortion.\n\n" +
-                "Switched off, a boost is heard as a boost, and a loud passage can clip " +
-                "into brief crackle. The output limiter stays as a second net.",
-        ) {
-            Switch(checked = settings.autoHeadroom, onCheckedChange = viewModel::setAutoHeadroom)
-        }
-
-        // Just the state and the number. What the number is for is one tap away
-        // in the row above it, and repeating the reason here is what made the
-        // headroom the most explained control on the screen.
-        Text(
-            if (settings.autoHeadroom) {
-                "Headroom: ${"%.1f".format(settings.preGainDb)} dB"
-            } else {
-                "Headroom off"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ExplainedHeader(
@@ -279,6 +305,37 @@ fun EqScreen(
             color = MaterialTheme.colorScheme.outline,
         )
 
+        // Directly above the sliders, because this is where its cause and its
+        // effect are in the same glance: drag a band up, watch the headroom
+        // number go down by the same amount. Up in the switch column it was a
+        // setting about nothing in particular, and the connection to the
+        // control that spends it had to be made in prose.
+        ExplainedRow(
+            label = "Automatic headroom",
+            explanation = "Raising a band multiplies numbers that have a ceiling, so this " +
+                "lowers everything by however much the loudest band was raised and " +
+                "nothing can overflow. The cost is that the whole thing gets quieter; " +
+                "turn it up on your phone and you have what you asked for, without " +
+                "distortion.\n\n" +
+                "Switched off, a boost is heard as a boost, and a loud passage can clip " +
+                "into brief crackle. The output limiter stays as a second net.",
+        ) {
+            Switch(checked = settings.autoHeadroom, onCheckedChange = viewModel::setAutoHeadroom)
+        }
+
+        // Just the state and the number. What the number is for is one tap away
+        // in the row above it, and repeating the reason here is what made the
+        // headroom the most explained control on the screen.
+        Text(
+            if (settings.autoHeadroom) {
+                "Headroom: ${"%.1f".format(settings.preGainDb)} dB"
+            } else {
+                "Headroom off"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         val gains = when (earView) {
             EarView.RIGHT -> settings.rightGainsDb
             else -> settings.leftGainsDb
@@ -313,6 +370,59 @@ fun EqScreen(
                 color = MaterialTheme.colorScheme.outline,
             )
         }
+    }
+}
+
+/**
+ * Press and hold to hear the same music with one layer taken out.
+ *
+ * The two switches this sits under make claims about what an ear will notice,
+ * and no wording of those claims has ever made them land. Two seconds of A/B
+ * does, and it costs nothing: the effect stays attached and only its gains
+ * change, so the layer disappears and comes back without a gap — the same
+ * mechanism as "Compare with EQ off", scoped to one layer.
+ *
+ * Built on the button's own press state rather than on a tap gesture of our
+ * own, so the control keeps Material's shape, ripple and accessibility and this
+ * file does not grow a second definition of what "pressed" means. The `onClick`
+ * is empty on purpose: this control has no click, only a hold, and a tap is
+ * simply a very short one.
+ *
+ * The release is defended twice, because a layer left out of the signal is
+ * silently wrong music. [LaunchedEffect] catches the ordinary lift, including a
+ * finger that slides off the button, and [DisposableEffect] catches the case it
+ * cannot see — the control leaving composition while still held, which is what
+ * happens if the switch above it is turned off mid-hold.
+ */
+@Composable
+private fun HoldToCompare(
+    layer: EqLayer,
+    held: Boolean,
+    onHold: (EqLayer) -> Unit,
+    onRelease: (EqLayer) -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val release by rememberUpdatedState(onRelease)
+    val hold by rememberUpdatedState(onHold)
+
+    LaunchedEffect(pressed) {
+        // Both edges, and the first pass through here is a release of a layer
+        // nothing is holding — which is why the ViewModel's release takes the
+        // layer and ignores a release for anything else.
+        if (pressed) hold(layer) else release(layer)
+    }
+    DisposableEffect(layer) { onDispose { release(layer) } }
+
+    OutlinedButton(
+        onClick = {},
+        interactionSource = interaction,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Text(
+            if (held) "Listening without it…" else "Hold to hear without it",
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

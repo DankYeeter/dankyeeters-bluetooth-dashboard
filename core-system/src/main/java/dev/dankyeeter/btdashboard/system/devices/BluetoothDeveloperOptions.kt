@@ -59,9 +59,9 @@ object BluetoothDeveloperOptions {
     val avrcpVersion = DeveloperOption(
         key = "bluetooth_avrcp_version",
         label = "AVRCP version",
-        explanation = "The remote-control profile: track titles, play/pause from the " +
-            "headphone, and the volume handshake. Newer is not always better — some " +
-            "headphones only expose metadata correctly on an older version.",
+        explanation = "The remote-control profile: track titles, play/pause and the " +
+            "volume handshake. Newer is not always better — some headphones only get " +
+            "metadata right on an older version.",
         values = listOf(
             OptionValue("avrcp13", "1.3"),
             OptionValue("avrcp14", "1.4"),
@@ -69,8 +69,8 @@ object BluetoothDeveloperOptions {
             OptionValue("avrcp16", "1.6"),
         ),
         needsBluetoothRestart = true,
-        caution = "Changing this can stop track titles or the headphone's volume " +
-            "buttons from working. Change it back if something breaks.",
+        caution = "Can stop track titles or the headphone's volume buttons working. " +
+            "Change it back if something breaks.",
     )
 
     val mapVersion = DeveloperOption(
@@ -89,8 +89,7 @@ object BluetoothDeveloperOptions {
     val pbapVersion = DeveloperOption(
         key = "bluetooth_pbap_client_version",
         label = "PBAP client version",
-        explanation = "Phone-book access. Like MAP, nothing to do with how music " +
-            "sounds.",
+        explanation = "Phone-book access. Nothing to do with how music sounds.",
         values = listOf(
             OptionValue("pbap12", "1.2"),
             OptionValue("pbap13", "1.3"),
@@ -106,8 +105,7 @@ object BluetoothDeveloperOptions {
         key = "bluetooth_show_devices_without_names",
         label = "Show devices without names",
         explanation = "Lists nearby devices that advertise no name, as raw addresses. " +
-            "Useful when a headphone will not show up in the pairing list; noisy " +
-            "otherwise.",
+            "Useful when a headphone will not appear in the pairing list; noisy otherwise.",
         values = listOf(
             OptionValue("0", "Off"),
             OptionValue("1", "On"),

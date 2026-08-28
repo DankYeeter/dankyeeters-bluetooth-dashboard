@@ -339,14 +339,10 @@ private fun DiagnosticCard(
  * longer than the chart it explains.
  */
 private const val TIMELINE_EXPLANATION =
-    "Every lane shares one time axis.\n\n" +
-        "Playing — whether audio was really flowing.\n" +
-        "Codec — which codec was negotiated, and when it changed.\n" +
-        "Sample rate — the other half of the codec story.\n" +
-        "Signal — radio strength, drawn only when a source really provides it.\n" +
-        "Events — connects, disconnects, takeovers and interruptions.\n\n" +
-        "Grey means nothing was recorded then, not that the link was silent. " +
-        "The last two hours."
+    "The last two hours on one time axis: whether audio was flowing, which codec and " +
+        "sample rate were negotiated, radio strength where a source provides it, and " +
+        "connects, disconnects and interruptions. Grey means nothing was recorded then, " +
+        "not that the link was silent."
 
 /**
  * The permission story behind the data source, plus the raw reasons.
@@ -361,13 +357,13 @@ private fun dataSourceExplanation(
 ): String = buildString {
     append(
         "Bluetooth Quality Report reads packet loss straight from the controller, but " +
-            "Android only offers it to privileged apps. Without it the link is read " +
+            "Android offers it to privileged apps only — without it the link is read " +
             "from the Bluetooth stack's own dump.",
     )
     (bqr as? QualityReportAvailability.Unavailable)?.let {
-        append("\n\nWhat Android answered when we asked for it: ${it.reason}.")
+        append("\n\nAndroid's reason: ${it.reason}.")
     }
-    append("\n\nWhy it is sampling the way it is right now: $samplingReason.")
+    append("\n\nSampling right now: $samplingReason.")
 }
 
 /**

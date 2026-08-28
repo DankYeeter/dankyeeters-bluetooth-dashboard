@@ -30,6 +30,35 @@ object EqBands {
 }
 
 /**
+ * How far [EqSettings.sanitized] is allowed to move the automatic pre-gain.
+ *
+ * The two directions are not symmetrical in cost, which is why they are a
+ * choice rather than one rule. Making the headroom *deeper* is always safe and
+ * always urgent: the boost is already in the signal, so the pre-gain has to
+ * follow it in the same write or the next buffer clips. Making it *shallower*
+ * gives level back, and doing that on every intermediate value of a drag turns
+ * a slider pull into audible pumping — the music rising and falling while the
+ * finger is still down.
+ *
+ * So: [DEEPEN_ONLY] while an edit is in flight, [TRACK] once it has settled.
+ */
+enum class HeadroomMode {
+    /**
+     * The pre-gain may only get deeper. A boost is charged immediately; a boost
+     * taken back keeps its headroom until the edit is committed.
+     */
+    DEEPEN_ONLY,
+
+    /**
+     * The pre-gain is set to exactly what the curve costs right now, in both
+     * directions. This is the committed state — a drag that has been released,
+     * a switch that has been flipped, a preset that has been loaded — where
+     * "what is playing" and "what it costs" have to agree.
+     */
+    TRACK,
+}
+
+/**
  * Complete state of the system EQ. This is the single object persisted by
  * :core-system and produced by the compensation math in :core-hearing.
  *
@@ -177,8 +206,16 @@ data class EqSettings(
      * change was that the music got quieter. Correct against clipping, useless
      * as a control. It stays the default and is now a choice - see
      * [autoHeadroom].
+     *
+     * @param headroom which way the automatic pre-gain may move; see
+     *   [HeadroomMode]. The default is the safe one, so every caller that has
+     *   not thought about it charges for a boost and never hands level back.
+     *   The callers that *have* thought about it — the ones that know an edit
+     *   is finished — pass [HeadroomMode.TRACK], which is what lets a band
+     *   pulled back to zero give its 5 dB back instead of leaving the music
+     *   quiet until Reset is pressed.
      */
-    fun sanitized(): EqSettings {
+    fun sanitized(headroom: HeadroomMode = HeadroomMode.DEEPEN_ONLY): EqSettings {
         val l = leftGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
         val r = rightGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
         val tilt = tiltGainsDb.map { it.coerceIn(0f, VolumeAwareTilt.MAX_TILT_DB) }
@@ -193,16 +230,35 @@ data class EqSettings(
             ?.coerceAtLeast(0f)
             ?: 0f
         val gain = preGainDb.coerceIn(-24f, 0f)
+        // What the curve costs right now. Written as a branch rather than as a
+        // bare `-peak` because negating a zero float gives -0.0f, which is
+        // equal to 0f for arithmetic, unequal to it for `equals`, and reads on
+        // screen as "Headroom: -0.0 dB" — a flat EQ announcing an attenuation
+        // it is not applying.
+        val target = if (peak > 0f) -peak else 0f
+        // DEEPEN_ONLY takes that only when it is deeper than what is already
+        // set, which is what keeps a drag from pumping and what keeps a
+        // hand-set headroom from being overwritten; TRACK takes it outright,
+        // because at that point the two numbers describe the same moment and
+        // disagreeing is the bug.
         return clamped.copy(
-            preGainDb = if (autoHeadroom) gain.coerceAtMost(-peak) else gain,
+            preGainDb = when {
+                !autoHeadroom -> gain
+                headroom == HeadroomMode.TRACK -> target
+                else -> gain.coerceAtMost(target)
+            },
         )
     }
 
     companion object {
         val FLAT = EqSettings()
 
-        /** Suggested headroom for a given set of band gains. */
-        fun headroomFor(vararg gains: List<Float>): Float =
-            -(gains.flatMap { it }.maxOrNull() ?: 0f).coerceAtLeast(0f)
+        // `headroomFor(vararg gains)` used to live here and is deliberately
+        // gone. It answered from the user's band gains alone, so it forgot the
+        // volume tilt — which stays on the static path in every mode and has to
+        // be paid for there — and it forgot that loudness restoration moves the
+        // boosts somewhere they cost nothing. Its two callers used it to
+        // pre-set a pre-gain that `sanitized()` was about to compute properly
+        // anyway. [sanitized] with [HeadroomMode.TRACK] is the one answer now.
     }
 }

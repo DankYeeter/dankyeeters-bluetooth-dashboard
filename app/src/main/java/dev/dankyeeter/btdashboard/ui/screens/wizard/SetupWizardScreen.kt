@@ -404,10 +404,9 @@ private fun HelperAction() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ExplainedHeader(
             "App helper",
-            explanation = "The helper is a small process running at shell level — the same " +
-                "access \"adb shell\" has, not root. It dies whenever the phone restarts and " +
-                "this screen brings it back. The moment it attaches it also grants the app " +
-                "the one system permission it needs, and that grant survives a reboot.",
+            explanation = "A small process running at shell level — the same access " +
+                "\"adb shell\" has, not root. It dies at every reboot and this screen brings " +
+                "it back, granting the app its one system permission on the way in.",
         )
         // One row, because there is one thing to know: whether the helper is
         // there, and whether it did its job on the way in.

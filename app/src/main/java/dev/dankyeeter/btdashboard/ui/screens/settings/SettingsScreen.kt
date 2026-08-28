@@ -477,15 +477,15 @@ private fun HowToPanel() {
         HowTo(
             "Sound profiling",
             "A pulsed-tone test finds the quietest level you still hear at each " +
-                "frequency, one ear at a time. Run it three times or more — the app " +
-                "uses the per-frequency median, which is what makes the result stable.",
+                "frequency, one ear at a time. Run it three times or more; the app uses " +
+                "the per-frequency median.",
         )
         PanelDivider()
         HowTo(
             "The EQ",
-            "Your profile becomes a correction curve. Pick 10, 20 or 31 bands: the " +
-                "curve is resampled onto whichever you choose, so switching costs " +
-                "nothing. Save any curve under a name and bind it to a headphone.",
+            "Your profile becomes a correction curve at 10, 20 or 31 bands — it is " +
+                "resampled, so switching costs nothing. Save any curve under a name and " +
+                "bind it to a headphone.",
         )
         PanelDivider()
         HowTo(
@@ -550,8 +550,8 @@ private fun AboutPanel() {
         ExplainedHeader(
             "Network access",
             "The app holds the internet permission for one reason: starting its helper " +
-                "needs a connection to the debugging service on this phone, at " +
-                "127.0.0.1. There is no code that contacts a remote server.",
+                "needs a connection to this phone's own debugging service, at 127.0.0.1. " +
+                "No code contacts a remote server.",
         )
     }
 }

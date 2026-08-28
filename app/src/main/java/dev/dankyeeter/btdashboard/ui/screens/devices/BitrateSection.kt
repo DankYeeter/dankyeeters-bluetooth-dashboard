@@ -166,10 +166,6 @@ internal fun stateLine(
 
 private const val BITRATE_EXPLANATION =
     "LDAC's playback quality, pinned for this headphone and asked for again on every " +
-        "connect — the stack renegotiates each time, so an unstored choice does not " +
-        "survive one.\n\n" +
-        "ABR is the resting state: nothing pinned, the stack picking as it goes. " +
-        "Measured on this phone it was never once seen to reach 990 kbps, so pinning is " +
-        "the only way observed to get there.\n\n" +
-        "Setting it needs the app's helper; without it the choice is still stored and " +
-        "applied later, and the card says which of the two happened."
+        "connect, since the stack renegotiates each time. Measured on this phone, ABR " +
+        "was never once seen to reach 990 kbps, so pinning is the only way observed to " +
+        "get there."

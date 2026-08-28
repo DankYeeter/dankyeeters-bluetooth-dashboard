@@ -124,10 +124,9 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
     Panel {
         ExplainedHeader(
             "App helper",
-            "Android does not let an ordinary app equalize other apps' audio, or read " +
-                "what the Bluetooth stack negotiated. Both need a shell-level identity, " +
-                "which is what the helper runs at — uid 2000, the same access adb shell " +
-                "has. Not root.",
+            "Equalizing other apps' audio and reading what the Bluetooth stack " +
+                "negotiated both need a shell-level identity, which is what the helper " +
+                "runs at. Uid 2000, the same access adb shell has — not root.",
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Pill(
@@ -140,9 +139,9 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
 
         ExplainedHeader(
             "Starting the helper",
-            "Shell level is something only Android's debugging service can grant, and " +
-                "the app pairs with that service on this phone. If pairing cannot be " +
-                "used, the same command can be run from a computer with ADB.",
+            "Only Android's debugging service can grant shell level, and the app pairs " +
+                "with that service on this phone. If pairing will not work, the same " +
+                "command can be run from a computer.",
         )
         // The one activation control the app has, not a second copy of it: the
         // gate, the setup process and this screen must offer the same thing, or
@@ -182,9 +181,9 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
             // active one and is untouched until the new command is actually run
             // and the hand-over accepted. Saying "this revokes the old token"
             // would be wrong on both halves.
-            explanation = "For when you consider the token in the command above " +
-                "compromised. The old line stops being accepted; a helper that is " +
-                "already running keeps serving until you run the new command.",
+            explanation = "For when you think the token in the command above is " +
+                "compromised. The old line stops being accepted; a helper already " +
+                "running keeps serving until you run the new one.",
             control = {
                 GoldOutlinedButton(onClick = onNewCommand) { Text("Replace the command") }
             },
@@ -195,8 +194,8 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
         ExplainedHeader(
             "Why it stops at reboot",
             "Only Android's debugging service can put a process at shell level, so the " +
-                "helper cannot survive a restart. The app restarts it for you — after " +
-                "the first pairing that is one tap, or automatic.",
+                "helper cannot survive a restart. The app brings it back — after the " +
+                "first pairing that is one tap, or automatic.",
         )
         Text("It stops at every reboot.", style = MaterialTheme.typography.bodySmall)
     }
@@ -231,10 +230,9 @@ private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolea
             pill = if (shellAvailable) "Available" else "Cannot check",
             tone = if (shellAvailable) PillTone.ACCENT else PillTone.WARN,
             body = "Without the helper the codec reads as unknown.",
-            explanation = "Android only reports the negotiated codec to apps holding " +
+            explanation = "Android reports the negotiated codec only to apps holding " +
                 "BLUETOOTH_PRIVILEGED, which no sideloaded app has. The fallback reads " +
-                "it out of a dumpsys of the Bluetooth stack, which needs the shell — " +
-                "without it the screen says unknown rather than guessing.",
+                "it out of the Bluetooth stack's dump, which needs the shell.",
         )
 
         PanelDivider()
@@ -245,9 +243,9 @@ private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolea
             tone = if (shellAvailable) PillTone.ACCENT else PillTone.WARN,
             body = "Without the helper this check cannot run, so it never reports " +
                 "all-clear.",
-            explanation = "Another equalizer stacking on top of this one silently undoes " +
-                "the curve, and finding one needs the shell. Without it the check " +
-                "reports that it cannot check, never an all-clear it did not earn.",
+            explanation = "Another equalizer stacking on top silently undoes the curve, " +
+                "and finding one needs the shell. Without it the check says it cannot " +
+                "check, never an all-clear.",
         )
     }
 }
@@ -339,9 +337,8 @@ private fun HeadphoneAppPanel() {
         // list rather than as a rule that applies to all of them.
         ExplainedHeader(
             "Headphone-side equalizers",
-            "That equalizer runs in the headphone's own DSP, after Bluetooth " +
-                "transmission, so it adds to ours instead of replacing it — and no app " +
-                "on Android can read or change it.",
+            "That equalizer runs in the headphone's own DSP, after transmission, so it " +
+                "adds to ours instead of replacing it. No app on Android can read it.",
         )
         Text(
             "Some headphone apps have their own equalizer inside the headphone. Set " +
