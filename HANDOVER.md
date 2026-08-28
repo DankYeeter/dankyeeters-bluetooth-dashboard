@@ -4282,3 +4282,34 @@ dieser Stand ist installiert (Pixel 11, Helper v4 aktiv). Task 16 fertig.
 - UI-Automation: Chip-Positionen verschieben sich nach Outcome-
   Meldungen — vor jedem Tap frisch dumpen; Klinik-Dialog hat jetzt
   Discard-Schutz.
+
+---
+
+## 28. August: Stotter-Ursache gefixt, Backlog + Daniels neue Features gelandet
+
+Commit 4c52016, 1304 Tests, installiert und am Geraet verifiziert.
+
+**Stotter-Vorfall vom Morgen, abgeschlossen:** Beobachtung exoneriert
+(Stopp aenderte nichts), EQ-Kette ueberfuehrt (aus: 0 Underflows; frisch
+an: 0). Ursache: DynamicsProcessing-Instanzen wurden auf Todespfaden nie
+released (S1) + 10 Lifecycle-Races; alles gefixt mit Instanz-Buchhaltung
+und deterministischen Race-Tests. Tripwire schiesst beim naechsten
+Verhungern selbst den Forensik-Snapshot (DB v3). Ehrliche Grenze: der
+Tripwire sieht nur zu, solange das Live-Panel offen ist.
+
+**Neu in der App:** Personal-Preference-Test (10 A/B pro Song,
+Pool<=10 Songs/Geraet, gewichteter Median, Loudness-Matching,
+Simulation: 0,51/0,63 dB mittlerer Fehler; Track-Label = App+Zeit, echte
+Titel braeuchten Notification-Zugriff — bewusst nicht genommen),
+ISO-226-Tilt, ISO-7029-Altersreferenz (Koeffizienten reproduziert,
+deklariert), Drift-Tracking (0/300 Fehlalarme), Bitraten-Chips fest auf
+der Bluetooth-Hauptseite (Persistenz war schon da: Profil + Applier),
+Advanced-Aufklapper geloescht, Tooltips -29%.
+
+**Noch im Flug:** ein kleiner Follow-up-Worker (Preference-Preset ins
+EQ-Dropdown + core-system-Erklaertexte kuerzen). Danach bleibt NUR die
+A16-Abnahme (PLAN-A16-ABNAHME.md, Pixel 8 Pro am Kabel).
+
+**Fuer Daniel zum Ausprobieren:** Sound Profiling -> "Start preference
+test" bei laufender Musik; Alters-Referenz eintragen; nach ein paar
+Tagen Hoeren zeigt "Hearing over time" den Verlauf.
