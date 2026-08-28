@@ -21,6 +21,7 @@ import dev.dankyeeter.btdashboard.hearing.DEFAULT_INTENSITY
 import dev.dankyeeter.btdashboard.hearing.DEFAULT_PARTIAL_FACTOR
 import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
+import dev.dankyeeter.btdashboard.hearing.preference.PreferenceProfile
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
@@ -65,6 +66,23 @@ data class CompensationUiState(
      * would silently lose that race.
      */
     val derivedForDevice: DerivedCalibration? = null,
+    /**
+     * The listening-preference curve stored for the headphone that is
+     * connected, or null.
+     *
+     * Held for the same reason [derivedForDevice] is, and resolved by the same
+     * rule: a preference is a judgement made *through* one pair of headphones,
+     * so it belongs to that pair and to no other.
+     */
+    val preferenceForDevice: PreferenceProfile? = null,
+    /**
+     * Preference curves belonging to other headphones.
+     *
+     * Carried rather than dropped so the menu can name them. A curve the user
+     * spent ten comparisons a song on, silently absent from the one list that
+     * shows curves, reads as data the app lost.
+     */
+    val otherPreferences: List<PreferenceProfile> = emptyList(),
 ) {
     /**
      * The preset in force, named for the readout.
@@ -80,6 +98,21 @@ data class CompensationUiState(
     /** True while the generated profile is active, i.e. the curve is read-only. */
     val adjustedReferenceActive: Boolean
         get() = activeProfileId == AdjustedReference.ID
+
+    /**
+     * True while a preference curve is the active preset.
+     *
+     * Asked of the id's shape rather than of [preferenceForDevice], because
+     * what the EQ is playing does not change when the headphone does: unplug
+     * the pair a preference curve was selected for and that curve is still the
+     * one in the effect, so the row still has to name it.
+     */
+    val preferenceActive: Boolean
+        get() = PreferenceProfile.isPreferenceId(activeProfileId)
+
+    /** The id [preferenceForDevice] is selected under, or null when none is stored. */
+    val preferencePresetId: String?
+        get() = preferenceForDevice?.let { PreferenceProfile.presetIdFor(it.deviceKey) }
 
     val clinicalAvailable: Boolean get() = clinical?.isEmpty == false
 
@@ -181,6 +214,7 @@ class EqViewModel(
     private val controller = SystemGraph.eqController
     private val audiogramStore = HearingGraph.audiogramStore
     private val profileStore = HearingGraph.profileStore
+    private val preferenceStore = HearingGraph.preferenceStore
     private val calculator = HearingGraph.compensationCalculator
 
     private val _settings = MutableStateFlow(EqSettings.FLAT)
@@ -294,6 +328,24 @@ class EqViewModel(
         }
         viewModelScope.launch {
             profileStore.profiles.collect { list -> update { it.copy(profiles = list) } }
+        }
+        viewModelScope.launch {
+            // Preference curves follow the connected headphone for the reason
+            // [PreferenceProfile] gives: the listener said "more bass" while
+            // hearing one pair's own low end, so the answer means nothing on
+            // another pair. The rest of the list travels with it, unresolved,
+            // so the menu can name what is stored elsewhere instead of hiding it.
+            combine(
+                preferenceStore.profiles,
+                MonitorGraph.codecSource.connectedDevicesFlow(),
+            ) { profiles, devices ->
+                val device = devices.firstOrNull { it.isActive } ?: devices.firstOrNull()
+                val key = DeviceKey.fromAddress(device?.address)
+                profiles.firstOrNull { it.deviceKey == key } to
+                    profiles.filterNot { it.deviceKey == key }
+            }.collect { (forDevice, others) ->
+                update { it.copy(preferenceForDevice = forDevice, otherPreferences = others) }
+            }
         }
         viewModelScope.launch {
             // Hardware detection (AirPods beacon) suggests a preset. It is only
@@ -530,6 +582,35 @@ class EqViewModel(
         useGeneratedLayout()
         applyCompensation()
         viewModelScope.launch { store.setActiveProfileId(AdjustedReference.ID) }
+    }
+
+    /**
+     * Switches to the preference curve stored for the connected headphone.
+     *
+     * Built by [PreferenceProfile.toEqSettings], which is the same call the
+     * preference card's own Save makes. That is the point: what a preference
+     * profile sounds like — the pool's aggregate, the base curve it was judged
+     * on top of, and the hand adjustment that overrides the pool per axis — is
+     * decided in one place, so the two ways of reaching it cannot drift into
+     * two different curves.
+     *
+     * Nothing is written back to the profile, so a hand adjustment survives
+     * being selected here exactly as it survives being saved: this is a
+     * selection, not an edit.
+     *
+     * Refused when no curve is stored for this headphone. The menu greys those
+     * entries, but a rule that only lived in the menu would not be a rule.
+     */
+    fun selectPreference() {
+        val profile = _compensation.value.preferenceForDevice ?: return
+        // The curve is a taste setting, not a prescription: nothing about it
+        // should be recomputed when the intensity slider moves.
+        compensationDrivesTheEq = false
+        _bypass.value = false
+        commit(profile.toEqSettings(_settings.value))
+        viewModelScope.launch {
+            store.setActiveProfileId(PreferenceProfile.presetIdFor(profile.deviceKey))
+        }
     }
 
     /**

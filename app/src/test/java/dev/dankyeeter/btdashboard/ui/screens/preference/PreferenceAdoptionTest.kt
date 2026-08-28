@@ -10,6 +10,7 @@ import dev.dankyeeter.btdashboard.hearing.preference.PreferenceProfile
 import dev.dankyeeter.btdashboard.hearing.preference.PreferenceRun
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -157,6 +158,40 @@ class PreferenceAdoptionTest {
         assertEquals(2f, subject.candidate.bassDb)
         val without = subject.withoutRun("a", nowMillis = 1L)
         assertEquals(5.5f, without.candidate.bassDb)
+    }
+
+    // ---- the preset it is selected as ----------------------------------------
+
+    /**
+     * The card's Save and the EQ screen's menu entry must leave the app in one
+     * state, not two. Both name the profile by the same id, and the id is a
+     * function of the device key rather than anything generated — so a
+     * selection made in either place survives a restart and still points at
+     * this headphone's curve.
+     */
+    @Test
+    fun `the preset id a curve is selected under is its headphone's`() {
+        val subject = profile(key = "abc123")
+        val id = PreferenceProfile.presetIdFor(subject.deviceKey)
+
+        assertEquals("preference_abc123", id)
+        assertTrue(PreferenceProfile.isPreferenceId(id))
+        // And nothing else in the id namespace answers to it: a manual preset
+        // carries a UUID, the generated reference its own constant.
+        assertFalse(PreferenceProfile.isPreferenceId("adjusted_reference"))
+        assertFalse(PreferenceProfile.isPreferenceId(null))
+    }
+
+    /**
+     * Two headphones, two ids. The whole binding rests on this: an id shared
+     * between pairs would let one curve be selected as another.
+     */
+    @Test
+    fun `two headphones never share a preset id`() {
+        assertNotEquals(
+            PreferenceProfile.presetIdFor("abc123"),
+            PreferenceProfile.presetIdFor("zzz"),
+        )
     }
 
     @Test

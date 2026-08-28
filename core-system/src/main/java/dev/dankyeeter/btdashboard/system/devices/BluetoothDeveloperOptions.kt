@@ -77,7 +77,7 @@ object BluetoothDeveloperOptions {
         key = "bluetooth_map_version",
         label = "MAP version",
         explanation = "Message access — what a car reads your texts from. No effect " +
-            "on audio quality; here for completeness.",
+            "on audio quality.",
         values = listOf(
             OptionValue("map12", "1.2"),
             OptionValue("map13", "1.3"),

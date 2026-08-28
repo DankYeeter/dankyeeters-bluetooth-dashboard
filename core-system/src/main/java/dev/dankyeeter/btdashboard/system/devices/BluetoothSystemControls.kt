@@ -100,12 +100,11 @@ object BluetoothReadOnlySettings {
         label = "A2DP hardware offload",
         liveValueKey = "persist.bluetooth.a2dp_offload.disabled",
         explanation = "Whether Bluetooth audio is encoded by a dedicated chip instead " +
-            "of by the main processor. Offload saves battery. It also moves the audio " +
-            "out of the path this app's equaliser sits in, which is why it is worth " +
-            "seeing even though it cannot be changed here.",
-        whyReadOnly = "This switch is a system property, not a setting. Properties are " +
-            "owned by the system's init process, which refuses writes from the shell — " +
-            "and the helper is the shell. Only a rooted phone can change it.",
+            "of by the main processor. Offload saves battery, and it moves the audio " +
+            "out of the path this app's equaliser sits in.",
+        whyReadOnly = "A system property, not a setting. The init process owns " +
+            "properties and refuses writes from the shell — and the helper is the " +
+            "shell. Only a rooted phone can change it.",
     )
 
     val maxConnectedAudioDevices = ReadOnlySystemSetting(
@@ -122,8 +121,7 @@ object BluetoothReadOnlySettings {
         label = "Bluetooth HCI snoop log",
         liveValueKey = "persist.bluetooth.btsnooplogmode",
         explanation = "Records everything the Bluetooth radio sends and receives, for " +
-            "debugging. No effect on sound quality; listed so this panel is the whole " +
-            "picture rather than the flattering part of it.",
+            "debugging. No effect on sound quality.",
         whyReadOnly = "A system property again — the shell may not write it, so neither " +
             "can the helper.",
     )

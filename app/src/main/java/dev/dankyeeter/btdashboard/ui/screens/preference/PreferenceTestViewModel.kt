@@ -450,6 +450,11 @@ class PreferenceTestViewModel(application: Application) : AndroidViewModel(appli
      * gone and applied from somewhere else is a result most people will never
      * hear. Saved first, applied second, so a write that fails cannot leave the
      * EQ describing a profile that is not on disk.
+     *
+     * The active preset id is set with it, so that this path and the EQ
+     * screen's own menu entry leave the app in the same state. Without it the
+     * curve played while "Active EQ" still read "None — flat", which is the
+     * dropdown quietly disagreeing with the sound.
      */
     override fun save() {
         val draft = _state.value.draft ?: return
@@ -457,6 +462,7 @@ class PreferenceTestViewModel(application: Application) : AndroidViewModel(appli
             store.save(draft)
             val applied = draft.toEqSettings(settingsStore.current())
             settingsStore.save(applied)
+            settingsStore.setActiveProfileId(PreferenceProfile.presetIdFor(draft.deviceKey))
             controller.update(applied)
             restoreTo = applied
             _state.value = _state.value.copy(
@@ -477,6 +483,11 @@ class PreferenceTestViewModel(application: Application) : AndroidViewModel(appli
         val key = _state.value.deviceKey ?: return
         viewModelScope.launch {
             store.delete(key)
+            // The selection goes with the curve. Leaving the id behind would
+            // leave the EQ screen naming a preset that no longer exists, and
+            // nothing to select to get out of it.
+            val id = PreferenceProfile.presetIdFor(key)
+            if (settingsStore.activeProfileIdOrNull() == id) settingsStore.setActiveProfileId(null)
             _state.value = _state.value.copy(phase = PreferencePhase.IDLE, draft = null)
             restore()
         }

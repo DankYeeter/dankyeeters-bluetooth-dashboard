@@ -217,6 +217,7 @@ fun EqScreen(
             onApply = viewModel::applyCompensation,
             onSelectSource = viewModel::setCompensationSource,
             onSelectAdjustedReference = viewModel::selectAdjustedReference,
+            onSelectPreference = viewModel::selectPreference,
             onCreateProfile = viewModel::createProfile,
             onSaveIntoActive = viewModel::saveCurrentIntoActive,
             onLoadProfile = viewModel::loadProfile,

@@ -62,8 +62,7 @@ enum class SetupStep(
         title = "Microphone",
         summary = "So the hearing test can check the room is quiet.",
         rationale = "Used only for the ambient-noise check before a hearing test — a " +
-            "few seconds of level measurement so you find out that the room is too " +
-            "loud before the test, not after. Nothing is recorded and nothing is " +
+            "few seconds of level measurement. Nothing is recorded and nothing is " +
             "stored.",
         need = SetupNeed.OPTIONAL,
     ),
@@ -88,10 +87,10 @@ enum class SetupStep(
         id = "helper",
         title = "Pairing and helper",
         summary = "The phone starts the helper by pairing with itself.",
-        rationale = "The helper is what reads what the Bluetooth stack negotiated, " +
-            "sets codecs, and equalises players that hide their audio session. The " +
-            "phone pairs with its own debugging service to start it — no computer, " +
-            "no second app. Wireless debugging is switched back off straight after.",
+        rationale = "The helper reads what the Bluetooth stack negotiated, sets " +
+            "codecs, and equalises players that hide their audio session. The phone " +
+            "pairs with its own debugging service to start it — no computer, no " +
+            "second app. Wireless debugging is switched back off straight after.",
         need = SetupNeed.ACTIVATION,
     ),
     ;

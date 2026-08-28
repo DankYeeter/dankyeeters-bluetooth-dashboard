@@ -45,6 +45,7 @@ import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
+import dev.dankyeeter.btdashboard.hearing.preference.PreferenceProfile
 import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
@@ -74,6 +75,7 @@ internal fun CompensationSection(
     onApply: () -> Unit,
     onSelectSource: (CompensationSource) -> Unit,
     onSelectAdjustedReference: () -> Unit,
+    onSelectPreference: () -> Unit,
     onCreateProfile: (String) -> Unit,
     onSaveIntoActive: () -> Unit,
     onLoadProfile: (CompensationProfile) -> Unit,
@@ -138,6 +140,7 @@ internal fun CompensationSection(
             state,
             currentEq,
             onSelectAdjustedReference,
+            onSelectPreference,
             onCreateProfile,
             onSaveIntoActive,
             onLoadProfile,
@@ -664,6 +667,7 @@ private fun ProfileList(
     state: CompensationUiState,
     currentEq: EqSettings,
     onSelectAdjustedReference: () -> Unit,
+    onSelectPreference: () -> Unit,
     onCreate: (String) -> Unit,
     onSaveIntoActive: () -> Unit,
     onLoad: (CompensationProfile) -> Unit,
@@ -677,6 +681,7 @@ private fun ProfileList(
     val activeProfile = state.profiles.firstOrNull { it.id == state.activeProfileId }
     val activeName = when {
         state.adjustedReferenceActive -> AdjustedReference.NAME
+        state.preferenceActive -> PreferenceProfile.NAME
         activeProfile != null -> activeProfile.name
         else -> "None — flat"
     }
@@ -728,6 +733,10 @@ private fun ProfileList(
                             onSelectAdjustedReference()
                         },
                     )
+                }
+                PreferenceEntries(state) {
+                    open = false
+                    onSelectPreference()
                 }
                 state.profiles.forEach { profile ->
                     DropdownMenuItem(
@@ -795,6 +804,44 @@ private fun ProfileList(
             dismissButton = {
                 TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
             },
+        )
+    }
+}
+
+/**
+ * The listening-preference curves, in the one menu that lists curves.
+ *
+ * The connected headphone's own is selectable and says where it came from, the
+ * same shape the generated reference above it uses. Curves belonging to other
+ * pairs are listed too, and greyed: a preference is a judgement made *through*
+ * a headphone — the listener asked for more bass while hearing that pair's own
+ * low end — so it is not transferable, and it is also not something the app may
+ * quietly pretend it never recorded. Naming it and refusing it says both
+ * things at once, in the same words the preference card uses.
+ */
+@Composable
+private fun PreferenceEntries(state: CompensationUiState, onSelect: () -> Unit) {
+    val mine = state.preferenceForDevice
+    if (mine != null) {
+        DropdownMenuItem(
+            text = { Text("${PreferenceProfile.NAME} — from your preference test") },
+            onClick = onSelect,
+        )
+    }
+    state.otherPreferences.forEach { other ->
+        DropdownMenuItem(
+            enabled = false,
+            text = {
+                Column {
+                    Text(PreferenceProfile.NAME)
+                    Text(
+                        "Stored for ${other.displayDeviceName} — connect that pair to " +
+                            "use or edit it.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            },
+            onClick = {},
         )
     }
 }
