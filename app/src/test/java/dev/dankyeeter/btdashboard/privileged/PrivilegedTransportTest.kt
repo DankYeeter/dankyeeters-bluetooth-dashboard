@@ -148,6 +148,32 @@ class PrivilegedTransportTest {
     }
 
     @Test
+    fun `repeated large replies reuse one staging file`() = runBlocking {
+        // The follow-up defect: a name per call put ~470 files into
+        // /data/local/tmp inside a two-minute watch-live session. Nothing
+        // needed them distinct — this lock means one reply is staged, handed
+        // over and read per turn — so they are one file, overwritten.
+        val payload = "Bluetooth Status\n" + "x".repeat(120_000)
+        val staging = ExecSpill(directory = temp.root)
+        val staged = mutableListOf<String>()
+        val helper = FakeHelper {
+            PrivilegedProtocol.encodeExecResult(0, payload, "") { body ->
+                staging.stage(body)?.path?.also { staged += it }
+            }
+        }
+        val runner = runner(helper)
+
+        repeat(5) { assertEquals(payload, runner.run(dump).stdout) }
+
+        assertEquals(5, staged.size)
+        assertEquals("every reply must have gone to the same file", 1, staged.toSet().size)
+        assertEquals(
+            emptyList<String>(),
+            temp.root.listFiles().orEmpty().map { it.name },
+        )
+    }
+
+    @Test
     fun `a small reply still travels inline`() = runBlocking {
         val helper = FakeHelper { PrivilegedProtocol.encodeExecResult(0, "state: ON", "") { null } }
         val result = runner(helper).run(dump)

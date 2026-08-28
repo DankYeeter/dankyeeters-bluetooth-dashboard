@@ -1,7 +1,6 @@
 package dev.dankyeeter.btdashboard.privileged
 
 import java.io.File
-import java.util.UUID
 
 /**
  * The file side of a large exec reply — both halves of it.
@@ -12,6 +11,22 @@ import java.util.UUID
  * processes one shared 1 MB asynchronous buffer, a `dumpsys` reply is 115-222 KB
  * of UTF-16 in it, and two or three at once returned FAILED_TRANSACTION from a
  * helper that was still running. A file does not use that buffer.
+ *
+ * ## Why one file and not one per call
+ *
+ * It was one per call, and the device said no: ~470 `btdash_exec_*.out` files
+ * inside a two-minute watch-live session, about 3.5 a second, which against the
+ * five-minute sweep settles at roughly a thousand files and 200 MB of flash
+ * written per window. Nothing needed them to be distinct — see
+ * [PrivilegedContract.SPILL_NAME]. The reply still carries the path explicitly,
+ * so the *name* is the helper's private business and no version bump is
+ * involved; a client from either build reads whatever path it is handed, as
+ * long as it recognises the shape.
+ *
+ * The reuse is safe because `PrivilegedShellRunner.EXEC_LOCK` serialises exec
+ * calls: one reply is staged and collected inside one serialised call, so a
+ * write cannot land under a reader. **That mutex is load-bearing here.** If it
+ * ever goes away, this must go back to a unique name per call.
  *
  * ## Why one class serves both processes
  *
@@ -28,7 +43,6 @@ import java.util.UUID
 internal class ExecSpill(
     private val directory: File = File(PrivilegedContract.SPILL_DIRECTORY),
     private val clock: () -> Long = System::currentTimeMillis,
-    private val unique: () -> String = { UUID.randomUUID().toString().replace("-", "") },
 ) {
 
     /**
@@ -49,16 +63,19 @@ internal class ExecSpill(
      *
      * ## Why a sweep happens here as well as at start-up
      *
-     * The helper is deliberately immortal — there is no idle shutdown, by the
-     * owner's decision — so a start-up-only sweep would run once and then never
-     * again for days. Sweeping before each write bounds the directory in the
-     * only process that is awake often enough to do it, and costs one listing of
-     * a directory that normally holds two files.
+     * It is no longer what bounds the directory — one reused name does that —
+     * but it is still the only thing that clears what a crash or an earlier
+     * build left behind, and the helper is deliberately immortal, so a
+     * start-up-only sweep would run once and then not again for days. It costs
+     * one listing of a directory that now normally holds a single file.
      */
     fun stage(payload: String): File? = runCatching {
         sweepStale()
         if (!directory.isDirectory) return null
-        val file = File(directory, PrivilegedContract.SPILL_PREFIX + unique() + PrivilegedContract.SPILL_SUFFIX)
+        // One fixed name, overwritten. writeBytes truncates, and the client
+        // cannot be reading while this runs - see the class documentation for
+        // the mutex that guarantees it.
+        val file = File(directory, PrivilegedContract.SPILL_NAME)
         file.writeBytes(payload.toByteArray(Charsets.UTF_8))
         // ownerOnly = false is the whole point; see the permissions note above.
         file.setReadable(true, false)
@@ -147,6 +164,16 @@ internal class ExecSpill(
         return file.parentFile?.path == directory.path && isSpillName(file.name)
     }
 
+    /**
+     * Deliberately the whole `btdash_exec_*.out` family and not just
+     * [PrivilegedContract.SPILL_NAME].
+     *
+     * Two things depend on it being wider. The sweep has to be able to delete
+     * the per-call names an earlier build wrote — those are exactly the files
+     * that piled up on the device and nothing else will ever remove them — and
+     * a client running against a helper from that build has to be able to
+     * collect a reply it named that way.
+     */
     private fun isSpillName(name: String): Boolean =
         name.startsWith(PrivilegedContract.SPILL_PREFIX) &&
             name.endsWith(PrivilegedContract.SPILL_SUFFIX) &&

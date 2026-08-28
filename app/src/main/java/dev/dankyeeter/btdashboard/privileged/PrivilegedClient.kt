@@ -441,6 +441,14 @@ class PrivilegedShellRunner internal constructor(
          * replaces the other: serialising still puts a 444 KB reply through a
          * buffer shared with the codec calls, and staging still lets a burst of
          * small replies pile up.
+         *
+         * ## This lock is load-bearing for [ExecSpill]
+         *
+         * The helper stages every large reply into **one reused filename**, and
+         * that is only safe while at most one exec is in flight: the reply is
+         * written, handed over, read and released inside a single turn of this
+         * lock, so a write can never land under a reader. Removing or narrowing
+         * the lock means giving the helper unique names again.
          */
         val EXEC_LOCK = Mutex()
     }

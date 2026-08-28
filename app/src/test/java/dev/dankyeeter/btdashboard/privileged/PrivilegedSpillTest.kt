@@ -73,23 +73,60 @@ class PrivilegedSpillTest {
     }
 
     @Test
-    fun `every staged reply gets its own file`() {
-        // Two readers poll independently, so two dumps can be in flight at
-        // once. A shared name would have the second overwrite the first, and
-        // the first reader would collect the wrong dump with the right length.
+    fun `staging reuses one file rather than making a new one each time`() {
+        // Measured on the device: a name per call put ~470 files in
+        // /data/local/tmp inside a two-minute session, about 3.5 a second. The
+        // reuse is safe because PrivilegedShellRunner.EXEC_LOCK means one reply
+        // is staged and collected at a time.
         val spill = spill()
         val first = spill.stage("one")!!
         val second = spill.stage("two")!!
-        assertFalse(first.path == second.path)
-        assertTrue(first.exists() && second.exists())
+
+        assertEquals(first.path, second.path)
+        assertEquals("two", second.readText())
+    }
+
+    @Test
+    fun `many staged replies leave exactly one file behind`() {
+        val spill = spill()
+        repeat(50) { spill.stage("dump number $it") }
+
+        val left = temp.root.listFiles().orEmpty().map { it.name }
+        assertEquals(listOf(PrivilegedContract.SPILL_NAME), left)
     }
 
     @Test
     fun `a staged file is named so that both ends can recognise it`() {
         val file = spill().stage("payload")!!
+        assertEquals(PrivilegedContract.SPILL_NAME, file.name)
         assertTrue(file.name.startsWith(PrivilegedContract.SPILL_PREFIX))
         assertTrue(file.name.endsWith(PrivilegedContract.SPILL_SUFFIX))
         assertTrue(spill().isMine(file.path))
+    }
+
+    @Test
+    fun `a per-call name from an older helper is still collectable`() {
+        // The path travels in the reply, so the name is the helper's business.
+        // A client running against a helper from the build that used a name per
+        // call has to be able to read what that helper wrote.
+        val legacy = File(
+            temp.root,
+            "${PrivilegedContract.SPILL_PREFIX}a1b2c3d4${PrivilegedContract.SPILL_SUFFIX}",
+        )
+        legacy.writeText("an older helper's dump")
+
+        assertTrue(spill().isMine(legacy.path))
+        assertEquals(
+            "an older helper's dump",
+            spill().collect(
+                PrivilegedProtocol.ExecHandoff(
+                    0,
+                    legacy.path,
+                    "an older helper's dump".toByteArray(Charsets.UTF_8).size,
+                    "",
+                ),
+            ).getOrThrow(),
+        )
     }
 
     @Test
@@ -190,7 +227,9 @@ class PrivilegedSpillTest {
     fun `staging sweeps too, because the helper is never restarted`() {
         // There is no idle shutdown by design, so a start-up-only sweep would
         // run once and then not again for days. Every write is the only moment
-        // this process is reliably awake.
+        // this process is reliably awake. The name here is a per-call one: the
+        // files an earlier build left in /data/local/tmp are precisely what
+        // still needs collecting, and nothing else will ever remove them.
         val abandoned = File(
             temp.root,
             "${PrivilegedContract.SPILL_PREFIX}abandoned${PrivilegedContract.SPILL_SUFFIX}",

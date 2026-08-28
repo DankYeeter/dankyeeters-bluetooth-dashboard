@@ -76,9 +76,34 @@ object PrivilegedContract {
      * reads anything: the client will only open a path it can recognise as one
      * of these, so a malformed or hostile reply cannot point it at
      * `/data/local/tmp/something_else`.
+     *
+     * The *shape* stays wider than the one name [SPILL_NAME] uses, for two
+     * reasons: the sweep has to recognise files an earlier build named
+     * differently, and the client has to be able to collect a reply from a
+     * helper that is still naming them that way.
      */
     const val SPILL_PREFIX: String = "btdash_exec_"
     const val SPILL_SUFFIX: String = ".out"
+
+    /**
+     * The one file every staged reply is written to, overwritten per call.
+     *
+     * It was a fresh name per call, and that was measured on the device to be
+     * wrong: ~470 files appeared in `/data/local/tmp` within minutes of a
+     * two-minute watch-live session — roughly 3.5 staged replies a second,
+     * which against a five-minute sweep settles at about a thousand files and
+     * 200 MB of flash writes per sweep window. For a phone that is a real cost
+     * and it bought nothing.
+     *
+     * One name is safe **only because `PrivilegedShellRunner.EXEC_LOCK`
+     * serialises exec calls**: at most one reply is being staged or read at any
+     * moment, and the client reads and releases inside the same serialised
+     * call, so a write can never land under a reader. That coupling is the
+     * whole justification — if the mutex is ever removed, this has to go back to
+     * a unique name per call, and the size check on collect is what would
+     * notice if it did not.
+     */
+    const val SPILL_NAME: String = SPILL_PREFIX + "current" + SPILL_SUFFIX
 
     /**
      * How long a staged file may sit unclaimed before the helper deletes it.
