@@ -4328,7 +4328,7 @@ Durchgefuehrt nach PLAN-A16-ABNAHME.md. Ergebnis je Punkt:
   reconnectet selbst, Helper ueberlebt). **A6 OK** (HD-Audio-Zustand
   live gelesen). A3 nicht separat ausgefuehrt — derselbe Kommandopfad
   traegt die Self-Activation; Copy-command-UI vorhanden.
-- **B1 OK** technisch (Currently equalising TIDAL, genau 1 DP-Instanz
+- **B1 OK** technisch (vom Owner am Geraet HOERBAR bestaetigt; Currently equalising TIDAL, genau 1 DP-Instanz
   auf dem globalen Mix; Hoerbarkeit nicht separat bestaetigt — Daniel
   kann jederzeit ein Band ziehen). **B2/B3 OK** (Loudness-Toggle,
   4x Bypass, 0 Crashes). B4 durch den Profil-Applier-Mechanismus und
