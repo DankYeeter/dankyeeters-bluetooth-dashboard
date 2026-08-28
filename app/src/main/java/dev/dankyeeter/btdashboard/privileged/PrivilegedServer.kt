@@ -79,13 +79,24 @@ object PrivilegedServer {
      *
      * 2: caller-uid verification, and the codec operations.
      * 4: HD audio (optional codecs) and the Bluetooth restart.
+     * 5: exec replies larger than PrivilegedProtocol.INLINE_LIMIT_BYTES are
+     *    staged in a file and the reply carries the path.
      *
      * The bump matters more than usual for this one: the new methods are new
      * Binder transaction codes, so a version-3 helper receiving them throws
      * rather than answering. Refusing the stale helper up front turns that into
      * "the helper is out of date" instead of "HD audio stopped responding".
+     *
+     * 5 adds no method, so a version-4 helper would answer every call — with a
+     * 222 KB inline reply, which is the transaction that was failing. The
+     * version check in [PrivilegedProvider] is what closes the hand-over window
+     * in both directions: a v4 helper left running under a v5 app is refused
+     * with "helper is version 4, this app expects 5", which is the existing
+     * incompatible-helper path and already says what the user must do. The
+     * client still reads a plain `OK` reply, so nothing breaks in the seconds
+     * before a stale helper is replaced.
      */
-    const val VERSION: Int = 4
+    const val VERSION: Int = 5
 
     /**
      * How often the helper looks for the app while disconnected.
@@ -152,7 +163,17 @@ object PrivilegedServer {
         // one btdash_privileged process, the newest.
         reapOtherHelpers()
 
-        val service = PrivilegedService(token, appUid, HelperBluetooth(context))
+        // Staged exec replies from a previous helper have nobody left to claim
+        // them: the app that was told their paths is gone or has moved on. They
+        // are swept again before every write (see ExecSpill.stage), but a helper
+        // that is started and then never asked for a large dump would otherwise
+        // leave them lying in /data/local/tmp indefinitely.
+        val spill = ExecSpill()
+        spill.sweepStale().let { swept ->
+            if (swept > 0) println("privileged helper: swept $swept stale staged replies")
+        }
+
+        val service = PrivilegedService(token, appUid, HelperBluetooth(context), spill)
         val appToken = handOver(context, service, token)
         if (appToken == null) {
             System.err.println("privileged helper: the app did not accept the binder")
@@ -494,6 +515,8 @@ private class PrivilegedService(
     /** Resolved once at startup; see [PrivilegedServer.resolveAppUid]. */
     private val appUid: Int,
     private val bluetooth: HelperBluetooth,
+    /** Where a reply too large for Binder is written; see [ExecSpill]. */
+    private val spill: ExecSpill,
 ) : IPrivilegedService.Stub() {
 
     /**
@@ -518,7 +541,7 @@ private class PrivilegedService(
         // served the call; it stays because it is still the only place that
         // shows what the helper was actually asked to do.
         println("privileged helper: exec " + argv.joinToString(" "))
-        return execute(argv)
+        return execute(argv, mayStage = true)
     }
 
     override fun codecStatus(token: String?, address: String?): String {
@@ -701,7 +724,17 @@ private class PrivilegedService(
     /** The only permission [grantSecureSettings] will ever hand out. */
     private val SECURE_SETTINGS = "android.permission.WRITE_SECURE_SETTINGS"
 
-    private fun execute(command: List<String>): String = runCatching {
+    /**
+     * Runs [command] and encodes the reply.
+     *
+     * [mayStage] is false for everything except [exec], and deliberately so.
+     * `restartBluetooth` and `grantSecureSettings` decode their own replies with
+     * `decodeResult`, which by design does not recognise a staged one; both
+     * produce a few lines of output and could never cross the threshold anyway,
+     * so the honest thing is for the shape they can read to be the only shape
+     * they can be given, rather than a branch nobody would ever exercise.
+     */
+    private fun execute(command: List<String>, mayStage: Boolean = false): String = runCatching {
         val process = ProcessBuilder(command).redirectErrorStream(false).start()
         // stderr is drained on its own thread, in parallel with stdout. Reading
         // them in sequence can deadlock outright: a child that fills the 64 KB
@@ -721,7 +754,16 @@ private class PrivilegedService(
             process.destroyForcibly()
             return PrivilegedProtocol.encodeError("timed out after $TIMEOUT_SECONDS s")
         }
-        PrivilegedProtocol.encodeResult(process.exitValue(), stdout, stderr)
+        val exit = process.exitValue()
+        if (!mayStage) {
+            PrivilegedProtocol.encodeResult(exit, stdout, stderr)
+        } else {
+            PrivilegedProtocol.encodeExecResult(exit, stdout, stderr) { payload ->
+                spill.stage(payload)?.also {
+                    println("privileged helper: staged ${payload.length} chars in ${it.name}")
+                }?.path
+            }
+        }
     }.getOrElse {
         PrivilegedProtocol.encodeError(it.message ?: it.javaClass.simpleName)
     }

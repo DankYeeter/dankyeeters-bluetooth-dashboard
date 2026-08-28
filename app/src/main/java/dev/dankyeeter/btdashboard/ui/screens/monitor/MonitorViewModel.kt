@@ -15,6 +15,7 @@ import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStepResult
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
+import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxProbe
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
@@ -342,13 +343,39 @@ class MonitorViewModel : ViewModel() {
         if (update.snapshot.timestampMs <= lastRecordedPollMs) return
         lastRecordedPollMs = update.snapshot.timestampMs
         update.events.forEach { event ->
-            MonitorGraph.repository.recordEvent(
-                event.toMonitorEvent(
-                    deviceAddress = update.snapshot.device?.address,
-                    deviceName = update.snapshot.device?.name,
-                ),
+            val record = event.toMonitorEvent(
+                deviceAddress = update.snapshot.device?.address,
+                deviceName = update.snapshot.device?.name,
+                linkCodec = update.snapshot.codec?.family,
             )
+            if (alreadyReported(record)) return@forEach
+            MonitorGraph.repository.recordEvent(record)
         }
+    }
+
+    /**
+     * Whether the broadcast receiver already put this transition in the log.
+     *
+     * Connects, disconnects, playback and codec changes have **two** observers:
+     * Android's broadcasts, which arrive at once and name the device, and this
+     * poller, which notices the same change up to one interval later by
+     * comparing two dumps. Both write to the same store, so the log showed every
+     * connect twice — once as "Encore connected" and once, a second or two
+     * later, as the poller's own account of it.
+     *
+     * Suppressing here rather than upstream is deliberate. The broadcast for
+     * playback and codec state is `@SystemApi` and **a silent stream is a
+     * supported outcome** — that is exactly what the dump fallback exists for —
+     * so the poller's event must survive whenever the broadcast did not happen.
+     * Dropping only the ones that visibly duplicate something already recorded
+     * keeps the fallback intact: if nothing matched, nothing is dropped.
+     */
+    private fun alreadyReported(event: MonitorEvent): Boolean {
+        if (event.type !in BROADCAST_OWNED) return false
+        return events.value.asReversed()
+            .asSequence()
+            .takeWhile { event.timestampMs - it.timestampMs <= DUPLICATE_WINDOW_MS }
+            .any { it.type == event.type && it.deviceAddress == event.deviceAddress }
     }
 
     /**
@@ -482,5 +509,27 @@ class MonitorViewModel : ViewModel() {
 
         /** The close-up's resting state, and what it falls back to when switched off. */
         val EMPTY_CLOSE_UP = LiveTrace.closeUp(A2dpTxProbe.DEFAULT_INTERVAL_MS)
+
+        /**
+         * The transitions Android also broadcasts, and which the poller
+         * therefore reports second. See [alreadyReported].
+         */
+        val BROADCAST_OWNED = setOf(
+            MonitorEventType.ACL_CONNECTED,
+            MonitorEventType.ACL_DISCONNECTED,
+            MonitorEventType.PLAYING_STARTED,
+            MonitorEventType.PLAYING_STOPPED,
+            MonitorEventType.CODEC_CHANGED,
+        )
+
+        /**
+         * How far back a duplicate may be.
+         *
+         * Longer than the slowest poll rate the panel offers (5 s), so a change
+         * the broadcast reported at once and the poller noticed on its next pass
+         * still matches; short enough that a headphone genuinely reconnecting
+         * ten seconds later is its own line.
+         */
+        const val DUPLICATE_WINDOW_MS = 8_000L
     }
 }

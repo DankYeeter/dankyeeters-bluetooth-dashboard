@@ -215,6 +215,138 @@ class PrivilegedProtocolTest {
     private fun b64(value: String): String =
         java.util.Base64.getEncoder().encodeToString(value.toByteArray())
 
+    // ---- large exec replies -------------------------------------------------
+    //
+    // The frame that exists because a 222 KB dumpsys reply, doubled by UTF-16,
+    // does not fit in a 1 MB Binder buffer shared with two other readers. See
+    // PrivilegedProtocol.INLINE_LIMIT_BYTES.
+
+    @Test
+    fun `a staged reply survives a round trip`() {
+        val encoded = PrivilegedProtocol.encodeFileResult(
+            exitCode = 0,
+            path = "/data/local/tmp/btdash_exec_a1b2c3.out",
+            byteCount = 227_413,
+            stderr = "one warning line",
+        )
+        assertEquals(1, encoded.lines().size)
+
+        val handoff = PrivilegedProtocol.decodeFileResult(encoded)!!
+        assertEquals(0, handoff.exitCode)
+        assertEquals("/data/local/tmp/btdash_exec_a1b2c3.out", handoff.path)
+        assertEquals(227_413, handoff.byteCount)
+        assertEquals("one warning line", handoff.stderr)
+    }
+
+    @Test
+    fun `a staged reply is not mistaken for anything else, and vice versa`() {
+        // The two result shapes are the pair most worth keeping apart: a client
+        // that read a staged reply as an inline one would hand the parsers a
+        // file path where a dump should be, and a path parses as an empty dump
+        // rather than as an error.
+        val staged = PrivilegedProtocol.encodeFileResult(0, "/data/local/tmp/btdash_exec_x.out", 1, "")
+        assertNull(PrivilegedProtocol.decodeResult(staged))
+        assertNull(PrivilegedProtocol.decodeError(staged))
+        assertNull(PrivilegedProtocol.decodeCodec(staged))
+        assertNull(PrivilegedProtocol.decodeRun(staged))
+
+        assertNull(PrivilegedProtocol.decodeFileResult(PrivilegedProtocol.encodeResult(0, "a", "b")))
+        assertNull(PrivilegedProtocol.decodeFileResult(PrivilegedProtocol.encodeError("nope")))
+    }
+
+    @Test
+    fun `garbage in a staged reply decodes to null instead of throwing`() {
+        listOf(
+            "",
+            "FILE",
+            "FILE 0 ${b64("/x")} 1",
+            "FILE 0 ${b64("/x")} 1 ${b64("")} extra",
+            "FILE zero ${b64("/x")} 1 ${b64("")}",
+            "FILE 0 !!!not base64!!! 1 ${b64("")}",
+            "FILE 0 ${b64("/x")} notanumber ${b64("")}",
+            // A negative length is not a short read, it is a malformed line —
+            // and the reader compares it against a real file size.
+            "FILE 0 ${b64("/x")} -1 ${b64("")}",
+        ).forEach { assertNull("decodeFileResult($it)", PrivilegedProtocol.decodeFileResult(it)) }
+    }
+
+    @Test
+    fun `a reply of exactly the inline limit still travels inline`() {
+        // The boundary is inclusive on the inline side, so the limit itself is
+        // a size that never touches the filesystem.
+        val stdout = "x".repeat(PrivilegedProtocol.INLINE_LIMIT_BYTES)
+        val encoded = PrivilegedProtocol.encodeExecResult(0, stdout, "") {
+            error("a reply of exactly the limit must not be staged")
+        }
+        assertEquals(stdout, PrivilegedProtocol.decodeResult(encoded)!!.second)
+        assertNull(PrivilegedProtocol.decodeFileResult(encoded))
+    }
+
+    @Test
+    fun `one byte over the limit is staged instead`() {
+        val stdout = "x".repeat(PrivilegedProtocol.INLINE_LIMIT_BYTES + 1)
+        var staged: String? = null
+        val encoded = PrivilegedProtocol.encodeExecResult(7, stdout, "warned") {
+            staged = it
+            "/data/local/tmp/btdash_exec_over.out"
+        }
+        assertEquals(stdout, staged)
+        assertNull(PrivilegedProtocol.decodeResult(encoded))
+
+        val handoff = PrivilegedProtocol.decodeFileResult(encoded)!!
+        assertEquals(7, handoff.exitCode)
+        assertEquals("/data/local/tmp/btdash_exec_over.out", handoff.path)
+        assertEquals(PrivilegedProtocol.INLINE_LIMIT_BYTES + 1, handoff.byteCount)
+        assertEquals("warned", handoff.stderr)
+    }
+
+    @Test
+    fun `the limit counts bytes, not characters`() {
+        // The wire carries UTF-16 and a dump can hold a non-ASCII device name.
+        // Counting characters would let a reply of twice the intended size
+        // through as "inline" — which is the transaction that fails.
+        val halfLimit = PrivilegedProtocol.INLINE_LIMIT_BYTES / 2
+        val exactly = "ä".repeat(halfLimit)
+        assertEquals(PrivilegedProtocol.INLINE_LIMIT_BYTES, exactly.toByteArray(Charsets.UTF_8).size)
+        assertNull(
+            PrivilegedProtocol.decodeFileResult(
+                PrivilegedProtocol.encodeExecResult(0, exactly, "") { error("must not stage") },
+            ),
+        )
+
+        val over = "ä".repeat(halfLimit + 1)
+        assertTrue(over.length < PrivilegedProtocol.INLINE_LIMIT_BYTES)
+        val encoded = PrivilegedProtocol.encodeExecResult(0, over, "") { "/data/local/tmp/btdash_exec_u.out" }
+        assertEquals(
+            over.toByteArray(Charsets.UTF_8).size,
+            PrivilegedProtocol.decodeFileResult(encoded)!!.byteCount,
+        )
+    }
+
+    @Test
+    fun `a reply that cannot be staged is an error, never an inline reply`() {
+        // Falling back to inline here would send exactly the transaction that
+        // fails, and the user would see the helper "stop responding" instead of
+        // a sentence naming the real problem.
+        val stdout = "x".repeat(PrivilegedProtocol.INLINE_LIMIT_BYTES + 1)
+        val encoded = PrivilegedProtocol.encodeExecResult(0, stdout, "") { null }
+        assertNull(PrivilegedProtocol.decodeResult(encoded))
+        assertNull(PrivilegedProtocol.decodeFileResult(encoded))
+        assertTrue(PrivilegedProtocol.decodeError(encoded)!!.contains("could not stage"))
+    }
+
+    @Test
+    fun `an enormous stderr is bounded rather than staged`() {
+        // Only stdout is ever staged, because stdout is the payload. stderr is
+        // the one field left that could still put a megabyte into a
+        // transaction, so it is truncated - and says that it was.
+        val stderr = "e".repeat(PrivilegedProtocol.INLINE_LIMIT_BYTES * 2)
+        val encoded = PrivilegedProtocol.encodeExecResult(0, "short", stderr) { error("must not stage") }
+        val carried = PrivilegedProtocol.decodeResult(encoded)!!.third
+        assertTrue(carried.length < stderr.length)
+        assertTrue(carried.contains("truncated"))
+    }
+
     // ---- the operation surface ----------------------------------------------
 
     @Test

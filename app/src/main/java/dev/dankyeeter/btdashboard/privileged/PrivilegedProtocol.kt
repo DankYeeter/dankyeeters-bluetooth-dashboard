@@ -192,6 +192,126 @@ object PrivilegedProtocol {
         return Triple(exit, out, err)
     }
 
+    // ---- large exec replies -------------------------------------------------
+    //
+    // WHY there is a second shape for a result at all.
+    //
+    // An exec reply is one Binder String. Binder gives each *process pair* a
+    // single 1 MB asynchronous buffer, shared by every transaction in flight
+    // between them, and a Java String travels as UTF-16 — two bytes per
+    // character. The dumps this app reads were measured at 115-222 KB each on
+    // the owner's device (more while a headphone is connected), so one reply
+    // occupies 230-444 KB of that buffer and two or three overlapping ones
+    // exhaust it. What came back was:
+    //
+    //     W ActivityManager: pid <app> sent binder code 2 with flags 2
+    //       and got error -2147483646
+    //
+    // FAILED_TRANSACTION, from a helper that was still very much alive. So a
+    // reply above [INLINE_LIMIT_BYTES] does not travel through Binder at all:
+    // the helper writes it to a file only it and this app can name, and the
+    // reply carries the path and the length instead of the payload. The client
+    // reads the file and deletes it.
+    //
+    // [PrivilegedShellRunner] additionally serialises exec calls, so at most one
+    // reply is ever in the buffer. The two fixes are deliberately both present:
+    // serialising alone would still put a 444 KB reply through a 1 MB buffer
+    // shared with the codec calls, and spilling alone would still let a burst of
+    // small replies pile up.
+
+    /**
+     * Above this many bytes of stdout, an exec reply is handed over as a file.
+     *
+     * 64 KB is far below the point where the buffer is in danger (the smallest
+     * dump measured on the device is nearly twice this), which is the point:
+     * the threshold should be crossed by everything that is actually large, so
+     * the inline path only ever carries the handful of short replies — an
+     * error, an empty dump, a `ps` listing — where a file would be pure
+     * overhead.
+     */
+    const val INLINE_LIMIT_BYTES: Int = 64 * 1024
+
+    /**
+     * A reply whose payload is in a file rather than on the wire.
+     *
+     * [byteCount] is carried even though the client could stat the file,
+     * because the two disagreeing is the one failure this hand-over can have
+     * that would otherwise be silent: a truncated read looks exactly like a
+     * short dump, and a short dump is a thing the parsers accept.
+     */
+    data class ExecHandoff(
+        val exitCode: Int,
+        val path: String,
+        val byteCount: Int,
+        val stderr: String,
+    )
+
+    fun encodeFileResult(exitCode: Int, path: String, byteCount: Int, stderr: String): String =
+        "FILE $exitCode ${encode(path)} $byteCount ${encode(stderr)}"
+
+    /**
+     * The whole rule for how an exec reply leaves the helper, in one place.
+     *
+     * [stage] writes the payload where the client can read it and returns the
+     * path, or null if it could not. It is a parameter rather than a call into
+     * [ExecSpill] because this object is deliberately pure — the decision about
+     * *when* a reply is too large is the part that must be testable without a
+     * device, and it is the part that would otherwise only ever be exercised by
+     * plugging a phone in.
+     *
+     * A failure to stage is an error, never a fall back to the inline reply: an
+     * inline reply of this size is precisely the transaction that fails, so
+     * sending one would trade a legible message for the original bug.
+     */
+    fun encodeExecResult(
+        exitCode: Int,
+        stdout: String,
+        stderr: String,
+        stage: (String) -> String?,
+    ): String {
+        val payload = stdout.toByteArray(Charsets.UTF_8)
+        val bounded = boundedStderr(stderr)
+        // Measured in bytes rather than characters: the wire carries UTF-16, and
+        // a dump can hold a non-ASCII device name, so `length` would understate
+        // exactly the replies that are closest to the limit.
+        if (payload.size <= INLINE_LIMIT_BYTES) return encodeResult(exitCode, stdout, bounded)
+        val path = stage(stdout)
+            ?: return encodeError(
+                "could not stage ${payload.size} bytes of output for the app to collect",
+            )
+        return encodeFileResult(exitCode, path, payload.size, bounded)
+    }
+
+    /**
+     * stderr never travels in a file, so it is bounded instead.
+     *
+     * Staging moves stdout, because stdout is the dump. That leaves stderr as
+     * the one field that could still put a megabyte into a transaction —
+     * nothing on the whitelist has ever produced more than a line of it, but
+     * "has never yet" is not a bound. Truncating a diagnostic is acceptable
+     * where truncating a payload is not, provided it says that it did.
+     */
+    private fun boundedStderr(stderr: String): String {
+        val bytes = stderr.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= INLINE_LIMIT_BYTES) return stderr
+        return String(bytes, 0, INLINE_LIMIT_BYTES, Charsets.UTF_8) +
+            "\n[truncated: ${bytes.size} bytes of stderr]"
+    }
+
+    /** Returns the hand-over, or null if the line is not one. */
+    fun decodeFileResult(line: String): ExecHandoff? {
+        val parts = line.stripLineEnding().split(SEPARATOR)
+        if (parts.size != 5 || parts[0] != "FILE") return null
+        val exit = parts[1].toIntOrNull() ?: return null
+        val path = decodeOrNull(parts[2]) ?: return null
+        val bytes = parts[3].toIntOrNull() ?: return null
+        // A negative length is not a short read, it is a malformed line, and
+        // the reader would go on to compare it against a real file size.
+        if (bytes < 0) return null
+        val err = decodeOrNull(parts[4]) ?: return null
+        return ExecHandoff(exit, path, bytes, err)
+    }
+
     /**
      * Length-independent token compare, shared by the helper and the provider.
      *

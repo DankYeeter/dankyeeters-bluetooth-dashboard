@@ -36,7 +36,6 @@ import androidx.compose.ui.unit.sp
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
-import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 
 /**
  * The link timeline, drawn by hand on a Compose Canvas — no chart library, per
@@ -197,14 +196,11 @@ fun LinkTimeline(
         Lane("Events", 24.dp) {
             drawBaseline(colors.outline)
             events.forEach { event ->
-                // Same loud set as the event log's rows, plus a disconnect. An
-                // encoder-starvation capture must be findable on the axis: it is
-                // how somebody correlates "it stuttered around then" with the
-                // one poll that recorded what was attached.
-                val loud = event.type == MonitorEventType.TAKEOVER ||
-                    event.type == MonitorEventType.INTERRUPTION ||
-                    event.type == MonitorEventType.ENCODER_STARVATION ||
-                    event.type == MonitorEventType.ACL_DISCONNECTED
+                // The type's own flag, which is also what colours the event log's
+                // rows. It was a copied `when` block in each of the two files,
+                // and they had already drifted: a disconnect was loud here and
+                // quiet in the log, for no reason either file could state.
+                val loud = event.type.loud
                 val x = xOf(event.timestampMs)
                 drawLine(
                     color = if (loud) colors.error else colors.secondary,

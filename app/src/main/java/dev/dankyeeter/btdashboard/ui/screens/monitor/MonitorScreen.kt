@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
@@ -28,26 +27,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
 import dev.dankyeeter.btdashboard.monitor.diagnostic.StepOutcome
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
+import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
-import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
-import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
-
-private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
-
-/** How many events the log shows before it starts hiding older ones. */
-private const val EVENT_LIMIT = 40
 
 @Composable
 fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
@@ -117,78 +107,18 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             onCloseUpEnabled = viewModel::setCloseUpEnabled,
         )
 
-        Panel {
-            // Three stacked paragraphs used to stand here: what BQR would give,
-            // which permission it needs, and the sampler's own reason string.
-            // Only one of them answers the question somebody opens this panel
-            // with — which source is feeding the timeline — so that is the only
-            // one left in the first layer. The rest is behind the question mark.
-            ExplainedHeader("Data source", dataSourceExplanation(bqr, status.reason))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // The sampling mode is a state, so it wears a pill rather than
-                // a sentence — but in words the user can act on, never the
-                // enum constant.
-                Pill(status.mode.label(), tone = status.mode.tone())
-                Text(
-                    viewModel.activeSource().readableName()
-                        ?.let { "Reading the link through $it." }
-                        ?: "Nothing is reading the link right now.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GoldButton(onClick = viewModel::startDeepCapture) { Text("Watch live") }
-                // Only live while there is a capture to stop. The button clears
-                // the deep-capture window and nothing else, so it stays disabled
-                // in BURST too: burst is the sampler reacting to an anomaly on
-                // its own and expires by itself, and a button that visibly does
-                // nothing is worse than one that is honestly greyed out.
-                GoldOutlinedButton(
-                    onClick = viewModel::stopDeepCapture,
-                    enabled = status.mode == SamplingMode.DEEP,
-                ) { Text("Stop capture") }
-            }
-        }
+        DataSourcePanel(
+            mode = status.mode,
+            source = viewModel.activeSource(),
+            bqr = bqr,
+            samplingReason = status.reason,
+            onWatchLive = viewModel::startDeepCapture,
+            onStopCapture = viewModel::stopDeepCapture,
+        )
 
-        Panel {
-            // No Readout here any more. "418" samples is a number nobody can
-            // check against anything they heard; the lanes are the measurement,
-            // and how much was collected is a footnote to them.
-            ExplainedHeader("Timeline", TIMELINE_EXPLANATION)
-            LinkTimeline(samples = samples, events = events)
-            Text(
-                "${plural(samples.size, "sample")} · ${plural(events.size, "event")}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        TimelinePanel(samples = samples, events = events)
 
-        Panel {
-            PanelHeader("Events")
-            if (events.isEmpty()) {
-                Text(
-                    "No events yet — connects, dropouts and takeovers appear here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                // No rules between the rows: the panel already spaces them, and
-                // forty hairlines in one panel read as a table, not a log.
-                val newestFirst = events.asReversed()
-                newestFirst.take(EVENT_LIMIT).forEach { EventRow(it) }
-                // Silent truncation made the log look complete when it was not.
-                if (newestFirst.size > EVENT_LIMIT) {
-                    Text(
-                        "Showing the $EVENT_LIMIT most recent.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
+        EventLogPanel(events)
 
         DiagnosticCard(
             diagnostic,
@@ -199,41 +129,85 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     }
 }
 
+/**
+ * Which source is feeding the timeline, and the capture controls.
+ *
+ * Three stacked paragraphs used to stand here: what BQR would give, which
+ * permission it needs, and the sampler's own reason string. Then two — a state
+ * pill and a sentence wrapped around the source name. The sentence is gone too:
+ * "Reading the link through the Bluetooth stack's own dump." spends fourteen
+ * words on one noun, and the pill beside it already says whether anything is
+ * reading. What is left is an instrument reading: state, source, controls. The
+ * permission story is behind the question mark, where somebody goes when a row
+ * above is missing.
+ *
+ * Internal rather than private, and taking values rather than the ViewModel, so
+ * that the audit that removed those paragraphs can be pinned without composing
+ * the whole screen — which starts a Bluetooth-backed ViewModel and fails
+ * asynchronously in a test JVM.
+ */
 @Composable
-private fun EventRow(event: MonitorEvent) {
-    // ENCODER_STARVATION joins the loud set because it is the one line in this
-    // log that is worth interrupting somebody for: it only appears when the
-    // encoder has been starving for seconds on end, and it carries the one-shot
-    // forensic capture of what was attached at the time. A line nobody notices
-    // would defeat the whole point of taking the capture.
-    val loud = event.type == MonitorEventType.TAKEOVER ||
-        event.type == MonitorEventType.INTERRUPTION ||
-        event.type == MonitorEventType.ENCODER_STARVATION
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            timeFormat.format(Date(event.timestampMs)),
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-        )
-        Text(
-            event.detail,
-            style = if (loud) {
-                MaterialTheme.typography.bodyMedium
-            } else {
-                MaterialTheme.typography.bodySmall
-            },
-            color = if (loud) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-        )
+internal fun DataSourcePanel(
+    mode: SamplingMode,
+    source: LinkDataSource,
+    bqr: QualityReportAvailability,
+    samplingReason: String,
+    onWatchLive: () -> Unit,
+    onStopCapture: () -> Unit,
+) {
+    Panel {
+        ExplainedHeader("Data source", dataSourceExplanation(bqr, samplingReason))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The sampling mode is a state, so it wears a pill rather than a
+            // sentence — but in words the user can act on, never the enum
+            // constant.
+            Pill(mode.label(), tone = mode.tone())
+            Text(
+                source.shortName(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GoldButton(onClick = onWatchLive) { Text("Watch live") }
+            // Only live while there is a capture to stop. The button clears the
+            // deep-capture window and nothing else, so it stays disabled in
+            // BURST too: burst is the sampler reacting to an anomaly on its own
+            // and expires by itself, and a button that visibly does nothing is
+            // worse than one that is honestly greyed out.
+            GoldOutlinedButton(
+                onClick = onStopCapture,
+                enabled = mode == SamplingMode.DEEP,
+            ) { Text("Stop capture") }
+        }
+    }
+}
+
+/**
+ * The two-hour history.
+ *
+ * No `Readout` here any more, and no tally under the chart either.
+ * "418 samples · 12 events" is a count of the app's own bookkeeping: nobody can
+ * check it against anything they heard, and the lanes already show how much was
+ * recorded — by how much of the axis is not grey.
+ */
+@Composable
+internal fun TimelinePanel(
+    samples: List<LinkQualitySample>,
+    events: List<MonitorEvent>,
+) {
+    Panel {
+        ExplainedHeader("Timeline", TIMELINE_EXPLANATION)
+        LinkTimeline(samples = samples, events = events)
     }
 }
 
 /** The guided device test and its report. */
 @Composable
-private fun DiagnosticCard(
+internal fun DiagnosticCard(
     state: DiagnosticUiState,
     onRun: () -> Unit,
     onCancel: () -> Unit,
@@ -245,15 +219,16 @@ private fun DiagnosticCard(
         // One noun for the whole feature — "device test" in the header, in the
         // buttons and in the messages. It was "test device", "diagnostic" and
         // "run" in three different places, which reads as three features.
+        // The always-on sentence under this header said the same thing the
+        // header's own explanation says, one tap further out — "runs a
+        // three-minute check and reports what it found" against "checks the
+        // connection, watches the codec negotiate… then records for three
+        // minutes and summarises". The button says "Run device test"; a panel
+        // that explains its own button twice is explaining itself, not the link.
         ExplainedHeader(
             "Device test",
             "It checks the connection, watches the codec negotiate, cycles through the " +
                 "codecs the headphone offers, then records for three minutes and summarises.",
-        )
-        Text(
-            "Runs a three-minute check of this headphone's link and reports what it found.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         if (state.running) {
@@ -367,20 +342,20 @@ private fun dataSourceExplanation(
 }
 
 /**
- * Source names a listener can place. [LinkDataSource.displayName] is written
- * for the log, and "dumpsys fallback" in a sentence names an Android command
- * rather than anything the user has heard of.
+ * Source names a listener can place, in the fewest words that still name it.
+ *
+ * [LinkDataSource.displayName] is written for the log, and "dumpsys fallback"
+ * names an Android command rather than anything the user has heard of. These
+ * are the same three sources said as labels rather than as sentences — the row
+ * they sit in is a reading, not a paragraph, and the full permission story is
+ * behind the panel's question mark where it belongs.
  */
-private fun LinkDataSource.readableName(): String? = when (this) {
-    LinkDataSource.QUALITY_REPORT -> "Bluetooth Quality Report"
-    LinkDataSource.CODEC_API -> "Android's codec status API"
-    LinkDataSource.DUMPSYS -> "the Bluetooth stack's own dump"
-    LinkDataSource.NONE -> null
+private fun LinkDataSource.shortName(): String = when (this) {
+    LinkDataSource.QUALITY_REPORT -> "Quality Report"
+    LinkDataSource.CODEC_API -> "Codec API"
+    LinkDataSource.DUMPSYS -> "Bluetooth stack dump"
+    LinkDataSource.NONE -> "no source"
 }
-
-/** "1 sample" / "2 samples" — never "1 sample(s)". */
-private fun plural(count: Int, singular: String): String =
-    if (count == 1) "$count $singular" else "$count ${singular}s"
 
 /**
  * What the sampler is doing, said as an activity rather than as its enum name.

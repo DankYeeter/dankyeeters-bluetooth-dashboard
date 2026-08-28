@@ -57,6 +57,42 @@ object PrivilegedContract {
     const val HELPER_LOG_PATH: String = "/data/local/tmp/btdash_helper.log"
 
     /**
+     * Where an exec reply too large for Binder is staged.
+     *
+     * The same directory, and deliberately the same trust model, as
+     * [HELPER_LOG_PATH]: the helper runs as shell and can write there, the app
+     * cannot write there but can read a world-readable file in it, and that
+     * asymmetry is exactly the one this hand-over needs. Nothing secret is ever
+     * staged — the payload is a `dumpsys` report the same shell could print to
+     * anyone who asked it — so world-readable costs nothing that the operation
+     * itself did not already cost.
+     *
+     * See PrivilegedProtocol.INLINE_LIMIT_BYTES for why the file exists at all.
+     */
+    const val SPILL_DIRECTORY: String = "/data/local/tmp"
+
+    /**
+     * Name shape of a staged reply. Both halves are matched before the app
+     * reads anything: the client will only open a path it can recognise as one
+     * of these, so a malformed or hostile reply cannot point it at
+     * `/data/local/tmp/something_else`.
+     */
+    const val SPILL_PREFIX: String = "btdash_exec_"
+    const val SPILL_SUFFIX: String = ".out"
+
+    /**
+     * How long a staged file may sit unclaimed before the helper deletes it.
+     *
+     * A staged file normally lives for milliseconds — the client reads it and
+     * unlinks it. It outlives that only when the app dies between the reply and
+     * the read, which is rare and, without a sweep, permanent: these files land
+     * in a directory nothing else tidies. Five minutes is far longer than any
+     * legitimate read and far shorter than a session, so the sweep can never
+     * race a reader.
+     */
+    const val SPILL_MAX_AGE_MS: Long = 5 * 60 * 1000L
+
+    /**
      * The app this helper serves.
      *
      * Only a fallback: the helper normally learns the uid to trust by resolving

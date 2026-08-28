@@ -171,16 +171,58 @@ class LiveLinkPanelScreenTest {
         assertHides("(proxy)")
     }
 
+    /**
+     * One line, both sides of it.
+     *
+     * The negotiated format used to be printed twice — in full under the device
+     * name ("96 kHz · 32 bit · stereo") and again in short form on the line
+     * below ("→ Link: LDAC 96 kHz/32"). Two notations for one fact is not
+     * redundancy, it is a question: do they agree? So there is one line now, and
+     * this pins that both halves survived the merge.
+     */
     @Test
-    fun `negotiated format and the input it carries are both named`() {
+    fun `the input and the negotiated format are one line`() {
         render(snapshot(codecSpecific1 = 1000L))
 
-        assertShows("96 kHz")
-        assertShows("32 bit")
-        assertShows("stereo")
+        // The link side, in the panel's one notation.
+        assertShows("96 kHz · 32 bit · stereo")
         // The input side: the app's own rate, before whatever the link does.
-        assertShows("In:")
         assertShows("44.1 kHz")
+        // And not the second notation the line below used to repeat it in.
+        assertHides("Link: LDAC")
+    }
+
+    /**
+     * The internal liveness proxy, and why it is not a row any more.
+     *
+     * "Encoder queue: 50 handovers/s" was honest and useless: the counter under
+     * it ticks with the encoder's 20 ms timer, so it reads 50 on every healthy
+     * link and its only message to a user was that a number was moving. The
+     * trace graph carries the same liveness as a line that is drawn rather than
+     * broken, where it costs no words at all.
+     */
+    @Test
+    fun `the handovers-per-second liveness proxy is gone from the panel`() {
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = 396))
+
+        assertHides("handovers")
+        assertHides("Encoder queue")
+    }
+
+    /**
+     * The caveat about renegotiation is still on the screen — it is behind the
+     * chips' own question mark, where a thing you need to know once belongs,
+     * rather than printed under them forever.
+     */
+    @Test
+    fun `the renegotiation paragraph is not in the first layer`() {
+        render(snapshot(codecSpecific1 = 0L))
+
+        assertShows("LDAC quality")
+        assertHides("the audio cuts out for a moment")
+        // "Live tuning" was a second name for the same control, one line under
+        // the first one.
+        assertHides("Live tuning")
     }
 
     @Test
@@ -252,12 +294,19 @@ class LiveLinkPanelScreenTest {
         assertShows("3 loss marks")
     }
 
+    /**
+     * The chip is the control and the message. A permanent line under it saying
+     * the close-up is off — to a reader who can see it is off — was the panel
+     * narrating itself, and the cost it quoted is in the section's explanation
+     * for anyone who wants the reason.
+     */
     @Test
-    fun `an empty close-up says it is off rather than drawing a flat line`() {
+    fun `an empty close-up offers the chip without a paragraph under it`() {
         render(snapshot(codecSpecific1 = 0L), overview = overviewWithLoss())
 
         assertShows("Watch closely")
-        assertShows("reads the Bluetooth stack twice a second")
+        assertHides("Off by default")
+        assertHides("twice a second")
     }
 
     @Test
@@ -265,9 +314,6 @@ class LiveLinkPanelScreenTest {
         render(snapshot(codecSpecific1 = 0L), closeUpEnabled = true)
 
         assertShows("Watching")
-        // The cost line belongs to the off state; once it is running the user
-        // has already been told.
-        composeRule.onAllNodesWithText("Off by default", substring = true).assertCountEquals(0)
     }
 
     @Test

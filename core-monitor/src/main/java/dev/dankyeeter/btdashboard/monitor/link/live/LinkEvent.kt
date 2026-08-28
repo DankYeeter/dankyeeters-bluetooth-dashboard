@@ -137,10 +137,27 @@ data class LinkLiveUpdate(
  * panel needs the counters apart, the timeline needs one sentence and a
  * severity — so this is a mapping and not a shared base class. Keeping the
  * translation in one function means the timeline never learns the live model.
+ *
+ * ## Why the sentence is rebuilt here
+ *
+ * [LinkEvent.detail] is written by the poller for the poller: "A2DP stream
+ * started", "Audio loss: 3 app underrun(s)". Both are accurate and neither is
+ * English a listener would use — one names a Bluetooth profile, the other has a
+ * plural marker from a `printf` in it. The structured fields are right here, so
+ * the timeline's sentence is built from them by [userDetail] rather than
+ * inherited from a string meant for a different reader. The poller keeps its
+ * own wording for its own log; nothing has to be changed under this file for
+ * the event log to read properly.
+ *
+ * @param linkCodec the codec the link was running when the event was taken.
+ *   Carried so a rate event can name what the rate belongs to — "LDAC 660 → 990
+ *   kbps" is a fact, "660 → 990 kbps" is a number with no subject. Null when the
+ *   caller does not know, which is honest and simply drops the prefix.
  */
 fun LinkEvent.toMonitorEvent(
     deviceAddress: String?,
     deviceName: String?,
+    linkCodec: CodecFamily? = null,
 ): MonitorEvent = MonitorEvent(
     timestampMs = timestampMs,
     deviceAddress = deviceAddress,
@@ -156,8 +173,15 @@ fun LinkEvent.toMonitorEvent(
         is LinkEvent.ConnectionChanged ->
             if (isConnected) MonitorEventType.ACL_CONNECTED else MonitorEventType.ACL_DISCONNECTED
     },
-    detail = detail,
-    codec = (this as? LinkEvent.CodecChanged)?.to,
+    detail = userDetail(deviceName),
+    // The codec a rate belongs to travels with the rate; a loss or a playback
+    // change is about the link rather than about a codec, and claiming one there
+    // would put a codec name on a row that never established it.
+    codec = when (this) {
+        is LinkEvent.CodecChanged -> to
+        is LinkEvent.LdacModeChanged, is LinkEvent.MeasuredBitrateChanged -> linkCodec
+        else -> null
+    },
     // Only ever a figure that was established, never a fallback. A measured step
     // supplies the rate the stack reported; a pinned mode supplies its spec
     // figure, which is all a configuration change has. A bitrate column that
@@ -169,3 +193,103 @@ fun LinkEvent.toMonitorEvent(
         else -> null
     },
 )
+
+/**
+ * The detail layer's sentence for a live event: what happened, in the values it
+ * happened in, with no counter names or profile acronyms.
+ *
+ * This is the *long* form on purpose — it is what opens when somebody taps the
+ * row, so it may name the window a loss was counted over and the mode token the
+ * stack printed. What it may not do is read like the line of code that produced
+ * it, which is the difference between this and [LinkEvent.detail].
+ */
+private fun LinkEvent.userDetail(deviceName: String?): String {
+    val device = deviceName?.trim()?.takeIf { it.isNotEmpty() } ?: "the headphone"
+    return when (this) {
+        is LinkEvent.ConnectionChanged ->
+            if (isConnected) {
+                "$device is connected again."
+            } else {
+                "The link to $device dropped."
+            }
+
+        is LinkEvent.PlaybackChanged ->
+            if (isPlaying) {
+                "Audio started flowing to $device."
+            } else {
+                "Audio stopped flowing to $device."
+            }
+
+        is LinkEvent.CodecChanged ->
+            "The link renegotiated from ${from?.displayName ?: "an unread codec"} " +
+                "to ${to.displayName}."
+
+        is LinkEvent.LdacModeChanged -> buildString {
+            append("LDAC quality changed from ${from?.label ?: "an unread mode"} to ${to.label}.")
+            // The spec figure, said to be the spec figure. This is the honesty
+            // rule the live panel follows in its own words, kept here so an
+            // exported log cannot be read as a measurement.
+            nominalKbps?.let { append(" That mode's rated figure is $it kbps.") }
+        }
+
+        is LinkEvent.MeasuredBitrateChanged -> buildString {
+            if (fromKbps == null) {
+                append("The measured rate settled at $toKbps kbps.")
+            } else {
+                append("The measured rate ")
+                append(if (fell) "fell" else "rose")
+                append(" from $fromKbps to $toKbps kbps.")
+            }
+            append(" Measured out of the Bluetooth stack, not a rated figure.")
+            qualityModeLabel?.takeIf { it.isNotBlank() }?.let {
+                append(" The stack reported quality mode $it.")
+            }
+        }
+
+        is LinkEvent.LossDetected -> buildString {
+            append("Audio was lost")
+            if (windowMs > 0) append(" in a ${seconds(windowMs)} s window")
+            append(": ")
+            append(lossParts().joinToString(", "))
+            append(".")
+        }
+
+        // Already written for a reader rather than for a log — it is the one
+        // live sentence built to be read after the fact, so it is quoted whole.
+        is LinkEvent.EncoderStarvation -> detail
+    }
+}
+
+/**
+ * The counters that actually moved, each named for what it means.
+ *
+ * Carried apart rather than summed, for the reason [LinkEvent.LossDetected]
+ * gives: an app that could not produce audio and a radio queue that overflowed
+ * are different faults with different fixes, and one total would hide which.
+ */
+private fun LinkEvent.LossDetected.lossParts(): List<String> = buildList {
+    if (inputUnderruns > 0) add(count(inputUnderruns, "app underrun"))
+    if (mixerUnderruns > 0) add(count(mixerUnderruns, "mixer underrun"))
+    if (txDropped > 0) add(count(txDropped, "dropped packet"))
+    if (txDropouts > 0) add(count(txDropouts, "stack dropout"))
+    if (txUnderflows > 0) add(count(txUnderflows, "encoder underflow"))
+    // Never an empty list: the event only exists because something was counted,
+    // but a future counter added upstream must not produce "Audio was lost: ."
+    if (isEmpty()) add("no counter named it")
+}
+
+/** "1 dropped packet" / "3 dropped packets" — never "3 dropped packet(s)". */
+private fun count(value: Long, singular: String): String =
+    if (value == 1L) "$value $singular" else "$value ${singular}s"
+
+/**
+ * A window in seconds: "2", or "1.8" when the poll really was uneven.
+ *
+ * Built by integer arithmetic rather than by `String.format`, because this
+ * module is locale-free by design and a German default locale would otherwise
+ * print "1,8" into a sentence the rest of which is English.
+ */
+private fun seconds(ms: Long): String {
+    val tenths = (ms + 50L) / 100L
+    return if (tenths % 10L == 0L) "${tenths / 10L}" else "${tenths / 10L}.${tenths % 10L}"
+}

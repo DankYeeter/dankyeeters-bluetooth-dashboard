@@ -109,7 +109,7 @@ fun LiveLinkPanel(
 
             else -> {
                 LinkHeader(snapshot)
-                InputVersusLink(snapshot)
+                FormatLine(snapshot)
                 LdacSection(
                     snapshot,
                     ldacTuning,
@@ -125,13 +125,17 @@ fun LiveLinkPanel(
 
         UpdateRateRow(intervalMs, onIntervalChange)
 
-        // Why a row above is missing, in the machinery's own words. Behind the
-        // question mark because it is the last thing anybody needs to read and
-        // the first thing that would swamp the panel if printed in full.
+        // Why a row above is missing. The count is the first layer — it says
+        // *that* something could not be read, which is the part affecting how
+        // much of this panel to trust — and the machinery's own words are behind
+        // the question mark, introduced rather than dumped: they name shell
+        // commands and exit codes, which is a fine thing to find when you go
+        // looking and a terrible thing to be handed unasked.
         snapshot?.warnings?.takeIf { it.isNotEmpty() }?.let { warnings ->
             ExplainedHeader(
-                "Not readable (${warnings.size})",
-                warnings.joinToString("\n\n") { it.replaceFirstChar(Char::uppercase) + "." },
+                "${warnings.size} value${if (warnings.size == 1) "" else "s"} could not be read",
+                "The link was read anyway; these parts of it did not answer.\n\n" +
+                    warnings.joinToString("\n\n") { it.replaceFirstChar(Char::uppercase) + "." },
             )
         }
     }
@@ -167,37 +171,42 @@ private fun LinkHeader(snapshot: LinkLiveSnapshot) {
             Pill("Idle", tone = PillTone.NEUTRAL)
         }
     }
-
-    Text(
-        codec?.formatLine() ?: "Negotiated format not reported.",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**
- * What the app produced against what the link carries.
+ * What the app produced against what the link carries, on one line.
  *
  * The single most useful line on the panel: an app feeding 44.1 kHz into a link
  * negotiated at 96 kHz is being resampled, and nowhere else on the phone are
  * those two numbers shown together.
+ *
+ * It used to be two lines. The header printed the negotiated format in full
+ * ("96 kHz · 32 bit · stereo") and this line printed it again in short form
+ * ("→ Link: LDAC 96 kHz/32") directly underneath — the same three facts twice,
+ * in two notations, so that a reader had to check whether they disagreed. One
+ * line, one notation: the input on the left, the link on the right, the codec
+ * already named by the pill above.
  */
 @Composable
-private fun InputVersusLink(snapshot: LinkLiveSnapshot) {
+private fun FormatLine(snapshot: LinkLiveSnapshot) {
     val input = snapshot.inputs.topPlaying()
     val context = LocalContext.current
     val appName = input?.let { stream -> remember(stream.uid) { appLabel(context, stream.uid) } }
+    val out = snapshot.codec?.formatLine()
 
     Text(
-        when {
-            input == null -> "Nothing is playing into this link right now."
-            else -> buildString {
-                append("In: $appName")
+        buildString {
+            if (input == null) {
+                append("Nothing playing")
+            } else {
+                append("In $appName")
                 input.sampleRateHz?.let { append(" ${formatKhz(it)}") }
                 input.pcmFormat?.bits?.let { append("/$it") }
-                append("  →  Link: ")
-                append(snapshot.codec?.shortFormat() ?: "not reported")
             }
+            append("  →  ")
+            // Never invented: a link whose negotiated format the dump did not
+            // print says so, in the same place the format would have been.
+            append(out ?: "format not reported")
         },
         style = MaterialTheme.typography.bodyMedium,
     )
@@ -244,7 +253,10 @@ private fun LdacSection(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Live tuning", style = MaterialTheme.typography.bodyLarge)
+            // One name for the control, not two. The block was headed "LDAC
+            // quality" and then labelled "Live tuning" on the next line, which
+            // reads as two settings stacked on one row of chips.
+            Text("LDAC quality", style = MaterialTheme.typography.bodyLarge)
             toggle()
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -262,12 +274,11 @@ private fun LdacSection(
                 )
             }
         }
-        Text(
-            "Changing this renegotiates the codec: the audio cuts out for a moment, " +
-                "and the result below is read back rather than assumed.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // The paragraph that stood here — "changing this renegotiates the codec:
+        // the audio cuts out for a moment, and the result below is read back
+        // rather than assumed" — is now the last sentence of this block's own
+        // explanation. It answers a question somebody asks once, and it was
+        // printed under the chips forever.
         tuning.message?.let { message ->
             Text(
                 message,
@@ -313,9 +324,10 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
         )
 
         // A delta needs two readings. Saying "no loss" off a single cumulative
-        // total would be a claim about a window nobody measured.
+        // total would be a claim about a window nobody measured — so the refusal
+        // stays, in four words instead of a sentence explaining subtraction.
         tx == null && snapshot.inputs.none { it.underrunDelta != null } -> Text(
-            "Nothing to compare yet — loss is the change between two readings.",
+            "Loss needs two readings.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -328,41 +340,47 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
     }
 }
 
-/** The Bluetooth stack's own queue — when it applies to this link at all. */
+/**
+ * The Bluetooth stack's own queue — when it applies to this link at all.
+ *
+ * ## The row that is not here any more
+ *
+ * "Encoder queue: 50 handovers/s" used to sit at the top of this section. It was
+ * honest — the counter behind it really does tick with the encoder's 20 ms timer
+ * — and it was still wrong to show: it is an internal liveness proxy whose value
+ * is 50 on every healthy link and whose only reading a user could take from it
+ * was "a number changed". Anybody who can act on it is reading the trace graph
+ * instead, where the same liveness shows as a line that is drawn rather than
+ * broken. A row that is always the same number teaches the eye to skip the
+ * section it lives in.
+ *
+ * What is left is the backlog, which is the opposite kind of row: absent on a
+ * healthy link, and present exactly when something a listener will hear is about
+ * to happen.
+ */
 @Composable
 private fun TxRows(snapshot: LinkLiveSnapshot) {
     val codec = snapshot.codec
     if (codec != null && codec.isOffloaded) {
-        // Not a silent blank: the counters below exist, are non-zero, and belong
-        // to whatever host-encoded session ran last. Reading them here would
-        // report a perfectly healthy link that nothing is measuring.
+        // Not a silent blank: the counters exist, are non-zero, and belong to
+        // whatever host-encoded session ran last. Reading them here would report
+        // a perfectly healthy link that nothing is measuring.
         Text(
-            "${codec.family.displayName} is encoded by the controller, so the Bluetooth " +
-                "stack's packet counters do not describe this link.",
+            "${codec.family.displayName} is encoded by the controller — " +
+                "loss counters do not apply.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         return
     }
 
-    snapshot.txDelta?.packetsPerSecond?.let { pps ->
-        // Not a throughput row and no longer worded as one. The counter behind
-        // it ticks with the 20 ms media timer rather than with the radio, so it
-        // says whether the stack is handing audio over at all — which is worth a
-        // line, and is a different question from how much.
-        ExplainedRow(
-            label = "Encoder queue: ${pps.roundToInt()} handovers/s",
-            explanation = ENQUEUE_EXPLANATION,
-            control = {},
-        )
-    }
-
     snapshot.ldac?.stack?.savedTxQueueLength?.takeIf { it > 0 }?.let { queued ->
         // Only when it is not zero: a "0" here every second trains the eye past
         // the row, and a backlog is exactly the thing worth noticing.
         Text(
-            "LDAC transmit queue backlog: $queued",
+            "Bluetooth is falling behind: $queued packets queued.",
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
         )
     }
 }
@@ -403,15 +421,10 @@ private fun TraceSection(
             )
         },
     )
-    if (!closeUpEnabled) {
-        Text(
-            // The cost is stated where the button is, not behind the question
-            // mark: it is the reason this one is not simply always on.
-            "Off by default — it reads the Bluetooth stack twice a second.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    // The cost line that used to sit under this chip — "off by default, it reads
+    // the Bluetooth stack twice a second" — said what the section's own
+    // explanation already says, and said it permanently to everyone who had
+    // already left the chip alone. The chip's off state is the message.
 }
 
 /** How often the panel polls. The measured cost of each rate is in the explainer. */
@@ -454,12 +467,8 @@ private const val LDAC_TUNING_EXPLANATION =
     "Pins LDAC to one playback quality for the headphone connected now; it needs the " +
         "privileged helper and is lost on reconnect unless the device's profile stores " +
         "it. Measured on this phone, adaptive was never once seen to reach 990 kbps, so " +
-        "pin High quality if you want it."
-
-private const val ENQUEUE_EXPLANATION =
-    "How often the Bluetooth stack hands a buffer of encoded audio to the radio. A " +
-        "liveness figure, not a throughput one — it follows the encoder's 20 ms timer, " +
-        "so the rate audio is flowing at is the kbps figure above."
+        "pin High quality if you want it. Changing it renegotiates the codec: the audio " +
+        "cuts out for a moment, and the result above is read back rather than assumed."
 
 private const val TRACE_EXPLANATION =
     "The bitrate the LDAC encoder reports it is sending, with every window that lost " +
@@ -474,21 +483,21 @@ private const val UPDATE_RATE_EXPLANATION =
 
 // ---- formatting -------------------------------------------------------------
 
-/** "96 kHz · 32 bit · stereo", with whatever was actually reported. */
-private fun LiveCodecSnapshot.formatLine(): String {
+/**
+ * "96 kHz · 32 bit · stereo", with whatever was actually reported, or null when
+ * the dump named none of the three.
+ *
+ * Null rather than a sentence: the caller places this inside a line that has a
+ * left-hand side, and a full stop in the middle of it would end a sentence that
+ * had not started. The refusal is worded where it is shown.
+ */
+private fun LiveCodecSnapshot.formatLine(): String? {
     val parts = buildList {
         sampleRateHz?.let { add(formatKhz(it)) }
         bitsPerSample?.let { add("$it bit") }
         channelMode.label()?.let { add(it) }
     }
-    return if (parts.isEmpty()) "Negotiated format not reported." else parts.joinToString(" · ")
-}
-
-/** "LDAC 96 kHz/32" — the compact form for the input-versus-link line. */
-private fun LiveCodecSnapshot.shortFormat(): String = buildString {
-    append(family.displayName)
-    sampleRateHz?.let { append(" ${formatKhz(it)}") }
-    bitsPerSample?.let { append("/$it") }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 private fun ChannelMode.label(): String? = when (this) {

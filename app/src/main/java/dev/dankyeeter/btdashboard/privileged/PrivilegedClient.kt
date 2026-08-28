@@ -21,6 +21,8 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -90,7 +92,7 @@ class PrivilegedBootstrap(context: Context) {
      * @return true if the app holds the permission when this returns.
      */
     suspend fun grantSecureSettings(): Boolean = withContext(Dispatchers.IO) {
-        if (WirelessDebuggingSwitch(appContext).canEnable()) {
+        if (holdsSecureSettings()) {
             Log.i("PrivilegedBootstrap", "secure settings: already granted")
             return@withContext true
         }
@@ -118,10 +120,26 @@ class PrivilegedBootstrap(context: Context) {
         // success for a permission it did not actually change on some builds,
         // and the only answer that matters is whether the app can write the
         // setting now.
-        val holds = WirelessDebuggingSwitch(appContext).canEnable()
+        val holds = holdsSecureSettings()
         Log.i("PrivilegedBootstrap", "secure settings grant: reported=$granted effective=$holds")
         holds
     }
+
+    /**
+     * The permission read, made unable to throw.
+     *
+     * [grantSecureSettings] is called from the collector in
+     * `BtDashboardApplication` that watches for a helper arriving, and a
+     * throwing suspend function inside a `collect` ends that collector for the
+     * life of the process — the app would then never react to another helper
+     * connecting, and the one visible symptom would be wireless debugging
+     * quietly staying open. A permission check that cannot answer is a "no",
+     * not a reason to stop watching.
+     */
+    private fun holdsSecureSettings(): Boolean =
+        runCatching { WirelessDebuggingSwitch(appContext).canEnable() }
+            .onFailure { Log.w("PrivilegedBootstrap", "secure settings check failed", it) }
+            .getOrDefault(false)
 
     /** Which of the two tokens a hand-over presented. */
     sealed interface TokenMatch {
@@ -308,10 +326,18 @@ class PrivilegedBootstrap(context: Context) {
  * the line now that it is the only shell identity in the project. Everything
  * downstream degrades to "cannot check" rather than to a second provider.
  */
-class PrivilegedShellRunner(
-    context: Context,
-    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+class PrivilegedShellRunner internal constructor(
+    private val bootstrap: PrivilegedBootstrap,
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard,
+    /** Reads back the replies the helper was too large to send; see [ExecSpill]. */
+    private val spill: ExecSpill,
 ) : ShellRunner {
+
+    constructor(
+        context: Context,
+        bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+    ) : this(bootstrap, PrivilegedCallGuard.SHARED, ExecSpill())
 
     /**
      * Whether the helper is connected.
@@ -336,29 +362,87 @@ class PrivilegedShellRunner(
         val token = bootstrap.activeToken()
             ?: return@withContext ShellResult(-1, "", "no token for the privileged helper")
 
-        runCatching {
-            val reply = service.exec(token, command)
-                ?: return@runCatching ShellResult(-1, "", "helper returned nothing")
-
-            PrivilegedProtocol.decodeResult(reply)?.let { (exit, out, err) ->
-                ShellResult(exit, out, err)
-            } ?: ShellResult(
-                exitCode = -1,
-                stdout = "",
-                stderr = PrivilegedProtocol.decodeError(reply) ?: "unreadable reply",
-            )
-        }.getOrElse {
-            // A dead binder throws here rather than returning; the death
-            // recipient will clear the connection, but this call still has to
-            // answer something honest.
-            Log.w(TAG, "privileged helper call failed", it)
-            PrivilegedConnection.forget()
-            ShellResult(-1, "", "privileged helper stopped responding")
+        EXEC_LOCK.withLock {
+            runCatching {
+                val reply = service.exec(token, command)
+                // The transaction came back. Whatever the reply *says*, the
+                // transport worked, so any run of transient failures is over.
+                guard.succeeded()
+                if (reply == null) {
+                    ShellResult(-1, "", "helper returned nothing")
+                } else {
+                    decode(reply)
+                }
+            }.getOrElse { error ->
+                // NOT automatically a dead helper — that assumption is what put
+                // the activation screen in front of a user whose helper was
+                // running fine. [PrivilegedCallGuard] decides, and only
+                // DeadObjectException (or a helper that fails a liveness ping
+                // after a run of failures) clears the connection.
+                val verdict = guard.failed(SHELL_CALL, error) { service.version() }
+                ShellResult(-1, "", verdict.reason)
+            }
         }
+    }
+
+    /**
+     * Turns a reply into a result, whichever shape it arrived in.
+     *
+     * [PrivilegedProtocol.decodeResult] is tried first because the inline reply
+     * is the common one — an error, an empty dump, a `ps` listing — and because
+     * the two shapes are told apart by their keyword, so the order is a matter
+     * of cost rather than of correctness.
+     */
+    private fun decode(reply: String): ShellResult {
+        PrivilegedProtocol.decodeResult(reply)?.let { (exit, out, err) ->
+            return ShellResult(exit, out, err)
+        }
+        PrivilegedProtocol.decodeFileResult(reply)?.let { handoff ->
+            return spill.collect(handoff).fold(
+                onSuccess = { ShellResult(handoff.exitCode, it, handoff.stderr) },
+                onFailure = {
+                    Log.w(TAG, "a staged reply could not be collected", it)
+                    ShellResult(-1, "", it.message ?: "the staged reply could not be read")
+                },
+            )
+        }
+        return ShellResult(
+            exitCode = -1,
+            stdout = "",
+            stderr = PrivilegedProtocol.decodeError(reply) ?: "unreadable reply",
+        )
     }
 
     private companion object {
         const val TAG = "PrivilegedShell"
+
+        const val SHELL_CALL = "a privileged shell command"
+
+        /**
+         * One exec at a time, process-wide.
+         *
+         * WHY: Binder gives a *pair of processes* a single 1 MB asynchronous
+         * buffer, shared by every transaction in flight between them. A dumpsys
+         * reply measured 115-222 KB on the owner's device and travels as a Java
+         * String, so UTF-16 doubles it — two or three overlapping replies
+         * exhaust the buffer and the transaction fails with
+         * FAILED_TRANSACTION (-2147483646) while both processes are healthy.
+         * The monitor's "Watch live" and "Watch closely" readers poll
+         * independently, so overlapping is the normal case, not the corner one.
+         *
+         * A kotlinx [Mutex] rather than `synchronized`: every caller is already
+         * a coroutine, and blocking a Binder thread — or an IO dispatcher
+         * thread — to wait for another Binder call is how a pool runs out of
+         * threads. This suspends instead.
+         *
+         * On the companion so that it is one lock for the process even though
+         * runners are cheap to construct. Staging large replies in a file
+         * (see [ExecSpill]) is the other half of the same fix and neither half
+         * replaces the other: serialising still puts a 444 KB reply through a
+         * buffer shared with the codec calls, and staging still lets a burst of
+         * small replies pile up.
+         */
+        val EXEC_LOCK = Mutex()
     }
 }
 
@@ -423,6 +507,9 @@ class PrivilegedCodecController(
     context: Context,
     private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
 ) : CodecController, CodecPreferenceController {
+
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
 
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
@@ -537,15 +624,23 @@ class PrivilegedCodecController(
 
         runCatching {
             val reply = block(service, token)
-                ?: return@runCatching CodecCallResult.Unavailable("the helper returned nothing")
-            PrivilegedProtocol.decodeCodec(reply)?.let { CodecCallResult.Observed(it) }
-                ?: CodecCallResult.Unavailable(
-                    PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
-                )
-        }.getOrElse {
-            Log.w(TAG, "privileged codec call failed", it)
-            PrivilegedConnection.forget()
-            CodecCallResult.Unavailable("the privileged helper stopped responding")
+            guard.succeeded()
+            if (reply == null) {
+                CodecCallResult.Unavailable("the helper returned nothing")
+            } else {
+                PrivilegedProtocol.decodeCodec(reply)?.let { CodecCallResult.Observed(it) }
+                    ?: CodecCallResult.Unavailable(
+                        PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
+                    )
+            }
+        }.getOrElse { error ->
+            // The line that used to be here called forget() on any throw, and
+            // the `getCodecStatus unavailable: InvocationTargetException` in the
+            // owner's log was one such throw from a live helper — which then
+            // put the activation gate over a working app. See
+            // [PrivilegedCallGuard].
+            val verdict = guard.failed("a privileged codec call", error) { service.version() }
+            CodecCallResult.Unavailable(verdict.reason)
         }
     }
 
@@ -572,6 +667,9 @@ class PrivilegedHdAudioController(
     context: Context,
     private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
 ) : HdAudioController {
+
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
 
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
@@ -633,21 +731,24 @@ class PrivilegedHdAudioController(
 
         runCatching {
             val reply = block(service, token)
-                ?: return@runCatching HdAudioCallResult.Unavailable("the helper returned nothing")
-            PrivilegedProtocol.decodeHdAudio(reply)?.let { HdAudioCallResult.Observed(it) }
-                ?: HdAudioCallResult.Unavailable(
-                    PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
-                )
-        }.getOrElse {
-            Log.w(TAG, "privileged HD-audio call failed", it)
-            PrivilegedConnection.forget()
-            HdAudioCallResult.Unavailable("the privileged helper stopped responding")
+            guard.succeeded()
+            if (reply == null) {
+                HdAudioCallResult.Unavailable("the helper returned nothing")
+            } else {
+                PrivilegedProtocol.decodeHdAudio(reply)?.let { HdAudioCallResult.Observed(it) }
+                    ?: HdAudioCallResult.Unavailable(
+                        PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
+                    )
+            }
+        }.getOrElse { error ->
+            val verdict = guard.failed("a privileged HD-audio call", error) { service.version() }
+            HdAudioCallResult.Unavailable(verdict.reason)
         }
     }
 
-    private companion object {
-        const val TAG = "PrivilegedHdAudio"
-    }
+    // No log tag of its own any more: the one line that used it has moved into
+    // PrivilegedCallGuard, which logs every privileged failure in one place
+    // together with how it classified it — which is the part worth reading.
 }
 
 /** Where an HD-audio answer came from, and what it actually said. */
@@ -670,6 +771,9 @@ class PrivilegedBluetoothRestartController(
     private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
 ) : BluetoothRestartController {
 
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
+
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
@@ -685,8 +789,10 @@ class PrivilegedBluetoothRestartController(
 
         runCatching {
             val reply = service.restartBluetooth(token)
-                ?: return@runCatching BluetoothRestartOutcome.Failed("the helper returned nothing")
+            guard.succeeded()
             when {
+                reply == null -> BluetoothRestartOutcome.Failed("the helper returned nothing")
+
                 PrivilegedProtocol.decodeResult(reply)?.first == 0 ->
                     BluetoothRestartOutcome.Restarted
 
@@ -694,20 +800,18 @@ class PrivilegedBluetoothRestartController(
                     PrivilegedProtocol.decodeError(reply) ?: "unreadable reply from the helper",
                 )
             }
-        }.getOrElse {
-            Log.w(TAG, "privileged Bluetooth restart failed", it)
-            PrivilegedConnection.forget()
+        }.getOrElse { error ->
+            val verdict = guard.failed("the Bluetooth restart", error) { service.version() }
             // Failed, not Unavailable: the call was made, so the radio may be
             // off right now. Reporting "nothing was attempted" would send the
             // user looking for a problem somewhere else entirely.
             BluetoothRestartOutcome.Failed(
-                "the privileged helper stopped responding part-way through — " +
-                    "check whether Bluetooth is back on",
+                "${verdict.reason} — the call was already under way, so check " +
+                    "whether Bluetooth is back on",
             )
         }
     }
 
-    private companion object {
-        const val TAG = "PrivilegedBtRestart"
-    }
+    // Same as the HD-audio controller: the failure logging lives in
+    // PrivilegedCallGuard now.
 }
