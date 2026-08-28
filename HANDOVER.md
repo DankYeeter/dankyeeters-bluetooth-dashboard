@@ -4313,3 +4313,44 @@ A16-Abnahme (PLAN-A16-ABNAHME.md, Pixel 8 Pro am Kabel).
 **Fuer Daniel zum Ausprobieren:** Sound Profiling -> "Start preference
 test" bei laufender Musik; Alters-Referenz eintragen; nach ein paar
 Tagen Hoeren zeigt "Hearing over time" den Verlauf.
+
+---
+
+## ANDROID-16-ABNAHME: BESTANDEN (28.8., Pixel 8 Pro, Build dbcb1b5)
+
+Durchgefuehrt nach PLAN-A16-ABNAHME.md. Ergebnis je Punkt:
+
+- **A1 OK** Activate-Screen ohne Helper. **A2 OK, zweifach**: mit
+  Bestandsdaten sofort; als echter Erstnutzer via Setup-Wizard (4
+  Berechtigungen) -> Wireless-Debugging-Anleitung -> Pairing-Dialog ->
+  Code in die App-Notification -> Helper laeuft. **A4 OK** (Force-Stop,
+  Helper wiedergefunden). **A5 OK** (BT-Neustart per Helper-Op, Noble
+  reconnectet selbst, Helper ueberlebt). **A6 OK** (HD-Audio-Zustand
+  live gelesen). A3 nicht separat ausgefuehrt — derselbe Kommandopfad
+  traegt die Self-Activation; Copy-command-UI vorhanden.
+- **B1 OK** technisch (Currently equalising TIDAL, genau 1 DP-Instanz
+  auf dem globalen Mix; Hoerbarkeit nicht separat bestaetigt — Daniel
+  kann jederzeit ein Band ziehen). **B2/B3 OK** (Loudness-Toggle,
+  4x Bypass, 0 Crashes). B4 durch den Profil-Applier-Mechanismus und
+  Tests abgedeckt, nicht separat ausgefuehrt.
+- **C1/C2 OK**: Panel liest komplett, die "A2DP LDAC State"-Sektion
+  EXISTIERT auf A16 -> MEASURED-Bitrate live (492/660 beobachtet).
+  **C3 OK**: Pin 990 -> mCodecSpecific1:1000, Stack HIGH/990,
+  Panel-Read-back; ABR-Restore OK. **C4 OK**: dumpsys maskiert auch
+  auf A16, Pins funktionieren trotzdem (Raw-Aufloesung uebers Profil).
+- **D2 OK, staerker als geplant**: das Geraet trug noch die v1-Monitor-DB;
+  die echte Migrationskette v1->v2->v3 lief beim ersten Start fehlerfrei.
+  **D3 OK**: Export/Import real ueber den SAF-Picker ("Imported 0
+  hearing runs and 1 profile"). D1 (Hoertest-Toene) braucht Ohren —
+  nicht ausgefuehrt; der Ton-Pfad ist derselbe wie auf A17.
+- **E1 OK**: Uninstall -> frische Installation -> kompletter
+  Erstnutzer-Flow bis zum laufenden Helper.
+
+**A16-spezifischer Befund (kein Blocker):** Verlaesst man die
+Wireless-Debugging-Seite, beendet Android den Pairing-Dialog samt
+mDNS-Service — das In-App-Code-Feld kann so nie gefuettert werden;
+der designte Notification-Weg funktioniert dagegen einwandfrei.
+Kleiner UX-Nachschliff moeglich: auf die Notification als Hauptweg
+verweisen statt aufs In-App-Feld.
+
+**Damit ist das Pixel 8 Pro abgenommen und darf weggegeben werden.**
