@@ -39,9 +39,11 @@ import dev.dankyeeter.btdashboard.ui.theme.Panel
  * someone else's volume. It also hands the reader on to the profiles screen,
  * which looks profiles up by stored key and so is not blocked by the redaction.
  *
- * On this tab the card folds its Bluetooth internals away by default: this is
- * the screen the app opens on, and a first screen that scrolls for a page and
- * a half is a worse answer to "what is my headphone doing" than a short one.
+ * Nothing on this card folds away. The Bluetooth internals — bitrate, absolute
+ * volume, the developer options, HD audio and the codec — spent a while behind
+ * an "Advanced device settings" expander on the argument that the app's start
+ * screen should be short. They are what the app is for, so the scroll is the
+ * right price and the expander is gone.
  */
 @Composable
 private fun ConnectedDeviceSettings(
@@ -68,7 +70,6 @@ private fun ConnectedDeviceSettings(
             showDismissActions = false,
             enabled = false,
             note = "Looking for a connected device\u2026",
-            collapsibleAdvanced = true,
         )
         return
     }
@@ -84,7 +85,6 @@ private fun ConnectedDeviceSettings(
             headerExplanation = "This is every setting a headphone can be given. The " +
                 "fields carry that device's values and become editable the moment one " +
                 "connects.",
-            collapsibleAdvanced = true,
         )
         return
     }
@@ -102,7 +102,6 @@ private fun ConnectedDeviceSettings(
             headerExplanation = "Without an address there is no key to look a stored " +
                 "profile up by, so nothing in this card can be edited. The profile still " +
                 "applies on connect \u2014 only this inline editor needs the address.",
-            collapsibleAdvanced = true,
         )
         // The profiles screen edits by stored key rather than by live address,
         // so the work this card cannot do is possible one screen along. Saying
@@ -117,7 +116,6 @@ private fun ConnectedDeviceSettings(
         viewModel = profilesViewModel,
         header = active.device.name,
         showDismissActions = false,
-        collapsibleAdvanced = true,
     )
 }
 

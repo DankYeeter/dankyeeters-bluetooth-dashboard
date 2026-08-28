@@ -56,6 +56,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    /**
+     * Android stubs throw by default in unit tests, so a single `Log.i` fails a
+     * test that never went near the framework. The equaliser logs on every
+     * enable and on every release that misbehaves - which is precisely the code
+     * the effect-lifecycle tests are about. Same setting, same reason, as
+     * :core-system.
+     */
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {

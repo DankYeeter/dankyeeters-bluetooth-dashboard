@@ -19,7 +19,10 @@ import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeSignatureStore
+import dev.dankyeeter.btdashboard.monitor.link.live.EffectChainForensics
+import dev.dankyeeter.btdashboard.monitor.link.live.EncoderStarvationReport
 import dev.dankyeeter.btdashboard.monitor.link.live.ModeSignatureSample
+import dev.dankyeeter.btdashboard.monitor.link.live.SessionEffectCount
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "monitor_events")
@@ -93,6 +96,52 @@ data class CodecModeSignatureEntity(
     @ColumnInfo(name = "created_at_millis") val createdAtMillis: Long,
 )
 
+/**
+ * One tripped encoder-starvation capture, flattened for storage.
+ *
+ * ## Why the shape is this shape
+ *
+ * The point of persisting these is that somebody — possibly months later,
+ * possibly with nothing but `sqlite3 monitor.db` — can answer one question
+ * about an incident that has already ended: *how many effect instances were
+ * attached, and to how many sessions.* So the two numbers that answer it are
+ * their own integer columns, comparable and aggregatable in SQL, rather than
+ * fields inside a blob.
+ *
+ * [effectsPerSession], [effectNames] and [playbackSessionIds] are the long tail
+ * and are stored as short delimited text. That is a deliberate denormalisation:
+ * three child tables would make a join out of something whose whole purpose is
+ * to be readable in a dump, and these lists are a handful of entries each. The
+ * formats are fixed and parsed back by [EncoderStarvationEntity.toReport] —
+ * `145:3,0:2` for the breakdown, `|`-separated for names, `,`-separated for ids.
+ *
+ * No foreign key to `monitor_events`. The event and the record are written by
+ * two different paths that can each fail on their own, and a capture that
+ * survives while its timeline line did not is still the useful half.
+ */
+@Entity(tableName = "encoder_starvation_events")
+data class EncoderStarvationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "timestamp_ms", index = true) val timestampMs: Long,
+    @ColumnInfo(name = "device_address", index = true) val deviceAddress: String?,
+    @ColumnInfo(name = "device_name") val deviceName: String?,
+    /** DERIVED: the rate that tripped the wire. See `A2dpTxDelta.underflowsPerSecond`. */
+    @ColumnInfo(name = "underflows_per_second") val underflowsPerSecond: Double,
+    /** MEASURED: the polling window the rate was derived over. */
+    @ColumnInfo(name = "window_ms") val windowMs: Long,
+    @ColumnInfo(name = "sustained_passes") val sustainedPasses: Int,
+    @ColumnInfo(name = "effect_instances") val effectInstances: Int,
+    @ColumnInfo(name = "effect_sessions") val effectSessions: Int,
+    /** `<session>:<count>` pairs, comma separated, heaviest session first. */
+    @ColumnInfo(name = "effects_per_session") val effectsPerSession: String,
+    /** Distinct effect names, `|` separated — names may contain commas. */
+    @ColumnInfo(name = "effect_names") val effectNames: String,
+    /** Session ids that were `state:started`, comma separated. */
+    @ColumnInfo(name = "playback_session_ids") val playbackSessionIds: String,
+    /** Why a section could not be read, verbatim. Null when both parsed. */
+    @ColumnInfo(name = "capture_note") val captureNote: String?,
+)
+
 @Dao
 interface MonitorDao {
     @Insert suspend fun insertEvent(event: MonitorEventEntity): Long
@@ -122,6 +171,24 @@ interface MonitorDao {
 
     @Query("DELETE FROM link_samples WHERE timestamp_ms < :cutoffMs")
     suspend fun purgeSamples(cutoffMs: Long)
+
+    @Insert suspend fun insertStarvation(record: EncoderStarvationEntity): Long
+
+    /**
+     * Newest first, and a plain suspend read rather than a [Flow].
+     *
+     * These are rare by construction — the tripwire's cooldown caps them at one
+     * per ten minutes of continuous starvation — so nothing needs to observe
+     * them continuously. They are looked at after the fact, which is a query.
+     */
+    @Query(
+        "SELECT * FROM encoder_starvation_events WHERE timestamp_ms >= :sinceMs " +
+            "ORDER BY timestamp_ms DESC",
+    )
+    suspend fun starvations(sinceMs: Long): List<EncoderStarvationEntity>
+
+    @Query("DELETE FROM encoder_starvation_events WHERE timestamp_ms < :cutoffMs")
+    suspend fun purgeStarvations(cutoffMs: Long)
 }
 
 @Dao
@@ -172,8 +239,9 @@ interface CodecModeSignatureDao {
         MonitorEventEntity::class,
         LinkSampleEntity::class,
         CodecModeSignatureEntity::class,
+        EncoderStarvationEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class MonitorDatabase : RoomDatabase() {
@@ -212,12 +280,58 @@ abstract class MonitorDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the encoder-starvation forensics table and touches nothing else.
+         *
+         * Written to the same rule as [MIGRATION_1_2], and for the same reason:
+         * the three existing tables do not appear in this statement, because the
+         * point of the migration is that everything already recorded survives.
+         * Room validates the resulting schema against every entity on the next
+         * open and refuses to run on a mismatch, so a typo here fails
+         * `MonitorDatabaseMigrationTest` rather than a user's phone.
+         *
+         * The two indices are part of the entity and therefore part of the DDL.
+         * Leaving them out of a migration is the classic way to produce a
+         * database that Room rejects at open time on the one device that
+         * upgraded rather than installed fresh.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `encoder_starvation_events` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestamp_ms` INTEGER NOT NULL, " +
+                        "`device_address` TEXT, " +
+                        "`device_name` TEXT, " +
+                        "`underflows_per_second` REAL NOT NULL, " +
+                        "`window_ms` INTEGER NOT NULL, " +
+                        "`sustained_passes` INTEGER NOT NULL, " +
+                        "`effect_instances` INTEGER NOT NULL, " +
+                        "`effect_sessions` INTEGER NOT NULL, " +
+                        "`effects_per_session` TEXT NOT NULL, " +
+                        "`effect_names` TEXT NOT NULL, " +
+                        "`playback_session_ids` TEXT NOT NULL, " +
+                        "`capture_note` TEXT)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS " +
+                        "`index_encoder_starvation_events_timestamp_ms` " +
+                        "ON `encoder_starvation_events` (`timestamp_ms`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS " +
+                        "`index_encoder_starvation_events_device_address` " +
+                        "ON `encoder_starvation_events` (`device_address`)",
+                )
+            }
+        }
+
         fun create(context: Context): MonitorDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 MonitorDatabase::class.java,
                 "monitor.db",
-            ).addMigrations(MIGRATION_1_2).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }
 
@@ -278,6 +392,59 @@ internal fun CodecModeSignatureEntity.toModel() = ModeSignatureSample(
     framesPerPacket = framesPerPacketMin..framesPerPacketMax,
     packetsPerSecond = packetsPerSecondMin..packetsPerSecondMax,
     capturedAtMs = capturedAtMs,
+)
+
+// ---- encoder-starvation forensics -------------------------------------------
+//
+// The three delimited columns are written and read in exactly one place each,
+// right here, so the formats cannot drift apart. `EncoderStarvationRoundTripTest`
+// pins that they survive the trip; a lossy encoding here would turn the one
+// record that exists of an incident into a record of something else.
+
+/** `145:3,0:2` — heaviest session first, as the report already sorted them. */
+private fun List<SessionEffectCount>.encode(): String =
+    joinToString(",") { "${it.sessionId}:${it.effectCount}" }
+
+private fun String.decodeSessionCounts(): List<SessionEffectCount> =
+    split(',').mapNotNull { pair ->
+        val session = pair.substringBefore(':', "").trim().toIntOrNull() ?: return@mapNotNull null
+        val count = pair.substringAfter(':', "").trim().toIntOrNull() ?: return@mapNotNull null
+        SessionEffectCount(session, count)
+    }
+
+internal fun EncoderStarvationReport.toEntity() = EncoderStarvationEntity(
+    timestampMs = timestampMs,
+    deviceAddress = deviceAddress,
+    deviceName = deviceName,
+    underflowsPerSecond = underflowsPerSecond,
+    windowMs = windowMs,
+    sustainedPasses = sustainedPasses,
+    effectInstances = forensics.effectInstances,
+    effectSessions = forensics.sessionsWithEffects,
+    effectsPerSession = forensics.effectsPerSession.encode(),
+    // A `|` inside an effect name would split one name into two. Nothing on the
+    // device prints one, and a silently mangled list is still worse than a name
+    // with an underscore in it.
+    effectNames = forensics.effectNames.joinToString("|") { it.replace('|', '_') },
+    playbackSessionIds = forensics.playbackSessionIds.joinToString(","),
+    captureNote = forensics.note,
+)
+
+internal fun EncoderStarvationEntity.toReport() = EncoderStarvationReport(
+    timestampMs = timestampMs,
+    deviceAddress = deviceAddress,
+    deviceName = deviceName,
+    underflowsPerSecond = underflowsPerSecond,
+    windowMs = windowMs,
+    sustainedPasses = sustainedPasses,
+    forensics = EffectChainForensics(
+        effectInstances = effectInstances,
+        sessionsWithEffects = effectSessions,
+        effectsPerSession = effectsPerSession.decodeSessionCounts(),
+        effectNames = effectNames.split('|').filter { it.isNotBlank() },
+        playbackSessionIds = playbackSessionIds.split(',').mapNotNull { it.trim().toIntOrNull() },
+        note = captureNote,
+    ),
 )
 
 internal fun LinkSampleEntity.toModel() = LinkQualitySample(

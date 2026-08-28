@@ -96,9 +96,9 @@ fun BluetoothCodecSection(
         ExplainedHeader(
             "Bluetooth audio",
             "The codec is negotiated between the phone and the headphone, so it can " +
-                "change on its own — this reads back whatever was agreed.\n\n" +
-                "Watch live turns the sampler up: a reading every ten seconds for the " +
-                "next five minutes, drawn on the Monitoring timeline. It stops by itself.",
+                "change on its own — this reads back whatever was agreed. Watch live " +
+                "turns the sampler up for five minutes, drawn on the Monitoring " +
+                "timeline, and stops by itself.",
         )
 
             // The panel keeps its shape whether or not anything is connected.
@@ -344,9 +344,9 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
             vendorApps.forEach { app ->
                 ExplainedBlock(
                     label = app.appLabel,
-                    explanation = "Its equalizer runs inside the headphones, not on the " +
-                        "phone, so no app on Android can read it — this check included. " +
-                        "If you set a curve there it stacks on top of this one.",
+                    explanation = "Its equalizer runs inside the headphones, so no app on " +
+                        "Android can read it — this check included. A curve set there " +
+                        "stacks on top of this one.",
                 ) { toggle ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -482,8 +482,7 @@ private fun EqCandidateList(viewModel: BluetoothDashboardViewModel) {
                 ExplainedBlock(
                     label = "Weaker matches",
                     explanation = "These only request the permission an equalizer would " +
-                        "need. Most of them use it for volume or routing and have no EQ " +
-                        "whatsoever.",
+                        "need. Most use it for volume or routing and have no EQ at all.",
                 ) { toggle ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { showWeak = !showWeak }) {
@@ -526,7 +525,7 @@ private fun candidateExplanation(scan: EqCandidateScan?): String = buildString {
     append(
         "This is a hint, not a verdict. It only sees what apps declare to Android: " +
             "an app that filters audio in its own code, or in the headphones, cannot " +
-            "be detected at all — not by this app and not by any other.",
+            "be detected at all.",
     )
     scan?.takeIf { it.available && it.scannedPackages > 0 }?.let {
         append("\n\nIt runs when this section opens and never on a timer: ")

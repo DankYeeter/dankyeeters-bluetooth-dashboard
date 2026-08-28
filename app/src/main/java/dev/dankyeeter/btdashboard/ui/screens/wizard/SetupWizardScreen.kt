@@ -407,8 +407,7 @@ private fun HelperAction() {
             explanation = "The helper is a small process running at shell level — the same " +
                 "access \"adb shell\" has, not root. It dies whenever the phone restarts and " +
                 "this screen brings it back. The moment it attaches it also grants the app " +
-                "the one system permission it needs; that grant, unlike the helper, survives " +
-                "a reboot.",
+                "the one system permission it needs, and that grant survives a reboot.",
         )
         // One row, because there is one thing to know: whether the helper is
         // there, and whether it did its job on the way in.

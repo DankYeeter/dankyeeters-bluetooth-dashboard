@@ -62,6 +62,9 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val liveLink by viewModel.liveLink.collectAsStateWithLifecycle()
     val liveInterval by viewModel.liveIntervalMs.collectAsStateWithLifecycle()
     val ldacTuning by viewModel.ldacTuning.collectAsStateWithLifecycle()
+    // The chip the Bluetooth tab would light for this same headphone: its
+    // profile's stored wish, which is what the next connect will ask for.
+    val storedLdacQuality by viewModel.storedLdacQuality.collectAsStateWithLifecycle()
     // Two more lifecycle-bound collections, and the close-up's probe only runs
     // while this one is collected *and* the user has switched it on.
     val overviewTrace by viewModel.overviewTrace.collectAsStateWithLifecycle()
@@ -107,6 +110,7 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             ldacTuning = ldacTuning,
             onLdacQuality = viewModel::setLdacQuality,
             onDismissLdacMessage = viewModel::dismissLdacMessage,
+            storedQuality = storedLdacQuality,
             overviewTrace = overviewTrace,
             closeUpTrace = closeUpTrace,
             closeUpEnabled = closeUpEnabled,
@@ -197,8 +201,14 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
 
 @Composable
 private fun EventRow(event: MonitorEvent) {
+    // ENCODER_STARVATION joins the loud set because it is the one line in this
+    // log that is worth interrupting somebody for: it only appears when the
+    // encoder has been starving for seconds on end, and it carries the one-shot
+    // forensic capture of what was attached at the time. A line nobody notices
+    // would defeat the whole point of taking the capture.
     val loud = event.type == MonitorEventType.TAKEOVER ||
-        event.type == MonitorEventType.INTERRUPTION
+        event.type == MonitorEventType.INTERRUPTION ||
+        event.type == MonitorEventType.ENCODER_STARVATION
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             timeFormat.format(Date(event.timestampMs)),
@@ -336,7 +346,7 @@ private const val TIMELINE_EXPLANATION =
         "Signal — radio strength, drawn only when a source really provides it.\n" +
         "Events — connects, disconnects, takeovers and interruptions.\n\n" +
         "Grey means nothing was recorded then, not that the link was silent. " +
-        "The last two hours; older samples are dropped."
+        "The last two hours."
 
 /**
  * The permission story behind the data source, plus the raw reasons.
@@ -351,8 +361,8 @@ private fun dataSourceExplanation(
 ): String = buildString {
     append(
         "Bluetooth Quality Report reads packet loss straight from the controller, but " +
-            "Android only offers it to privileged apps. Without it the link is read from " +
-            "the Bluetooth stack's own dump.",
+            "Android only offers it to privileged apps. Without it the link is read " +
+            "from the Bluetooth stack's own dump.",
     )
     (bqr as? QualityReportAvailability.Unavailable)?.let {
         append("\n\nWhat Android answered when we asked for it: ${it.reason}.")

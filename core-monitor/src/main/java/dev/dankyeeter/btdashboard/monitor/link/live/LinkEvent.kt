@@ -88,6 +88,27 @@ sealed interface LinkEvent {
         override val detail: String,
     ) : LinkEvent
 
+    /**
+     * The Bluetooth encoder was starving, and here is what the audio processing
+     * graph looked like while it was.
+     *
+     * Distinct from [LossDetected], which fires on *any* loss in a window and is
+     * therefore common and cheap. This one fires only on a sustained encoder
+     * underflow rate and carries a one-shot forensic capture with it — see
+     * [EncoderStarvationTripwire] for the thresholds and for the incident this
+     * was built from.
+     *
+     * The capture is a correlation and says so: it reports the effect instances
+     * that were attached at the same moment, and makes no claim that they were
+     * the cause. That is the whole point — the moment a next occurrence records
+     * this, the accumulation hypothesis is either confirmed or dead.
+     */
+    data class EncoderStarvation(
+        override val timestampMs: Long,
+        val report: EncoderStarvationReport,
+        override val detail: String,
+    ) : LinkEvent
+
     /** The A2DP stream started or stopped. */
     data class PlaybackChanged(
         override val timestampMs: Long,
@@ -129,6 +150,7 @@ fun LinkEvent.toMonitorEvent(
         is LinkEvent.LdacModeChanged -> MonitorEventType.BITRATE_MODE_CHANGED
         is LinkEvent.MeasuredBitrateChanged -> MonitorEventType.BITRATE_MODE_CHANGED
         is LinkEvent.LossDetected -> MonitorEventType.DROPOUT
+        is LinkEvent.EncoderStarvation -> MonitorEventType.ENCODER_STARVATION
         is LinkEvent.PlaybackChanged ->
             if (isPlaying) MonitorEventType.PLAYING_STARTED else MonitorEventType.PLAYING_STOPPED
         is LinkEvent.ConnectionChanged ->

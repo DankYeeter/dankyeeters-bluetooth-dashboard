@@ -9,9 +9,11 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import dev.dankyeeter.btdashboard.hearing.AgeReference
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
+import dev.dankyeeter.btdashboard.hearing.Iso7029Sex
 import dev.dankyeeter.btdashboard.hearing.CompensationSource
 import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
@@ -84,6 +86,39 @@ class AudiogramStore(context: Context) {
     val clinicalAudiogram: Flow<ClinicalAudiogram?> = appContext.hearingDataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs -> parseClinical(prefs[KEY_CLINICAL]) }
+
+    /**
+     * The birth year (and optional sex) behind the ISO 7029 age reference, or
+     * null while none has been entered.
+     *
+     * One per person, like [clinicalAudiogram] and for the same reason: an age
+     * belongs to the ears, not to the headphones, and a copy per device could
+     * disagree with itself about one person's birthday.
+     *
+     * A year that no longer parses, or a sex name this build does not know,
+     * degrades the way every other record here does — the whole entry becomes
+     * "no age reference" rather than throwing, and the unknown sex falls back
+     * to [Iso7029Sex.UNSPECIFIED], which is the value that assumes least.
+     */
+    val ageReference: Flow<AgeReference?> = appContext.hearingDataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { prefs -> parseAgeReference(prefs[KEY_AGE]) }
+
+    suspend fun currentAgeReference(): AgeReference? = ageReference.first()
+
+    /** Stores the age reference; there is one, so this replaces rather than adds. */
+    suspend fun saveAgeReference(reference: AgeReference) {
+        appContext.hearingDataStore.edit { prefs ->
+            prefs[KEY_AGE] = JSONObject().apply {
+                put("birthYear", reference.birthYear)
+                put("sex", reference.sex.name)
+            }.toString()
+        }
+    }
+
+    suspend fun clearAgeReference() {
+        appContext.hearingDataStore.edit { prefs -> prefs.remove(KEY_AGE) }
+    }
 
     /**
      * Which thresholds the compensation is built from. [CompensationSource.MEASURED]
@@ -363,6 +398,28 @@ class AudiogramStore(context: Context) {
         }
     }
 
+    /**
+     * Same defensive shape as the clinical parser: a birth year that is not a
+     * number is not an age reference, and answering null is the honest
+     * degradation — the screen then offers the field again rather than drawing
+     * a curve for a year nobody typed.
+     */
+    private fun parseAgeReference(raw: String?): AgeReference? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            val obj = JSONObject(raw)
+            val year = obj.optInt("birthYear", 0).takeIf { it > 0 } ?: return null
+            AgeReference(
+                birthYear = year,
+                sex = runCatching { Iso7029Sex.valueOf(obj.optString("sex")) }
+                    .getOrDefault(Iso7029Sex.UNSPECIFIED),
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "stored age reference could not be parsed", e)
+            null
+        }
+    }
+
     private fun encodeBaseline(baseline: FitBaseline): String = JSONObject().apply {
         put("left", JSONObject(baseline.left.mapKeys { it.key.toString() }))
         put("right", JSONObject(baseline.right.mapKeys { it.key.toString() }))
@@ -490,5 +547,6 @@ class AudiogramStore(context: Context) {
         private val KEY_CLINICAL = stringPreferencesKey("clinical_audiogram_json")
         private val KEY_DERIVED = stringPreferencesKey("derived_calibrations_json")
         private val KEY_SOURCE = stringPreferencesKey("compensation_source")
+        private val KEY_AGE = stringPreferencesKey("age_reference_json")
     }
 }

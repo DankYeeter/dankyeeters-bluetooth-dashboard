@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.hearing
 import android.content.Context
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.store.CompensationProfileStore
+import dev.dankyeeter.btdashboard.hearing.store.PreferenceProfileStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,6 +21,7 @@ object HearingGraph {
     private val lock = Any()
     private var _store: AudiogramStore? = null
     private var _profileStore: CompensationProfileStore? = null
+    private var _preferenceStore: PreferenceProfileStore? = null
 
     /**
      * App-lifetime scope for the one thing in this graph that has to keep
@@ -53,6 +55,20 @@ object HearingGraph {
     val profileStore: CompensationProfileStore
         get() = synchronized(lock) {
             _profileStore ?: CompensationProfileStore(ctx()).also { _profileStore = it }
+        }
+
+    /**
+     * The listening-preference curves, one per headphone.
+     *
+     * Its own store rather than a member of [audiogramStore]; see
+     * [PreferenceProfileStore] for why taste and measurement do not share a
+     * write path. No collector here: unlike the derived calibrations, nothing in
+     * the compensation math ever looks a preference profile up synchronously —
+     * it is applied to the EQ as a curve, not consulted as a preset.
+     */
+    val preferenceStore: PreferenceProfileStore
+        get() = synchronized(lock) {
+            _preferenceStore ?: PreferenceProfileStore(ctx()).also { _preferenceStore = it }
         }
 
     /**

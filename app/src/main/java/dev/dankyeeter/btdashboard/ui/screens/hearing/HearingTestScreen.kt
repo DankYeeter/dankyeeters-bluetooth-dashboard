@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,12 +55,18 @@ import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.CLINICAL_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
+import dev.dankyeeter.btdashboard.hearing.EarDrift
+import dev.dankyeeter.btdashboard.hearing.HearingDrift
+import dev.dankyeeter.btdashboard.hearing.HearingDriftResult
+import dev.dankyeeter.btdashboard.hearing.Iso7029
+import dev.dankyeeter.btdashboard.hearing.Iso7029Sex
 import dev.dankyeeter.btdashboard.hearing.LowToneArtifact
 import dev.dankyeeter.btdashboard.hearing.store.AudiogramStore
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import java.text.DateFormat
 import java.util.Date
+import kotlin.math.roundToInt
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
@@ -68,6 +76,12 @@ import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
+import dev.dankyeeter.btdashboard.ui.screens.preference.PreferencePhase
+import dev.dankyeeter.btdashboard.ui.screens.preference.PreferenceTestActions
+import dev.dankyeeter.btdashboard.ui.screens.preference.PreferenceTestCard
+import dev.dankyeeter.btdashboard.ui.screens.preference.PreferenceTestContent
+import dev.dankyeeter.btdashboard.ui.screens.preference.PreferenceTestViewModel
+import dev.dankyeeter.btdashboard.ui.screens.preference.PreferenceUiState
 
 /**
  * Hearing-test flow: plain-text intro, optional fit check, a distraction-free
@@ -75,11 +89,24 @@ import dev.dankyeeter.btdashboard.hearing.AdjustedReference
  * with the overlay view.
  */
 @Composable
-fun HearingTestScreen(viewModel: HearingTestViewModel = viewModel()) {
+fun HearingTestScreen(
+    viewModel: HearingTestViewModel = viewModel(),
+    preferenceViewModel: PreferenceTestViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val preference by preferenceViewModel.state.collectAsStateWithLifecycle()
+
+    // The preference test takes the whole screen for as long as it is running,
+    // for the same reason the hearing test does: an A/B judgement made while a
+    // navigation bar is offering somewhere else to be is a judgement made badly.
+    // Its entry point is a card among the panels below.
+    if (preference.phase != PreferencePhase.IDLE) {
+        PreferenceTestContent(preference, preferenceViewModel)
+        return
+    }
 
     when (state.phase) {
-        HearingPhase.INTRO -> IntroContent(state, viewModel)
+        HearingPhase.INTRO -> IntroContent(state, viewModel, preference, preferenceViewModel)
         HearingPhase.FIT_CHECK, HearingPhase.TESTING -> RunningContent(state, viewModel)
         HearingPhase.RESULT -> ResultContent(state, viewModel)
         HearingPhase.HISTORY -> HistoryContent(state, viewModel)
@@ -89,7 +116,12 @@ fun HearingTestScreen(viewModel: HearingTestViewModel = viewModel()) {
 // --- intro ------------------------------------------------------------------
 
 @Composable
-private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel) {
+private fun IntroContent(
+    state: HearingUiState,
+    viewModel: HearingTestViewModel,
+    preference: PreferenceUiState,
+    preferenceActions: PreferenceTestActions,
+) {
     val scroll = rememberScrollState()
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -107,11 +139,9 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             // not read about Hughson and Westlake first.
             ExplainedHeader(
                 "What happens",
-                explanation = "A modified Hughson-Westlake pure-tone test at 250 to 8000 Hz, one " +
-                    "ear at a time. The beeps step quieter and louder around your threshold. " +
-                    "Some intervals are deliberately silent — pressing during those only makes " +
-                    "the result worse, so press only when you actually hear something, however " +
-                    "faint.",
+                explanation = "A pure-tone test at 250 to 8000 Hz, one ear at a time, stepping " +
+                    "quieter and louder around your threshold. Some intervals are deliberately " +
+                    "silent, so press only when you actually hear something, however faint.",
             )
             Text(
                 "Short beeps, one ear at a time — press whenever you hear one. " +
@@ -123,12 +153,10 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
         Panel {
             ExplainedHeader(
                 "Before you start",
-                explanation = "Quiet matters because background noise masks exactly the tones " +
-                    "being measured. Keep the listening mode you always use — ANC changes what " +
-                    "reaches your ear, so a curve measured with it on fits only listening with " +
-                    "it on. The volume is locked during the run so every tone keeps the level " +
-                    "it was measured at. And one run carries one lapse in attention; the median " +
-                    "of three outvotes it. The microphone measures room noise once before the " +
+                explanation = "Background noise masks exactly the tones being measured, and ANC " +
+                    "changes what reaches your ear — a curve measured with it on fits only " +
+                    "listening with it on. Three runs, because one lapse in attention is " +
+                    "outvoted by the median. The microphone measures room noise once before the " +
                     "run; nothing is recorded.",
             )
             Text(
@@ -149,11 +177,9 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
                 ExplainedHeader(
                     "Your headphones",
                     explanation = "In-ears change their bass response completely with the seal, " +
-                        "so a run with a loose tip measures the tip and not your ear — that is " +
-                        "why the fit check is required for them. Over-ears are far less " +
-                        "sensitive to placement, so it is optional there, though still worth " +
-                        "20 seconds before a first run. The check plays two low tones and " +
-                        "compares them against the baseline it stored the first time.",
+                        "so a loose tip measures the tip and not your ear — that is why the fit " +
+                        "check is required for them. Over-ears are far less sensitive to " +
+                        "placement, so it is optional there.",
                     modifier = Modifier.weight(1f),
                 )
                 if (state.fitCheckPassed) Pill("Fit check ✓", tone = PillTone.ACCENT)
@@ -205,12 +231,11 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             PanelHeader("Run it")
             ExplainedRow(
                 label = "Quieter test level",
-                explanation = "If your points keep coming back hollow at the top of the " +
-                    "chart, you hear the quietest tone the app can make at the normal " +
-                    "level — the measurement is hitting its own floor, not your ears. " +
-                    "This locks the run to a lower media volume, which shifts the whole " +
-                    "measurable window down. Runs taken at different levels never mix " +
-                    "into one curve; the newest run decides which level counts.",
+                explanation = "Hollow points at the top of the chart mean the measurement is " +
+                    "hitting its own floor, not your ears. This locks the run to a lower " +
+                    "media volume, which shifts the measurable window down. Runs taken at " +
+                    "different levels never mix into one curve; the newest run decides " +
+                    "which level counts.",
             ) {
                 Switch(checked = state.quietTest, onCheckedChange = viewModel::setQuietTest)
             }
@@ -237,6 +262,11 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             }
         }
 
+        // Taste, not hearing — and beside the hearing test rather than inside
+        // it, because the two produce different kinds of answer and only one of
+        // them is a measurement.
+        PreferenceTestCard(preference, preferenceActions)
+
         ClinicalAudiogramPanel(
             state = state,
             onSave = viewModel::saveClinicalAudiogram,
@@ -244,6 +274,14 @@ private fun IntroContent(state: HearingUiState, viewModel: HearingTestViewModel)
             onDerive = viewModel::deriveCalibration,
             onDiscardDerived = viewModel::discardDerivedCalibration,
         )
+
+        AgeReferencePanel(
+            state = state,
+            onSave = viewModel::saveAgeReference,
+            onClear = viewModel::clearAgeReference,
+        )
+
+        HearingOverTimePanel(state.drift)
 
         // A button, not a panel. The panel around it had a header saying
         // "Stored runs", a large numeral, the word "runs" under the numeral and
@@ -282,19 +320,13 @@ private fun ClinicalAudiogramPanel(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             ExplainedHeader(
                 "Clinical audiogram",
-                explanation = "An audiometer at a practice is calibrated: 0 dB HL is the " +
-                    "average threshold of young, normally hearing ears, and anything up to " +
-                    "20 dB HL is read as normal. That makes it an absolute measurement. " +
-                    "Everything this app measures itself is not — the tones go through your " +
-                    "headphones at whatever volume you had set, so the numbers are only " +
-                    "meaningful next to each other, and the app can honestly describe the " +
-                    "shape of your hearing but never its level.\n\n" +
-                    "Entering the clinic's values gives the app that missing level. It draws " +
-                    "them over your own curve so the two shapes can be compared, it can tell " +
-                    "you when a self-test result contradicts them, and the equaliser can be " +
-                    "built from them instead of from the headphone measurement.\n\n" +
-                    "Nothing leaves the phone, and nothing here is a diagnosis — it is the " +
-                    "clinic's reading, stored as you type it.",
+                explanation = "An audiometer at a practice is calibrated: 0 dB HL is the young, " +
+                    "normal-hearing average, and up to 20 dB HL reads as normal. Everything " +
+                    "this app measures itself is relative — it can describe the shape of your " +
+                    "hearing but never its level, so entering the clinic's values gives it " +
+                    "that missing level, to draw over your own curve and to build the " +
+                    "equaliser from. Nothing leaves the phone, and nothing here is a " +
+                    "diagnosis — it is the clinic's reading, stored as you type it.",
                 modifier = Modifier.weight(1f),
             )
             if (clinical != null) Pill("stored", tone = PillTone.ACCENT)
@@ -378,17 +410,13 @@ private fun CalibrationTransferSection(
         "Headphone calibration from your audiogram",
         explanation = "The clinic measured your ears on calibrated equipment; this app " +
             "measured the same ears through your headphones. Subtract one from the other " +
-            "and the ears cancel out — what is left is the headphone's own frequency " +
-            "response, measured at your ear rather than on a laboratory rig.\n\n" +
-            "The overall level is thrown away, because it depends on the volume the test " +
-            "ran at and means nothing. What is kept is the shape, which is exactly what a " +
-            "calibration preset is.\n\n" +
-            "Two honest limits. This describes these headphones on your ears — your " +
-            "seal, your ear canals, the way you wore them that day — so it is better than " +
-            "any published average for you, and useless to anybody else. And it is only as " +
-            "good as the two measurements behind it: a run with a loose fit or a mistyped " +
-            "value from the form goes straight into the result, which is why the app names " +
-            "the disagreements it can see instead of quietly averaging them away.",
+            "and the ears cancel out — what is left is the headphone's own response, kept " +
+            "as a shape, since the overall level only reflects the volume the test ran " +
+            "at.\n\n" +
+            "Two honest limits: it describes these headphones on your ears and is useless " +
+            "to anybody else, and it is only as good as the two measurements behind it — " +
+            "which is why the app names the disagreements it can see instead of quietly " +
+            "averaging them away.",
     )
     Text(
         "Both measurements are of the same ears, so their difference is your headphones.",
@@ -694,6 +722,284 @@ private fun Double.asEntryText(): String =
 private const val MIN_DB_HL = -10.0
 private const val MAX_DB_HL = 120.0
 
+// --- age reference ----------------------------------------------------------
+
+/**
+ * The ISO 7029 age reference: one year typed in, one reference line drawn.
+ *
+ * For people who have no clinical audiogram — which is most people — this is
+ * the only outside reference the app can offer at all. It is also the weakest
+ * one it will ever hold, and the panel is built so that nobody can miss that:
+ * the surface line says "typical for your age", the pill says where the numbers
+ * come from, and the explanation says in the first sentence that it is a
+ * statistic about a population and not a measurement of this person.
+ *
+ * The birth year is asked for instead of an age because an age stored today is
+ * wrong next year. The sex toggle is optional and stays optional: it changes
+ * the curve materially at the top of the range, and it is still not worth
+ * demanding a personal detail for a reference line.
+ */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+internal fun AgeReferencePanel(
+    state: HearingUiState,
+    onSave: (Int, Iso7029Sex) -> Unit,
+    onClear: () -> Unit,
+) {
+    val stored = state.ageReference
+    var editing by rememberSaveable(stored) { mutableStateOf(false) }
+    var yearText by rememberSaveable(stored) {
+        mutableStateOf(stored?.birthYear?.toString().orEmpty())
+    }
+    var sex by rememberSaveable(stored) { mutableStateOf(stored?.sex ?: Iso7029Sex.UNSPECIFIED) }
+
+    Panel {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            ExplainedHeader(
+                "Age reference",
+                explanation = "This is population statistics, not a measurement of you. " +
+                    "ISO 7029 describes how a healthy population's hearing threshold drifts " +
+                    "with age — almost nothing below 1 kHz, steeply more at 4 to 8 kHz — with " +
+                    "half of any age group better than the line and half worse. It never " +
+                    "feeds the equaliser, and a clinical audiogram always outranks it. Men " +
+                    "and women are tabulated separately; leaving the question blank " +
+                    "averages the two columns.\n\n" +
+                    "One honest gap: the standard's parameters for how widely people scatter " +
+                    "around the median could not be reproduced here with confidence, so the " +
+                    "app draws the median alone. That is why it can say \"further from " +
+                    "typical than expected\" and never \"you are in the worst 10 % for your " +
+                    "age\".",
+                modifier = Modifier.weight(1f),
+            )
+            if (stored != null) Pill("stored", tone = PillTone.ACCENT)
+        }
+        Text(
+            "What hearing is typical at your age, drawn over your curve as a reference.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        if (stored != null && !editing) {
+            val age = stored.ageAt(state.currentYear)
+            Text(
+                listOfNotNull(
+                    "Born ${stored.birthYear}",
+                    "$age this year",
+                    sexLabel(stored.sex),
+                    // Said out loud rather than silently applied: somebody
+                    // whose curve stopped moving with their birthdays deserves
+                    // to know the model ran out rather than that they did.
+                    "model stops at ${Iso7029.MAX_AGE_YEARS}"
+                        .takeIf { stored.isClampedAt(state.currentYear) },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (editing || stored == null) {
+            OutlinedTextField(
+                value = yearText,
+                // Digits only, four at most: the field takes a year, and a
+                // keyboard that lets "19 84" or "1984-06" through would store a
+                // number that is not one.
+                onValueChange = { yearText = it.filter(Char::isDigit).take(4) },
+                label = { Text("Born in") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().testTag(BIRTH_YEAR_TAG),
+            )
+            // Flowing rather than a fixed Row: three chips, one of them a whole
+            // phrase, do not fit across a narrow phone on one line.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Iso7029Sex.entries.forEach { option ->
+                    FilterChip(
+                        selected = sex == option,
+                        onClick = { sex = option },
+                        label = { Text(sexLabel(option)) },
+                    )
+                }
+            }
+            GoldButton(
+                onClick = {
+                    yearText.toIntOrNull()?.let { onSave(it, sex) }
+                    editing = false
+                },
+                // A blank field has nothing to store, and a Save that quietly
+                // does nothing is worse than one that cannot be pressed.
+                enabled = yearText.toIntOrNull() != null,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Save age reference") }
+            if (stored != null) {
+                TextButton(onClick = { editing = false }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cancel")
+                }
+            }
+        } else {
+            GoldOutlinedButton(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Change age reference")
+            }
+            TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) { Text("Remove") }
+        }
+
+        // The plausibility check, and the only thing this panel ever concludes.
+        // It lives here rather than on the result screen because that is where
+        // the reference it is about is explained, and because it is derived
+        // from the stored median curve rather than from the last run — so it
+        // stays true between tests instead of vanishing on the next screen.
+        state.ageReferenceGaps.forEach { (ear, gap) -> AgeGapNotice(ear, gap) }
+    }
+}
+
+/**
+ * The one-liner for a curve that sits well below the age-typical shape.
+ *
+ * Careful about what it claims, because there are three ordinary explanations
+ * ahead of the interesting one and all of them are cheaper to check. It names
+ * the fit first, and it recommends a professional rather than pretending to be
+ * one. It never says "hearing loss": this is an uncalibrated self-test compared
+ * against a population median whose spread the app cannot even quantify.
+ */
+@Composable
+private fun AgeGapNotice(ear: Ear, gap: Iso7029.AgeGap) {
+    val side = if (ear == Ear.LEFT) "left" else "right"
+    val where = gap.frequenciesHz.joinToString(", ") { formatHz(it) }
+    Text(
+        "Your $side ear falls off more at $where than is typical for your age — " +
+            "check the fit and re-run, and see a professional if it stays.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** Chip and summary wording for the ISO 7029 column in use. */
+private fun sexLabel(sex: Iso7029Sex): String = when (sex) {
+    Iso7029Sex.MALE -> "Male"
+    Iso7029Sex.FEMALE -> "Female"
+    // Not "unspecified": the app is describing what it did, and what it did was
+    // average the two columns.
+    Iso7029Sex.UNSPECIFIED -> "Average of both"
+}
+
+/** Lets a test type into the one field on this panel that has no unique text. */
+internal const val BIRTH_YEAR_TAG: String = "age-reference-birth-year"
+
+// --- hearing over time ------------------------------------------------------
+
+/**
+ * Whether anything has moved since the earliest comparable runs.
+ *
+ * One line on the surface in every state, and the state that matters most is
+ * the boring one: "stable across nine runs since March" is the whole point of
+ * having kept them. The rule and the reason it is so reluctant to say anything
+ * else live behind the question mark, because it is a paragraph about
+ * measurement noise and the person reading the line does not need it to read
+ * the line.
+ *
+ * No notifications, deliberately. A push telling somebody their hearing may
+ * have got worse, from an uncalibrated phone test, is not a feature.
+ */
+@Composable
+internal fun HearingOverTimePanel(drift: HearingDriftResult) {
+    Panel {
+        ExplainedHeader(
+            "Hearing over time",
+            explanation = "Two runs of this test can differ by ten decibels from ears that " +
+                "did not change at all, so a single difference between runs is noise. This " +
+                "card therefore compares medians of ${HearingDrift.RUNS_PER_CLUSTER} runs at " +
+                "each end, only across runs taken through the same headphones at the same " +
+                "volume and calibration, and only once ${HearingDrift.MIN_SPAN_DAYS} days " +
+                "separate the oldest from the newest.\n\n" +
+                "So it stays quiet most of the time and will miss real changes a clinic " +
+                "would catch. Nothing here is a diagnosis, and nothing here notifies you.",
+        )
+        when (drift) {
+            is HearingDriftResult.NotEnoughData -> Text(
+                notEnoughDataLine(drift),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            is HearingDriftResult.Stable -> {
+                Text(
+                    "Stable across ${drift.comparableRuns} comparable runs since " +
+                        DateFormat.getDateInstance(DateFormat.MEDIUM)
+                            .format(Date(drift.baselineAtMillis)) + ".",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                // The honest footnote to "stable": the runs did move, they just
+                // did not move in a way that means anything. Saying so keeps
+                // the word from promising more precision than it has.
+                Text(
+                    "Largest single move: ${drift.largestShiftDb.roundedDb()} dB — inside " +
+                        "what this test varies by on its own.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            is HearingDriftResult.DriftSuspected -> {
+                drift.ears.forEach { ear ->
+                    Text(
+                        driftLine(ear, drift.baselineAtMillis),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                // Calm, and pointed at the two cheap explanations before the
+                // expensive one. A retake costs twenty minutes and settles most
+                // of these; an appointment is what settles the rest.
+                Text(
+                    "Re-run the test on a quiet day with a fresh fit first. If it stays, " +
+                        "this is worth a hearing test at a practice — they can measure what " +
+                        "this app can only compare with itself.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * What is missing, in one sentence, always with something to do about it.
+ *
+ * "Not enough data" on its own is a dead end — the person cannot tell whether
+ * to run another test, wait, or put the headphones back on. Each branch below
+ * names the next action instead.
+ */
+private fun notEnoughDataLine(drift: HearingDriftResult.NotEnoughData): String {
+    if (drift.noDeviceConnected) {
+        return "Connect your headphones — runs only compare within one pair, so there is " +
+            "nothing to compare until the app knows which pair you mean."
+    }
+    val device = drift.deviceName ?: "these headphones"
+    val level = drift.volumeFraction?.let { " at ${(it * 100).toInt()} % volume" }.orEmpty()
+    return when {
+        drift.moreRunsNeeded > 0 && drift.moreDaysNeeded > 0 ->
+            "Not enough comparable runs yet — ${runWord(drift.moreRunsNeeded)} more on " +
+                "$device$level, and about ${drift.moreDaysNeeded} more days between the " +
+                "oldest and the newest."
+        drift.moreRunsNeeded > 0 ->
+            "Not enough comparable runs yet — ${runWord(drift.moreRunsNeeded)} more on " +
+                "$device$level."
+        else ->
+            "Enough runs, but they are too close together — drift is a claim about months, " +
+                "so about ${drift.moreDaysNeeded} more days have to pass."
+    }
+}
+
+private fun runWord(count: Int): String = if (count == 1) "one run" else "$count runs"
+
+/** "Left ear: 4 kHz and 6 kHz are about 12 dB worse than in your earliest runs." */
+private fun driftLine(ear: EarDrift, baselineAtMillis: Long): String {
+    val side = if (ear.ear == Ear.LEFT) "Left" else "Right"
+    val where = ear.frequenciesHz.joinToString(" and ") { formatHz(it) }
+    val since = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(baselineAtMillis))
+    return "$side ear: $where sit about ${ear.largestShiftDb.roundedDb()} dB worse than in " +
+        "your runs from $since."
+}
+
+/** Whole decibels: the extra digits are noise this card exists to not report. */
+private fun Double.roundedDb(): Int = roundToInt()
+
 // --- running ----------------------------------------------------------------
 
 /**
@@ -851,12 +1157,12 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
                 // panel shows the figures; the paragraph is one tap away.
                 ExplainedHeader(
                     "This run",
-                    explanation = "Some intervals during the test are deliberately silent. A " +
-                        "press during one of those is a false positive, and a run with several " +
-                        "of them has thresholds that look better than your hearing is. The " +
-                        "room-noise figure comes from the phone's microphone, which is not a " +
-                        "calibrated meter — it is good enough to tell a quiet room from a noisy " +
-                        "one and nothing finer.",
+                    explanation = "A press during one of the test's deliberately silent " +
+                        "intervals is a false positive, and a run with several of them has " +
+                        "thresholds that look better than your hearing is. The room-noise " +
+                        "figure comes from the phone's microphone, which is not a calibrated " +
+                        "meter — enough to tell a quiet room from a noisy one and nothing " +
+                        "finer.",
                 )
                 state.lastReliability?.let {
                     Text(it.summary, style = MaterialTheme.typography.bodySmall)
@@ -881,10 +1187,10 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
                     "still inaudible at the loudest level the app allows, or still audible at " +
                     "the quietest. Both ends are limits of the measurement, not of your ears." +
                     if (state.clinicalAudiogram != null) {
-                        "\n\nThe dotted curve is your clinical audiogram. Both curves are drawn " +
-                            "against their own average, because the app's scale and the clinic's " +
-                            "dB HL cannot be lined up without a measurement microphone — so what " +
-                            "you can compare here is the shape, never the height."
+                        "\n\nThe dotted curve is your clinical audiogram. The two are drawn " +
+                            "against their own averages — without a measurement microphone " +
+                            "their scales cannot be lined up, so compare the shape, never the " +
+                            "height."
                     } else {
                         ""
                     },
@@ -893,8 +1199,12 @@ private fun ResultContent(state: HearingUiState, viewModel: HearingTestViewModel
                 runs = state.runs,
                 active = state.audiogram,
                 clinical = state.clinicalAudiogram,
+                ageReference = state.ageReferenceCurve,
             )
-            AudiogramLegend(showClinical = state.clinicalAudiogram != null)
+            AudiogramLegend(
+                showClinical = state.clinicalAudiogram != null,
+                showAgeReference = state.ageReferenceCurve.isNotEmpty(),
+            )
 
             // Counted the way the curve is actually built, not by counting
             // every run on the phone.
@@ -966,21 +1276,17 @@ private fun LowToneNotice(advice: LowToneArtifact.Advice) {
             "About the low tones in this run",
             explanation = buildString {
                 append(
-                    "Both of the things that go wrong in a home test hit the bottom of " +
-                        "the range hardest. A seal that leaks — a tip that has worked loose, " +
-                        "glasses under an earpad — lets bass escape, so the low tones need to " +
-                        "be louder before you hear them. And room noise is bass-heavy almost " +
-                        "everywhere: traffic, ventilation, the building itself. Either one " +
-                        "raises 250 and 500 Hz while leaving the middle of the range alone, " +
-                        "which looks exactly like a low-frequency hearing loss.",
+                    "Both of the things that go wrong in a home test hit the bottom of the " +
+                        "range hardest: a seal that leaks lets bass escape, and room noise is " +
+                        "bass-heavy almost everywhere. Either one raises 250 and 500 Hz while " +
+                        "leaving the middle of the range alone, which looks exactly like a " +
+                        "low-frequency hearing loss.",
                 )
                 if (advice.clinicalContradicts) {
                     append(
                         "\n\nYour clinical audiogram is flat and normal at those same " +
                             "frequencies, measured on calibrated equipment. Same ears, so the " +
-                            "raised lows in this run came from the headphones or the room, not " +
-                            "from your hearing. This is the classic pattern: a headphone app " +
-                            "shows a low-frequency dip that the clinic does not.",
+                            "raised lows in this run came from the headphones or the room.",
                     )
                 }
                 if (advice.roomWasNoisy) {
@@ -992,7 +1298,7 @@ private fun LowToneNotice(advice: LowToneArtifact.Advice) {
                 }
                 append(
                     "\n\nWorth a retake: reseat the earphones, find a quieter room, and see " +
-                        "whether the lows move. If they do, they were never yours.",
+                        "whether the lows move.",
                 )
             },
         )
@@ -1025,8 +1331,7 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
                 explanation = "Every run is drawn thin; the thick curve is the median of the " +
                     "runs you chose, and that median is what the equaliser corrects for. " +
                     "Three at most — averaging a dozen sessions from different weeks would " +
-                    "blur the very change you would want to see. Swap which three count as " +
-                    "often as you like; nothing is lost by trying.",
+                    "blur the very change you would want to see.",
             )
             Text(
                 "The thick curve is the median of the runs you chose — up to three count.",
@@ -1036,8 +1341,12 @@ private fun HistoryContent(state: HearingUiState, viewModel: HearingTestViewMode
                 runs = state.runs,
                 active = state.audiogram,
                 clinical = state.clinicalAudiogram,
+                ageReference = state.ageReferenceCurve,
             )
-            AudiogramLegend(showClinical = state.clinicalAudiogram != null)
+            AudiogramLegend(
+                showClinical = state.clinicalAudiogram != null,
+                showAgeReference = state.ageReferenceCurve.isNotEmpty(),
+            )
         }
 
         // Which runs count, resolved the same way the store resolves it: an

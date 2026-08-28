@@ -197,8 +197,13 @@ fun LinkTimeline(
         Lane("Events", 24.dp) {
             drawBaseline(colors.outline)
             events.forEach { event ->
+                // Same loud set as the event log's rows, plus a disconnect. An
+                // encoder-starvation capture must be findable on the axis: it is
+                // how somebody correlates "it stuttered around then" with the
+                // one poll that recorded what was attached.
                 val loud = event.type == MonitorEventType.TAKEOVER ||
                     event.type == MonitorEventType.INTERRUPTION ||
+                    event.type == MonitorEventType.ENCODER_STARVATION ||
                     event.type == MonitorEventType.ACL_DISCONNECTED
                 val x = xOf(event.timestampMs)
                 drawLine(

@@ -33,6 +33,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
+import dev.dankyeeter.btdashboard.audio.eq.VolumeAwareTilt
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.ui.common.describeWithApps
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -80,12 +81,10 @@ fun EqScreen(
             ExplainedHeader(
                 "Where the EQ acts",
                 "With the helper running, the EQ attaches to the output mix and every " +
-                    "app is equalised, including players that keep their playback to " +
-                    "themselves. Without it the EQ can only follow apps that announce " +
-                    "their audio session, so a player that stays quiet about it plays " +
-                    "uncorrected — which is why the line below names apps rather than " +
-                    "counting sessions. Whether a given player announces itself varies " +
-                    "by Android build.",
+                    "app is equalised. Without it the EQ can only follow apps that " +
+                    "announce their audio session, so a player that stays quiet about it " +
+                    "plays uncorrected — which is why the line below names apps rather " +
+                    "than counting sessions.",
             )
             Text(status.describeWithApps(playingApps), style = MaterialTheme.typography.bodySmall)
         }
@@ -93,9 +92,8 @@ fun EqScreen(
         ExplainedRow(
             label = "EQ enabled",
             explanation = "The master switch. Off, the audio effect is detached " +
-                "entirely — nothing is processed and nothing is added to the signal " +
-                "path. Your curve, presets and hearing runs are all kept; this only " +
-                "decides whether any of it is playing.",
+                "entirely — nothing is processed. Your curve, presets and hearing runs " +
+                "are all kept.",
         ) {
             Switch(checked = settings.enabled, onCheckedChange = viewModel::setEnabled)
         }
@@ -103,18 +101,17 @@ fun EqScreen(
             label = "Output limiter",
             explanation = "Catches the loudest peaks so a boosted band cannot distort. " +
                 "Leave it on unless you are measuring something — it only acts on the " +
-                "few percent of moments that would clip, and never changes the level " +
-                "of normal listening.",
+                "moments that would clip, and never changes the level of normal " +
+                "listening.",
         ) {
             Switch(checked = settings.limiterEnabled, onCheckedChange = viewModel::setLimiterEnabled)
         }
         ExplainedRow(
             label = "Compare with EQ off",
-            explanation = "Plays your music untouched so you can hear the difference, " +
-                "without losing your settings — flip it back and the curve returns. " +
-                "Both sides play at the same loudness on purpose: louder always sounds " +
-                "better at first, and that would make the comparison worthless. Switch " +
-                "the automatic headroom off and that match is gone with it.",
+            explanation = "Plays your music untouched so you can hear the difference; " +
+                "flip it back and the curve returns. Both sides play at the same " +
+                "loudness on purpose, because louder always sounds better at first — " +
+                "switch the automatic headroom off and that match is gone with it.",
         ) {
             Switch(checked = bypass, onCheckedChange = viewModel::setBypass)
         }
@@ -122,14 +119,11 @@ fun EqScreen(
         ExplainedRow(
             label = "Loudness restoration",
             explanation = "A static boost raises a band by the same amount whether the " +
-                "signal there is a whisper of reverb or a full snare hit. A healthy ear " +
-                "does the opposite: it amplifies quiet sound and compresses loud sound. " +
-                "With this on, every boost in your curve acts that way — quiet detail " +
-                "gets the full lift, loud passages pass as recorded, and by full scale " +
-                "the boost is gone entirely, so nothing can clip and no headroom is " +
-                "spent. Cuts stay as they are. This is the same idea the headphone " +
-                "vendors sell as sound personalisation, with your curve in the open " +
-                "instead of a black box.",
+                "signal there is a whisper or a full snare hit; a healthy ear does the " +
+                "opposite. With this on, every boost in your curve acts that way — quiet " +
+                "detail gets the full lift, loud passages pass as recorded, and by full " +
+                "scale the boost is gone entirely, so nothing can clip. Cuts stay as " +
+                "they are.",
         ) {
             Switch(
                 checked = settings.loudnessRestoration,
@@ -138,16 +132,46 @@ fun EqScreen(
         }
 
         ExplainedRow(
+            label = "Volume-aware tuning",
+            explanation = "Quiet listening loses bass and treble — the equal-loudness " +
+                "contours of ISO 226 get steeper as the level drops. With this on, the " +
+                "EQ adds back what the current volume is costing you and adds nothing " +
+                "once you are at normal listening level; it never cuts and never " +
+                "changes the midrange.\n\n" +
+                "It is an estimate, not a measurement: the phone knows how far the " +
+                "volume slider is up, not how loud that is in your ears. The curve is " +
+                "shaped from the ISO 226 average ear, assuming two thirds of the slider " +
+                "is normal listening, and is capped at 12 dB.",
+        ) {
+            Switch(
+                checked = settings.volumeAwareTilt,
+                onCheckedChange = viewModel::setVolumeAwareTilt,
+            )
+        }
+
+        if (settings.volumeAwareTilt) {
+            val tilt = VolumeAwareTilt.summarise(settings.activeTiltDb, settings.layout)
+            Text(
+                if (tilt.isFlat) {
+                    "Quiet-listening tilt: none at this volume (estimate)"
+                } else {
+                    "Quiet-listening tilt: %+.0f dB bass · %+.0f dB treble (estimate)"
+                        .format(tilt.bassDb, tilt.trebleDb)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        ExplainedRow(
             label = "Automatic headroom",
-            explanation = "Raising a band means multiplying the numbers the music is made " +
-                "of, and those have a ceiling. This lowers everything by however much the " +
-                "loudest band was raised, so nothing can overflow — the cost is that the " +
-                "whole thing gets quieter, and a boost sounds like everything else " +
-                "becoming softer rather than like a boost. Turn it up on your phone and " +
-                "you have exactly what you asked for, without distortion.\n\n" +
-                "Switched off, a boost is heard as a boost. A loud passage can then clip, " +
-                "which sounds like brief crackle. The output limiter stays as a second " +
-                "net.",
+            explanation = "Raising a band multiplies numbers that have a ceiling, so this " +
+                "lowers everything by however much the loudest band was raised and " +
+                "nothing can overflow. The cost is that the whole thing gets quieter; " +
+                "turn it up on your phone and you have what you asked for, without " +
+                "distortion.\n\n" +
+                "Switched off, a boost is heard as a boost, and a loud passage can clip " +
+                "into brief crackle. The output limiter stays as a second net.",
         ) {
             Switch(checked = settings.autoHeadroom, onCheckedChange = viewModel::setAutoHeadroom)
         }
@@ -170,9 +194,7 @@ fun EqScreen(
                 "Ear view",
                 "Both moves the two ears together, which is what you want for taste. " +
                     "Left and Right split them, which is what a measurement usually " +
-                    "needs — hearing is rarely symmetrical. The choice drives the band " +
-                    "sliders and the compensation preview together, so the chart never " +
-                    "shows a different ear than the sliders under it.",
+                    "needs — hearing is rarely symmetrical.",
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 EarView.entries.forEach { view ->
@@ -215,7 +237,7 @@ fun EqScreen(
                     "so its bands cannot be edited \u2014 that is what makes it a " +
                     "reference rather than a taste setting. The band count is fixed " +
                     "with them: on a coarser grid the 3 kHz and 6 kHz tones you were " +
-                    "tested at fall between the bands and never reach the sound at all.",
+                    "tested at fall between the bands.",
             )
             Text(
                 "Save a copy under a new name to tune it by hand, or reset to flat to " +

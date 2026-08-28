@@ -18,10 +18,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
 import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
-import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
+import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
+import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
@@ -74,6 +75,14 @@ fun LiveLinkPanel(
     ldacTuning: LdacTuningState,
     onLdacQuality: (Long) -> Unit,
     onDismissLdacMessage: () -> Unit,
+    /**
+     * What this device's profile stores, or [LdacQuality.NONE] for nothing.
+     *
+     * The chips are lit from this rather than from the live mode alone, because
+     * the Bluetooth tab draws the same four chips for the same headphone off the
+     * same stored value — see [LdacQuality.selected].
+     */
+    storedQuality: Long = LdacQuality.NONE,
     modifier: Modifier = Modifier,
     overviewTrace: LiveTrace = LiveTrace.overview(intervalMs),
     closeUpTrace: LiveTrace = LiveTrace.closeUp(500L),
@@ -101,7 +110,13 @@ fun LiveLinkPanel(
             else -> {
                 LinkHeader(snapshot)
                 InputVersusLink(snapshot)
-                LdacSection(snapshot, ldacTuning, onLdacQuality, onDismissLdacMessage)
+                LdacSection(
+                    snapshot,
+                    ldacTuning,
+                    storedQuality,
+                    onLdacQuality,
+                    onDismissLdacMessage,
+                )
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
                 TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
@@ -201,11 +216,14 @@ private fun InputVersusLink(snapshot: LinkLiveSnapshot) {
 private fun LdacSection(
     snapshot: LinkLiveSnapshot,
     tuning: LdacTuningState,
+    storedQuality: Long,
     onLdacQuality: (Long) -> Unit,
     onDismissMessage: () -> Unit,
 ) {
     val ldac = snapshot.ldac ?: return
     val sampleRateHz = snapshot.codec?.sampleRateHz
+    // One rule for both screens: the stored wish first, the live mode second.
+    val selected = LdacQuality.selected(storedQuality, ldac.mode)
 
     // First layer: one short line. The note behind it is the data layer's own
     // sentence and is printed verbatim — summarising it would lose exactly the
@@ -230,17 +248,17 @@ private fun LdacSection(
             toggle()
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LDAC_MODES.forEach { (mode, codecSpecific1) ->
+            LdacQuality.pinnable.forEach { quality ->
                 FilterChip(
-                    selected = ldac.mode == mode,
+                    selected = selected == quality,
                     // Never two requests in flight: each one renegotiates the
                     // codec, and the second would race the first's read-back.
                     enabled = !tuning.busy,
-                    onClick = { onLdacQuality(codecSpecific1) },
+                    onClick = { onLdacQuality(quality) },
                     // The rate ladder follows the sample-rate family — 990/660/330
                     // at 48 and 96 kHz, 909/606/303 at 44.1 and 88.2. Labelling
                     // every chip "990" would be off by 8 % on half of all links.
-                    label = { Text(mode.chipLabel(sampleRateHz)) },
+                    label = { Text(LdacQuality.chipLabel(quality, sampleRateHz)) },
                 )
             }
         }
@@ -422,83 +440,51 @@ private fun UpdateRateRow(intervalMs: Long, onIntervalChange: (Long) -> Unit) {
 /** The three poll rates, slowest cost first. Named in seconds, as a user thinks. */
 private val INTERVALS = listOf(1_000L to "1 s", 2_000L to "2 s", 5_000L to "5 s")
 
-/**
- * The four LDAC quality modes AOSP can be asked for, with the `codecSpecific1`
- * each one is written as. [LdacQualityMode.NOT_PINNED] is absent on purpose: it
- * is the state of never having chosen, and it cannot be *requested* — asking for
- * adaptive explicitly is [LdacQualityMode.ADAPTIVE].
- */
-private val LDAC_MODES = listOf(
-    LdacQualityMode.HIGH_QUALITY to 1000L,
-    LdacQualityMode.STANDARD to 1001L,
-    LdacQualityMode.CONNECTION_PRIORITY to 1002L,
-    LdacQualityMode.ADAPTIVE to 1003L,
-)
+// The four quality modes AOSP can be asked for, their `codecSpecific1` values
+// and their labels now live in [LdacQuality] — one ladder for this panel and the
+// Bluetooth tab's chips, rather than two that could drift.
 
 private const val LIVE_LINK_EXPLANATION =
     "One reading of the whole audio path, from the app that is playing to the " +
         "Bluetooth radio.\n\n" +
-        "Plain numbers are measured or worked out from measurements. A rate marked " +
-        "\"measured\" is what the Bluetooth stack says it is sending right now; a rate " +
-        "marked \"pinned\" is the figure the spec assigns to that mode, and where both " +
-        "are shown they can be compared. Where a value cannot be read on this phone, " +
-        "the panel says why instead of guessing.\n\n" +
-        "It polls only while this screen is in front of you."
+        "A rate marked \"measured\" is what the Bluetooth stack says it is sending right " +
+        "now; a rate marked \"pinned\" is the spec figure for that mode. Where a value " +
+        "cannot be read on this phone, the panel says why instead of guessing. It polls " +
+        "only while this screen is in front of you."
 
 private const val LDAC_TUNING_EXPLANATION =
-    "Pins LDAC to one playback quality for the headphone that is connected now, the " +
-        "same setting Developer options offers and the same one a device profile " +
-        "stores.\n\n" +
-        "What pinning is actually for, measured on this phone: adaptive was never once " +
-        "seen to reach 990 kbps, even sitting next to the phone on a clean link. It " +
-        "moves between about 330 and 660 and uses steps in between. If you want 990, " +
-        "pin High quality — adaptive will not choose it for you.\n\n" +
-        "The change renegotiates the codec, which interrupts playback briefly. It is " +
-        "not permanent — the stack renegotiates on every reconnect, so store it in the " +
-        "device's profile if you want it back next time.\n\n" +
-        "It needs the privileged helper; without it nothing can be set and, just as " +
-        "importantly, nothing can be read back."
+    "Pins LDAC to one playback quality for the headphone that is connected now.\n\n" +
+        "Measured on this phone, adaptive was never once seen to reach 990 kbps — it " +
+        "moves between about 330 and 660. If you want 990, pin High quality.\n\n" +
+        "The change interrupts playback briefly and does not survive a reconnect, so " +
+        "store it in the device's profile to get it back. It needs the privileged " +
+        "helper; without it nothing can be set or read back."
 
 private const val ENQUEUE_EXPLANATION =
     "How often the Bluetooth stack hands a buffer of encoded audio to the radio.\n\n" +
-        "This is a liveness figure, not a throughput one, and the difference is worth " +
-        "stating because the counter behind it is labelled \"packets\" by the system. " +
-        "Measured on this phone it sits at about 50 per second in every LDAC mode, " +
-        "including pinned 990 and pinned 330 — it is the encoder's 20 ms timer, not the " +
-        "air. So a steady figure means audio is flowing and a fall to zero means it " +
-        "stopped; the rate it is flowing at is the kbps figure above."
+        "This is a liveness figure, not a throughput one: measured on this phone it sits " +
+        "at about 50 per second in every LDAC mode, because it is the encoder's 20 ms " +
+        "timer rather than the air. A steady figure means audio is flowing; the rate it " +
+        "is flowing at is the kbps figure above."
 
 private const val TRACE_EXPLANATION =
     "The bitrate the LDAC encoder reports it is sending, read from the Bluetooth stack " +
-        "once per reading. Adaptive moves this on its own, so the line is the link " +
-        "changing its mind about quality. Every window that lost audio is marked in red " +
-        "on the same time axis, so a stutter has a place rather than only a memory.\n\n" +
-        "On a link whose rate the phone does not report, the line falls back to how " +
-        "often the stack hands audio to the radio — a liveness signal, not a rate. The " +
-        "caption under each graph names which of the two it is drawing.\n\n" +
-        "The axis ends at the newest reading, not at the clock: if the polling stalls the " +
-        "picture freezes instead of growing an empty stretch that would look measured. A " +
-        "reading that was missed or came late leaves a break in the line — nothing is " +
-        "drawn across a moment nobody measured.\n\n" +
-        "The 60-second graph rides the same pass as the rest of this panel, so its marks " +
-        "cover every place the path can lose audio: the app, the mixer and the Bluetooth " +
-        "stack.\n\n" +
-        "The 10-second close-up reads one dump instead of three so it can sample twice a " +
-        "second — 233 ms of work per reading, measured, which is why it is off until you " +
-        "ask for it. The two dumps it skips are the ones carrying app and mixer " +
-        "underruns, so its marks are the Bluetooth stack's own loss only: dropped " +
-        "packets, stack dropouts and encoder underflows. A quiet close-up is not proof " +
-        "the app kept up."
+        "once per reading; adaptive moves it on its own. Every window that lost audio is " +
+        "marked in red on the same time axis, and a reading that was missed or came late " +
+        "leaves a break in the line rather than a drawn-across guess.\n\n" +
+        "Where the phone reports no rate, the line falls back to how often the stack " +
+        "hands audio to the radio — a liveness signal, not a rate — and each graph's " +
+        "caption names which it is drawing.\n\n" +
+        "The 10-second close-up costs 233 ms of work per reading, measured, which is why " +
+        "it is off until you ask for it. It sees the Bluetooth stack's own loss only, so " +
+        "a quiet close-up is not proof the app kept up."
 
 private const val UPDATE_RATE_EXPLANATION =
     "How often the panel re-reads the link.\n\n" +
-        "One pass runs three system dumps and takes roughly half a second of work on " +
-        "the phone — measured at 233 ms, 155 ms and 162 ms on the device this was " +
-        "built against. At one second the phone spends about half its time producing " +
-        "this screen, at two seconds a quarter of it.\n\n" +
-        "One second is worth it while you are chasing a dropout, because loss is " +
-        "reported per window and a shorter window places it more precisely. Five " +
-        "seconds is for leaving the panel open."
+        "One pass runs three system dumps and takes roughly half a second of work, " +
+        "measured — so at one second the phone spends about half its time producing this " +
+        "screen, at two seconds a quarter of it. One second is worth it while you are " +
+        "chasing a dropout; five seconds is for leaving the panel open."
 
 // ---- formatting -------------------------------------------------------------
 
@@ -552,16 +538,6 @@ private fun LdacState.rateLine(): String {
         else -> "LDAC quality not readable"
     }
 }
-
-/**
- * The chip's own rate figure, or "ABR" where no single rate exists.
- *
- * [LdacState.nominalKbps] is asked rather than a table written here, so the
- * 44.1/88.2 and 48/96 kHz ladders stay in one place — the same function the
- * pinned row above is labelled from.
- */
-private fun LdacQualityMode.chipLabel(sampleRateHz: Int?): String =
-    LdacState.nominalKbps(this, sampleRateHz)?.let { "$it kbps" } ?: "ABR"
 
 /**
  * The app most likely to be the one the user is listening to.

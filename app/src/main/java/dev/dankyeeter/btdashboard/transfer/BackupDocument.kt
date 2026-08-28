@@ -62,6 +62,93 @@ data class BackupDocument(
      */
     @SerialName("derivedCalibrations")
     val derivedCalibrations: List<BackupDerivedCalibration> = emptyList(),
+    /**
+     * Birth year and optional sex behind the ISO 7029 age reference.
+     *
+     * Two numbers and cheap to re-enter, unlike everything above it — carried
+     * anyway because a restored phone that silently drops the reference line
+     * looks like a bug, and because the field costs one nullable entry. Null in
+     * every file written before it existed, hence nullable and defaulted, and
+     * no [BackupSchema.CURRENT_VERSION] bump: nothing that already existed
+     * changed meaning.
+     */
+    @SerialName("ageReference") val ageReference: BackupAgeReference? = null,
+    /**
+     * Listening-preference curves, one per headphone.
+     *
+     * A list for the same reason [derivedCalibrations] is one: a preference
+     * belongs to a pair of ears *and* one headphone, and two pairs produce two
+     * genuinely different answers.
+     *
+     * Worth carrying despite being re-creatable, because re-creating it means
+     * sitting through ten A/B comparisons per song over several songs — an hour
+     * of somebody's attention, which is a great deal more than the twenty
+     * minutes a hearing run costs. Empty in every file written before the field
+     * existed, hence defaulted, and no [BackupSchema.CURRENT_VERSION] bump:
+     * nothing that already existed changed meaning.
+     */
+    @SerialName("preferenceProfiles")
+    val preferenceProfiles: List<BackupPreferenceProfile> = emptyList(),
+)
+
+/**
+ * A preference curve on disk.
+ *
+ * The shelf parameters and the base curve are the record; the applied per-band
+ * gains are **not** stored, because they are `base + shelf` rendered at the
+ * layout named here and a stored second copy could only ever disagree with the
+ * first. The same reasoning the app applies to the volume tilt and to the
+ * generated Personal Reference: derived values are derived, not saved.
+ */
+@Serializable
+data class BackupPreferenceProfile(
+    @SerialName("deviceKey") val deviceKey: String,
+    @SerialName("deviceName") val deviceName: String? = null,
+    /** [dev.dankyeeter.btdashboard.audio.eq.EqBandLayout.id] of the base curve. */
+    @SerialName("layout") val layout: String? = null,
+    @SerialName("baseLeftDb") val baseLeftDb: List<Float> = emptyList(),
+    @SerialName("baseRightDb") val baseRightDb: List<Float> = emptyList(),
+    /** Null means "follow the songs"; a number is a hand adjustment. */
+    @SerialName("manualBassDb") val manualBassDb: Float? = null,
+    @SerialName("manualTrebleDb") val manualTrebleDb: Float? = null,
+    @SerialName("finalCheck") val finalCheck: String = "NOT_RUN",
+    @SerialName("createdAtMillis") val createdAtMillis: Long = 0L,
+    @SerialName("updatedAtMillis") val updatedAtMillis: Long = 0L,
+    @SerialName("runs") val runs: List<BackupPreferenceRun> = emptyList(),
+)
+
+/**
+ * One song-run on disk.
+ *
+ * The trial log is deliberately absent. It exists so the *next* run in the same
+ * session can re-ask a decisive pair, and a pool restored onto another phone has
+ * no such session in flight; carrying a hundred trials per profile to support
+ * nothing would be the largest thing in the file. What a restored pool needs —
+ * the answer, how steady it was, and what it was about — is all here.
+ */
+@Serializable
+data class BackupPreferenceRun(
+    @SerialName("id") val id: String,
+    @SerialName("label") val label: String = "",
+    @SerialName("labelSource") val labelSource: String = "NONE",
+    @SerialName("createdAtMillis") val createdAtMillis: Long = 0L,
+    @SerialName("bassDb") val bassDb: Float = 0f,
+    @SerialName("trebleDb") val trebleDb: Float = 0f,
+    @SerialName("consistency") val consistency: Double = 0.0,
+)
+
+/**
+ * The age reference on disk.
+ *
+ * A birth *year*, never an age: an age stored today is wrong next year, and the
+ * whole point of the record is that it stays true. [sex] is the name of an
+ * `Iso7029Sex` constant; an unknown name comes back as `UNSPECIFIED`, which is
+ * the value that assumes least rather than one that guesses.
+ */
+@Serializable
+data class BackupAgeReference(
+    @SerialName("birthYear") val birthYear: Int = 0,
+    @SerialName("sex") val sex: String = "UNSPECIFIED",
 )
 
 /**
@@ -163,6 +250,20 @@ data class BackupEq(
     @SerialName("limiterEnabled") val limiterEnabled: Boolean = true,
     @SerialName("autoHeadroom") val autoHeadroom: Boolean = true,
     @SerialName("loudnessRestoration") val loudnessRestoration: Boolean = false,
+    /**
+     * The ISO 226 volume-aware tilt switch. Added after [loudnessRestoration]
+     * and defaulted for the same reason every added field here is: a file
+     * written before it existed has to keep loading, and *not* having the field
+     * means the same thing as having it false. No
+     * [BackupSchema.CURRENT_VERSION] bump — nothing that already existed
+     * changed meaning.
+     *
+     * Only the switch travels. The tilt's per-band gains are derived from the
+     * media volume at the moment the EQ is applied, so a backup that carried
+     * them would restore a correction for a volume the phone is not at, on a
+     * phone whose volume curve may not even be the same one.
+     */
+    @SerialName("volumeAwareTilt") val volumeAwareTilt: Boolean = false,
 )
 
 @Serializable

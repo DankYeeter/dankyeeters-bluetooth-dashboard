@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.tone.NativeToneGenerator
 import dev.dankyeeter.btdashboard.hearing.AbortReason
+import dev.dankyeeter.btdashboard.hearing.AgeReference
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
@@ -17,10 +18,14 @@ import dev.dankyeeter.btdashboard.hearing.CalibrationPresetRepository
 import dev.dankyeeter.btdashboard.hearing.CalibrationTransfer
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
+import dev.dankyeeter.btdashboard.hearing.HearingDrift
+import dev.dankyeeter.btdashboard.hearing.HearingDriftResult
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.hearing.HearingTestConfig
 import dev.dankyeeter.btdashboard.hearing.HearingTestState
 import dev.dankyeeter.btdashboard.hearing.HughsonWestlakeTestController
+import dev.dankyeeter.btdashboard.hearing.Iso7029
+import dev.dankyeeter.btdashboard.hearing.Iso7029Sex
 import dev.dankyeeter.btdashboard.hearing.LowToneArtifact
 import dev.dankyeeter.btdashboard.hearing.PrepareResult
 import dev.dankyeeter.btdashboard.hearing.RunReliability
@@ -48,6 +53,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Year
 
 /** Where the user currently is in the hearing-test flow. */
 enum class HearingPhase { INTRO, FIT_CHECK, TESTING, RESULT, HISTORY }
@@ -90,6 +96,18 @@ data class HearingUiState(
      * null. Per device, unlike [clinicalAudiogram] — see [DerivedCalibration].
      */
     val derivedCalibration: DerivedCalibration? = null,
+    /**
+     * Birth year and optional sex behind the ISO 7029 age reference, or null.
+     * A property of the person, so it survives a device change like the
+     * clinical audiogram does.
+     */
+    val ageReference: AgeReference? = null,
+    /**
+     * The year the screen is being read in, so the age reference stays true as
+     * the calendar moves. Held in state rather than read at each use so that a
+     * test can put the clock wherever it needs it.
+     */
+    val currentYear: Int = Year.now().value,
 ) {
     val fitCheckRequired: Boolean get() = formFactor.fitCheckMandatory && !fitCheckPassed
 
@@ -127,6 +145,41 @@ data class HearingUiState(
      */
     val lowToneArtifact: LowToneArtifact.Advice?
         get() = lastRun?.let { LowToneArtifact.evaluate(it, clinicalAudiogram) }
+
+    /**
+     * The age-typical curve in the chart's deviation frame, or empty when no
+     * birth year has been entered. Population statistics, never a measurement —
+     * see [Iso7029].
+     */
+    val ageReferenceCurve: List<Pair<Int, Double>>
+        get() = ageReference?.deviationCurve(currentYear).orEmpty()
+
+    /**
+     * Ears whose measured *shape* sits well below what the age model expects,
+     * from the converged median curve rather than from one run.
+     *
+     * Suppressed entirely while a clinical audiogram exists, and that is the
+     * ranking the whole feature promises: a calibrated measurement of these
+     * ears outranks a statistic about a population, so once one is on file the
+     * app has no business raising a population-based eyebrow. The clinical
+     * comparison and [LowToneArtifact] already answer the same question with
+     * better evidence.
+     */
+    val ageReferenceGaps: List<Pair<Ear, Iso7029.AgeGap>>
+        get() {
+            if (clinicalAudiogram?.isEmpty == false) return emptyList()
+            val reference = ageReference ?: return emptyList()
+            val curve = audiogram ?: return emptyList()
+            return Iso7029.gapsAgainstAgeReference(curve, reference.ageAt(currentYear), reference.sex)
+        }
+
+    /**
+     * Whether hearing has moved since the earliest comparable runs. Derived
+     * rather than stored so it can never disagree with the runs on screen; the
+     * whole rule, and the noise reasoning behind it, lives in [HearingDrift].
+     */
+    val drift: HearingDriftResult
+        get() = HearingDrift.evaluate(runs, currentDeviceKey, currentDeviceName)
 
     /** Fraction 0..1 of the current run, for the progress indicator. */
     val progress: Float
@@ -197,7 +250,33 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                 _state.value = _state.value.copy(clinicalAudiogram = clinical)
             }
         }
+        viewModelScope.launch {
+            // Its own collector for the same reason: a birth year belongs to the
+            // person and must not be re-resolved when the headphones change.
+            store.ageReference.collect { reference ->
+                _state.value = _state.value.copy(ageReference = reference)
+            }
+        }
         VolumeKeyLock.onBlocked = { showVolumeLockedNotice() }
+    }
+
+    /**
+     * Stores the birth year (and optional sex) for the age reference.
+     *
+     * An implausible year is refused in words rather than stored and clamped
+     * later: a curve drawn for a year in the future is a curve for nobody, and
+     * the person who mistyped it would have no way to tell.
+     */
+    fun saveAgeReference(birthYear: Int, sex: Iso7029Sex) {
+        val year = _state.value.currentYear
+        if (!AgeReference.isPlausible(birthYear, year)) {
+            return message("That birth year cannot be right — it has to be $year or earlier.")
+        }
+        viewModelScope.launch { store.saveAgeReference(AgeReference(birthYear, sex)) }
+    }
+
+    fun clearAgeReference() {
+        viewModelScope.launch { store.clearAgeReference() }
     }
 
     /** Stores the ENT values, or clears them when the editor was emptied. */

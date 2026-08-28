@@ -36,7 +36,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +58,7 @@ import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
+import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import kotlin.math.roundToInt
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
@@ -239,10 +239,9 @@ private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
         ExplainedHeader(
             "Bluetooth system",
             "These belong to the phone, not to one headphone: Android keeps a single " +
-                "value for each. Setting one here changes it now and for every device. " +
-                "The profiles above can also ask for these — that is a different thing, " +
-                "re-applied whenever a chosen headphone connects, and the last device to " +
-                "connect wins.",
+                "value for each, so setting one here changes it now and for every " +
+                "device. The profiles above can also ask for these on connect, and the " +
+                "last device to connect wins.",
         )
         Text(
             "One value for the whole phone. Changed here, changed now.",
@@ -283,10 +282,8 @@ private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
 
         ExplainedRow(
             label = "Restart Bluetooth",
-            explanation = "The Bluetooth stack reads the settings above once, when it " +
-                "starts. Until it is restarted, a value you just changed is stored and " +
-                "not yet in force — which is why this button is here rather than a " +
-                "sentence telling you to go and do it in the quick-settings panel. " +
+            explanation = "The Bluetooth stack reads the settings above only when it " +
+                "starts, so a value you just changed is stored and not yet in force. " +
                 "Everything reconnects on its own afterwards.",
             control = {},
         )
@@ -316,11 +313,9 @@ private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
         ExplainedHeader(
             "Shown but not changeable",
             "These affect Bluetooth audio and this app cannot write them, so they are " +
-                "here read-only rather than left out. Each one is a system property " +
-                "rather than a setting — a different mechanism that the phone's init " +
-                "process guards, and it refuses the shell. The app's helper is the " +
-                "shell, so being privileged does not help; only a rooted phone could " +
-                "change these.",
+                "here read-only rather than left out. Each is a system property guarded " +
+                "by the phone's init process, which refuses the shell — so only a rooted " +
+                "phone could change them.",
         )
         BluetoothReadOnlySettings.all.forEach { setting ->
             ExplainedRow(
@@ -475,17 +470,6 @@ internal fun ProfileEditorCard(
      * the controls.
      */
     headerExplanation: String? = null,
-    /**
-     * Fold absolute volume, developer options and codec behind one expander.
-     *
-     * The Bluetooth tab is the app's start screen, and this card is on it in
-     * full: name, icon, EQ, volume, three sections of Bluetooth internals and
-     * auto-apply, which is more scrolling than any first screen should ask for.
-     * The everyday fields stay in the open, the ones you set once fold away.
-     * The profiles screen, where you went *in order to* edit a profile, keeps
-     * everything expanded.
-     */
-    collapsibleAdvanced: Boolean = false,
 ) {
     val compensationProfiles by viewModel.compensationProfiles.collectAsStateWithLifecycle()
     val absoluteStatus by viewModel.absoluteVolumeStatus.collectAsStateWithLifecycle()
@@ -496,6 +480,7 @@ internal fun ProfileEditorCard(
     val deviceConnected by viewModel.deviceConnected.collectAsStateWithLifecycle()
     val liveDevOptions by viewModel.liveDevOptions.collectAsStateWithLifecycle()
     val liveHdAudio by viewModel.hdAudioState.collectAsStateWithLifecycle()
+    val ldacTuning by viewModel.ldacTuning.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Asked again every time this card appears for a device, and never cached:
@@ -530,11 +515,12 @@ internal fun ProfileEditorCard(
     var devOptions by remember(initial) { mutableStateOf(initial.developerOptions) }
     var codec by remember(initial) { mutableStateOf(initial.codecPreference) }
     var hdAudio by remember(initial) { mutableStateOf(initial.hdAudio) }
-    // Saveable, so a rotation does not fold the section the user just opened.
-    // Still keyed by `deviceKey` alone, unlike the fields above: where the
-    // expander stands is not profile data, so a profile edit must not fold it.
-    var advancedOpen by rememberSaveable(initial.deviceKey) { mutableStateOf(false) }
-    val showAdvanced = !collapsibleAdvanced || advancedOpen
+    // There is no expander any more. The Bluetooth internals — absolute volume,
+    // the developer options, HD audio and the codec — used to fold away behind
+    // "Advanced device settings" on the Bluetooth tab, on the argument that the
+    // start screen should be short. They are the reason this app exists, and a
+    // start screen that hides them answers a question nobody asked. They are on
+    // the card, in both places it is drawn.
 
     Panel {
             if (headerExplanation != null) {
@@ -592,9 +578,8 @@ internal fun ProfileEditorCard(
                     compensationProfiles.map { it.id as String? to it.name },
                 onSelect = { compensationId = it },
                 enabled = enabled,
-                explanation = "A preset is a compensation curve saved on the EQ screen — " +
-                    "set by hand or measured with the hearing test — and given a name. " +
-                    "Bind one here and it is applied whenever this device connects.",
+                explanation = "A preset is a named compensation curve saved on the EQ " +
+                    "screen. Bind one here and it is applied whenever this device connects.",
             )
             if (compensationProfiles.isEmpty()) {
                 // Just the fact. The instructions for making one are behind the
@@ -628,75 +613,90 @@ internal fun ProfileEditorCard(
 
             HorizontalDivider()
 
-            if (collapsibleAdvanced) {
-                TextButton(onClick = { advancedOpen = !advancedOpen }) {
-                    Text(if (advancedOpen) "Hide advanced settings" else "Advanced device settings")
-                }
-            }
-
-            if (showAdvanced) {
-                AbsoluteVolumeEditor(
-                    status = absoluteStatus,
-                    wish = absoluteEnabled,
-                    systemDefault = absoluteSystemDefault,
-                    onWishChange = { chosen ->
-                        // The two fields are one control: choosing a value clears
-                        // the reset flag, choosing reset clears the value. Letting
-                        // both stand would store a profile that argues with itself.
-                        absoluteEnabled = chosen
-                        absoluteSystemDefault = false
-                    },
-                    onSystemDefault = {
-                        absoluteEnabled = null
-                        absoluteSystemDefault = true
-                    },
-                    // The key travels with the write so the result lands under
-                    // this card rather than at the foot of the list screen.
-                    onWriteNow = { on -> viewModel.setAbsoluteVolumeNow(initial.deviceKey, on) },
-                    context = context,
-                    enabled = enabled,
-                )
-
-                HorizontalDivider()
-
-                DeveloperOptionsEditor(
-                    selected = devOptions,
-                    live = liveDevOptions,
-                    permissionMissing = absoluteStatus is AbsoluteVolumeStatus.PermissionMissing,
-                    onChange = { key, value -> devOptions = devOptions + (key to value) },
-                    enabled = enabled,
-                )
-
-                HorizontalDivider()
-
-                // Above the codec section, mirroring the order the applier runs
-                // them in — and for the same reason. HD audio is the gate in
-                // front of codec negotiation: with it off, everything in the
-                // section below is moot, and a reader who meets the codec picker
-                // first has no way to know that.
-                HdAudioEditor(
-                    wish = hdAudio,
-                    live = liveHdAudio,
-                    helperConnected = helperConnected,
-                    onChange = { hdAudio = it },
-                    enabled = enabled,
-                )
-
-                HorizontalDivider()
-
-                CodecEditor(
-                    preference = codec,
-                    helperConnected = helperConnected,
-                    onChange = { codec = it },
-                    enabled = enabled,
-                    offeredCodecs = offeredCodecs,
-                    negotiatedCodec = negotiatedCodec,
-                    negotiated = negotiatedStatus,
+            // Above the expert sections rather than inside the codec picker,
+            // because it is the one Bluetooth control with an everyday answer:
+            // "how much bandwidth do I want to spend on this headphone". The
+            // picker below still holds the full codec wish, and both write the
+            // same stored field.
+            BitrateSection(
+                state = bitrateSectionState(
+                    negotiated = negotiatedCodec,
+                    stored = codec?.codec,
                     deviceConnected = deviceConnected,
-                )
+                ),
+                storedQuality = LdacQuality.storedQuality(initial),
+                tuning = ldacTuning,
+                // Write-through, like the absolute-volume button: the chip both
+                // stores the choice and asks the live link for it.
+                onPin = { quality -> viewModel.pinLdacQuality(initial.deviceKey, quality) },
+                onDismissMessage = viewModel::dismissLdacMessage,
+                enabled = enabled,
+                sampleRateHz = negotiatedStatus?.sampleRateHz,
+            )
 
-                HorizontalDivider()
-            }
+            HorizontalDivider()
+
+            AbsoluteVolumeEditor(
+                status = absoluteStatus,
+                wish = absoluteEnabled,
+                systemDefault = absoluteSystemDefault,
+                onWishChange = { chosen ->
+                    // The two fields are one control: choosing a value clears
+                    // the reset flag, choosing reset clears the value. Letting
+                    // both stand would store a profile that argues with itself.
+                    absoluteEnabled = chosen
+                    absoluteSystemDefault = false
+                },
+                onSystemDefault = {
+                    absoluteEnabled = null
+                    absoluteSystemDefault = true
+                },
+                // The key travels with the write so the result lands under
+                // this card rather than at the foot of the list screen.
+                onWriteNow = { on -> viewModel.setAbsoluteVolumeNow(initial.deviceKey, on) },
+                context = context,
+                enabled = enabled,
+            )
+
+            HorizontalDivider()
+
+            DeveloperOptionsEditor(
+                selected = devOptions,
+                live = liveDevOptions,
+                permissionMissing = absoluteStatus is AbsoluteVolumeStatus.PermissionMissing,
+                onChange = { key, value -> devOptions = devOptions + (key to value) },
+                enabled = enabled,
+            )
+
+            HorizontalDivider()
+
+            // Above the codec section, mirroring the order the applier runs
+            // them in — and for the same reason. HD audio is the gate in
+            // front of codec negotiation: with it off, everything in the
+            // section below is moot, and a reader who meets the codec picker
+            // first has no way to know that.
+            HdAudioEditor(
+                wish = hdAudio,
+                live = liveHdAudio,
+                helperConnected = helperConnected,
+                onChange = { hdAudio = it },
+                enabled = enabled,
+            )
+
+            HorizontalDivider()
+
+            CodecEditor(
+                preference = codec,
+                helperConnected = helperConnected,
+                onChange = { codec = it },
+                enabled = enabled,
+                offeredCodecs = offeredCodecs,
+                negotiatedCodec = negotiatedCodec,
+                negotiated = negotiatedStatus,
+                deviceConnected = deviceConnected,
+            )
+
+            HorizontalDivider()
 
             SwitchRow(
                 label = "Apply automatically on connect",
@@ -766,11 +766,10 @@ private fun DeveloperOptionsEditor(
 ) {
     ExplainedHeader(
         "Bluetooth developer options",
-        "Android keeps one value for each of these, not one per headphone \u2014 so they " +
-            "are re-applied whenever this device connects. If two headphones want " +
+        "Android keeps one value for each of these, not one per headphone, so they are " +
+            "re-applied whenever this device connects \u2014 if two headphones want " +
             "different values, the last one to connect wins. Writing them needs the " +
-            "WRITE_SECURE_SETTINGS permission, which the app's helper grants itself " +
-            "as soon as it is running.",
+            "WRITE_SECURE_SETTINGS permission, which the app's helper grants itself.",
     )
     Text(
         "One value for the whole system, re-applied on connect.",
@@ -879,14 +878,12 @@ private fun CodecEditor(
     ExplainedHeader(
         "Bluetooth codec",
         "Asks the Bluetooth stack to renegotiate this device onto a chosen codec " +
-            "whenever it connects. The app then reads the codec back and reports what " +
-            "it actually found — a request is not a result. These are the codecs the " +
-            "app can ask for, not the ones this headphone advertises. aptX Adaptive is " +
-            "not among them: its codec id is a vendor value that has moved between " +
-            "Android versions, so it can be read and named but not requested without " +
-            "guessing. Setting or reading a codec at all needs the app's helper; " +
-            "anything stored here is applied the next time this device connects with " +
-            "the helper running.",
+            "whenever it connects, then reads the codec back and reports what it " +
+            "actually found — a request is not a result. These are the codecs the app " +
+            "can ask for, not the ones this headphone advertises; aptX Adaptive is " +
+            "absent because its codec id is a vendor value that has moved between " +
+            "Android versions. Setting or reading a codec at all needs the app's " +
+            "helper.",
     )
     Text(
         "Requested on every connect, then read back.",
@@ -944,8 +941,7 @@ private fun CodecEditor(
         },
         enabled = enabled,
         explanation = "Changing the codec briefly interrupts playback while the link " +
-            "renegotiates. The stored choice is requested again on every connect, " +
-            "because the stack negotiates afresh each time.",
+            "renegotiates. The stored choice is requested again on every connect.",
     )
 
     // Showing the live codec in a field labelled "on connect" would otherwise
@@ -1076,12 +1072,10 @@ private fun HdAudioEditor(
     ExplainedHeader(
         "HD audio",
         "The switch behind Android's own \"HD audio\" row. Off, this headphone is " +
-            "held to SBC no matter what the codec section below asks for — which is " +
-            "why it sits above it. Unlike the other Bluetooth settings here, Android " +
-            "stores this one per device, so changing it for these headphones leaves " +
-            "your others alone. Reading or writing it needs the app's helper: the " +
-            "underlying calls are system-only, and the helper runs with the shell's " +
-            "privileges.",
+            "held to SBC no matter what the codec section below asks for. Unlike the " +
+            "other Bluetooth settings here, Android stores this one per device, so " +
+            "changing it leaves your other headphones alone; reading or writing it " +
+            "needs the app's helper.",
     )
 
     val known = live as? HdAudioState.Known
@@ -1172,10 +1166,9 @@ private fun AbsoluteVolumeEditor(
         ExplainedHeader(
             "Absolute volume",
             "With absolute volume on, the phone's slider drives the headphone's own " +
-                "volume. Off, the phone keeps a separate and finer scale, which helps " +
-                "on headphones whose own steps are coarse. Android keeps one value for " +
-                "the whole system, so a profile can only ask for it when that device " +
-                "connects.",
+                "volume; off, the phone keeps a separate and finer scale. Android keeps " +
+                "one value for the whole system, so a profile can only ask for it when " +
+                "that device connects.",
         )
         Text(
             "One system-wide switch, re-applied when this device connects.",
@@ -1216,9 +1209,8 @@ private fun AbsoluteVolumeEditor(
                 ExplainedRow(
                     label = "If the helper will not start",
                     explanation = "The same permission can be granted once from a " +
-                        "computer over ADB. It is the fallback, not the route: the " +
-                        "helper grants it on its own the moment it connects, and this " +
-                        "line is only useful when it never does.",
+                        "computer over ADB. It is the fallback, not the route — the " +
+                        "helper grants it on its own the moment it connects.",
                     // No control of its own: the question mark carries the whole
                     // row, and what it explains is the command printed below.
                     control = {},

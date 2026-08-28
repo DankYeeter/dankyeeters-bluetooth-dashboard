@@ -28,6 +28,8 @@ import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
 import dev.dankyeeter.btdashboard.system.devices.BluetoothDeveloperOptions
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.system.devices.ProfileAction
+import dev.dankyeeter.btdashboard.ui.tuning.LdacTuning
+import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
@@ -109,6 +111,16 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
 
     /** Result of the most recent automatic apply, shown as a plain sentence. */
     val lastAutoApply: StateFlow<ApplyResult?> = SystemGraph.deviceConnectionWatcher.lastResult
+
+    /**
+     * Busy and last outcome of the bitrate chips — the very same state the
+     * Monitoring panel shows.
+     *
+     * Not a copy of it. Both screens can move the playback quality of one
+     * headphone, and two states would eventually disagree about whether a
+     * renegotiation was still in flight.
+     */
+    val ldacTuning: StateFlow<LdacTuningState> = LdacTuning.state
 
     /**
      * Whether the privileged helper is answering right now.
@@ -475,6 +487,22 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             },
         )
     }
+
+    /**
+     * Pins a playback quality for one device — stored, then asked for live.
+     *
+     * Write-through rather than a field the Save button commits, and for the
+     * same reason the absolute-volume button above it is: this one renegotiates
+     * the codec, and an action with an audible consequence should happen when it
+     * is tapped rather than at the bottom of a form. [LdacTuning] owns both
+     * halves, so the Monitoring panel's chips do exactly this too.
+     */
+    fun pinLdacQuality(deviceKey: String, quality: Long) {
+        if (deviceKey.isBlank()) return
+        viewModelScope.launch { LdacTuning.pin(quality, deviceKey = deviceKey) }
+    }
+
+    fun dismissLdacMessage() = LdacTuning.dismissMessage()
 
     fun dismissMessage() {
         _message.value = null

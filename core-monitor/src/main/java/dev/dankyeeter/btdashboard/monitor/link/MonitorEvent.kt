@@ -25,6 +25,20 @@ enum class MonitorEventType {
     DROPOUT,
 
     /**
+     * The encoder was starving — it had no PCM ready, repeatedly, for several
+     * seconds in a row — and a one-shot forensic capture of the audio
+     * processing graph was taken while it was happening.
+     *
+     * Its own type rather than a flavour of [DROPOUT] because it answers a
+     * different question. A dropout says the user heard something; this says
+     * *the source could not feed the radio*, which is a specific failure with a
+     * specific suspect list, and the event carries the evidence needed to work
+     * through that list after the fact. See
+     * `link.live.EncoderStarvationTripwire`.
+     */
+    ENCODER_STARVATION,
+
+    /**
      * The link's bitrate changed, in one of two ways.
      *
      * Either the configured *mode* moved — LDAC pinned to a quality or handed

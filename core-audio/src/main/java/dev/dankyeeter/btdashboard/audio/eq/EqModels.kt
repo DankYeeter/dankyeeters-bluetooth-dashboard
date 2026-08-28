@@ -64,6 +64,28 @@ data class EqSettings(
      * this mode cannot clip and therefore cost no headroom.
      */
     val loudnessRestoration: Boolean = false,
+    /**
+     * Whether the ISO 226 volume-aware tilt is switched on. This is the part
+     * the user owns and the part that is persisted; [tiltGainsDb] is derived.
+     */
+    val volumeAwareTilt: Boolean = false,
+    /**
+     * The tilt layer for the volume that is set right now, in dB per band.
+     *
+     * Derived, never stored and never edited: whoever pushes settings into the
+     * pipeline recomputes it from the media-volume fraction (see
+     * [VolumeAwareTilt]), so a restored or imported curve arrives at zeros and
+     * is filled in on the way to the effect. Kept separate from
+     * [leftGainsDb]/[rightGainsDb] rather than folded into them because those
+     * are the user's own curve: folding would mean saving a correction for
+     * whatever the volume happened to be at the moment of the save, and
+     * saving it again on top of itself the next time.
+     *
+     * Applies to both ears. The tilt is a property of the listening level, not
+     * of an ear, and giving it a side would imply a measurement that does not
+     * exist.
+     */
+    val tiltGainsDb: List<Float> = List(layout.bandCount) { 0f },
 ) {
     init {
         require(leftGainsDb.size == layout.bandCount) {
@@ -71,6 +93,9 @@ data class EqSettings(
         }
         require(rightGainsDb.size == layout.bandCount) {
             "rightGainsDb must have ${layout.bandCount} entries for ${layout.id}"
+        }
+        require(tiltGainsDb.size == layout.bandCount) {
+            "tiltGainsDb must have ${layout.bandCount} entries for ${layout.id}"
         }
     }
 
@@ -88,6 +113,11 @@ data class EqSettings(
             layout = target,
             leftGainsDb = EqBandLayout.resample(leftGainsDb, layout, target),
             rightGainsDb = EqBandLayout.resample(rightGainsDb, layout, target),
+            // Resampled like the rest even though the owner recomputes it from
+            // the volume anyway: the size invariant in `init` has to hold at
+            // every intermediate step, and a copy() with a new layout and a
+            // stale tilt list would throw before anyone got the chance.
+            tiltGainsDb = EqBandLayout.resample(tiltGainsDb, layout, target),
         ).sanitized()
     }
 
@@ -95,6 +125,47 @@ data class EqSettings(
         Ear.LEFT -> leftGainsDb
         Ear.RIGHT -> rightGainsDb
     }
+
+    /**
+     * The tilt actually in force: zero unless the feature is switched on, so
+     * "off" and "flat" are the same signal path rather than two of them.
+     */
+    val activeTiltDb: List<Float>
+        get() = if (volumeAwareTilt) tiltGainsDb else List(layout.bandCount) { 0f }
+
+    /**
+     * What the static pre-EQ gets, per band: the user's curve plus the tilt.
+     *
+     * The tilt composes as an additional gain layer rather than as its own
+     * effect stage, which is what lets it coexist with a compensation curve, a
+     * hand-tuned preset and loudness restoration without any of them knowing
+     * about it.
+     *
+     * With [loudnessRestoration] on, the user's boosts move to the compressor
+     * ([compressorGainsFor]) and only their cuts stay here — but **the tilt
+     * stays static in either mode**. WHY: the tilt is a correction for the
+     * *volume setting*, and the compressor gives its gain back as the signal
+     * gets louder. Routed through it, the correction would disappear on
+     * exactly the loud passages it was computed for, which is the opposite of
+     * what the equal-loudness contours say. The price is that tilt boosts cost
+     * headroom even in that mode, and [sanitized] charges it.
+     */
+    fun staticGainsFor(ear: Ear): List<Float> {
+        val user = gainsFor(ear)
+        val tilt = activeTiltDb
+        return List(layout.bandCount) { band ->
+            val base = if (loudnessRestoration) user[band].coerceAtMost(0f) else user[band]
+            (base + tilt[band]).coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB)
+        }
+    }
+
+    /** What the multiband compressor gets: the user's boosts, in that mode only. */
+    fun compressorGainsFor(ear: Ear): List<Float> =
+        if (!loudnessRestoration) {
+            List(layout.bandCount) { 0f }
+        } else {
+            gainsFor(ear).map { it.coerceAtLeast(0f) }
+        }
 
     /**
      * Clamps all gains into the supported range and, if asked, recomputes safe
@@ -110,14 +181,19 @@ data class EqSettings(
     fun sanitized(): EqSettings {
         val l = leftGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
         val r = rightGainsDb.map { it.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB) }
-        // With loudness restoration on, boosts live in the compressor and are
-        // gone again by the time the signal is loud enough to clip — only the
-        // static path needs headroom, and its positive contribution is zero.
-        val peak = if (loudnessRestoration) 0f else ((l + r).maxOrNull() ?: 0f).coerceAtLeast(0f)
+        val tilt = tiltGainsDb.map { it.coerceIn(0f, VolumeAwareTilt.MAX_TILT_DB) }
+        val clamped = copy(leftGainsDb = l, rightGainsDb = r, tiltGainsDb = tilt)
+        // Whatever the static pre-EQ ends up writing is what can clip, so the
+        // headroom is read off exactly that. With loudness restoration on the
+        // user's boosts have moved to the compressor and contribute nothing
+        // here — but the tilt has not moved, and it is charged in both modes.
+        val peak = Ear.entries
+            .flatMap { clamped.staticGainsFor(it) }
+            .maxOrNull()
+            ?.coerceAtLeast(0f)
+            ?: 0f
         val gain = preGainDb.coerceIn(-24f, 0f)
-        return copy(
-            leftGainsDb = l,
-            rightGainsDb = r,
+        return clamped.copy(
             preGainDb = if (autoHeadroom) gain.coerceAtMost(-peak) else gain,
         )
     }

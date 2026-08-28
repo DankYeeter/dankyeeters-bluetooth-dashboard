@@ -50,6 +50,14 @@ class BackupRepository(context: Context) {
                 // a measurement of a device that may well be in the drawer
                 // today and on the head next week.
                 derivedCalibrations = HearingGraph.audiogramStore.currentDerivedCalibrations(),
+                // Also a property of the person rather than of a headphone, and
+                // for the same reason as the audiogram above it: there is one
+                // birth year.
+                ageReference = HearingGraph.audiogramStore.currentAgeReference(),
+                // All headphones', like the derived calibrations above: a
+                // preference curve for a pair in the drawer today is a pair on
+                // the head next week, and it cost an hour of listening.
+                preferenceProfiles = HearingGraph.preferenceStore.current(),
             )
             val json = BackupCodec.encode(document)
             appContext.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
@@ -113,6 +121,26 @@ class BackupRepository(context: Context) {
                 document.derivedCalibrations.forEach { stored ->
                     BackupMapper.toDomain(stored)?.let {
                         HearingGraph.audiogramStore.saveDerivedCalibration(it)
+                    }
+                }
+                // Overwrites like the audiogram and unlike the runs: one person,
+                // one birth year, and merging two of them has no meaning. A
+                // record the mapper cannot vouch for leaves the stored one
+                // alone rather than clearing it.
+                document.ageReference?.let { stored ->
+                    BackupMapper.toDomain(stored)?.let {
+                        HearingGraph.audiogramStore.saveAgeReference(it)
+                    }
+                }
+                // Merged by device key like the derived calibrations, and for
+                // the same reason: one per headphone, and the file may carry a
+                // pair this phone has never seen. Importing does not apply
+                // anything — a restored preference curve is offered on the
+                // Sound Profiling screen, and the listener decides when their
+                // EQ changes.
+                document.preferenceProfiles.forEach { stored ->
+                    BackupMapper.toDomain(stored)?.let {
+                        HearingGraph.preferenceStore.save(it)
                     }
                 }
 

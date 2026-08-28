@@ -104,10 +104,19 @@ enum class EqBandLayout(
         ): List<Float> {
             if (from == to) return gainsDb
             if (gainsDb.size != from.bandCount) return List(to.bandCount) { 0f }
-            return to.centersHz.map { target -> interpolate(target, from.centersHz, gainsDb) }
+            return to.centersHz.map { target ->
+                interpolateAtLogFrequency(target, from.centersHz, gainsDb)
+            }
         }
 
-        private fun interpolate(
+        /**
+         * The rule [resample] is built out of, reachable by name because a
+         * second caller needs exactly it: [Iso226] arrives with a curve on the
+         * standard's own 29 frequencies, which are not any layout's centres,
+         * and resampling it any other way would be a second interpolation
+         * convention for the same kind of object.
+         */
+        internal fun interpolateAtLogFrequency(
             targetHz: Float,
             sourceHz: List<Float>,
             gains: List<Float>,

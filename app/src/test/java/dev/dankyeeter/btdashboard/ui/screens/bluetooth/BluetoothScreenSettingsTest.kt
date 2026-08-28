@@ -5,8 +5,6 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -47,13 +45,10 @@ class BluetoothScreenSettingsTest {
     fun `the settings are on screen with nothing connected`() {
         showScreen()
 
-        // The everyday controls are on the surface; the expert sections sit
-        // behind "Advanced device settings" since the design pass — the tab is
-        // the app's start destination and the full editor was several screens
-        // of scroll. The regression this test guards ("one sentence instead of
-        // the card") is still caught by the surface labels; the advanced ones
-        // are asserted after opening the expander, which is now part of the
-        // contract rather than a detail.
+        // Every control is on the card. The expert sections used to fold away
+        // behind an "Advanced device settings" expander, and this test opened
+        // it before looking; the expander is gone, so they are asserted where
+        // they now stand.
         listOf(
             "Name",
             "EQ preset",
@@ -66,28 +61,50 @@ class BluetoothScreenSettingsTest {
             assertTrue("expected \"$label\" on the Bluetooth tab with nothing connected", found)
         }
 
-        // The screen opens on a brief "Looking for a connected device…" card
-        // and swaps to the nothing-connected card once the device flow has
-        // answered. Both carry an expander, but they are different composition
-        // slots, so expanding the first is lost in the swap — the click has to
-        // wait for the card that stays.
+        // The screen opens on a brief "Looking for a connected device…" card and
+        // swaps to the nothing-connected card once the device flow has answered,
+        // so the expert sections are only reliably present after the swap.
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithText("Nothing connected", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        // performClick injects a touch at the node's on-screen position, and
-        // this button sits below the fold of the scrollable tab — without the
-        // scroll the tap lands on empty space and toggles nothing.
-        composeRule.onNodeWithText("Advanced device settings")
-            .performScrollTo()
-            .performClick()
-        composeRule.waitForIdle()
 
-        listOf("Absolute volume", "Bluetooth codec").forEach { label ->
+        listOf(
+            "Absolute volume",
+            "Bluetooth developer options",
+            "HD audio",
+            "Bluetooth codec",
+        ).forEach { label ->
             val found = composeRule.onAllNodesWithText(label, substring = true, ignoreCase = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
-            assertTrue("expected \"$label\" behind the advanced expander", found)
+            assertTrue("expected \"$label\" on the Bluetooth tab", found)
+        }
+    }
+
+    /**
+     * The expander named outright, so nobody reintroduces the fold by restoring
+     * the parameter that used to draw it.
+     *
+     * The developer options are the reason this tab exists; a start screen that
+     * hides them behind one more tap is answering a question nobody asked.
+     */
+    @Test
+    fun `nothing on the card is folded away`() {
+        showScreen()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Nothing connected", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        listOf("Advanced device settings", "Hide advanced settings").forEach { label ->
+            assertTrue(
+                "\"$label\" is back — the settings must not fold away",
+                composeRule.onAllNodesWithText(label, substring = true)
+                    .fetchSemanticsNodes()
+                    .isEmpty(),
+            )
         }
     }
 

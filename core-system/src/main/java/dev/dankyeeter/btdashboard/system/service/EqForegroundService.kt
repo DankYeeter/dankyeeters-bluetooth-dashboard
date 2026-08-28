@@ -13,11 +13,19 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
+import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.audio.eq.withVolumeTilt
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 /**
@@ -101,14 +109,47 @@ class EqForegroundService : Service() {
                 return@launch
             }
 
-            SystemGraph.eqController.apply(settings)
+            SystemGraph.eqController.apply(settings.withVolumeTilt(SystemGraph.mediaVolume.fraction.value))
             SystemGraph.startDeviceProfileAutoApply()
         }
+
+        followMediaVolume()
 
         // Restarted with the last intent if the system reclaims us under
         // pressure: the point of this service is to come back.
         return START_STICKY
     }
+
+    /**
+     * Keeps the ISO 226 tilt in step with the media volume while the app is
+     * closed.
+     *
+     * Without this the feature would only work on the EQ screen, which is the
+     * one place nobody is looking when they turn the music down. It is not a
+     * loop and not a timer: the volume flow is fed by a settings observer that
+     * fires when the volume actually moves, and the settings flow by DataStore
+     * writes, so an idle phone does no work here at all.
+     *
+     * The controller's `update` rather than `apply`: the attachment is already
+     * chosen and a re-run of the attach logic on every volume step would be
+     * work for its own sake. `distinctUntilChanged` on the composed settings is
+     * what makes a held volume key cheap — the gains are quantised, so most
+     * steps produce a curve identical to the one already in the effect.
+     */
+    private fun followMediaVolume() {
+        if (volumeFollowing) return
+        volumeFollowing = true
+        scope.launch {
+            volumeTiltUpdates(
+                SystemGraph.settingsStore.settings,
+                SystemGraph.mediaVolume.fraction,
+            ).collect { tilted -> SystemGraph.eqController.update(tilted) }
+        }
+    }
+
+    /** One collector per service instance; `onStartCommand` runs on every connect. */
+    @Volatile
+    private var volumeFollowing = false
 
     override fun onDestroy() {
         scope.cancel()
@@ -266,4 +307,56 @@ class EqForegroundService : Service() {
  * untrue: the old title said the EQ was adjusted in states where it was not.
  */
 private const val SERVICE_TITLE = "BT Dashboard"
+
+/**
+ * How long the volume follower waits for the volume to stop moving before it
+ * writes a curve into the audio effect.
+ *
+ * WHY a debounce at all: one `update` writes four parameters per band per
+ * channel plus the limiter and the enable - 124 binder calls into audioserver
+ * on the 31-band layout - and it does so inside the attachment lock that
+ * serialises every attach, prune and update in the app. Holding volume-down
+ * walks the slider through a dozen steps in under a second, and each step that
+ * moves the quantised tilt produced a full write of a curve that was about to
+ * be replaced by the next one.
+ *
+ * WHY 150 ms: it is below the ~200 ms at which a level correction starts to
+ * feel detached from the key press, and above the ~50-80 ms repeat rate of a
+ * held volume key, so a ramp collapses into the single write that matters - the
+ * one for the volume the user stopped at.
+ */
+internal const val VOLUME_TILT_DEBOUNCE_MS = 150L
+
+/**
+ * The settings the volume follower pushes into the EQ, as a flow.
+ *
+ * Extracted from the service so the coalescing can be tested on virtual time
+ * rather than by holding a volume key on a phone.
+ *
+ * Order matters and is deliberate:
+ *
+ *  * `distinctUntilChanged` **first**, unchanged from before: the tilt gains are
+ *    quantised to 0.25 dB, so most volume steps produce a curve identical to the
+ *    one already in the effect and are dropped here without ever starting a
+ *    timer.
+ *  * `debounce` **after**, so that a ramp of genuinely different curves resolves
+ *    to the last one instead of writing every intermediate.
+ *  * `filterNotNull` **last**. Null means "the EQ is off, or the tilt is" and
+ *    has always meant "write nothing". Dropping it after the debounce also
+ *    means a curve that was superseded by the feature being switched off
+ *    within the window is never written, which is the correct outcome: whoever
+ *    switched it off pushes the settings through the controller anyway.
+ */
+@OptIn(FlowPreview::class)
+internal fun volumeTiltUpdates(
+    settings: Flow<EqSettings>,
+    volumeFraction: Flow<Float>,
+    debounceMs: Long = VOLUME_TILT_DEBOUNCE_MS,
+): Flow<EqSettings> =
+    combine(settings, volumeFraction) { current, fraction ->
+        current.takeIf { it.enabled && it.volumeAwareTilt }?.withVolumeTilt(fraction)
+    }
+        .distinctUntilChanged()
+        .debounce(debounceMs)
+        .filterNotNull()
 

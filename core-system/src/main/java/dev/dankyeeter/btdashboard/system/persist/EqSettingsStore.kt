@@ -45,6 +45,10 @@ class EqSettingsStore(private val context: Context) {
             prefs[KEY_LIMITER] = clean.limiterEnabled
             prefs[KEY_AUTO_HEADROOM] = clean.autoHeadroom
             prefs[KEY_LOUDNESS] = clean.loudnessRestoration
+            // Only the switch. `tiltGainsDb` is derived from the media volume
+            // at the moment it is applied, so storing it would mean restoring a
+            // correction for a volume that is no longer set.
+            prefs[KEY_VOLUME_TILT] = clean.volumeAwareTilt
         }
     }
 
@@ -73,6 +77,7 @@ class EqSettingsStore(private val context: Context) {
             limiterEnabled = this[KEY_LIMITER] ?: true,
             autoHeadroom = this[KEY_AUTO_HEADROOM] ?: true,
             loudnessRestoration = this[KEY_LOUDNESS] ?: false,
+            volumeAwareTilt = this[KEY_VOLUME_TILT] ?: false,
         )
     }
 
@@ -96,6 +101,7 @@ class EqSettingsStore(private val context: Context) {
         // model's defaults, so an old store reads cleanly.
         val KEY_AUTO_HEADROOM = booleanPreferencesKey("eq_auto_headroom")
         val KEY_LOUDNESS = booleanPreferencesKey("eq_loudness_restoration")
+        val KEY_VOLUME_TILT = booleanPreferencesKey("eq_volume_aware_tilt")
         val KEY_LEFT = stringPreferencesKey("eq_gains_left")
         val KEY_RIGHT = stringPreferencesKey("eq_gains_right")
         val KEY_PRE_GAIN = floatPreferencesKey("eq_pre_gain_db")

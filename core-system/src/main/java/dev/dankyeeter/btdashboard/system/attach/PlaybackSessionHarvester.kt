@@ -56,8 +56,16 @@ class PlaybackSessionHarvester(
     private val runPrivileged: suspend (List<String>) -> String?,
     /** Returns whether every session was actually attached; false means retry. */
     private val onSessionsChanged: (Set<Int>) -> Boolean,
-    /** Re-applies the current settings to whatever is attached. See [SETTLE_MS]. */
-    private val reassertSettings: () -> Unit = {},
+    /**
+     * Re-applies the current settings to whatever is attached. See [SETTLE_MS].
+     *
+     * Returns whether everything that was attached still is. The repair rebuilds
+     * each effect from scratch, and a rebuild can be refused - so "repaired" and
+     * "the session is now attached to nothing" are both possible outcomes and
+     * the caller must be able to tell them apart. Defaults to "yes" for callers
+     * that do not supply one.
+     */
+    private val reassertSettings: () -> Boolean = { true },
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -189,7 +197,18 @@ class PlaybackSessionHarvester(
         pending = scope.launch {
             delay(SETTLE_MS)
             Log.i(TAG, "re-asserting settings after attach")
-            reassertSettings()
+            // The repair closes each effect and builds a fresh one, and the
+            // build can be refused. When it is, that session is now attached to
+            // nothing while `lastReported` still lists it - so the next harvest
+            // would compare equal, return early, and leave the EQ off that
+            // player until the set of players happened to change. Forgetting
+            // what was reported turns the next playback event into a free
+            // retry, which is the same trick [report] already uses for a failed
+            // first attach.
+            if (!reassertSettings()) {
+                Log.w(TAG, "a re-attach was refused; forgetting $lastReported so the next event retries")
+                lastReported = emptySet()
+            }
         }
     }
 

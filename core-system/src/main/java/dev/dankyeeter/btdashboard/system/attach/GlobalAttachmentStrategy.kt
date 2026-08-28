@@ -21,6 +21,20 @@ import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
  *
  * The effect can still die when the output mix is torn down (BT device
  * switch); the watchdog re-attaches via [reattachIfNeeded].
+ *
+ * ## Why the state is locked
+ *
+ * The "a live attachment is reused, not replaced" rule below is stated for the
+ * *sequential* case and was only ever enforced for it. Concurrently it does not
+ * hold: [equalizer] is read, found null or dead, and written — and the three
+ * callers that can be here at once are real. The foreground service applies
+ * settings on its IO scope, its volume follower pushes updates from a second
+ * coroutine on the same scope, and the Bluetooth connect watcher calls
+ * `ensureAttached` on the main thread. Two of those interleaving means two
+ * `DynamicsProcessing(0, ...)` on the output mix, one of which loses its only
+ * reference and is therefore never closed — which is exactly the leak the
+ * comment below says was fixed, arriving through the other door. The correction
+ * curve is then applied twice, which for this app is a wrong-audio bug.
  */
 class GlobalAttachmentStrategy(
     private val factory: SystemEqualizerFactory,
@@ -28,13 +42,18 @@ class GlobalAttachmentStrategy(
 
     override val kind = AttachmentKind.GLOBAL
 
+    /** Guards [equalizer] and [current]. See the class KDoc. */
+    private val lock = Any()
+
     private var equalizer: SystemEqualizer? = null
     private var current: EqSettings = EqSettings.FLAT
+
+    @Volatile
     private var lastStatus: AttachmentStatus = AttachmentStatus.Inactive
 
     override val status: AttachmentStatus get() = lastStatus
 
-    override fun activate(settings: EqSettings): AttachmentStatus {
+    override fun activate(settings: EqSettings): AttachmentStatus = synchronized(lock) {
         current = settings.sanitized()
 
         // No gate before the attempt. The old Shizuku-Ready check was a proxy
@@ -76,10 +95,13 @@ class GlobalAttachmentStrategy(
         return lastStatus
     }
 
-    override fun update(settings: EqSettings) {
+    override fun update(settings: EqSettings) = synchronized(lock) {
         current = settings.sanitized()
         val eq = equalizer ?: return
         if (!eq.isAlive) {
+            // Reachable from inside the lock: `synchronized` is reentrant, and
+            // the alternative — releasing it first — reopens the double-create
+            // window this class was locked to close.
             reattachIfNeeded()
             return
         }
@@ -87,16 +109,17 @@ class GlobalAttachmentStrategy(
     }
 
     /** Re-attaches after the output mix was torn down (e.g. BT device switch). */
-    fun reattachIfNeeded() {
+    fun reattachIfNeeded() = synchronized(lock) {
         val eq = equalizer
         if (eq != null && eq.isAlive) return
         Log.i(TAG, "Global effect died, re-attaching")
         eq?.close()
         equalizer = null
         activate(current)
+        Unit
     }
 
-    override fun deactivate() {
+    override fun deactivate() = synchronized(lock) {
         equalizer?.close()
         equalizer = null
         lastStatus = AttachmentStatus.Inactive

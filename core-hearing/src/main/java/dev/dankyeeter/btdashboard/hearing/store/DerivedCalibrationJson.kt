@@ -16,8 +16,9 @@ import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
  * encoding bug would lose it. So this one pays about eighty lines to be
  * testable.
  *
- * The reader below understands ordinary JSON and nothing exotic. It is only
- * ever handed strings this same file wrote, and a string it cannot read
+ * The reader lives in [MiniJson] because a second record in this package needs
+ * exactly the same one. It understands ordinary JSON and nothing exotic; it is
+ * only ever handed strings this same file wrote, and a string it cannot read
  * degrades to "no derivations" exactly like every other parser in
  * [AudiogramStore] — never to a half-read record.
  */
@@ -40,7 +41,7 @@ internal object DerivedCalibrationJson {
      */
     fun parse(raw: String?): List<DerivedCalibration> {
         if (raw.isNullOrBlank()) return emptyList()
-        val array = runCatching { JsonReader(raw).readValue() as? List<*> }.getOrNull() ?: return emptyList()
+        val array = MiniJson.parse(raw) as? List<*> ?: return emptyList()
         return array.mapNotNull { entry -> (entry as? Map<*, *>)?.let(::toCalibration) }
     }
 
@@ -52,7 +53,7 @@ internal object DerivedCalibrationJson {
         append(",\"responseDeviationDb\":")
         appendNumbers(calibration.responseDeviationDb)
         append(",\"earSpreadDb\":")
-        append(numberOf(calibration.earSpreadDb))
+        append(MiniJson.number(calibration.earSpreadDb))
         append(",\"warnings\":")
         appendStrings(calibration.warnings)
         append(",\"createdAtMillis\":")
@@ -86,16 +87,16 @@ internal object DerivedCalibrationJson {
     // --- writing ------------------------------------------------------------
 
     private fun StringBuilder.appendField(name: String, value: String?) {
-        append(quote(name))
+        append(MiniJson.quote(name))
         append(':')
-        append(if (value == null) "null" else quote(value))
+        append(if (value == null) "null" else MiniJson.quote(value))
     }
 
     private fun StringBuilder.appendStrings(values: List<String>) {
         append('[')
         values.forEachIndexed { index, value ->
             if (index > 0) append(',')
-            append(quote(value))
+            append(MiniJson.quote(value))
         }
         append(']')
     }
@@ -104,163 +105,8 @@ internal object DerivedCalibrationJson {
         append('[')
         values.forEachIndexed { index, value ->
             if (index > 0) append(',')
-            append(numberOf(value))
+            append(MiniJson.number(value))
         }
         append(']')
-    }
-
-    /**
-     * JSON has no NaN and no infinity. Neither can reach here from the transfer
-     * — it rounds to half decibels off finite arithmetic — but writing one
-     * would produce a file that cannot be read back at all, so they become 0.0
-     * rather than a corrupt record.
-     */
-    private fun numberOf(value: Double): String =
-        if (value.isFinite()) value.toString() else "0.0"
-
-    private fun quote(value: String): String = buildString {
-        append('"')
-        value.forEach { c ->
-            when {
-                c == '"' -> append("\\\"")
-                c == '\\' -> append("\\\\")
-                c == '\n' -> append("\\n")
-                c == '\r' -> append("\\r")
-                c == '\t' -> append("\\t")
-                c < ' ' -> append("\\u%04x".format(c.code))
-                else -> append(c)
-            }
-        }
-        append('"')
-    }
-
-    // --- reading ------------------------------------------------------------
-
-    /**
-     * A recursive-descent reader over the JSON grammar, producing
-     * `Map`/`List`/`String`/`Double`/`Boolean`/null. Every number becomes a
-     * [Double], including the timestamp — JSON itself does not distinguish, and
-     * a long of this magnitude is exact in a double.
-     *
-     * Throws on anything malformed; [parse] is the only caller and it catches.
-     */
-    private class JsonReader(private val source: String) {
-
-        private var at = 0
-
-        fun readValue(): Any? {
-            val value = value()
-            skipWhitespace()
-            require(at == source.length) { "trailing content at $at" }
-            return value
-        }
-
-        private fun value(): Any? {
-            skipWhitespace()
-            require(at < source.length) { "unexpected end of input" }
-            return when (source[at]) {
-                '{' -> obj()
-                '[' -> array()
-                '"' -> string()
-                't' -> literal("true", true)
-                'f' -> literal("false", false)
-                'n' -> literal("null", null)
-                else -> number()
-            }
-        }
-
-        private fun obj(): Map<String, Any?> {
-            expect('{')
-            val result = LinkedHashMap<String, Any?>()
-            skipWhitespace()
-            if (peek() == '}') { at++; return result }
-            while (true) {
-                skipWhitespace()
-                val key = string()
-                skipWhitespace()
-                expect(':')
-                result[key] = value()
-                skipWhitespace()
-                when (next()) {
-                    ',' -> Unit
-                    '}' -> return result
-                    else -> throw IllegalArgumentException("expected , or } at $at")
-                }
-            }
-        }
-
-        private fun array(): List<Any?> {
-            expect('[')
-            val result = ArrayList<Any?>()
-            skipWhitespace()
-            if (peek() == ']') { at++; return result }
-            while (true) {
-                result += value()
-                skipWhitespace()
-                when (next()) {
-                    ',' -> Unit
-                    ']' -> return result
-                    else -> throw IllegalArgumentException("expected , or ] at $at")
-                }
-            }
-        }
-
-        private fun string(): String {
-            expect('"')
-            val out = StringBuilder()
-            while (true) {
-                val c = next()
-                when (c) {
-                    '"' -> return out.toString()
-                    '\\' -> when (val escaped = next()) {
-                        '"', '\\', '/' -> out.append(escaped)
-                        'b' -> out.append('\b')
-                        // Form feed. Kotlin has no escape for it, so it is spelled by code point.
-                        'f' -> out.append(Char(12))
-                        'n' -> out.append('\n')
-                        'r' -> out.append('\r')
-                        't' -> out.append('\t')
-                        'u' -> {
-                            require(at + 4 <= source.length) { "truncated \\u escape" }
-                            out.append(source.substring(at, at + 4).toInt(16).toChar())
-                            at += 4
-                        }
-                        else -> throw IllegalArgumentException("bad escape \\$escaped")
-                    }
-                    else -> out.append(c)
-                }
-            }
-        }
-
-        private fun number(): Double {
-            val start = at
-            while (at < source.length && source[at] in NUMBER_CHARS) at++
-            return source.substring(start, at).toDouble()
-        }
-
-        private fun <T> literal(text: String, value: T): T {
-            require(source.startsWith(text, at)) { "bad literal at $at" }
-            at += text.length
-            return value
-        }
-
-        private fun peek(): Char? = source.getOrNull(at)
-
-        private fun next(): Char {
-            require(at < source.length) { "unexpected end of input" }
-            return source[at++]
-        }
-
-        private fun expect(c: Char) {
-            require(next() == c) { "expected $c at ${at - 1}" }
-        }
-
-        private fun skipWhitespace() {
-            while (at < source.length && source[at].isWhitespace()) at++
-        }
-
-        private companion object {
-            const val NUMBER_CHARS = "-+.eE0123456789"
-        }
     }
 }

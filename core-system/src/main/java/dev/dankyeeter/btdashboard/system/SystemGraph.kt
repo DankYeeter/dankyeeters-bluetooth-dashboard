@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.system
 import android.content.Context
 import dev.dankyeeter.btdashboard.system.boot.BootReceiver
 import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizerFactory
+import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeMonitor
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
 import dev.dankyeeter.btdashboard.system.attach.AudioEffectSessionReceiver
@@ -59,6 +60,7 @@ object SystemGraph {
     private var _watcher: DeviceConnectionWatcher? = null
     private var _setupStore: SetupStore? = null
     private var _appearanceStore: AppearanceStore? = null
+    private var _mediaVolume: MediaVolumeMonitor? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -81,6 +83,17 @@ object SystemGraph {
     val settingsStore: EqSettingsStore
         get() = synchronized(lock) {
             _store ?: EqSettingsStore(ctx()).also { _store = it }
+        }
+
+    /**
+     * The live media-volume fraction the ISO 226 tilt is derived from.
+     *
+     * One per process: it registers a settings observer, and two of them would
+     * mean two observers reporting the same number.
+     */
+    val mediaVolume: MediaVolumeMonitor
+        get() = synchronized(lock) {
+            _mediaVolume ?: MediaVolumeMonitor(ctx()).also { _mediaVolume = it }
         }
 
     val eqController: EqController

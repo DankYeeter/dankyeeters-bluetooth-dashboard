@@ -6,6 +6,9 @@ import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.sameDevice
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
+import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
+import dev.dankyeeter.btdashboard.ui.tuning.LdacTuning
+import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DeviceDiagnosticRunner
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
 import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStepResult
@@ -21,9 +24,8 @@ import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
-import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
-import dev.dankyeeter.btdashboard.system.devices.CodecPreference
-import dev.dankyeeter.btdashboard.system.devices.CodecPreferenceController
+import dev.dankyeeter.btdashboard.system.SystemGraph
+import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +35,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -53,21 +57,6 @@ data class DiagnosticUiState(
      * and painting "Test stopped." in the error colour told the user something
      * had gone wrong when they had simply pressed the button.
      */
-    val messageIsError: Boolean = false,
-)
-
-/**
- * What the live LDAC quality control has to say about its last attempt.
- *
- * A separate state rather than a boolean because setting a codec preference has
- * three outcomes, not two: applied and read back, accepted but not observed, and
- * "could not even ask". The panel prints whichever one happened; see
- * [CodecApplyOutcome] for why the middle one is not called a failure.
- */
-data class LdacTuningState(
-    /** True while the request is in flight, so the chips cannot be double-tapped. */
-    val busy: Boolean = false,
-    val message: String? = null,
     val messageIsError: Boolean = false,
 )
 
@@ -209,8 +198,40 @@ class MonitorViewModel : ViewModel() {
         .map { it.snapshot }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(LIVE_STOP_TIMEOUT_MS), null)
 
-    private val _ldacTuning = MutableStateFlow(LdacTuningState())
-    val ldacTuning: StateFlow<LdacTuningState> = _ldacTuning.asStateFlow()
+    /**
+     * Busy and last outcome, straight off the shared tuning component.
+     *
+     * Not a copy: the Bluetooth tab shows the same four chips for the same
+     * headphone, and two states would eventually disagree about whether a
+     * renegotiation was in flight.
+     */
+    val ldacTuning: StateFlow<LdacTuningState> = LdacTuning.state
+
+    /**
+     * The quality this device's *profile* stores, or 0 when it stores none.
+     *
+     * The single source of truth for which chip is lit, shared with the
+     * Bluetooth tab — see [LdacQuality.selected]. The live-observed mode is the
+     * fallback rather than the answer, because what a profile stores is what
+     * will happen on the next connect.
+     *
+     * All three inputs are already collected by this screen or are push-based,
+     * so nothing here starts a poll of its own.
+     */
+    val storedLdacQuality: StateFlow<Long> = combine(
+        liveLink.map { it?.device?.address },
+        runCatching { MonitorGraph.codecSource.connectedDevicesFlow() }
+            .getOrElse { flowOf(emptyList()) }
+            .catch { emit(emptyList()) },
+        runCatching { SystemGraph.deviceProfiles.profiles }
+            .getOrElse { flowOf(emptyList()) }
+            .catch { emit(emptyList()) },
+    ) { shownAddress, devices, profiles ->
+        // The address the panel shows is redacted on a user build, so the key
+        // has to be derived from the real one the A2DP profile holds.
+        val key = rawAddressFor(shownAddress, devices)?.let(DeviceKey::fromAddress)
+        LdacQuality.storedQuality(profiles.firstOrNull { it.deviceKey == key })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LdacQuality.NONE)
 
     // ---- the two graphs ------------------------------------------------------
     //
@@ -333,82 +354,22 @@ class MonitorViewModel : ViewModel() {
     /**
      * Pins LDAC to one playback quality — or to adaptive — on the live device.
      *
-     * The same mechanism the per-device profile editor uses: a [CodecPreference]
-     * carrying AOSP's `codecSpecific1`, handed to the privileged helper's
-     * [CodecPreferenceController], which reads the codec back and reports what it
-     * *saw*. The difference is only in when it runs — the editor stores the wish
-     * and replays it on every connect, this sets it for the link that is playing
-     * right now.
+     * The work itself moved to [LdacTuning], which the Bluetooth tab's chips
+     * call too. Two things changed when it did, and both are the point: the
+     * choice is now **written into the device's profile** so it survives the
+     * reconnect the stack performs anyway, and the busy flag and outcome
+     * sentence are one state rather than two that could disagree.
      *
-     * The controller is resolved by asking the installed codec controller
-     * whether it can also take preferences. `:app` installs one object in both
-     * `PrivilegedCodec` and `SystemGraph` precisely so there is a single answer
-     * about whether the helper is there; when it is not, the stand-in cannot
-     * take preferences and the user is told that rather than shown a control
-     * that silently does nothing.
+     * The address this panel shows is not the one the call can be made with —
+     * see [rawAddressFor] — so the shown form is handed over and resolved there.
      */
     fun setLdacQuality(quality: Long) {
-        if (_ldacTuning.value.busy) return
-        val shownAddress = liveLink.value?.device?.address
-        if (shownAddress == null) {
-            _ldacTuning.value = LdacTuningState(
-                message = "No live link to change — connect the headphone first.",
-                messageIsError = true,
-            )
-            return
-        }
         viewModelScope.launch {
-            _ldacTuning.value = LdacTuningState(busy = true)
-            // The address the panel shows cannot be the one the call is made
-            // with; see [rawAddressFor]. Failing to build one is an outcome like
-            // any other and is worded, never silently swallowed.
-            val connected = runCatching { MonitorGraph.codecSource.connectedDevices() }
-                .getOrDefault(emptyList())
-            val address = rawAddressFor(shownAddress, connected)
-            val controller = PrivilegedCodec.controller() as? CodecPreferenceController
-            val outcome = when {
-                address == null -> CodecApplyOutcome.Unavailable(
-                    "Android is not listing this headphone on the A2DP profile, and the " +
-                        "address in the dump is redacted — there is no device to set a " +
-                        "codec on",
-                )
-
-                controller == null -> CodecApplyOutcome.Unavailable(
-                    "the privileged helper is not running, so LDAC quality cannot be set",
-                )
-
-                else -> runCatching {
-                    controller.apply(address, CodecPreference("LDAC", ldacQuality = quality))
-                }.getOrElse { CodecApplyOutcome.Unavailable(it.message ?: "the request threw") }
-            }
-            _ldacTuning.value = LdacTuningState(
-                busy = false,
-                // Everything below the UI works in raw addresses and some of it
-                // quotes them back — the helper's own rejection sentence names
-                // the address it was handed. Redacting on the way out keeps that
-                // useful without putting a real MAC on screen.
-                message = redactAddresses(
-                    when (outcome) {
-                        is CodecApplyOutcome.Applied ->
-                            "LDAC is now ${outcome.observed} — read back, not just requested."
-
-                        // Not worded as a failure: nothing an app can reach tells
-                        // a refusal apart from a renegotiation still in flight.
-                        is CodecApplyOutcome.NotObserved ->
-                            "The link still reads ${outcome.observed}: ${outcome.detail}."
-
-                        is CodecApplyOutcome.Unavailable ->
-                            "LDAC quality was not changed — ${outcome.reason}."
-                    },
-                ),
-                messageIsError = outcome is CodecApplyOutcome.Unavailable,
-            )
+            LdacTuning.pin(quality, shownAddress = liveLink.value?.device?.address)
         }
     }
 
-    fun dismissLdacMessage() {
-        _ldacTuning.value = _ldacTuning.value.copy(message = null)
-    }
+    fun dismissLdacMessage() = LdacTuning.dismissMessage()
 
     fun startDeepCapture() {
         MonitorGraph.engine.startDeepCapture(SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)

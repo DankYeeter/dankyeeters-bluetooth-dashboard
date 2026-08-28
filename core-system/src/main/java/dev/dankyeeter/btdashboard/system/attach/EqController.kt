@@ -29,6 +29,26 @@ import kotlinx.coroutines.flow.asStateFlow
  *   every track change of every player, only to be dropped — so the component
  *   is off unless session mode is genuinely in use. Injected as a lambda
  *   because toggling needs a Context and this class deliberately has none.
+ *
+ * ## Why the mode transitions are serialised
+ *
+ * Everything here is called from several threads: the foreground service starts
+ * and follows the volume on its IO scope, the Bluetooth connect watcher calls
+ * [ensureAttached] on the main thread, the harvester reports sessions from its
+ * own scope, and the EQ screen drags sliders on the main thread. [active] is the
+ * one field that decides which strategy owns the audio, and two concurrent
+ * [apply] calls that disagree about it leave **both** strategies attached — a
+ * global effect on the output mix and a per-session effect on the player, each
+ * applying the full correction curve to the same audio.
+ *
+ * The lock is a plain monitor and therefore reentrant, which matters: [apply]
+ * calls `setSessionHarvestEnabled(true)`, and starting the harvester can report
+ * "nothing is playing" synchronously, straight back into [onHarvestedSessions].
+ *
+ * The *order* inside the mode switches is part of the same fix and is called out
+ * where it happens: [active] is moved onto its new owner before the old one is
+ * torn down, so an in-flight harvest that lands mid-switch is refused rather
+ * than being allowed to build effects into a strategy that is being retired.
  */
 class EqController(
     // The interface, not the concrete class: the only thing this needs from the
@@ -45,11 +65,14 @@ class EqController(
     private val _status = MutableStateFlow<AttachmentStatus>(AttachmentStatus.Inactive)
     val status: StateFlow<AttachmentStatus> = _status.asStateFlow()
 
+    /** Serialises every mode transition. See the class KDoc. */
+    private val lock = Any()
+
     private var active: EqAttachmentStrategy? = null
     private var settings: EqSettings = EqSettings.FLAT
 
     /** Applies settings, attaching (or re-attaching) as needed. */
-    fun apply(newSettings: EqSettings) {
+    fun apply(newSettings: EqSettings): Unit = synchronized(lock) {
         settings = newSettings.sanitized()
         if (!settings.enabled) {
             deactivate()
@@ -67,26 +90,36 @@ class EqController(
             AttachmentStatus.Unavailable(NO_GLOBAL_REACH_REASON)
         }
         if (globalStatus is AttachmentStatus.ActiveGlobal) {
+            // First, before anything is torn down. A harvest that was already
+            // in flight when this ran completes into onHarvestedSessions, and
+            // with `active` still pointing at the session strategy it would
+            // attach effects to players *after* session.deactivate() had closed
+            // everything - effects that global mode then never closes, because
+            // its teardown has already been and gone. They stay in AudioFlinger
+            // for the life of the process, stacked under the global effect.
+            active = global
             AudioEffectSessionReceiver.strategy = null
             setSessionReceiverEnabled(false)
             setSessionHarvestEnabled(false)
             session.deactivate()
-            active = global
             _status.value = globalStatus
             return
         }
 
-        // Fallback: session mode. Only now is the manifest receiver worth its
-        // wake-ups, so only now is it switched on.
-        AudioEffectSessionReceiver.strategy = session
-        setSessionReceiverEnabled(true)
+        // Fallback: session mode.
         val sessionStatus = session.activate(settings)
         active = session
-        // Only now. Harvesting can attach to a player within milliseconds, and
-        // a strategy that has not been activated yet still holds EqSettings.FLAT
-        // - so an effect created before this line lands on the track disabled
-        // and stays that way, while the status cheerfully reports success.
-        // Observed on the device: attached to Tidal with Enabled=n.
+        // Both the receiver and the harvester are armed only now, after
+        // activate(). Harvesting can attach to a player within milliseconds,
+        // and a strategy that has not been activated yet still holds
+        // EqSettings.FLAT - so an effect created before this point lands on the
+        // track disabled and stays that way, while the status cheerfully
+        // reports success. Observed on the device: attached to Tidal with
+        // Enabled=n. The manifest receiver had exactly the same window and was
+        // simply never blamed for it, because it only opens when a *different*
+        // player announces itself in the same instant.
+        AudioEffectSessionReceiver.strategy = session
+        setSessionReceiverEnabled(true)
         setSessionHarvestEnabled(true)
         // Say why the wider mode is off. The session strategy's own "nothing has
         // announced itself" message points at the privileged helper as the fix,
@@ -110,7 +143,7 @@ class EqController(
      * EQ that died while the app sat idle stayed dead until the user happened
      * to touch a control. A connect is exactly the moment to check.
      */
-    fun ensureAttached() {
+    fun ensureAttached(): Unit = synchronized(lock) {
         if (!settings.enabled) return
         val current = active
         if (current == null) {
@@ -142,7 +175,7 @@ class EqController(
     }
 
     /** Pushes a live update (slider drag) without re-running attachment. */
-    fun update(newSettings: EqSettings) {
+    fun update(newSettings: EqSettings): Unit = synchronized(lock) {
         settings = newSettings.sanitized()
         active?.update(settings) ?: apply(settings)
         active?.let { _status.value = it.status }
@@ -157,7 +190,7 @@ class EqController(
      * the user skipped a dozen tracks is how a background service turns into a
      * battery complaint.
      */
-    fun onHarvestedSessions(sessions: Set<Int>): Boolean {
+    fun onHarvestedSessions(sessions: Set<Int>): Boolean = synchronized(lock) {
         if (active !== session) return true
         val known = (session.status as? AttachmentStatus.ActiveSessions)?.sessionIds.orEmpty()
         // all() would short-circuit and skip the remaining sessions; every one
@@ -174,22 +207,38 @@ class EqController(
      * Exists because an effect can be attached and silently switched off, and
      * the app has no way to find out - see [PlaybackSessionHarvester].
      * Re-applying is the only reliable repair.
+     *
+     * @return whether everything that was attached is still attached afterwards.
+     *   A rebuild can be refused - AudioFlinger does refuse, transiently - and
+     *   the session is then attached to nothing at all. The harvester has to
+     *   learn that, because it remembers what it last reported and would
+     *   otherwise never offer that session again.
      */
-    fun reassertCurrentSettings() {
-        if (!settings.enabled) return
+    fun reassertCurrentSettings(): Boolean = synchronized(lock) {
+        if (!settings.enabled) return true
         // Re-applying settings is not enough - the effect has to be built again.
         // See SessionAttachmentStrategy.reattachAll for why.
-        if (active === session) session.reattachAll() else active?.update(settings)
+        val intact = if (active === session) {
+            session.reattachAll()
+        } else {
+            active?.update(settings)
+            true
+        }
         active?.let { _status.value = it.status }
+        return intact
     }
 
-    fun deactivate() {
+    fun deactivate(): Unit = synchronized(lock) {
+        // Cleared first, for the reason spelled out in apply()'s global branch:
+        // an in-flight harvest that completes during the teardown must find no
+        // owner and refuse, rather than attaching effects to players a moment
+        // after everything was closed and leaving them with nobody to close them.
+        active = null
         global.deactivate()
         session.deactivate()
         AudioEffectSessionReceiver.strategy = null
         setSessionReceiverEnabled(false)
         setSessionHarvestEnabled(false)
-        active = null
         _status.value = AttachmentStatus.Inactive
     }
 

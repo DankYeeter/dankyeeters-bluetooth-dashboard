@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.transfer
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.audio.eq.withVolumeTilt
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
@@ -13,6 +14,7 @@ import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -106,6 +108,7 @@ class BackupRoundTripPropertyTest {
         enabled: Boolean = true,
         loudnessRestoration: Boolean = false,
         autoHeadroom: Boolean = true,
+        volumeAwareTilt: Boolean = false,
     ): EqSettings {
         val n = layout.bandCount
         val left = when (shape) {
@@ -127,6 +130,7 @@ class BackupRoundTripPropertyTest {
             limiterEnabled = shape != "flat",
             autoHeadroom = autoHeadroom,
             loudnessRestoration = loudnessRestoration,
+            volumeAwareTilt = volumeAwareTilt,
         ).sanitized()
     }
 
@@ -200,6 +204,10 @@ class BackupRoundTripPropertyTest {
                     // so it has to appear on both sides of the round trip.
                     loudnessRestoration = shape == "max",
                     autoHeadroom = shape != "rails",
+                    // The switch travels; the tilt gains it produces do not —
+                    // they are derived from the volume at the moment the EQ is
+                    // applied. Both halves of that are checked below.
+                    volumeAwareTilt = shape == "steps" || shape == "min",
                 )
                 add(
                     AppState(
@@ -480,6 +488,37 @@ class BackupRoundTripPropertyTest {
             assertEquals(layout.id, gains, restored.leftGainsDb)
             assertEquals(layout.id, gains, restored.rightGainsDb)
         }
+    }
+
+    /**
+     * The volume-aware tilt: the switch survives, the derived layer does not
+     * travel, and a file that predates the field reads as "off".
+     *
+     * The second half is the interesting one. The tilt gains are a function of
+     * the media volume at the moment the EQ is applied, so writing them into a
+     * backup would restore a correction for a volume the phone is not at — on a
+     * phone whose volume curve may not even be the same one. A file must
+     * therefore come back with the switch and with zeros.
+     */
+    @Test
+    fun `the volume-aware tilt travels as a switch and never as a curve`() {
+        listOf(false, true).forEach { on ->
+            val eq = eqFor(EqBandLayout.OCTAVE_10, "steps", volumeAwareTilt = on)
+                .withVolumeTilt(0.1f)
+            val restored = BackupMapper.toDomain(BackupMapper.toBackup(eq))
+
+            assertEquals("switch, on=$on", on, restored.volumeAwareTilt)
+            assertEquals("gains, on=$on", List(eq.bandCount) { 0f }, restored.tiltGainsDb)
+        }
+
+        // And a file written before the field existed: absent means off, which
+        // is what "no version bump" requires of every field added here.
+        val historic = successOf(
+            historicJson(List(EqBandLayout.OCTAVE_10.bandCount) { 1f }),
+            "no tilt field",
+        ).document
+        assertFalse(historic.eq!!.volumeAwareTilt)
+        assertFalse(BackupMapper.toDomain(historic.eq!!).volumeAwareTilt)
     }
 
     @Test

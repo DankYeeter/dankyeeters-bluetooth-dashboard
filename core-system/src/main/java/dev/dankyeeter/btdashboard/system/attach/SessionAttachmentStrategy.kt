@@ -13,6 +13,43 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Limitation to document in the UI: many players — Tidal included — do not send
  * that broadcast, so this strategy silently reaches nothing for them.
+ *
+ * ## Why every mutation is serialised
+ *
+ * The four callers of this class arrive on four different threads, and two of
+ * them can be inside it at the same time:
+ *
+ *  - [AudioEffectSessionReceiver] delivers on the **main** thread;
+ *  - [PlaybackSessionHarvester] reports harvests on its own **IO** scope;
+ *  - the same harvester's settle check calls [reattachAll] from a *second*
+ *    coroutine on that scope, which `Dispatchers.IO` is free to run on a
+ *    different thread than the harvest;
+ *  - the EQ screen and the foreground service push [update] from theirs.
+ *
+ * A `ConcurrentHashMap` makes each individual operation atomic and that is not
+ * enough here, because the operations that matter are *sequences*: [reattachAll]
+ * removes an effect, builds a replacement, then puts it back. An
+ * [onSessionOpened] for the same session landing in the middle of that finds the
+ * key absent, creates its own effect, and stores it — and the put at the end of
+ * `reattachAll` then overwrites that entry without closing it. The overwritten
+ * `DynamicsProcessing` is **still registered in AudioFlinger on that session**;
+ * nothing holds a reference to it any more, so nothing will ever close it, and
+ * it goes on processing audio next to its replacement.
+ *
+ * That is not a hypothetical. The window is real on the device — the settle
+ * check fires 2.5 s after an attach, which is exactly when a track change is
+ * likely to produce the next harvest — and a chain that accumulates a second
+ * (and a third) processing instance is the leading explanation for the encoder
+ * starvation measured on 2026-08-28, where a long-lived attached chain starved
+ * the Bluetooth encoder at ~49 underflows/s and a freshly attached one did not.
+ * `:core-monitor`'s `EncoderStarvationTripwire` now counts the instances at the
+ * moment it next happens, which is what will confirm or kill that explanation.
+ *
+ * So: one lock, held across every read-modify-write of [equalizers]. It is held
+ * while `factory.create` runs, which is a short binder call into audioserver
+ * that cannot call back into this class, so it cannot deadlock. [status] reads
+ * the map without it on purpose — a status is a report, and blocking the UI
+ * thread behind an attach to produce one would be the wrong trade.
  */
 class SessionAttachmentStrategy(
     private val factory: SystemEqualizerFactory,
@@ -21,7 +58,14 @@ class SessionAttachmentStrategy(
     override val kind = AttachmentKind.SESSION_BROADCAST
 
     private val equalizers = ConcurrentHashMap<Int, SystemEqualizer>()
+
+    /** Guards every read-modify-write of [equalizers]. See the class KDoc. */
+    private val lock = Any()
+
+    @Volatile
     private var current: EqSettings = EqSettings.FLAT
+
+    @Volatile
     private var active = false
 
     override val status: AttachmentStatus
@@ -36,19 +80,41 @@ class SessionAttachmentStrategy(
         }
 
     override fun activate(settings: EqSettings): AttachmentStatus {
-        active = true
-        current = settings.sanitized()
-        Log.i(TAG, "activate enabled=${current.enabled} attached=${equalizers.keys}")
-        equalizers.values.forEach { it.apply(current) }
+        synchronized(lock) {
+            active = true
+            current = settings.sanitized()
+            Log.i(TAG, "activate enabled=${current.enabled} attached=${equalizers.keys}")
+            equalizers.values.forEach { it.apply(current) }
+        }
         return status
     }
 
     override fun update(settings: EqSettings) {
-        current = settings.sanitized()
-        Log.i(TAG, "update enabled=${current.enabled} active=$active attached=${equalizers.keys}")
-        if (!active) return
-        equalizers.entries.removeIf { (_, eq) -> !eq.isAlive }
-        equalizers.values.forEach { it.apply(current) }
+        synchronized(lock) {
+            current = settings.sanitized()
+            Log.i(TAG, "update enabled=${current.enabled} active=$active attached=${equalizers.keys}")
+            if (!active) return
+            // A dead effect is not an attachment. Dropping it here is also what
+            // lets onSessionOpened build a replacement rather than reporting the
+            // corpse as success.
+            //
+            // Closed, not merely dropped. `isAlive` goes false for reasons other
+            // than close(): the underlying effect marks itself dead the first
+            // time a framework call throws, and it is *not* released at that
+            // point. Letting the last reference go without calling close() means
+            // nothing will ever ask for the release again, so the native effect
+            // stays registered in AudioFlinger on that session — one more
+            // instance on a chain, which is exactly the accumulation under
+            // suspicion for the encoder starvation. close() is documented
+            // idempotent, so this costs nothing when it really was closed.
+            equalizers.entries.toList()
+                .filterNot { (_, eq) -> eq.isAlive }
+                .forEach { (sessionId, eq) ->
+                    equalizers.remove(sessionId)
+                    eq.close()
+                }
+            equalizers.values.forEach { it.apply(current) }
+        }
     }
 
     /**
@@ -64,16 +130,41 @@ class SessionAttachmentStrategy(
      */
     fun onSessionOpened(sessionId: Int): Boolean {
         if (sessionId == 0) return false
-        if (equalizers.containsKey(sessionId)) return true
-        val eq = factory.create(sessionId)
-        if (eq == null) {
-            Log.w(TAG, "Could not attach to session $sessionId; will retry on the next event")
-            return false
+        synchronized(lock) {
+            // Nothing may create an effect while this strategy is not the one in
+            // use. A broadcast or an in-flight harvest can land after
+            // deactivate() has already closed everything - or after the
+            // controller has moved to the global mix - and an effect built then
+            // is attached to a player, switched off (the settings are still
+            // FLAT), and owned by nobody: deactivate() has been and gone, so
+            // nothing will ever close it. It simply stays in AudioFlinger's
+            // chain for that session. Refusing is also the honest answer, since
+            // `false` means "not attached", which is exactly true.
+            if (!active) {
+                Log.i(TAG, "ignoring session $sessionId; the session strategy is not active")
+                return false
+            }
+
+            val existing = equalizers[sessionId]
+            if (existing != null) {
+                if (existing.isAlive) return true
+                // A dead effect held under the session's key used to make this
+                // return success forever: the session looked handled while the
+                // EQ reached nothing on it.
+                Log.i(TAG, "replacing a dead effect on session $sessionId")
+                equalizers.remove(sessionId)?.close()
+            }
+
+            val eq = factory.create(sessionId)
+            if (eq == null) {
+                Log.w(TAG, "Could not attach to session $sessionId; will retry on the next event")
+                return false
+            }
+            equalizers[sessionId] = eq
+            Log.i(TAG, "opened $sessionId active=$active enabled=${current.enabled}")
+            eq.apply(current)
+            return true
         }
-        equalizers[sessionId] = eq
-        Log.i(TAG, "opened $sessionId active=$active enabled=${current.enabled}")
-        if (active) eq.apply(current)
-        return true
     }
 
     /**
@@ -93,34 +184,52 @@ class SessionAttachmentStrategy(
      * The cost is a gap of a few milliseconds in the correction, once, right
      * after attaching - against the alternative of an equaliser that is silently
      * inert until the user happens to press pause.
+     *
+     * @return whether every session came back. A false means at least one
+     *   session was dropped and *is no longer attached to anything*, which the
+     *   caller has to be able to see: the harvester remembers what it reported,
+     *   so without this it would never offer that session again and the EQ would
+     *   stay off it until the set of players happened to change.
      */
-    fun reattachAll() {
-        if (!active) return
-        val sessions = equalizers.keys.toList()
-        if (sessions.isEmpty()) return
-        Log.i(TAG, "re-attaching $sessions to clear a stuck-disabled effect")
-        sessions.forEach { sessionId ->
-            equalizers.remove(sessionId)?.close()
-            val eq = factory.create(sessionId)
-            if (eq == null) {
-                Log.w(TAG, "re-attach to $sessionId failed; will retry on the next event")
-                return@forEach
+    fun reattachAll(): Boolean {
+        synchronized(lock) {
+            if (!active) return true
+            val sessions = equalizers.keys.toList()
+            if (sessions.isEmpty()) return true
+            Log.i(TAG, "re-attaching $sessions to clear a stuck-disabled effect")
+            var allBack = true
+            sessions.forEach { sessionId ->
+                equalizers.remove(sessionId)?.close()
+                val eq = factory.create(sessionId)
+                if (eq == null) {
+                    Log.w(TAG, "re-attach to $sessionId failed; will retry on the next event")
+                    allBack = false
+                    return@forEach
+                }
+                equalizers[sessionId] = eq
+                eq.apply(current)
             }
-            equalizers[sessionId] = eq
-            eq.apply(current)
+            return allBack
         }
     }
 
     /** Called when the player closes its session. */
     fun onSessionClosed(sessionId: Int) {
-        equalizers.remove(sessionId)?.close()
+        synchronized(lock) {
+            equalizers.remove(sessionId)?.close()
+        }
     }
 
     override fun deactivate() {
-        Log.i(TAG, "deactivate; dropping ${equalizers.keys}")
-        active = false
-        equalizers.values.forEach { it.close() }
-        equalizers.clear()
+        synchronized(lock) {
+            Log.i(TAG, "deactivate; dropping ${equalizers.keys}")
+            // Cleared before the closes, so that anything blocked on the lock
+            // sees a strategy that is already out of use rather than one in the
+            // middle of shutting down.
+            active = false
+            equalizers.values.forEach { it.close() }
+            equalizers.clear()
+        }
     }
 
     private companion object {

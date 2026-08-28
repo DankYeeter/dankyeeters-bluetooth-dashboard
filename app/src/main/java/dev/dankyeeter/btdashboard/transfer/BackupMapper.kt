@@ -2,14 +2,21 @@ package dev.dankyeeter.btdashboard.transfer
 
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.hearing.AgeReference
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
+import dev.dankyeeter.btdashboard.hearing.Iso7029Sex
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
+import dev.dankyeeter.btdashboard.hearing.preference.FinalCheck
+import dev.dankyeeter.btdashboard.hearing.preference.PreferenceCandidate
+import dev.dankyeeter.btdashboard.hearing.preference.PreferenceLabelSource
+import dev.dankyeeter.btdashboard.hearing.preference.PreferenceProfile
+import dev.dankyeeter.btdashboard.hearing.preference.PreferenceRun
 
 /**
  * Translation between the domain models and the backup wire format.
@@ -68,6 +75,35 @@ object BackupMapper {
         sourceRunIds = calibration.sourceRunIds,
     )
 
+    fun toBackup(profile: PreferenceProfile): BackupPreferenceProfile = BackupPreferenceProfile(
+        deviceKey = profile.deviceKey,
+        deviceName = profile.deviceName,
+        layout = profile.layout.id,
+        baseLeftDb = profile.baseLeftDb,
+        baseRightDb = profile.baseRightDb,
+        manualBassDb = profile.manualBassDb,
+        manualTrebleDb = profile.manualTrebleDb,
+        finalCheck = profile.finalCheck.name,
+        createdAtMillis = profile.createdAtMillis,
+        updatedAtMillis = profile.updatedAtMillis,
+        runs = profile.runs.map(::toBackup),
+    )
+
+    fun toBackup(run: PreferenceRun): BackupPreferenceRun = BackupPreferenceRun(
+        id = run.id,
+        label = run.label,
+        labelSource = run.labelSource.name,
+        createdAtMillis = run.createdAtMillis,
+        bassDb = run.candidate.bassDb,
+        trebleDb = run.candidate.trebleDb,
+        consistency = run.consistency,
+    )
+
+    fun toBackup(age: AgeReference): BackupAgeReference = BackupAgeReference(
+        birthYear = age.birthYear,
+        sex = age.sex.name,
+    )
+
     fun toBackup(eq: EqSettings): BackupEq = BackupEq(
         enabled = eq.enabled,
         // Without this the gain list is just a bare row of numbers, and the
@@ -79,6 +115,7 @@ object BackupMapper {
         limiterEnabled = eq.limiterEnabled,
         autoHeadroom = eq.autoHeadroom,
         loudnessRestoration = eq.loudnessRestoration,
+        volumeAwareTilt = eq.volumeAwareTilt,
     )
 
     fun toBackup(profile: CompensationProfile): BackupProfile = BackupProfile(
@@ -104,6 +141,8 @@ object BackupMapper {
         nowMillis: Long,
         clinical: ClinicalAudiogram? = null,
         derivedCalibrations: List<DerivedCalibration> = emptyList(),
+        ageReference: AgeReference? = null,
+        preferenceProfiles: List<PreferenceProfile> = emptyList(),
     ): BackupDocument = BackupDocument(
         appVersion = appVersion,
         exportedAtMillis = nowMillis,
@@ -114,6 +153,8 @@ object BackupMapper {
         activeProfileId = activeProfileId,
         clinicalAudiogram = clinical?.takeUnless { it.isEmpty }?.let(::toBackup),
         derivedCalibrations = derivedCalibrations.map(::toBackup),
+        ageReference = ageReference?.let(::toBackup),
+        preferenceProfiles = preferenceProfiles.map(::toBackup),
     )
 
     // ---- file -> domain -------------------------------------------------------
@@ -179,6 +220,67 @@ object BackupMapper {
         )
     }
 
+    /**
+     * A birth year of zero or less is not a year — it is the default this field
+     * carries when a hand-edited file leaves it out — so it comes back as "no
+     * age reference" rather than as a person born in year 0. An unknown sex
+     * name degrades to `UNSPECIFIED`, the same rule [ancMode] follows.
+     */
+    fun toDomain(age: BackupAgeReference): AgeReference? {
+        if (age.birthYear <= 0) return null
+        return AgeReference(
+            birthYear = age.birthYear,
+            sex = runCatching { Iso7029Sex.valueOf(age.sex) }.getOrDefault(Iso7029Sex.UNSPECIFIED),
+        )
+    }
+
+    /**
+     * A preference curve back off disk.
+     *
+     * Dropped rather than repaired when it names no device: the record is only
+     * ever applied to the headphone it belongs to, so one with no headphone has
+     * nothing it could ever do except sit there.
+     *
+     * The base curve is fitted to the layout the file names, by the same
+     * resample-rather-than-truncate rule [toDomain] applies to an EQ curve — a
+     * backup written on a phone whose EQ was on a different grid is still the
+     * same curve.
+     */
+    fun toDomain(profile: BackupPreferenceProfile): PreferenceProfile? {
+        if (profile.deviceKey.isBlank()) return null
+        val layout = EqBandLayout.fromId(profile.layout)
+        return PreferenceProfile(
+            deviceKey = profile.deviceKey,
+            deviceName = profile.deviceName,
+            runs = profile.runs.mapNotNull(::toDomain),
+            layout = layout,
+            baseLeftDb = profile.baseLeftDb.fittedTo(layout),
+            baseRightDb = profile.baseRightDb.fittedTo(layout),
+            manualBassDb = profile.manualBassDb,
+            manualTrebleDb = profile.manualTrebleDb,
+            finalCheck = runCatching { FinalCheck.valueOf(profile.finalCheck) }
+                .getOrDefault(FinalCheck.NOT_RUN),
+            createdAtMillis = profile.createdAtMillis,
+            updatedAtMillis = profile.updatedAtMillis,
+        )
+    }
+
+    /** A run with no id cannot be replaced or removed later, so it is dropped. */
+    fun toDomain(run: BackupPreferenceRun): PreferenceRun? {
+        if (run.id.isBlank()) return null
+        return PreferenceRun(
+            id = run.id,
+            label = run.label,
+            labelSource = runCatching { PreferenceLabelSource.valueOf(run.labelSource) }
+                .getOrDefault(PreferenceLabelSource.NONE),
+            createdAtMillis = run.createdAtMillis,
+            candidate = PreferenceCandidate(run.bassDb, run.trebleDb).clamped(),
+            consistency = run.consistency.coerceIn(0.0, 1.0),
+            // Not carried by the file; see [BackupPreferenceRun].
+            trials = emptyList(),
+        )
+    }
+
     private fun Map<String, Double>.toFrequencyMap(): Map<Int, Double> =
         mapNotNull { (hz, db) -> hz.toIntOrNull()?.let { it to db } }.toMap()
 
@@ -202,6 +304,9 @@ object BackupMapper {
             limiterEnabled = eq.limiterEnabled,
             autoHeadroom = eq.autoHeadroom,
             loudnessRestoration = eq.loudnessRestoration,
+            volumeAwareTilt = eq.volumeAwareTilt,
+            // No tilt gains: the layer is derived on the way to the effect from
+            // the volume that is set now. Importing zeros is not a loss.
         ).sanitized()
     }
 

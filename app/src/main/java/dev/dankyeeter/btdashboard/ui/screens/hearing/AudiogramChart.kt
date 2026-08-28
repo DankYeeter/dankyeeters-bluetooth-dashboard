@@ -70,6 +70,11 @@ fun AudiogramChart(
     showLeft: Boolean = true,
     showRight: Boolean = true,
     clinical: ClinicalAudiogram? = null,
+    /**
+     * The ISO 7029 age-typical curve, already in this chart's deviation space,
+     * or empty. One curve rather than two: the model is per person, not per ear.
+     */
+    ageReference: List<Pair<Int, Double>> = emptyList(),
 ) {
     val measurer = rememberTextMeasurer()
     val colors = MaterialTheme.colorScheme
@@ -94,10 +99,16 @@ fun AudiogramChart(
             // The clinical curve votes on the range too: a scale sized for the
             // measured points alone would flatten the overlay against the top
             // or bottom edge, which is where the comparison is being made.
-            halfRangeDb = halfRangeFor(points, reference, clinicalLeft + clinicalRight),
+            halfRangeDb = halfRangeFor(points, reference, clinicalLeft + clinicalRight + ageReference),
         )
         drawGrid(plot, axisColor, labelColor, measurer)
         drawZeroLine(plot, labelColor, measurer)
+
+        // Furthest back and faintest of the three: this one is not a
+        // measurement of anybody, so it must never compete for attention with a
+        // curve that is. Drawn in the outline colour rather than in either ear's
+        // colour, because it belongs to neither ear.
+        drawDeviationCurve(plot, ageReference, axisColor, 2.dp.toPx(), AGE_DASH, alpha = 0.7f)
 
         // Drawn before the measured curves so those stay on top: this is the
         // reference being compared against, not the subject of the chart.
@@ -117,7 +128,11 @@ fun AudiogramChart(
 }
 
 @Composable
-fun AudiogramLegend(modifier: Modifier = Modifier, showClinical: Boolean = false) {
+fun AudiogramLegend(
+    modifier: Modifier = Modifier,
+    showClinical: Boolean = false,
+    showAgeReference: Boolean = false,
+) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -128,8 +143,14 @@ fun AudiogramLegend(modifier: Modifier = Modifier, showClinical: Boolean = false
         // Only when a curve is actually drawn: a legend entry for an absent
         // line is a promise the chart does not keep.
         if (showClinical) LegendEntry(MaterialTheme.colorScheme.onSurfaceVariant, "clinic", dotted = true)
+        // Named "typical for your age" rather than "ISO 7029": the standard's
+        // number tells nobody what the line is, and the one thing that must
+        // come across is that it is other people's hearing, not yours.
+        if (showAgeReference) {
+            LegendEntry(MaterialTheme.colorScheme.outline, "typical for your age", dotted = true)
+        }
         Text(
-            if (showClinical) {
+            if (showClinical || showAgeReference) {
                 "0 = each curve's own average · above = more sensitive · shapes only, not levels"
             } else {
                 "0 = your average · above = more sensitive · hollow = not measurable"
@@ -320,6 +341,18 @@ private fun DrawScope.drawZeroLine(plot: PlotArea, labelColor: Color, measurer: 
 private val CLINICAL_DASH = PathEffect.dashPathEffect(floatArrayOf(3f, 7f))
 
 /**
+ * The dash the age reference is drawn with: long strokes, wide gaps.
+ *
+ * Deliberately unlike [CLINICAL_DASH]. Both are references rather than
+ * measurements, but they are references of completely different standing — one
+ * is a calibrated reading of these ears, the other a statistic about a
+ * population — and two curves that look alike would invite reading them as
+ * equally personal. Long dashes also read as "smooth model" next to the tight
+ * dots of a transcribed form.
+ */
+private val AGE_DASH = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
+
+/**
  * The clinical curve, already converted into the chart's deviation space.
  *
  * Dotted and without markers, because it is not a measurement this app made and
@@ -336,6 +369,8 @@ private fun DrawScope.drawDeviationCurve(
     deviations: List<Pair<Int, Double>>,
     color: Color,
     strokeWidth: Float,
+    dash: PathEffect = CLINICAL_DASH,
+    alpha: Float = 0.85f,
 ) {
     if (deviations.size < 2) return
     val path = Path()
@@ -346,8 +381,8 @@ private fun DrawScope.drawDeviationCurve(
     }
     drawPath(
         path,
-        color.copy(alpha = 0.85f),
-        style = Stroke(width = strokeWidth, pathEffect = CLINICAL_DASH),
+        color.copy(alpha = alpha),
+        style = Stroke(width = strokeWidth, pathEffect = dash),
     )
 }
 

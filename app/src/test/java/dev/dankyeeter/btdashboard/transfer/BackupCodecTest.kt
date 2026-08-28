@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.transfer
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.hearing.AgeReference
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.Audiogram
 import dev.dankyeeter.btdashboard.hearing.AudiogramRun
@@ -10,6 +11,7 @@ import dev.dankyeeter.btdashboard.hearing.CLINICAL_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ClinicalAudiogram
 import dev.dankyeeter.btdashboard.hearing.CompensationProfile
 import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
+import dev.dankyeeter.btdashboard.hearing.Iso7029Sex
 import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import kotlinx.serialization.json.Json
@@ -106,6 +108,7 @@ class BackupCodecTest {
         nowMillis = 1_700_001_000_000L,
         clinical = clinical(),
         derivedCalibrations = listOf(derivedCalibration()),
+        ageReference = AgeReference(birthYear = 1984, sex = Iso7029Sex.MALE),
     )
 
     private fun decodeOrFail(raw: String): BackupDocument =
@@ -489,5 +492,51 @@ class BackupCodecTest {
 
         assertNull(BackupMapper.toDomain(broken))
         assertNull(BackupMapper.toDomain(broken.copy(deviceKey = "")))
+    }
+
+    // ---- age reference --------------------------------------------------------
+
+    @Test
+    fun `the age reference survives the round trip`() {
+        val restored = decodeOrFail(BackupCodec.encode(document())).ageReference
+
+        assertNotNull(restored)
+        assertEquals(
+            AgeReference(birthYear = 1984, sex = Iso7029Sex.MALE),
+            BackupMapper.toDomain(restored!!),
+        )
+    }
+
+    @Test
+    fun `a file written before the age reference existed still loads`() {
+        val legacy = document().copy(ageReference = null)
+
+        assertNull(decodeOrFail(BackupCodec.encode(legacy)).ageReference)
+    }
+
+    /**
+     * A birth year is stored, never an age. An age written into a file today is
+     * a different fact next year, and the record would quietly stop describing
+     * the person it was written for.
+     */
+    @Test
+    fun `the file carries a birth year rather than an age`() {
+        val encoded = BackupCodec.encode(document())
+
+        assertTrue("the year itself must be in the file", encoded.contains("1984"))
+        assertTrue(encoded.contains("birthYear"))
+    }
+
+    @Test
+    fun `an unknown sex name degrades to unspecified rather than failing`() {
+        val odd = BackupAgeReference(birthYear = 1990, sex = "SOMETHING_ELSE")
+
+        assertEquals(Iso7029Sex.UNSPECIFIED, BackupMapper.toDomain(odd)!!.sex)
+    }
+
+    @Test
+    fun `a missing birth year is no age reference, not a person born in year zero`() {
+        assertNull(BackupMapper.toDomain(BackupAgeReference()))
+        assertNull(BackupMapper.toDomain(BackupAgeReference(birthYear = -5)))
     }
 }

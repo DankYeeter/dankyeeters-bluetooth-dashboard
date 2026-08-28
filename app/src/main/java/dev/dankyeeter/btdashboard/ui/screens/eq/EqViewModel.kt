@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeSource
+import dev.dankyeeter.btdashboard.audio.eq.withVolumeTilt
 import dev.dankyeeter.btdashboard.hearing.AncMode
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
 import dev.dankyeeter.btdashboard.hearing.Audiogram
@@ -164,7 +166,16 @@ data class CompensationUiState(
             (effectiveSource == CompensationSource.CLINICAL && activeAudiogram != null)
 }
 
-class EqViewModel : ViewModel() {
+/**
+ * @param mediaVolume where the volume-aware tilt reads the listening level
+ *   from. Injectable — with a default that is the process-wide monitor — so the
+ *   rule "a volume change re-derives the gains" can be tested by moving a
+ *   number, rather than by standing up an `AudioManager` and hoping the test
+ *   framework delivers a settings notification.
+ */
+class EqViewModel(
+    private val mediaVolume: MediaVolumeSource = SystemGraph.mediaVolume,
+) : ViewModel() {
 
     private val store = SystemGraph.settingsStore
     private val controller = SystemGraph.eqController
@@ -194,10 +205,31 @@ class EqViewModel : ViewModel() {
     init {
         viewModelScope.launch {
             store.settings.collect { loaded ->
-                _settings.value = loaded
+                // The stored curve arrives without its tilt layer — the layer is
+                // derived, not persisted — so it is filled in here, before
+                // anything reads the settings or compares them against a
+                // preview. Sanitised with it, because a tilt without the
+                // headroom it costs is not a state this screen may show.
+                _settings.value = withTilt(loaded).sanitized()
                 _compensation.value = _compensation.value.withAppliedFlag(loaded)
                 settingsLoaded = true
                 syncGeneratedCurve()
+            }
+        }
+        viewModelScope.launch {
+            // The volume moved: re-derive the tilt and push it, without saving.
+            // Saving would be wrong twice over — the layer is not persisted, and
+            // a DataStore write per volume step is a write nobody asked for.
+            mediaVolume.fraction.collect { fraction ->
+                val current = _settings.value
+                if (!current.volumeAwareTilt) return@collect
+                val next = withTilt(current, fraction).sanitized()
+                // Quantised gains mean most steps land on the curve that is
+                // already playing; comparing keeps those steps silent instead of
+                // rewriting every band of a live effect.
+                if (next == current) return@collect
+                _settings.value = next
+                pushLive(effective(next, _bypass.value))
             }
         }
         viewModelScope.launch {
@@ -348,6 +380,16 @@ class EqViewModel : ViewModel() {
             ),
         )
     }
+
+    /**
+     * Switches the ISO 226 volume-aware tilt on or off.
+     *
+     * Nothing else to do: [commit] derives the layer for the volume that is set
+     * right now, and switching off writes it back as zeros, so the effect
+     * returns to exactly the curve it had before.
+     */
+    fun setVolumeAwareTilt(enabled: Boolean) =
+        commit(_settings.value.copy(volumeAwareTilt = enabled))
 
     /**
      * Turns the automatic headroom on or off, and sets the pre-gain to match.
@@ -640,8 +682,30 @@ class EqViewModel : ViewModel() {
         return copy(applied = same)
     }
 
+    /**
+     * The tilt layer for [value], derived from the media volume.
+     *
+     * Every path that changes the settings goes through here, which is what
+     * keeps the derived layer in step with the layout, the switch and the
+     * volume at the same time — a layout change alone would otherwise leave a
+     * tilt list of the wrong length behind, and the model refuses that outright.
+     */
+    private fun withTilt(value: EqSettings, fraction: Float = mediaVolume.fraction.value): EqSettings {
+        val tilted = value.withVolumeTilt(fraction)
+        if (tilted.tiltGainsDb == value.tiltGainsDb || !tilted.autoHeadroom) return tilted
+        // The tilt just changed size, so the headroom it bought has to be
+        // recomputed rather than kept. `sanitized()` only ever *deepens* the
+        // pre-gain — that is deliberate, so a manually set headroom survives a
+        // slider drag — which means turning the volume back up, or switching the
+        // feature off, would otherwise leave the music 12 dB down with nothing
+        // boosted to justify it. Zeroing here lets sanitized() derive the
+        // correct value from the curve that is actually playing; every other
+        // path still keeps whatever headroom it had.
+        return tilted.copy(preGainDb = 0f)
+    }
+
     private fun commit(value: EqSettings) {
-        val clean = value.sanitized()
+        val clean = withTilt(value).sanitized()
         val layoutChanged = clean.layout != _settings.value.layout
         _settings.value = clean
         // A layout change invalidates the cached preview: it was computed for
@@ -661,9 +725,13 @@ class EqViewModel : ViewModel() {
         // comparison being made, and leaves the EQ dead when the rebuild fails.
         // The same omission dropped autoHeadroom and loudnessRestoration, the
         // two fields the matched-loudness claim below actually rests on.
+        // The tilt goes flat with the bands. "Compare with EQ off" promises the
+        // music untouched, and a correction that survived the comparison would
+        // be on both sides of it.
         if (!bypass) value else value.copy(
             leftGainsDb = List(value.layout.bandCount) { 0f },
             rightGainsDb = List(value.layout.bandCount) { 0f },
+            tiltGainsDb = List(value.layout.bandCount) { 0f },
         )
 
     private fun pushLive(value: EqSettings) {

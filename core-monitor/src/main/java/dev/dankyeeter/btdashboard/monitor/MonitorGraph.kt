@@ -284,7 +284,15 @@ object MonitorGraph {
             // stack's own bitrate field, and the learned bands it used to
             // consult were measured off a counter that turned out not to be a
             // packet counter. See CodecModeCalibrator.
-            _liveLink ?: LiveLinkSource(shell).also { _liveLink = it }
+            //
+            // The starvation sink resolves `repository` per call rather than
+            // capturing it, for the reason [shell] documents at length: this
+            // object is built lazily by whichever caller touches it first, and
+            // that is not guaranteed to be after the database exists.
+            _liveLink ?: LiveLinkSource(
+                shell = shell,
+                onStarvationCaptured = { report -> repository.recordStarvation(report) },
+            ).also { _liveLink = it }
         }
 
     /**

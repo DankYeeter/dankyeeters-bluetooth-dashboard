@@ -551,6 +551,22 @@ data class A2dpTxDelta(
         get() = if (windowMs > 0) enqueued * 1000.0 / windowMs else null
 
     /**
+     * DERIVED: encoder underflows per second across the window.
+     *
+     * The only honest way to state this counter. [underflows] on its own is a
+     * difference over whatever window the poll happened to cover, and the poll
+     * interval is a parameter the user can change — so "3 underflows" means
+     * something different at 500 ms than at 2 s, while "1.5 per second" means
+     * the same thing at both. Null when the window is degenerate, never zero:
+     * a window of no duration has no rate.
+     *
+     * This is what `EncoderStarvationTripwire` triggers on. The rate measured
+     * during the 2026-08-28 incident was about 49/s; a healthy link sits at 0.
+     */
+    val underflowsPerSecond: Double?
+        get() = if (windowMs > 0) underflows * 1000.0 / windowMs else null
+
+    /**
      * DERIVED: codec frames per second across the window.
      *
      * A *frame* rate, and mode-independent by construction: LDAC's frame is a

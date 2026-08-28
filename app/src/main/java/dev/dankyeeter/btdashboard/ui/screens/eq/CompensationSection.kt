@@ -84,15 +84,12 @@ internal fun CompensationSection(
     Panel(modifier) {
         ExplainedHeader(
             "Tuned to your hearing",
-            "Your sound profile shows which frequencies you hear less well. This " +
-                "lifts exactly those, so quiet detail comes back without making " +
-                "everything else louder. It is built from your test automatically — " +
-                "the controls below only decide how far it goes. When the generated " +
-                "curve is active the EQ moves to " +
-                "${AdjustedReference.LAYOUT.bandCount} bands: on the coarser default " +
-                "grid, two of the eight tones you were tested at — 3 kHz and 6 kHz, " +
-                "where age and loud noise show up first — fall between the bands and " +
-                "never reach the sound at all.",
+            "Your sound profile shows which frequencies you hear less well, and this " +
+                "lifts exactly those. It is built from your test automatically — the " +
+                "controls below only decide how far it goes. The generated curve moves " +
+                "the EQ to ${AdjustedReference.LAYOUT.bandCount} bands, because on the " +
+                "coarser default grid the 3 kHz and 6 kHz tones you were tested at fall " +
+                "between the bands and never reach the sound at all.",
         )
 
         AudiogramSummary(state)
@@ -166,11 +163,10 @@ private fun SevereLossNotice() {
         "Beyond what an EQ can fix",
         "Correcting a loss this large needs gain that would clip the music long " +
             "before it restored the detail, and level alone does not bring back " +
-            "clarity once the sensory cells are gone. An equaliser is the wrong " +
-            "instrument for it — a fitted hearing aid compresses loudness rather " +
-            "than just raising it, which is the part that is missing here. What " +
-            "this app can still do is make the quietest detail audible: keep the " +
-            "strength low and judge it by ear.",
+            "clarity once the sensory cells are gone. A fitted hearing aid " +
+            "compresses loudness rather than just raising it, which is the part " +
+            "missing here. What this app can still do is make the quietest detail " +
+            "audible: keep the strength low and judge it by ear.",
     )
     Text(
         "Your thresholds are past what an EQ can correct. What is applied below " +
@@ -219,18 +215,13 @@ private fun SourceChoice(state: CompensationUiState, onSelect: (CompensationSour
     ExplainedBlock(
         label = "Threshold source",
         explanation = "The hearing test in this app plays tones through your headphones at " +
-            "whatever volume you had set, so its numbers only mean something next to each " +
-            "other — it measures the shape of your hearing honestly and its level not at " +
-            "all. What it does know is your headphones, and the correction it produces is " +
-            "for the pair of ears and drivers together.\n\n" +
-            "A clinical audiogram is the other way round. It is calibrated, so 20 dB HL " +
-            "means the same thing at a practice in another city, and the rule this app " +
-            "follows (NAL-R) was written for exactly those numbers — they go in " +
-            "unconverted. But it says nothing about your headphones, so no device " +
-            "calibration is applied and nothing corrects for the driver.\n\n" +
+            "whatever volume you had set: it measures the shape of your hearing honestly " +
+            "and its level not at all, but it does know your headphones.\n\n" +
+            "A clinical audiogram is the other way round — calibrated, and the rule this " +
+            "app follows (NAL-R) was written for exactly those numbers, but it says " +
+            "nothing about your headphones, so no device calibration is applied.\n\n" +
             "If the two disagree at the low frequencies, the clinic is almost certainly " +
-            "right: a leaking seal and a noisy room both cost bass, and neither exists in " +
-            "a sound booth.",
+            "right: a leaking seal and a noisy room both cost bass.",
     ) { toggle ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             PanelHeader("Threshold source")
@@ -271,18 +262,13 @@ private fun NothingToCorrectNotice() {
         "Nothing to correct",
         "Anything up to 20 dB HL is normal hearing, and your audiogram is flat inside " +
             "that. NAL-R is a prescription for hearing loss: with no loss and no tilt, " +
-            "the honest output is a flat correction, so that is what you get.\n\n" +
-            "Fed 10 dB HL literally the formula would still return two to four " +
-            "decibels — but look at where those come from. They are the rule's own " +
-            "speech-spectrum weighting, the same constant for every listener, and once " +
-            "the automatic headroom has removed the overall level all that is left of " +
-            "it is a few dB of bass cut that says nothing whatever about your ears. " +
-            "Applying that would be inventing a correction, and inventing one is worse " +
-            "than applying none.\n\n" +
+            "the honest output is a flat correction. What the formula would still " +
+            "return at that level is its own speech-spectrum weighting, the same " +
+            "constant for every listener, and applying that would be inventing a " +
+            "correction.\n\n" +
             "Loudness restoration is the control that does something for ears like " +
             "yours: it lifts quiet passages towards the loud ones instead of lifting " +
-            "one part of the spectrum, so detail that was sitting below the noise of " +
-            "the room becomes audible without the tonal balance moving.",
+            "one part of the spectrum.",
     )
     Text(
         "Your clinical audiogram is flat — there is nothing to correct. Loudness " +
@@ -313,9 +299,8 @@ private fun CalibrationRow(state: CompensationUiState) {
         explanation = "Every headphone colours the test tones before they reach your " +
             "ear, so a threshold measured through one is not the same number " +
             "measured through another. A calibration preset subtracts that " +
-            "colouring, which is what makes the correction about your ears rather " +
-            "than about the driver. Presets are set per headphone under Devices; " +
-            "without one the test result is used raw.",
+            "colouring. Presets are set per headphone under Devices; without one " +
+            "the test result is used raw.",
     ) { toggle ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Device calibration", style = MaterialTheme.typography.bodyLarge)
@@ -371,18 +356,10 @@ private fun IntensityControl(
             "(NAL-R) asks for about half a decibel of lift per decibel of " +
             "measured loss, so 100 % here makes up roughly 46 % of what you " +
             "measured, and the 60 % it starts at lands near 28 %.\n\n" +
-            "That gap is the point, not a shortcoming. Restoring a loss in " +
-            "full over-lifts everything that was already audible: quiet detail " +
-            "comes back, but loud passages turn harsh, because a damaged ear's " +
-            "loudness grows faster with level than a healthy one's, not slower. " +
-            "When the same laboratory later measured its own prescriptions " +
-            "against real listeners, the numbers moved down rather than up — " +
-            "nearly half of the people tested wanted less gain than the theory " +
-            "called for.\n\n" +
-            "So the slider is taste inside a range that stays sane at both ends. " +
-            "Judge it with \"Compare with EQ off\" rather than by the number, and " +
-            "give a change a few days: a setting that felt right on day one often " +
-            "feels thin by day five.",
+            "That gap is the point: restoring a loss in full over-lifts everything " +
+            "that was already audible, and real listeners tested against the " +
+            "prescription wanted less gain, not more. Judge it with \"Compare with " +
+            "EQ off\" rather than by the number, and give a change a few days.",
     ) { toggle ->
         // The percentage is the number this whole section is about, so it gets
         // the app's readout treatment instead of sitting at label size on the

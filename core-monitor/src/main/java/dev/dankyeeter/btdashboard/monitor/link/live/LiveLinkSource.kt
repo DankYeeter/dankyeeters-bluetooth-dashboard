@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.monitor.link.live
 
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -57,6 +58,18 @@ import kotlinx.coroutines.isActive
 class LiveLinkSource(
     private val shell: ShellRunner,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Where a tripped forensic capture is persisted, if anywhere.
+     *
+     * A lambda rather than a repository dependency because this module's poller
+     * has no business knowing about storage, and because the default — do
+     * nothing — is what every test and every ad-hoc construction wants. The one
+     * caller that fills it in is `MonitorGraph`, which owns the database.
+     *
+     * Failures here are swallowed: a database that cannot be written must not
+     * take the live view down with it. The event still reaches the timeline.
+     */
+    private val onStarvationCaptured: suspend (EncoderStarvationReport) -> Unit = {},
 ) {
 
     val isAvailable: Boolean get() = shell.isAvailable
@@ -72,18 +85,51 @@ class LiveLinkSource(
     private val bitrate = MeasuredBitrateTracker()
 
     /**
+     * The encoder-starvation detector.
+     *
+     * Fed from [updates] only, never from [readOnce]. That split is deliberate:
+     * `readOnce` is also used by `CodecModeCalibrator`, which *renegotiates the
+     * codec on purpose* and restarts the A2DP stream several times in a row —
+     * exactly the kind of burst the tripwire is built to ignore, and exactly the
+     * kind it would mistake for the real thing if it were advanced there.
+     * Detection belongs to the poll loop because only the poll loop is a series
+     * of comparable, evenly spaced observations of one link.
+     */
+    private val starvation = EncoderStarvationTripwire()
+
+    /**
+     * One poll, with the raw dumps it was built from still attached.
+     *
+     * The dumps are kept only for the length of a pass, and only so that a
+     * tripped capture can be taken from the *same* text the reading came from
+     * rather than from a fresh exec half a second later.
+     */
+    private data class LivePass(
+        val snapshot: LinkLiveSnapshot,
+        val flingerDump: String,
+        val audioDump: String,
+    )
+
+    /**
      * One complete reading.
      *
      * [previous] is what the deltas are measured against. Passing null — the
      * first poll of a session — yields a snapshot with counters but no deltas,
      * which is the honest result: a cumulative total says nothing about now.
      */
-    suspend fun readOnce(previous: LinkLiveSnapshot? = null): LinkLiveSnapshot {
+    suspend fun readOnce(previous: LinkLiveSnapshot? = null): LinkLiveSnapshot =
+        readPass(previous).snapshot
+
+    private suspend fun readPass(previous: LinkLiveSnapshot?): LivePass {
         val now = clock()
         if (!shell.isAvailable) {
-            return LinkLiveSnapshot(
-                timestampMs = now,
-                warnings = listOf("no shell identity — the helper is not running"),
+            return LivePass(
+                snapshot = LinkLiveSnapshot(
+                    timestampMs = now,
+                    warnings = listOf("no shell identity — the helper is not running"),
+                ),
+                flingerDump = "",
+                audioDump = "",
             )
         }
 
@@ -134,18 +180,22 @@ class LiveLinkSource(
         val tx = link.tx?.takeIf { observability == LinkObservability.HOST_ENCODED }
         val delta = txDelta(previous, tx, now)
 
-        return LinkLiveSnapshot(
-            timestampMs = now,
-            device = link.device,
-            codec = link.codec,
-            ldac = ldac,
-            modeInference = inferMode(link.codec, link.ldacStack, observability),
-            observability = observability,
-            tx = tx,
-            txDelta = delta,
-            inputs = inputs,
-            mixer = mixer,
-            warnings = warnings,
+        return LivePass(
+            snapshot = LinkLiveSnapshot(
+                timestampMs = now,
+                device = link.device,
+                codec = link.codec,
+                ldac = ldac,
+                modeInference = inferMode(link.codec, link.ldacStack, observability),
+                observability = observability,
+                tx = tx,
+                txDelta = delta,
+                inputs = inputs,
+                mixer = mixer,
+                warnings = warnings,
+            ),
+            flingerDump = flingerDump,
+            audioDump = audioDump,
         )
     }
 
@@ -191,13 +241,61 @@ class LiveLinkSource(
         var previous: LinkLiveSnapshot? = null
         while (currentCoroutineContext().isActive) {
             val startedAt = clock()
-            val snapshot = readOnce(previous)
-            val events = previous?.let { eventsBetween(it, snapshot) }.orEmpty()
+            val pass = readPass(previous)
+            val snapshot = pass.snapshot
+            val events = previous?.let { eventsBetween(it, snapshot) }.orEmpty() +
+                listOfNotNull(starvationEvent(pass))
             emit(LinkLiveUpdate(snapshot, events))
             previous = snapshot
             val spent = clock() - startedAt
             delay((intervalMs - spent).coerceAtLeast(MIN_INTERVAL_MS))
         }
+    }
+
+    /**
+     * Runs the encoder-starvation tripwire over one pass and, on a trip, takes
+     * the forensic capture.
+     *
+     * Unlike everything in [eventsBetween] this is not a difference between two
+     * snapshots — it is a *run* of them, and it needs the raw dumps of the
+     * current one — so it lives here rather than there. It is also the only
+     * place in this class that writes anywhere, which is why the write is
+     * fenced off from the loop: a failing sink must cost one lost record, not
+     * the live view.
+     */
+    private suspend fun starvationEvent(pass: LivePass): LinkEvent.EncoderStarvation? {
+        val snapshot = pass.snapshot
+        val delta = snapshot.txDelta
+        val sustainedPasses = starvation.onPass(snapshot.timestampMs, delta) ?: return null
+        val rate = delta?.underflowsPerSecond ?: return null
+
+        val report = EncoderStarvationReport(
+            timestampMs = snapshot.timestampMs,
+            deviceAddress = snapshot.device?.address,
+            deviceName = snapshot.device?.name,
+            underflowsPerSecond = rate,
+            windowMs = delta.windowMs,
+            sustainedPasses = sustainedPasses,
+            forensics = EncoderStarvationForensics.capture(pass.flingerDump, pass.audioDump),
+        )
+        // A sink that throws must not end the poll loop, and it must not go
+        // unmentioned either: a capture nobody can read later is worth exactly
+        // as much as no capture, so the failure is appended to the line the
+        // user sees rather than logged where nothing will look for it.
+        var storageFailure: String? = null
+        try {
+            onStarvationCaptured(report)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (t: Throwable) {
+            storageFailure = t.javaClass.simpleName
+        }
+        return LinkEvent.EncoderStarvation(
+            timestampMs = report.timestampMs,
+            report = report,
+            detail = report.detail +
+                (storageFailure?.let { " (this capture could not be saved: $it)" } ?: ""),
+        )
     }
 
     private suspend fun read(command: List<String>, warnings: MutableList<String>): String {

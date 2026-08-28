@@ -125,8 +125,8 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
         ExplainedHeader(
             "App helper",
             "Android does not let an ordinary app equalize other apps' audio, or read " +
-                "what the Bluetooth stack negotiated. Both need a shell-level identity. " +
-                "The helper runs at shell level — uid 2000, the same access adb shell " +
+                "what the Bluetooth stack negotiated. Both need a shell-level identity, " +
+                "which is what the helper runs at — uid 2000, the same access adb shell " +
                 "has. Not root.",
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -140,10 +140,9 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
 
         ExplainedHeader(
             "Starting the helper",
-            "The helper runs at shell level, which only Android's debugging service " +
-                "can grant. The app pairs with that service on this phone. If pairing " +
-                "cannot be used, the same command can be run from a computer with " +
-                "ADB — the copyable line is below.",
+            "Shell level is something only Android's debugging service can grant, and " +
+                "the app pairs with that service on this phone. If pairing cannot be " +
+                "used, the same command can be run from a computer with ADB.",
         )
         // The one activation control the app has, not a second copy of it: the
         // gate, the setup process and this screen must offer the same thing, or
@@ -184,9 +183,8 @@ private fun HelperPanel(running: Boolean, adbCommand: String, onNewCommand: () -
             // and the hand-over accepted. Saying "this revokes the old token"
             // would be wrong on both halves.
             explanation = "For when you consider the token in the command above " +
-                "compromised. The old line stops being accepted. A helper that is " +
-                "already running is not affected — it keeps serving until you run the " +
-                "new command.",
+                "compromised. The old line stops being accepted; a helper that is " +
+                "already running keeps serving until you run the new command.",
             control = {
                 GoldOutlinedButton(onClick = onNewCommand) { Text("Replace the command") }
             },
@@ -235,8 +233,8 @@ private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolea
             body = "Without the helper the codec reads as unknown.",
             explanation = "Android only reports the negotiated codec to apps holding " +
                 "BLUETOOTH_PRIVILEGED, which no sideloaded app has. The fallback reads " +
-                "it out of a dumpsys of the Bluetooth stack, and that needs the shell. " +
-                "Without it the screen says unknown rather than guessing.",
+                "it out of a dumpsys of the Bluetooth stack, which needs the shell — " +
+                "without it the screen says unknown rather than guessing.",
         )
 
         PanelDivider()
@@ -248,9 +246,8 @@ private fun CapabilityPanel(attachment: AttachmentStatus, shellAvailable: Boolea
             body = "Without the helper this check cannot run, so it never reports " +
                 "all-clear.",
             explanation = "Another equalizer stacking on top of this one silently undoes " +
-                "the curve. Finding one means dumping audio_flinger's effect chains, " +
-                "which needs the shell — so without it the check reports that it cannot " +
-                "check, never an all-clear it did not earn.",
+                "the curve, and finding one needs the shell. Without it the check " +
+                "reports that it cannot check, never an all-clear it did not earn.",
         )
     }
 }
@@ -344,8 +341,7 @@ private fun HeadphoneAppPanel() {
             "Headphone-side equalizers",
             "That equalizer runs in the headphone's own DSP, after Bluetooth " +
                 "transmission, so it adds to ours instead of replacing it — and no app " +
-                "on Android can read or change it. This app never modifies another " +
-                "app's stored settings.",
+                "on Android can read or change it.",
         )
         Text(
             "Some headphone apps have their own equalizer inside the headphone. Set " +
