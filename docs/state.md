@@ -130,6 +130,49 @@ Leitgroesse.**
 **M-5** (Ruherate ueber >= 30 min ABR) — die einzige Messung, die einen
 gesetzten Wert wieder umwerfen kann.
 
+### Nachtrag: die vier Entscheidungen des App Designers (01.09. spaet)
+
+1. **Bitratenverlauf als Graph** statt laufender Verweildauer in der Zeile.
+   Befund dazu: **Die Linie existiert bereits** (`TracePoint.bitrateKbps`,
+   MEASURED, wird vom Ueberblicksgraphen gezeichnet) — sie war nur **falsch
+   gezeichnet**, weil sie ein Kontinuum behauptet, wo eine Leiter ist. Kein
+   neuer Graph, acht Regeln G-1..G-8. Tragend: **G-1 Treppe statt Kurve**,
+   **G-2 keine Glaettung** (bei mehr Lesungen als Pixelspalten Min/Max je
+   Spalte, nie Mittelwert — der aussagekraeftigste Punkt des Projekts ist
+   **eine einzige Lesung**), **G-4 die Luecke wird nicht als Wissen
+   gezeichnet**. Frage 1 ist damit gegenstandslos, nicht entschieden.
+2. Aufraeum-Sichtbarkeit **nur wenn schon ein Helper lief** — umgesetzt mit
+   drei Zweigen (verbunden / Gedaechtnis / bekannter Restdateiname
+   oeffenbar). **Bekannte Grenze fuer den `architect` (AD-011, R1-Familie):**
+   Wer neu installiert hat und ausschliesslich Reste unter Namen aelterer
+   Versionen besitzt, sieht nichts.
+3. Knopf heisst **„Stop the helper"**, Aufraeumen generell integriert.
+   Gehalt davon: **Stufe 3 („cannot check" fuer aeltere Dateien) wird zur
+   Standzeile** statt Aktionsergebnis — eine Wissensgrenze, die man erst
+   durch eine Aktion zu sehen bekommt, ist als Wissensgrenze nichts wert.
+4. Hoerbarkeitspunkte **nicht** in der App. Der Einwand des App Designers
+   („ich hatte nur bei weniger Bitrate null") ist ein echter Befund: **die
+   zwei Kalibrierpunkte sind konfundiert** — 0 Dropouts gab es nur bei
+   492/660, 13 nur bei 990. Belegt ist „990 gepinnt klingt kaputt, adaptiv
+   nicht", **nicht** „13/min sind hoerbar, unabhaengig von der Stufe".
+   Das Wort „audible" kommt in der Oberflaeche nicht mehr vor (AK-T009-43
+   macht daraus eine Grep-Regel).
+
+**Wichtigste offene Luecke, neu und schwerwiegend: M-11 ist derzeit nicht
+messbar.** Zwischenpunkte der Hoerbarkeit muessten bei **gleicher** Stufe
+erhoben werden — der einzige bekannte Hebel, der ueberhaupt Dropouts
+erzeugt, ist das Pinnen auf 990, und das aendert die Stufe per
+Konstruktion. Solange kein Verfahren gefunden ist, ist **R-E dauerhaft**,
+nicht vorlaeufig.
+
+Zwei **Selbstkorrekturen** der Rolle an eigenen Parametern:
+`LADDER_WINDOW_MS` 180 000 → 60 000 (Rechenfehler in der eigenen
+Begruendung), und `LADDER_SETTLING_RATE_PER_MIN` zurueckgezogen zugunsten
+von `LADDER_SETTLING_MIN_DISTINCT_STEPS` = 3 in 20 s — ein gleitendes
+60-s-Fenster haette ein 18,5-s-Einschwingen dreimal so lang gemeldet, wie
+es dauert. Benannte Erkennungsluecke: schnelles Pendeln zwischen **zwei**
+benachbarten Stufen faengt die Regel nicht (nie gemessen, M-9 erweitert).
+
 ## T-008 vierte Zelle: INCONCLUSIVE, Arm konfundiert
 
 WLAN wurde um 22:34:53 eingeschaltet und lief waehrend **beider** Arme;
