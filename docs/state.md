@@ -96,12 +96,70 @@ A6–A16 in `security/findings.md`, Schrittfolge **U-0..U-6**.
   beide Rollen informiert. Folge: **A16 darf nicht am Dateimodus haengen**,
   sondern daran, dass keine Datei dieser Form mehr existiert.
 
+## T-009 geliefert: UI_SPEC hat die richtige Leitgroesse
+
+**Zwei Regime, zwei Groessen, ausdruecklich keine gemeinsame Ampel.**
+Normalbetrieb → ABR-Stufe/Verweildauer/Anteile (ersetzt `rateLine()` an
+Ort und Stelle); Ueberlast → `dropped`/`dropouts` je Minute. Underflow
+verliert die Hauptrolle und darf kein Verdikt mehr tragen; `dropouts` ist
+der **einzige** Kanal mit Kalibrierpunkt in beide Richtungen.
+
+- **Sechs der neun offenen Parameter gesetzt**, einer als Formel, zwei je
+  Kanal geteilt; vier neue Parameter gesetzt. Jeder Wert traegt seine
+  Messung. `LOSS_ALERT_RATE_PER_MIN[dropouts]` = **12/min** (nicht 13,
+  sonst rutscht der belegte Fall in der Haelfte der Fenster durch).
+- **14 neue Akzeptanzkriterien AK-T009-24..37**, vier bestehende
+  praezisiert, 19 wortgleich. AK-T009-24 ist der Regressionstest gegen den
+  Befund selbst: underflow=0 **und** 21 dropouts/97 s muss `DISTURBED`
+  ergeben — die T-002-Fassung haette Arm B als einwandfrei gemeldet.
+- **R-E:** Fuer Raten echt zwischen 0 und 12/min sind auch abstufende
+  Woerter („minor", „slight", „probably inaudible") und jedes mehrstufige
+  Bildzeichen verboten. Eine Abstufung ist eine Kurve durch zwei Punkte.
+- **Aussagerahmen der Aufraeum-Aktion** festgelegt: drei Stufen, immer
+  alle sichtbar, keine Summenzeile. Nach dem Beenden steht der Monitor auf
+  `CANNOT_TELL`, nie auf `CLEAN` (AK-T009-37).
+
+**Datenweg-Befund fuer den `developer` (D-11):**
+`A2dpLinkDumpParser.kt:401-404` liest die `LDAC adaptive bit rate`-Zeilen
+(Index und `adjustments`) **gar nicht** — genau die Groessen, auf denen
+T-007 und T-008 durchgehend ausgewertet haben. Ohne sie unterzaehlt jede
+Wechselrate systematisch. **Das ist Voraussetzung fuer die neue
+Leitgroesse.**
+
+**Neue Messauftraege M-5..M-11** aus offenen Parametern; wichtigster:
+**M-5** (Ruherate ueber >= 30 min ABR) — die einzige Messung, die einen
+gesetzten Wert wieder umwerfen kann.
+
+## T-008 vierte Zelle: INCONCLUSIVE, Arm konfundiert
+
+WLAN wurde um 22:34:53 eingeschaltet und lief waehrend **beider** Arme;
+alle Vergleichsarme liefen mit WLAN **aus**. Zwei Variablen gleichzeitig
+geaendert, entgegengesetzt wirkend. Zusaetzlich statistisch kein Urteil:
+die beiden Paarvergleiche zeigen **gegenlaeufig** (-12,6 % / +4,2 %), und
+die Streuung innerhalb der Bedingung (17,2 %) uebersteigt den Unterschied
+zwischen den Bedingungen um das Vierfache.
+
+**Hoereindruck des App Designers deckt sich:** „vielleicht eine Spur
+weniger, nicht aussagekraeftig genug weniger, immer noch viel zu oft."
+
+**Was den Konfundierer ueberlebt:** Bei 990 liegt die Verlustrate in
+**allen vier** Armen in derselben Groessenordnung (284–337 Drops/min,
+11–13 Dropouts/min) — quer ueber zwei Scanner-Konfigurationen und beide
+WLAN-Zustaende. Nichts, was angefasst wurde, hat die Groessenordnung
+verschoben. Das stuetzt **„990 ist fuer diese Strecke schlicht zu
+schnell"** gegenueber einer bestimmten Funkstoerung. **Evidenzniveau:
+plausibel, nicht belegt** — die stoerungsfreie Vergleichsbedingung fehlt.
+
+**Verfahrensregel verschaerft:** Read-back deckt kuenftig das
+**vollstaendige** Zustandsbuch ab, nicht nur die geaenderte Variable.
+
 ## Laufende Auftraege
 
 | ID | Rolle | Thema | Status |
 |---|---|---|---|
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen; **vor** dem Transport-Messlauf (U-6/S-6), sonst konfundiert |
-| T-002 | ui-ux-designer | UI_SPEC | **Neuauftrag faellig** — beide Kalibrierpunkte einarbeiten |
+| T-002 | ui-ux-designer | UI_SPEC | abgeloest durch T-009 |
+| T-009 | ui-ux-designer | UI_SPEC neue Leitgroesse | **geliefert**; naechster Schritt: `developer` (D-11 Parser + AK-T009-24) |
 | T-005 | architect | Scan-Entwurf | geliefert; wartet auf Nutzerentscheidungen 1–6 |
 | T-006 | architect → developer | Transport SR-001/SR-009 | Entwurf **abgenommen**; Umsetzung braucht Geraet + Toolchain (U-0) |
 | T-007 | researcher + tuner | Deep-Dive | geliefert |
