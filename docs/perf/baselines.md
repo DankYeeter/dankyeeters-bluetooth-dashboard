@@ -120,3 +120,72 @@ Telefon in `dumpsys bluetooth_manager`.
 
 
 
+---
+
+## Szenario: LDAC-Wiedergabe, App DEINSTALLIERT, WLAN aus — Pixel 11 Pro
+
+**Neuer Abschnitt, nicht mit Block 1 vermischen.** Das Szenario unterscheidet
+sich in drei Punkten vom Szenario oben, jeder davon reicht fuer eine eigene
+Tabelle: die App ist **deinstalliert** (statt force-stopped), **WLAN ist aus**
+(`Wi-Fi is disabled`), und die Verlustzaehler werden **waehrend** des Laufs
+abgetastet (100 bzw. 160 `bluetooth_manager`-Dumps statt 2).
+
+**Definition:**
+
+- Geraet: Pixel 11 Pro `67011FDKX004XG`, Android 17 (SDK 37), am Kabel,
+  Bildschirm an, `mIsPowered=true`.
+- Kopfhoerer: derselbe wie oben, A2DP/LDAC, `Rate=96000 Bits=32 Mode=STEREO`,
+  Quality-Mode `ABR`, **Encoder-Interval 20 ms, Effective MTU 883**.
+- Kodierung host-seitig (in T-007 fuenffach belegt, s. `T-007-aufnahme.md` 2.2).
+- Player: TIDAL, Quelle 48 kHz Stereo; Mixer-Thread ist der
+  **Spatializer-Thread** (96 kHz, 5.1-Maske) — Spatial Audio fuer dieses
+  A2DP-Geraet aktiviert, Effekt selbst `IDLE`.
+- Umgebung: 3 gleichzeitige aktive BLE-Scans (GMS), 56 sichtbare BLE-Geraete,
+  `Thermal Status: 1` (light throttling).
+- Kein Codec-Pinning, keine veraenderten Entwickleroptionen.
+
+**Neue Metrik gegenueber Block 1:** `ABR-Stufen` = beobachtete
+LDAC-Bitratenstufen, `ABR-Adj/min` = Zuwachs von
+`LDAC adaptive bit rate adjustments`.
+
+| Datum | Commit | Umgebung | Lauf | Kadenz | Dauer | uflow/min | Dropouts | enqOvd/min | deqOvd/min | ABR-Stufen | ABR-Adj/min | Budget | Notiz |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-01 | 9796b84 (Repo; App nicht installiert) | Pixel 11 Pro, warm, App deinstalliert, WLAN aus | A | 1459 ms | 144,4 s | **0** | 0 | 2579,2 | 1979,2 | 492/660 | — | **ja** | T-007 Referenzarm AK-1 |
+| 2026-09-01 | 9796b84 | dito | B | 1443 ms | 101,0 s | **0** | 0 | — | — | 492/660 (50/50) | 5,3 | nein | Stufen-/Bitratenreihe |
+| 2026-09-01 | 9796b84 | dito | C | 459 ms | 73,1 s | **0** | 0 | — | — | 492/660 | 4,9 | nein | Hochaufloesung, 33 % Duty |
+
+**Befund:**
+
+1. **Null Verlustereignisse ueber 318 s kumuliert** in allen drei Laeufen:
+   keine Underflows, keine Dropouts, keine Drops, keine Flushes.
+   `LDAC saved transmit queue length` war in 260 von 262 Samples 0.
+   Nach der Untergrenzen-Regel oben ist diese Bedingung **am Boden** — hier
+   ist durch Optimierung nichts zu gewinnen.
+2. **Kein periodisches Muster bei ~3 s.** Autokorrelation des
+   Enqueue-Raten-Residuums aus Lauf C (459 ms, n=160): r = −0,022 bei 2,76 s
+   und r = +0,008 bei 3,22 s, gegen ein Signifikanzband von ±0,159.
+   **Wichtig:** das Geraet faehrt in diesem Szenario nie die 990er Stufe. Die
+   Aussage gilt fuer 492/660 kbps und widerlegt den T-005-Befund **nicht**.
+3. **Der eigentliche Fund ist eine Bitratenschaukel.** ABR pendelt zwischen
+   genau zwei Stufen (660 kbps / Index 1 und 492 kbps / Index 3), 50/50, alle
+   ~11 s eine Anpassung. Die 492er-Phasen dauern dreimal exakt 15,8 s (fester
+   Haltetimer), die 660er-Phasen unregelmaessig (2,9–28,8 s). Die beiden
+   einzigen Samples mit `SavedTxQueue != 0` liegen genau auf Abstiegen
+   660 → 492. **Der Encoder verliert nichts, weil er vorher nachgibt — der
+   Qualitaetsverlust steht in der Bitrate, nicht in den Verlustzaehlern.**
+4. **Abweichung gegenueber dem Block-1-Budget, ungeklaert:**
+   `enqOvd/min` 2579,2 gegen 2517,3 (+2,46 %, Schwelle ±1,03 %) und
+   `deqOvd/min` 1979,2 gegen 1883,6 (+5,08 %, Schwelle ±1,80 %). Die
+   Enqueue-Grundrate ist mit 3001,3 vs. 3015,7 (−0,48 %) stabil, die Zaehler
+   sind also nicht durch eine veraenderte Grundrate verzerrt. Konfundiert
+   durch die andere Messkadenz und die unbekannte ABR-Stufenverteilung der
+   Block-1-Laeufe. Bemerkenswert: die Richtung **widerspricht** dem in Block 1
+   belegten Beobachtereffekt (mehr Dumpsys-Last senkte dort die
+   Overdue-Zaehler um 5,9 %). **Als moegliche Regression gemeldet; braucht
+   einen Vergleichslauf mit Block-1-Methodik (2 Dumps, 180 s), bevor
+   optimiert wird.**
+5. CPU `com.google.android.bluetooth` 14,9 % (procfs, 20,5-s-Fenster, ohne
+   Dumpsys-Last) gegen 16,8–16,9 % Referenz in Block 1.
+
+Volle Aufnahme inkl. Konfiguration, Stoergroessen und Zeitreihentabelle:
+`docs/perf/T-007-aufnahme.md`.
