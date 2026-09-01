@@ -10,7 +10,7 @@ und Entscheider) | entfallen (Grund)
 
 | ID | Titel | Prioritaet | Status | Letzte Pruefung |
 |---|---|---|---|---|
-| SR-001 | Gestagte Dumps 0644 in `/data/local/tmp` — Geraetenamen und BT-Adressen fuer jede App lesbar | hoch | offen (eigener Task T-006) | 2026-08-31 |
+| SR-001 | Gestagte Dumps **0666** in `/data/local/tmp` — Geraetenamen und BT-Adressen fuer jede App les- UND schreibbar; **ueberlebt die Deinstallation** | hoch | offen (eigener Task T-006), am Geraet BESTAETIGT und verschaerft | 2026-09-01 |
 | SR-002 | `wifiFacts`: SSID/BSSID-Zusage nur Konvention, Fehlerpfad reicht Rohtext durch | hoch | offen (Auflage A1 vor S-3) | 2026-08-31 |
 | SR-003 | `wifiFacts`-Parser verarbeitet vom AP kontrollierten Text im Shell-Prozess | hoch | offen (Auflage A2 vor S-3) | 2026-08-31 |
 | SR-004 | Settings-Leihe ohne belegte Wirkung — Risiko ohne gesicherten Ertrag | hoch | offen (Geraetefrage vor S-6) | 2026-08-31 |
@@ -18,7 +18,7 @@ und Entscheider) | entfallen (Grund)
 | SR-006 | Ledger in `datastore/` reist per Cloud-Sicherung und Geraeteuebertragung | mittel | offen | 2026-08-31 |
 | SR-007 | Ledger: Doppelleihe macht Leihwert zum Nutzerwert; Rueckgabe ohne Vergleiche-und-Setze ueberschreibt Nutzerentscheidung | mittel | offen | 2026-08-31 |
 | SR-008 | Kein Test erzwingt parameterlose fest verdrahtete Vektoren (`wifiFacts`) | mittel | offen (Auflage A3 vor S-3) | 2026-08-31 |
-| SR-009 | Helper-Log als Nebenausgang fuer WLAN-Daten; Log-Injection ueber SSID | niedrig | offen (Dateimodus am Geraet zu pruefen) | 2026-08-31 |
+| SR-009 | Helper-Log **0666** (welt-les- und -schreibbar), ueberlebt die Deinstallation; Nebenausgang fuer WLAN-Daten, Log-Injection ueber SSID, zusaetzlich Integritaetsverlust | **hoch** (hochgestuft 2026-09-01, Auflage erfuellt: Modus am Geraet geprueft) | offen | 2026-09-01 |
 | SR-010 | Versionssprung 5 → 6: Methode ans AIDL-Ende, KDoc fortschreiben | niedrig | offen (Auflage A4 vor S-3) | 2026-08-31 |
 | SR-011 | Ungesalzener MAC-Hash als `deviceKey` im Bericht | niedrig | offen | 2026-08-31 |
 
@@ -75,6 +75,40 @@ und Entscheider) | entfallen (Grund)
 - **SR-011**: Ungesalzener Hash einer 48-Bit-MAC ist keine
   Anonymisierung; Salz je Installation oder gar keine stabile Kennung im
   Bericht.
+
+## Geraeteverifikation 2026-09-01 (T-007, performance-tuner, read-only)
+
+Am Pixel 11 Pro nachgemessen, **nachdem die App deinstalliert war**:
+
+```
+-rw-rw-rw-  1 shell shell 118487 2026-08-30 19:41 btdash_exec_current.out
+-rw-rw-rw-  1 shell shell  11837 2026-08-30 19:41 btdash_helper.log
+drwxrwxrwx 15 shell shell   3452 2026-08-30 19:43 btperf
+```
+
+Drei Verschaerfungen gegenueber dem Papier-Review:
+
+1. **Modus ist 0666, nicht 0644.** Die Dateien sind nicht nur welt-lesbar,
+   sondern welt-**schreibbar**. Damit kommt eine Dimension hinzu, die das
+   Review nicht behandelt hat: jede App kann das Helper-Log **manipulieren**
+   — genau die Datei, die bei einer Fehlersuche gelesen wird. Aus einem
+   reinen Vertraulichkeitsbefund wird zusaetzlich ein Integritaetsbefund.
+2. **Die Reste ueberleben die Deinstallation.** `/data/local/tmp` gehoert
+   nicht zum App-Datenverzeichnis; der Paketmanager raeumt es nicht auf.
+   Geraetenamen und BT-MACs aus alten Dumps liegen dort zeitlich
+   unbegrenzt, auch wenn die App laengst weg ist.
+3. **Das Verzeichnis `btperf` steht auf 0777** — schreibbar fuer jeden.
+
+Folge fuer T-006: Die Behebung muss zusaetzlich einen **Aufraeumpfad**
+enthalten (Loeschen beim Start und beim Beenden), und der Transportweg
+darf gar nicht erst eine Datei in einem gemeinsam genutzten Verzeichnis
+erzeugen. Der Ansatz "unvorhersagbarer Dateiname" (Option c des Reviews)
+ist damit endgueltig ungenuegend — er loest weder die Schreibbarkeit noch
+die Persistenz.
+
+**Sofortmassnahme fuer das Geraet** (Entscheidung des Nutzers, nicht
+automatisch ausgefuehrt): die drei Reste loeschen. Es sind Artefakte
+unserer eigenen deinstallierten App, kein Systembestandteil.
 
 ## Freigabestand T-005 (Entscheidung Director, 2026-08-31)
 

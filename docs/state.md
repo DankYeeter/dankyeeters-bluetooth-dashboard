@@ -1,78 +1,115 @@
-# Stand — 2026-08-31
+# Stand — 2026-09-01
 
 Kurzfassung fuer die Agenten. Historie in `HANDOVER.md`, Zielbild in
 `GOAL.md`.
 
-## Wo wir stehen
+## Der Befund, der alles andere verschiebt
 
-- **Git:** Arbeitsbranch ist wieder `master`, HEAD enthaelt den frueheren
-  `backup/wip-20260822` vollstaendig (dessen Remote-Ast ist damit
-  obsolet). Arbeitsbaum sauber, synchron mit origin.
-- **Session 31.08. laeuft auf dem Zweitrechner: kein JDK, kein
-  Android-SDK, kein adb, kein Geraet.** Nur Analyse-/Entwurfs-/Doku-Arbeit
-  moeglich. Emulator waere hier technisch moeglich (AMD SVM aktiv, AEHD),
-  Entscheidung des Nutzers: zurueckgestellt, bis Mehrwert erkennbar.
-  Die GOAL.md-Aussage "kein Hypervisor" gilt so pauschal nicht mehr.
-- Auf dem Pixel 11 Pro installiert: versionName 0.3.0 vom 28.08. —
-  aelter als HEAD. Vor jeder Messung frisch von HEAD bauen.
-- Audio-Flackern weiterhin ungeloest. Gesichert: 990 kbps traegt nicht
-  (~3-s-Stocken, auch bei force-gestoppter App); unser Polling als
-  Ursache dafuer widerlegt.
+**Auf dieser Strecke bleiben die Verlustzaehler dauerhaft null — und
+trotzdem ist Qualitaet verloren.** Gemessen am 01.09. ueber 318 s, App
+deinstalliert, Musik laufend (T-007, `docs/perf/T-007-aufnahme.md`):
 
-## T-005 geliefert (31.08.): Umgebungs- und Einstellungs-Scan, Entwurf
+- LDAC im **ABR**-Modus (nicht gepinnt), 96 kHz / 32 bit / Stereo,
+  **Host-Encoding** (fuenf unabhaengige Belege) — die Zaehler bedeuten
+  also etwas.
+- **Null** Underflows, null Dropouts, null Flushes. `SavedTxQueue` in 260
+  von 262 Samples null.
+- Stattdessen eine **Bitratenschaukel**: ABR pendelt 50/50 zwischen 660
+  und 492 kbps, im Mittel alle 11,2 s ein Wechsel. 990 wird **nie**
+  angesteuert. Die beiden einzigen Samples mit gefuellter Sendeschlange
+  liegen genau auf den Abstiegen 660 → 492.
+- Mechanismus dazu belegt in R-001: **LDAC-ABR entscheidet einzig anhand
+  der Sendeschlangentiefe** — nicht RSSI, nicht Paketverlust.
 
-- Entwurf: `docs/scan/T-005-ENTWURF.md`; Entscheidungen AD-002..AD-009 in
-  `ARCHITECTURE.md` (neu angelegt).
-- Kernpunkte: Periodizitaet beweist keinen Stoerer — **E-0** (A/B/A
-  990 vs. 660, Zeitreihe Schlangenlaenge/Verlustzaehler) trennt
-  Ueberlastung von Stoerer, ohne neue Zugriffe. Zwei Phasen
-  (Bestandsaufnahme ~2 s / Belege einzeln freigegeben). Evidenz als Typ
-  (AD-004). **Optimizer verschmilzt in den Scan**, kein eigener Knopf.
-  48 kHz entlastet den Funk NICHT (gleiche Bitratenleiter).
-- Eine Helper-Erweiterung noetig: `wifiFacts` (lesend, v6, SSID/BSSID
-  verlassen den Helper nie).
+> Der Encoder verliert nichts, **weil er vorher nachgibt.** Der
+> Qualitaetsverlust steht nicht in den Verlustzaehlern, er steht in der
+> Bitrate. Eine Anzeige, die Underflows zeigt, meldet hier dauerhaft
+> "alles gruen", waehrend die Haelfte der Zeit mit 492 statt 660 gespielt
+> wird.
 
-## Sicherheitsreview T-005 (31.08.) — `security/findings.md` angelegt
+**Folge fuer T-002/UI_SPEC:** Die neun wartenden Parameter beruhen auf der
+falschen Leitgroesse. Der aussagekraeftige Live-Wert ist **ABR-Stufe,
+Wechselrate und Verweildauer**, nicht Underflow. Das ist der naechste
+UI-Auftrag.
 
-- **`wifiFacts`: freigegeben mit Auflagen A1–A5** (kein Freitextfeld,
-  verankerte Parser-Muster, parameterlos, AIDL-Ende, kein
-  `dumpsys wifi`-Rueckfall).
-- **Settings-Leihe (AD-006/AD-007): NICHT freigegeben** — erst SR-004 am
-  Geraet klaeren (wirken die Schalter bei eingeschaltetem Radio
-  ueberhaupt?). Traegt die Annahme, vorher SR-005/006/007 erfuellen.
-- **SR-001 (Bestand, hoch): Spill-Datei 0644 in /data/local/tmp** — jede
-  App liest Geraetenamen/BT-MACs mit. Eigener Task **T-006**.
+**Kein falscher Freispruch:** Der ~3-s-Takt aus T-005 wurde **nicht
+reproduziert, aber auch nicht widerlegt** — ABR steuert 990 nie an, und
+Pinnen waere Schreibzugriff gewesen. Autokorrelation bei 2,76 s / 3,22 s:
+r = -0,022 / +0,008 gegen ein Signifikanzband von +-0,159.
 
-## Entscheidungen des App Designers — OFFEN, vor Umsetzungsbeginn
+## Was als Ursache ausgeschlossen ist (belegt, nicht vermutet)
 
-1. Settings-Leihe grundsaetzlich erlauben (inkl. Restrisiko SR-005:
-   Deinstallation im geliehenen Zustand laesst 2 Ortungsschalter aus)?
-   Vorgeschaltet: SR-004-Vorpruefung am Geraet.
-2. Dauer eines Belegteils: ~10–12 min Musik fuer 3 Experimente ok, oder
-   Deckel (mehr INCONCLUSIVE)?
-3. Testweise 48 kHz akzeptabel (nur Qualitaets-, kein Stabilitaetshebel)?
-4. Darf der Scan empfehlen ("660 pinnen") oder nur Zahlen zeigen?
-5. Bestaetigung: kein eigener Optimize-Knopf.
-6. Berichte persistieren (Room-Migration, schwer umkehrbar) oder
-   fluechtig?
+- **WLAN.** Radio war waehrend der Messung **aus**. Die Schaukel laeuft
+  trotzdem. Die Wi-Fi-7/MLO-Hypothese aus T-005 kann sie nicht erklaeren.
+- **Energiesparmechanismen.** Kein Doze (`mState=ACTIVE`), kein
+  Akkusparmodus, Player und GMS beide Standby-Bucket 5 (EXEMPTED), Player
+  in der Doze-Whitelist. R-003 deckt sich damit: Doze/Buckets regulieren
+  Jobs, Alarme und Netzwerk — nicht die laufende Audio-Pipeline.
+- **CPU-Knappheit.** BT 14,9 %, Player 7,3 %, audioserver 4,2 %.
+
+## Hauptverdaechtiger und zweiter Fund
+
+1. **Drei permanente, gleichzeitige ACTIVE-BLE-Scans von Google Play
+   Services** — `nearby_fast_pair` (BALANCED), `nearby_sharing` und
+   `nearby_connections` (AMBIENT_DISCOVERY), alle `(Forced)`,
+   `MATCH_MODE AGGRESSIVE`, seit ueber 27 min ununterbrochen. **ACTIVE
+   heisst: das Funkteil sendet** SCAN_REQ auf denselben 2,4-GHz-Kanaelen
+   wie der A2DP-Link. Existenz belegt, kausaler Beitrag plausibel —
+   trennbar nur per A/B.
+2. **Der Pfad rechnet 48 kHz auf 96 kHz hoch.** Quelle liefert 48 kHz;
+   der aktive Mixer-Thread ist `type 7 (SPATIALIZER)` mit 96 kHz und
+   5.1-Maske; LDAC wird bei 96 kHz ausgehandelt. Der Spatializer-**Thread**
+   sitzt im Pfad, der **Effekt** rechnet nicht (`Enabled: false`,
+   Head-Tracking tatsaechlich `DISABLED`). Laut R-002 ist die
+   Bitratenleiter bei 48 und 96 kHz identisch — die 96 kHz kosten also
+   keine Bandbreite, aber sie verteilen dieselben Bits auf doppelt so
+   viele Abtastwerte ohne Informationsgewinn.
+
+## Offener Widerspruch
+
+R-001 haelt **492 kbps fuer keine LDAC-Nominalstufe** (Leiter 990/660/330
+bzw. 909/606/303). Am Geraet ist 492 als Index 3 **gemessen**. Die Messung
+gewinnt; die Leiter fuer 96 kHz / 32 bit ist damit noch unverstanden.
+Nachzufassen bei R-001.
+
+## Methodischer Vorbehalt an unserem eigenen Messaufbau
+
+R-004: **USB-3-Kabel strahlen breitbandig ins 2,4-GHz-Band.** Das Telefon
+haengt waehrend jeder Messung am Kabel. Kontrollmessung ueber
+drahtloses adb steht aus.
+
+## Sicherheit — am Geraet verschaerft (`security/findings.md`)
+
+**SR-001 und SR-009 bestaetigt und schlimmer als angenommen:** Die Reste
+in `/data/local/tmp` stehen auf **0666** (welt-les- UND -schreibbar),
+`btperf` auf 0777, und sie **ueberleben die Deinstallation**. Aus einem
+Vertraulichkeits- wird zusaetzlich ein Integritaetsbefund. SR-009 von
+niedrig auf **hoch** hochgestuft.
 
 ## Laufende Auftraege
 
 | ID | Rolle | Thema | Status |
 |---|---|---|---|
-| T-001 | performance-tuner | Messreihe/Hoertest Pixel 11 | unterbrochen; Block 1 in `baselines.md` ist FERTIG und signifikant (dumpsys kostet keine Verlustmetrik, auch bei 0,5 s) — bei Wiederaufnahme NICHT bei Null anfangen |
-| T-002 | ui-ux-designer | UI_SPEC Verlustanzeige | fertig; 9 Parameter warten auf T-001-Messwerte |
-| T-004 | — | Kopfhoerer-Modding | zurueckgestellt |
-| T-005 | architect | Scan-Entwurf | **geliefert**; Umsetzung wartet auf Entscheidungen 1–6 + Toolchain/Geraet |
-| T-006 | architect→developer | SR-001 Spill-Datei weltlesbar | offen, hoch; braucht Entwicklungsrechner |
+| T-001 | performance-tuner | Messreihe Pixel 11 | Block 1 fertig; T-007 hat moegliche Budget-Verschiebung gemeldet (Overdue-Zaehler +2,5 %/+5,1 %, ~5 sd) — Vergleichslauf offen |
+| T-002 | ui-ux-designer | UI_SPEC Verlustanzeige | **Grundannahme ueberholt**, Neuauftrag noetig (ABR-Stufe statt Underflow) |
+| T-005 | architect | Scan-Entwurf | geliefert; wartet auf Nutzerentscheidungen |
+| T-006 | architect→developer | SR-001/SR-009 | offen, **hoch**, jetzt inkl. Aufraeumpfad |
+| T-007 | researcher + performance-tuner | Deep-Dive | **geliefert** (R-001..R-004, `docs/perf/T-007-aufnahme.md`) |
+
+## Rahmen dieser Session
+
+Zweitrechner: **kein JDK, kein Android-SDK, kein Gradle** — Unit-Tests
+sind hier nicht lauffaehig. adb nur ueber ein Fremdprodukt vorhanden
+(`C:\RSL\2.1HF5\adb\adb.exe`, v31.0.2). Geraet per Kabel erreichbar.
 
 ## Offen / zurueckgestellt
 
-- SR-004-Vorpruefung und SR-009-stat am Geraet (performance-tuner, wenn
-  Pixel wieder verfuegbar).
+- A/B-Test der GMS-BLE-Scans (braucht Schreibzugriff → Nutzerfreigabe).
+- 990 kbps gezielt pinnen, um den T-005-Takt zu reproduzieren (dito).
+- Spatializer testweise aus, um die 96-kHz-Frage zu klaeren (dito).
+- Kontrollmessung ohne USB-Kabel (drahtloses adb).
+- Aufnahme gegen R-001..R-004 abgleichen — der tuner hat sie nicht
+  gelesen, sie entstanden waehrend seiner Messung.
 - `AudioEffectSessionReceiver` exportiert — eigenes Review ausstehend.
-- Frischer Hoertest (Daniels Ohren) fuer Kalibrier-Ableitung.
-- BackupCodec verwirft aktive Preset-Auswahl beim Import.
-- `NUL`-Datei im Repo-Root (Windows-Artefakt) entfernen.
-- Emulator-Umgebung auf dem Zweitrechner: zurueckgestellt (Nutzer,
-  31.08.).
+- `NUL`-Datei im Repo-Root entfernen.
+- Emulator-Umgebung: zurueckgestellt (Nutzer, 31.08.).
