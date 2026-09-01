@@ -64,7 +64,12 @@ Geraet mit, deshalb ist die **Geraetezeit** massgeblich.
 | *App Designer stellt auf adaptiv zurueck* | — | **zw. 22:19:30 und 22:21:42** | HIGH → ABR | — |
 | Read-back Rueckflip | 22:20:14 | **22:21:42** | **ABR bestaetigt** (mit Vorbehalt, s. 6) | — |
 | **Arm A' — Rueckkehr** | 22:20:42–22:22:21 | **22:22:10–22:23:50** | ABR | **keine Aussetzer** |
-| Endzustand | 22:23:22 | **22:24:50** | ABR, 492 | — |
+| Endzustand E-2 | 22:23:22 | **22:24:50** | ABR, 492 | — |
+| *App Designer: 990 erneut gepinnt, BT-Suche + Quick Share aus* | — | **zw. 22:24:50 und 22:39:27** | ABR → HIGH, 3 → 2 Scans | — |
+| **WLAN geht an und assoziiert (unbemerkt)** | — | **22:34:53** | **Konfundierer, s. 7b** | — |
+| Read-back vierte Zelle | 22:37:59 | **22:39:27** | **990 + 2 Scans bestaetigt**; WLAN **nicht** geprueft | — |
+| **Arm E2_B_reduced — Standard** | 22:38:46–22:40:17 | **22:40:14–22:41:46** | **990, 2 Scans** | — |
+| **Arm E2_B_reduced — schnell** | 22:40:30–22:41:29 | **22:41:58–22:42:57** | **990, 2 Scans** | — |
 
 ---
 
@@ -301,12 +306,150 @@ gemessen.
 
 ---
 
+## 7b. Vierte Zelle — **ungueltig als Scan-Experiment (konfundiert)**
+
+**Arm-Name: `E2_B_reduced`.** Der Arm wurde gefahren, ist sauber gemessen —
+und ist als Antwort auf die Scan-Frage **nicht verwertbar**, weil waehrend
+seiner Vorbereitung eine **zweite Variable** veraendert wurde.
+
+### 7b.1 Der Konfundierer: WLAN wurde eingeschaltet
+
+Nach den Laeufen ergab der Abgleich gegen das Zustandsbuch:
+
+```
+global.wifi_on = 1   (soll 0)   ABWEICHUNG
+```
+
+Das Wi-Fi-Ereignisprotokoll datiert es exakt:
+
+| Geraetezeit | Ereignis |
+|---|---|
+| 22:34:23 – 22:34:44 | mehrfaches `WIFI_ENABLED` / `WIFI_DISABLED` |
+| **22:34:53.031** | **`WIFI_ENABLED`** (endgueltig) |
+| 22:34:53.498 | `CMD_START_CONNECT` |
+| 22:34:54.103 | `NETWORK_CONNECTION_EVENT` |
+| 22:34:54.812 | `NETWORK_AGENT_VALID_NETWORK` — verbunden |
+
+Gegenueberstellung mit meinen Armen:
+
+| Arm | Geraetezeit | WLAN |
+|---|---|---|
+| A0 | 21:54:04–21:55:44 | **aus** (Zustandsbuch 21:53: `wifi_on=0`) |
+| B / B schnell | 22:07:28–22:10:20 | **aus** |
+| A' | 22:22:10–22:23:50 | **aus** (Endzustand 22:24:50: `wifi_on=0`) |
+| *WLAN geht an* | **22:34:53** | — |
+| **E2_B_reduced** | **22:40:14–22:41:46** | **AN, verbunden** |
+| **E2_B_reduced schnell** | **22:41:58–22:42:57** | **AN, verbunden** |
+
+**WLAN war fuer die gesamte vierte Zelle an**, rund 5,3 Minuten vor dem
+ersten Sample. Alle Vergleichsarme liefen ohne WLAN.
+
+**Und es ist ausgerechnet der Funkzustand, den T-007 als Stoerhypothese
+benannt hatte:** Wi-Fi 7 (`11be`), verbunden, RSSI −59, aktiver Link auf
+**5 GHz Kanal 44** — mit einem **affiliierten MLO-Link auf 2,4 GHz Kanal 6**
+(derzeit `MLO_LINK_STATE_UNASSOCIATED`, RSSI −51). Genau die Konstellation
+aus der frueheren Beobachtung. Ob der 2,4-GHz-Link waehrend der Arme Verkehr
+getragen hat, ist rueckwirkend **nicht** feststellbar (*cannot check*).
+
+### 7b.2 Was das bedeutet
+
+Die Methodikregel aus T-008 — **eine Variable je Experiment** — ist verletzt.
+Zwischen `E2_B` und `E2_B_reduced` wurden **zwei** Dinge geaendert:
+
+1. ein Scanner und ein Advertiser abgeschaltet (beabsichtigt),
+2. **WLAN eingeschaltet und assoziiert** (unbeabsichtigt, unbemerkt).
+
+Die beiden wirken auf dieselbe Zielgroesse und **in entgegengesetzte
+Richtung**. Ein Nullbefund ist damit nicht interpretierbar: er kann
+bedeuten, dass die Scans nichts bringen — oder dass ihr Wegfall durch den
+neuen 2,4-GHz-Konkurrenten aufgewogen wurde.
+
+**Mein Verfahrensfehler, ausdruecklich:** Mein Read-back vor der vierten
+Zelle prueft Pin und Scan-Lage, aber **nicht das uebrige Zustandsbuch**.
+Haette ich `wifi_on` mitgelesen, waere der Konfundierer vor dem Lauf
+aufgefallen. Fuer kuenftige Arme gilt: **Read-back deckt das vollstaendige
+Zustandsbuch ab, nicht nur die manipulierte Variable.**
+
+### 7b.3 Die Messwerte — vollstaendig, aber ohne Urteil
+
+Die Arme selbst sind sauber: Pin hielt (990 in allen 230 Samples,
+`quality mode HIGH`, ABR-Felder abwesend), und die Scan-Lage war vor, zwischen
+und nach den Laeufen unveraendert (`Ongoing 2 scans`, `advertising: 1`) — es
+gab keine Kontamination *innerhalb* der Messung.
+
+Es liefen weiter: `nearby_fast_pair` (BALANCED, **ACTIVE**) und
+`nearby_connections` (AMBIENT_DISCOVERY, **ACTIVE**). Abgeschaltet wurde
+`nearby_sharing` — der Scanner, der **0 Ergebnisse** meldete, waehrend die
+beiden verbliebenen den gesamten Ergebnisverkehr tragen (100 und 39).
+
+| Arm | Scanner | WLAN | Kadenz | Dauer | **Drops/min** | **Dropouts/min** | Queue ≠ 0 |
+|---|---|---|---|---|---|---|---|
+| `E2_B` | 3 | **aus** | 1407 ms | 97,0 s | **324,7** | **12,99** | 79 % |
+| `E2_B_fast` | 3 | **aus** | 379 ms | 60,3 s | **323,4** | **12,94** | 81 % |
+| `E2_B_reduced` | 2 | **an** | 1306 ms | 90,1 s | **283,7** | **11,32** | 84 % |
+| `E2_B_reduced_fast` | 2 | **an** | 366 ms | 58,2 s | **337,1** | **13,40** | 78 % |
+
+**Urteil: `INCONCLUSIVE` — und zwar aus zwei unabhaengigen Gruenden.**
+
+*Erstens, der Konfundierer* (7b.1) macht jedes Urteil ueber die Scans
+unzulaessig.
+
+*Zweitens* traegt die Statistik ohnehin kein Urteil, selbst wenn man den
+Konfundierer ignorierte:
+
+1. **Die beiden Paarvergleiche zeigen in entgegengesetzte Richtungen.**
+   Standardkadenz: 324,7 → 283,7 = **−12,6 %**. Schnelle Kadenz:
+   323,4 → 337,1 = **+4,2 %**. Ein realer Effekt kehrt seine Richtung nicht
+   um, wenn man nur die Abtastrate wechselt.
+2. **Die Streuung innerhalb der 2-Scanner-Bedingung uebersteigt den
+   Unterschied zwischen den Bedingungen.** Innerhalb: 283,7 vs. 337,1 =
+   **17,2 %**. Zwischen den Mitteln: 324,1 vs. 310,4 = **−4,2 %**.
+3. **Zum Vergleich die Praezision der 3-Scanner-Bedingung: 0,4 %** (324,7 vs.
+   323,4). Dass dieselbe Methodik jetzt 17 % streut, ist selbst ein Hinweis —
+   **passend dazu, dass in dieser Bedingung ein neuer Funkkonkurrent
+   dazugekommen ist.**
+4. **Die Sendeschlange bleibt gleich belastet:** mittlere Tiefe 7,64 gegen
+   7,69. Der Anteil gefuellter Samples widerspricht sich (84 % vs. 78 %).
+5. **Die Ereignisabstaende werden kuerzer, nicht laenger:** Mittel 3,93 s
+   gegen 4,90 s, Median 4,13 gegen 4,69 s — tendenziell *schlechter*.
+
+### 7b.4 Was trotzdem verwertbar ist
+
+Ein Befund ueberlebt den Konfundierer, weil er nicht auf dem Vergleich
+beruht:
+
+**Bei gepinnten 990 kbps liegt die Verlustrate in allen vier Armen in
+derselben Groessenordnung — ~284 bis ~337 Drops/min und ~11 bis ~13
+Dropouts/min — quer ueber zwei Scanner-Konfigurationen und beide
+WLAN-Zustaende.** Weder das Abschalten eines Scanners noch das Zuschalten
+von WLAN hat die Groessenordnung verschoben.
+
+Das staerkt *relativ* die Hypothese **„990 kbps ist fuer diese Strecke
+schlicht zu schnell"** gegenueber „eine bestimmte Funkstoerung ist schuld".
+*Evidenzniveau: plausibel*, nicht belegt — vier Arme, zwei davon
+konfundiert, und die stoerungsfreie Vergleichsbedingung (990 ohne Scans,
+ohne WLAN) fehlt weiterhin vollstaendig.
+
+### 7b.5 Wie der Arm sauber nachzuholen ist
+
+1. **WLAN wieder aus** (`wifi_on = 0`) — Ausgangszustand aller frueheren Arme.
+2. Alle drei Nearby-Scanner abschalten. Die fehlenden zwei Schalter liegen
+   nicht in den Bluetooth-Einstellungen: **Fast Pair** unter *Google →
+   Geraete & Freigabe → Geraete in der Naehe*, **Mein Geraet finden** unter
+   *Google → Alle Dienste → Mein Geraet finden*.
+3. Read-back gegen das **vollstaendige** Zustandsbuch, nicht nur gegen Pin
+   und Scan-Lage.
+4. Dann zwei Laeufe wie gehabt. Die Skripte stehen bereit; ein Nachholen
+   kostet rund vier Minuten.
+
 ## 8. Was offen bleibt
 
 | Frage | Warum offen |
 |---|---|
 | **Warum laeuft die Queue ueber?** | Mechanismus belegt, **Ursache nicht**: Funkstoerung durch die BLE-Scans, Empfangsgrenze des Kopfhoerers oder schlicht zu hohe Rate fuer diese Strecke sind nicht getrennt. Braucht E-1 und einen RSSI-Zugang, den das Geraet nicht hergibt. |
-| **Traegt 990 ohne die BLE-Scans?** | Die entscheidende Zelle. E-2 lief durchgehend mit aktiven Scans. Braucht einen wirksamen E-1-Hebel. |
+| **Traegt 990 ohne die BLE-Scans?** | **Weiterhin offen.** Die vierte Zelle (7b) ist **konfundiert** — WLAN ging um 22:34:53 unbemerkt an und lief waehrend beider Arme, waehrend alle Vergleichsarme ohne WLAN liefen. Zusaetzlich war die Reduktion nur teilweise. Ergebnis `INCONCLUSIVE`, Nachholen noetig (7b.5). |
+| **Trug der 2,4-GHz-MLO-Link waehrend der vierten Zelle Verkehr?** | **cannot check** — rueckwirkend nicht feststellbar. Beim Nachmessen stand der 2,4-GHz-Link auf `UNASSOCIATED`, der aktive Link auf 5 GHz. |
+| **Wo sitzen Fast Pair und „Mein Geraet finden"?** | Nicht ermittelt. Ohne diese beiden Schalter ist E-1 nicht sauber fahrbar. |
 | **Wo genau liegt die Hoerbarkeitsschwelle?** | Zwei Punkte (0 und 13/min), keine Kurve. Der Bereich dazwischen ist ungemessen. |
 | **Echter ~3-s-Takt** | INCONCLUSIVE, s. Abschnitt 4. |
 | **Langzeitrate 400/min** | Unkontrolliert, s. 5.1. Kein Urteil. |
@@ -322,10 +465,12 @@ gemessen.
    in „Die Hoerbarkeitsgrenze". Und die Anzeige muss
    **`Counts (dropped/dropouts)`** lesen, **nicht** `underflow` — der hoerbar
    gestoerte Arm hatte 0 Underflows. Das betrifft T-002 direkt.
-3. **Vierte Zelle (990 + Scans aus)** ist jetzt die inhaltlich wertvollste
-   verbleibende Messung — sie trennt „990 traegt grundsaetzlich nicht" von
-   „990 traegt nicht, solange gescannt wird". Sie braucht einen E-1-Hebel von
-   Hand (Nearby/Fast Pair in den GMS-Einstellungen).
+3. **Vierte Zelle nachholen** — sie ist konfundiert (7b) und traegt kein
+   Urteil. Vorgehen in 7b.5: **WLAN wieder aus**, alle drei Scanner ab,
+   Read-back gegen das vollstaendige Zustandsbuch. Kostet rund vier Minuten.
+4. **Read-back-Regel verschaerfen:** kuenftig gegen das **komplette**
+   Zustandsbuch pruefen, nicht nur gegen die manipulierte Variable. Der
+   Konfundierer waere sonst wieder unbemerkt geblieben.
 4. **`baselines.md`:** Der 990er-Arm ist ein neues Szenario mit eigenem
    Abschnitt — nicht in die ABR-Tabelle mischen. Noch nicht eingetragen,
    weil E-2 erst mit der vierten Zelle abgeschlossen waere; auf Signal
@@ -356,7 +501,25 @@ Endzustand um 22:24:50 Geraetezeit, alle Werte per Read-back geprueft:
 | `secure audio_device_inventory` | 17 Eintraege | **zeichengleich** | OK |
 | BLE-Scans | 3 laufend | 3 laufend | OK |
 
-**Das Geraet ist bis auf den Codec-Auswahl-Marker im Ausgangszustand.** Die
+**Achtung — der Zustand hat sich nach Abschnitt 10 erneut geaendert:** Fuer
+die vierte Zelle (7b) hat der App Designer **990 erneut gepinnt** und
+**Bluetooth-Suche sowie Quick Share abgeschaltet**. Beim letzten Read-back
+(22:45:11 Geraetezeit) standen daher: `LDAC quality mode: HIGH`,
+990 kbps, `Priority: 1000000`, `Ongoing 2 scans`, `advertising: 1` — und
+**`wifi_on = 1`**, waehrend das Zustandsbuch `0` fordert.
+**Diese vier Punkte — Quality Mode, Codec-Auswahl-Marker, die zwei
+Scan-Schalter und WLAN — liegen beim App Designer und sind noch
+zurueckzustellen.** Alle uebrigen Werte des Zustandsbuchs sind unveraendert
+(`audio_device_inventory` zeichengleich, appops `allow`,
+`ble_scan_always_enabled` 1, `wifi_scan_always_enabled` 1, `low_power` 0,
+`location_mode` 3, `bluetooth_on` 1).
+Von mir wurde weiterhin nichts veraendert.
+
+Der Stand unten beschreibt das Ende von E-2 (Abschnitt 3), nicht das Ende
+der vierten Zelle.
+
+**Zum Zeitpunkt von Abschnitt 10 war das Geraet bis auf den
+Codec-Auswahl-Marker im Ausgangszustand.** Die
 eine Abweichung ist in Abschnitt 6 als Sofortbefund dokumentiert und liegt
 beim App Designer. Die App ist weiterhin deinstalliert, der AK-1-Referenzarm
 unversehrt.
@@ -378,6 +541,11 @@ Nur im Scratchpad, nicht im Repo:
 | `ts_E2_B_fast.txt` | Arm B, 990 gepinnt, 379 ms, 160 Samples |
 | `ts_A_prime.txt` | Arm A', ABR zurueck, 70 Samples |
 | `raw_bt_E2_B.txt` | voller `bluetooth_manager`-Dump im gepinnten Zustand |
+| `ts_E2_B_reduced.txt` | vierte Zelle, 990 + 2 Scans, Standardkadenz, 70 Samples |
+| `ts_E2_B_reduced_fast.txt` | vierte Zelle, 990 + 2 Scans, 366 ms, 160 Samples |
+| `raw_bt_cell4_pre.txt` | voller Dump vor der vierten Zelle (Scan-Lage) |
+| `raw_wifi_cell4.txt` | `dumpsys wifi` mit dem `WIFI_ENABLED`-Zeitstempel |
+| `T008_endzustand_zelle4.txt` | Endzustand nach der vierten Zelle |
 | `run_arm.sh` | Messlaeufer, feste Kadenz |
 | `analyze_arm.py` | Auswerter (Stufen, Wechsel, Verluste, Queue) |
 | `periodicity.py` | Ereignisabstaende und Autokorrelation |
