@@ -951,12 +951,11 @@ Punkt 6 hinzu:
      lowers its bitrate instead of losing data." Das ist der Satz, der „kein
      Zaehler hat sich bewegt" davon abhaelt, als „nichts verloren" gelesen zu
      werden.
-6. **Die Kalibrierpunkte, wortgleich und nicht interpretiert:** "Measured on
-   this phone: 0 stack dropouts per minute was inaudible, about 13 per minute
-   was clearly audible. Nothing in between has been measured." Zwei Saetze,
-   keine Kurve, keine Skala. Dieser Punkt ist der einzige Ort in der App, an
-   dem Hoerbarkeit ueberhaupt vorkommen darf — als Bericht ueber eine Messung,
-   nicht als Urteil ueber den laufenden Ton.
+6. ~~**Die Kalibrierpunkte, wortgleich und nicht interpretiert.**~~
+   **ENTFAELLT ersatzlos** (App Designer, Entscheidung 4, siehe Nachtrag). Die
+   Kalibrierpunkte erscheinen nirgends in der App; das Wort „audible" kommt in
+   der Oberflaeche nicht mehr vor. Grund: die zwei Punkte sind konfundiert —
+   sie unterscheiden sich zugleich in der Dropout-Rate und in der Bitratenstufe.
 
 ---
 
@@ -985,8 +984,8 @@ Stack-Kanaele gesetzt, fuer die nie gemessenen Eingangskanaele offen.**
 
 | Parameter | Wert | Woraus |
 |---|---|---|
-| `LADDER_WINDOW_MS` | **180 000** (3 min) | Bei den gemessenen 3,08–5,30 Wechseln/min enthaelt ein 3-min-Fenster 9–16 Wechsel und damit mehrere volle Zyklen (gemessene Verweildauern: 492 dreimal exakt 11 Samples ≈ 15,8 s; 660 zwischen 2,9 und 28,8 s). Ein 60-s-Fenster enthaelt haeufig **eine** Verweildauer und wuerde „100 % at 492" melden — richtig fuer das Fenster, irrefuehrend ueber die Strecke. Anteile sind ein Zeitverhaeltnis, keine Ereignisrate, deshalb greift `RATE_MIN_EVENTS_IN_WINDOW` hier nicht. |
-| `LADDER_SETTLING_RATE_PER_MIN` | **8** | Gemessene Ruhewerte: 3,69 (A0), 3,08 (A' eingeschwungen), 5,30 (T-007 Lauf B). Gemessener Einschwingwert: 13,00 (A' Samples 0–13). 8 liegt 1,5× ueber dem hoechsten Ruhewert und 1,6× unter dem Einschwingwert — mit Abstand zu beiden, an keinem Rand. **Schmale Basis: drei Ruhewerte, ein Einschwingwert.** Schliessen wuerde es M-9. Dies ist eine Klassengrenze zwischen zwei gemessenen Haufen, **keine** Interpolation einer Wahrnehmungsschwelle — der Unterschied zu R-E ist, dass hier beide Seiten gemessen sind und keine Aussage ueber den Klang getroffen wird. |
+| `LADDER_WINDOW_MS` | ~~**180 000**~~ → **60 000**, siehe Nachtrag, Selbstkorrektur eins | Bei den gemessenen 3,08–5,30 Wechseln/min enthaelt ein 3-min-Fenster 9–16 Wechsel und damit mehrere volle Zyklen (gemessene Verweildauern: 492 dreimal exakt 11 Samples ≈ 15,8 s; 660 zwischen 2,9 und 28,8 s). Ein 60-s-Fenster enthaelt haeufig **eine** Verweildauer und wuerde „100 % at 492" melden — richtig fuer das Fenster, irrefuehrend ueber die Strecke. Anteile sind ein Zeitverhaeltnis, keine Ereignisrate, deshalb greift `RATE_MIN_EVENTS_IN_WINDOW` hier nicht. |
+| `LADDER_SETTLING_RATE_PER_MIN` | ~~**8**~~ — **zurueckgezogen**, ersetzt durch `LADDER_SETTLING_MIN_DISTINCT_STEPS` = 3 im 20-s-Teilfenster, siehe Nachtrag, Selbstkorrektur zwei | Gemessene Ruhewerte: 3,69 (A0), 3,08 (A' eingeschwungen), 5,30 (T-007 Lauf B). Gemessener Einschwingwert: 13,00 (A' Samples 0–13). 8 liegt 1,5× ueber dem hoechsten Ruhewert und 1,6× unter dem Einschwingwert — mit Abstand zu beiden, an keinem Rand. **Schmale Basis: drei Ruhewerte, ein Einschwingwert.** Schliessen wuerde es M-9. Dies ist eine Klassengrenze zwischen zwei gemessenen Haufen, **keine** Interpolation einer Wahrnehmungsschwelle — der Unterschied zu R-E ist, dass hier beide Seiten gemessen sind und keine Aussage ueber den Klang getroffen wird. |
 | `LADDER_REJECTED_MAX_READINGS` | **1** | Der belegte Fall stand in genau einer Lesung. Der Wert ist an die Poll-Kadenz gebunden, nicht an eine Zeit: bei 1,417 s Kadenz liegt die wahre Verweildauer zwischen 1 und 2 Intervallen. Deshalb die Ehrlichkeitsauflage „less than {2 × Kadenz}". Aufloesen wuerde das M-10. |
 | `LADDER_QUEUE_PRESSURE_FRACTION` | **0,20** (20 % der Lesungen im Fenster mit Queue > 0) | Gemessene Ruhewerte: 1/70 = 1,43 % (A0), 0/70 = 0 % (A'), 2/262 = 0,76 % (T-007). Gemessene Ueberlastwerte: 55/70 = 79 % und 129/160 = 81 %. 20 % liegt **14×** ueber dem hoechsten Ruhewert und **4×** unter dem niedrigsten Ueberlastwert. Das ist der am besten belegte Schwellenwert dieser gesamten Vorgabe. |
 
@@ -1026,13 +1025,15 @@ vorhandenen `StatusRow("App helper", …)` (`SettingsScreen.kt:166`). Begruendun
 `Pill`/`PillTone`, `PanelDivider`, `ExplainedRow`, `AlertDialog` wie in
 `PreferenceTestScreen`). **Kein neues Token, keine neue Komponente.**
 
-**Ein Knopf, zwei Beschriftungen** — weil ohne verbundenen Helper nichts
-entfernt werden kann (die App hat kein Schreibrecht am Verzeichnis):
+~~**Ein Knopf, zwei Beschriftungen**~~ — **ueberholt durch Entscheidung 3, siehe
+Nachtrag.** Es gilt: **ein Knopf, eine Beschriftung, "Stop the helper"**, und er
+erscheint nur bei verbundenem Helper. Ohne verbundenen Helper gibt es keine
+Aktion, sondern die Standzeile. Die folgende Tabelle steht als Protokoll:
 
-| Lage | Beschriftung | Was passiert |
+| Lage | ~~Beschriftung~~ | ~~Was passiert~~ |
 |---|---|---|
-| Helper verbunden | "Stop the helper and clean up" | Bestaetigung → aufraeumen + beenden → nachmessen |
-| kein Helper verbunden | "Check for leftovers" | keine Bestaetigung noetig → nur nachmessen |
+| Helper verbunden | ~~"Stop the helper and clean up"~~ → **"Stop the helper"** | Bestaetigung → beenden (Helper raeumt dabei auf) → nachmessen |
+| kein Helper verbunden | ~~"Check for leftovers"~~ → **kein Knopf** | Standzeile statt Aktion |
 
 **Bestaetigungsdialog** (nur im ersten Fall, weil die Folge nicht in der App
 rueckgaengig zu machen ist — der Helper kommt nur ueber den ADB-Befehl
@@ -1291,6 +1292,11 @@ kein Selbstschalten der Nahaufnahme, kein „ich habe das gehoert"-Marker.
 
 ### Offene Fragen an den App Designer
 
+> **Alle vier sind beantwortet (App Designer, 2026-09-01, ueber den Director).**
+> Die Antworten stehen im Nachtrag am Ende dieses Abschnitts und haben Vorrang;
+> die Fragen bleiben als Protokoll stehen, damit ein spaeterer Durchlauf sie
+> nicht erneut stellt (Stabilitaetsregel).
+
 1. **Darf die Stufenzeile im Normalbetrieb ihre Verweildauer dauernd
    mitzaehlen?** Sie steht dann als laufende Sekundenzahl im Panel und
    aktualisiert sich mit jedem Poll. Das ist ehrlich und es ist Bewegung im
@@ -1321,3 +1327,315 @@ kein Selbstschalten der Nahaufnahme, kein „ich habe das gehoert"-Marker.
 Was **nicht** offen ist: alle Parameterwerte oben ruhen auf Messungen oder auf
 benannten, offenen Luecken. Es gibt keine Zahl in dieser Fortschreibung, die
 auf eine Entscheidung des App Designers wartet.
+
+---
+
+## Nachtrag T-009: die vier Entscheidungen des App Designers (2026-09-01)
+
+Alle vier offenen Fragen sind beantwortet. Zwei fallen anders aus als die
+Vorlage — beide loesen ein Problem, das die Vorlage nur verwaltet hatte. Was
+hier steht, hat **Vorrang** vor dem Abschnitt darueber, wo beides sich
+widerspricht; der urspruengliche Text bleibt als Protokoll stehen.
+
+### Entscheidung 1 — Die Bitratenstufe kommt auf den Graphen (Frage 1 aufgeloest)
+
+Wortlaut: *„kbps als Bitratenlinie auf dem Graph waere spannend. Um so die
+Spruenge zu sehen. Loest die zeitliche Achse."*
+
+Das ist die bessere Antwort, weil sie die Frage aufloest statt sie zu
+entscheiden: **Verweildauer, Wechselhaeufigkeit und die Unterscheidung
+Einschwingen/Dauerzustand werden auf einer Zeitachse zur Form und muessen nicht
+mehr als Zahl gelesen werden.** Lange Plateaus gegen nervoeses Springen sieht
+man; „for 14 s" muss man mitrechnen.
+
+**Befund vorab, damit niemand etwas Falsches baut: die Linie existiert bereits.**
+`TracePoint.bitrateKbps` ist MEASURED und wird ueber `plotValue` schon heute vom
+Ueberblicksgraphen gezeichnet (`LiveTraceModel.kt:30/45/202`), mit
+Einheitenwechsel auf `packets/s` als Liveness-Fallback und einer bereits
+richtigen Luecken-Regel (`breakBefore`, Zeile 137: Bruch bei fehlendem Wert oder
+mehr als zwei Intervallen Abstand). **Es kommt also kein Graph dazu.** Die
+vorhandene Linie wird richtig gezeichnet — und war bisher falsch gezeichnet,
+weil sie ein Kontinuum behauptet, wo es eine Leiter gibt.
+
+Damit ist auch die Frage „ergaenzt oder ersetzt" beantwortet: **weder noch.**
+Der Graph bleibt einer, die Stufenzeile bleibt eine; die Zeile verliert nur die
+laufende Verweildauer an den Graphen (siehe unten).
+
+**G-1 Treppe, nicht Kurve.** Zwischen zwei Lesungen wird **waagerecht** gehalten
+und dann **senkrecht** gesprungen. Keine schraege Verbindung, keine Bezier, kein
+Spline. Begruendung: die Stufen sind diskret (gemessen 396, 492, 660, 990). Eine
+schraege Linie von 492 nach 660 zeichnet Zwischenwerte, die es nicht gibt — das
+ist derselbe AK-3-Verstoss wie eine interpolierte Hoerbarkeitskurve, nur mit
+Pixeln statt mit Woertern.
+
+**G-2 Keine Glaettung, keine Mittelung, keine Verdichtung.** Wenn mehr Lesungen
+als Pixelspalten vorliegen, werden je Spalte **Minimum und Maximum** gezeichnet,
+niemals ein Mittelwert. Begruendung: der aussagekraeftigste Einzelpunkt, den
+dieses Projekt kennt, ist **eine einzige Lesung** — 990 kbps in Arm A' bei
+t = 11,32 s, danach zwei Stufen tiefer und nie wieder. Ein Mittelwert ueber
+diese Spalte loescht ihn. Eine Anzeige, die den einen Punkt wegglaettet, wegen
+dem man sie gebaut hat, ist schlimmer als keine.
+
+**G-3 Die Y-Achse ist eine Leiter, kein Kontinuum.** Achsenmarken stehen genau
+auf: den **in diesem Fenster tatsaechlich beobachteten** Werten **plus** den
+Nominalstufen der Abtastraten-Familie (990/660/330 bei 48 und 96 kHz,
+909/606/303 bei 44,1 und 88,2 kHz — die Unterscheidung existiert bereits in
+`LdacQuality.chipLabel`). **Ein beobachteter Wert, der auf keiner bekannten
+Stufe liegt, wird gezeichnet und beschriftet wie er ist und niemals auf die
+naechste Nominalstufe gerundet.** Begruendung: 396 und 492 sind gemessen und
+stehen auf keiner der bekannten Leitern; `docs/state.md` fuehrt „Leiter fuer
+96 kHz/32 bit unverstanden" als offenen Punkt. Eine Achse, die nur zeigt, was
+sie erwartet hat, haette genau diesen offenen Punkt nie sichtbar gemacht.
+
+**G-4 Die Luecke zwischen zwei Lesungen wird nicht als Wissen gezeichnet.** Bei
+~2 s Kadenz ist ein Wechsel zwischen zwei Lesungen unsichtbar. Zwei Massnahmen,
+beide notwendig:
+
+1. **Jede Lesung traegt eine sichtbare Marke** auf der Treppe. Damit ist am Bild
+   ablesbar, wo gemessen wurde und wo gehalten wurde — die Waagerechte zwischen
+   zwei Marken ist erkennbar eine Annahme, keine Messung.
+2. **Der ABR-Zaehler deckt auf, was die Abtastung verpasst hat.** `LDAC adaptive
+   bit rate adjustments` zaehlt **jeden** Wechsel, auch die zwischen zwei
+   Lesungen (D-11). Steigt der Zaehler um mehr, als an Stufenwechseln sichtbar
+   ist, wird das betroffene Segment **als „enthaelt ungesehene Wechsel"
+   markiert** (eigene Strichform, keine eigene Farbe — Graustufen-Regel aus
+   AK-T002-3), und die Caption nennt die Zahl. **Das ist der Grund, warum D-11
+   nicht optional ist:** ohne den Zaehler kann der Graph nur behaupten, luecklos
+   zu sein, und untertreibt jede Wechselhaeufigkeit systematisch.
+
+**G-5 Nicht gemessene Spannen bleiben leer.** Die vorhandene `breakBefore`-Regel
+bleibt unveraendert und ist der Praezedenzfall: kein Wert oder mehr als zwei
+erwartete Intervalle Abstand ⟹ die Linie bricht. Eine Treppe, die ueber eine
+Messluecke durchhaelt, macht aus „niemand hat hingesehen" ein „es war stabil" —
+und das ist die Luege, die das Auge sofort glaubt.
+
+**G-6 Das Ereignis „angesteuert und verworfen" bekommt eine eigene Marke.**
+Gleiche Geometrie wie die `SETTLING`-Marke aus T-002 (`colorScheme.outline`),
+damit eine Spitze von einer Lesung Breite auch bei einem Pixel Spaltenbreite
+sichtbar bleibt. Sie ist keine Verlustmarke und wird nie als solche gezaehlt.
+
+**G-7 Die Nahaufnahme folgt denselben Regeln.** Treppe, Marken, keine
+Glaettung. Bei 500 ms Kadenz ist sie das einzige vorhandene Mittel, eine
+Verweildauer unter zwei Ueberblicks-Intervallen ueberhaupt zu sehen — sie
+**ersetzt M-10 aber nicht**, weil sie eine Nutzeraktion ist und beim Ereignis
+schon laufen muesste.
+
+**G-8 Caption, ergaenzt.** Zusaetzlich zu „{k} of {n} windows lost something"
+und „{m} not measured" (T-002, unveraendert): „{c} step changes" und, wenn der
+ABR-Zaehler mehr meldet, „{u} more the readings did not show". Plus einmal die
+Aufloesung: „one reading every ~{Kadenz}". Alles Zahlen ueber gemessene Dinge,
+kein Urteil.
+
+**Folge fuer die Stufenzeile: die laufende Verweildauer entfaellt.** Die Zeile
+fuer `LADDER_STEADY` lautet wieder wie der vorhandene String — „Adaptive —
+{X} kbps right now (measured)" — und der Graph darunter sagt, wie lange das
+schon so ist. Damit ist AK-T009-26 (Verweildauer nur ueber luecklos gemessene
+Zeit) gegenstandslos in der Zeile und gilt stattdessen fuer die Treppe: **G-5
+ist seine neue Form.**
+
+**Selbstkorrektur eins: `LADDER_WINDOW_MS` 180 000 → 60 000.** Meine Begruendung
+fuer 3 Minuten war, ein 60-s-Fenster koenne „100 % at 492" melden. **Das war
+falsch gerechnet.** Die gemessenen Verweildauern sind 15,8 s (492, dreimal
+exakt) und 2,9–28,8 s (660); bei 3,08–5,30 Wechseln/min enthaelt ein
+60-s-Fenster 4–6 Verweildauern, also mehrere volle Zyklen. Ein Ein-Stufen-Fenster
+ist im gemessenen Regime praktisch ausgeschlossen. **60 s stellt die
+T-002-Regel wieder her, dass Zeile, Graph und Verlustfenster dasselbe Fenster
+meinen** — was jetzt, wo Zeile und Graph nebeneinander stehen, keine Kosmetik
+mehr ist, sondern Voraussetzung dafuer, dass man sie vergleichen darf.
+
+**Selbstkorrektur zwei: `LADDER_SETTLING_RATE_PER_MIN` = 8 wird
+zurueckgezogen.** Neuer Grund, nicht Geschmack: Bei einem **gleitenden**
+60-s-Fenster bleiben die 13 Wechsel einer 18,5 s langen Einschwingphase eine
+volle Minute im Fenster. Die Rate steht dann noch ~40 s nach dem Ende des
+Einschwingens ueber der Schwelle — die Anzeige wuerde ein 18,5-s-Ereignis rund
+dreimal so lang melden, wie es dauert. Ersatz, direkt aus den Messwerten:
+
+| Ersatz | Wert | Woraus |
+|---|---|---|
+| `LADDER_SETTLING_MIN_DISTINCT_STEPS` | **3** | Einschwingen beruehrte **vier** verschiedene Stufen (396, 492, 660, 990) in 18,5 s. Jeder gemessene Dauerzustand beruehrte **genau zwei** (492/660): A0 ueber 97,6 s, A' ueber 77,9 s, T-007 Lauf B ueber 101,0 s. Drei liegt zwischen zwei gemessenen Werten mit Abstand nach beiden Seiten und braucht keine Ratenschaetzung aus kleinem k. |
+| `LADDER_SETTLING_SUBWINDOW_MS` | **20 000** | Gleich `SETTLE_AFTER_TRANSITION_MS`, aus demselben einen gemessenen Vorgang (18,5 s). Ein Teilfenster statt des vollen Fensters, damit das Ereignis mit sich selbst endet statt mit dem Fenster. |
+
+**Was diese Regel nicht faengt, ausdruecklich:** ein schnelles Pendeln zwischen
+**zwei** benachbarten Stufen. Das ist nie gemessen worden — es gibt keinen
+Beleg, dass es vorkommt, und keinen, dass es nicht vorkommt. **M-9 wird
+entsprechend erweitert:** die Einschwingvorgaenge sind auch daraufhin
+auszuwerten, ob sie immer mehr als zwei Stufen beruehren. Bis dahin ist diese
+Erkennungsluecke benannt und nicht geschlossen.
+
+### Entscheidung 2 — Die Aufraeum-Moeglichkeit erscheint nur, wenn schon einmal ein Helper lief
+
+Umgesetzt als Sichtbarkeitsbedingung mit **drei** Zweigen, weil ein einzelnes
+gemerktes Flag genau im wichtigsten Fall blind waere:
+
+1. ein Helper ist **jetzt** verbunden, **oder**
+2. in **dieser Installation** lief schon einmal einer (gemerkter Zustand), **oder**
+3. ein **bekannter** Restdateiname laesst sich oeffnen — dieselbe Faehigkeit,
+   die SR-001 ueberhaupt erst zum Befund macht, hier einmal nuetzlich.
+
+Zweig 3 ist nicht Bequemlichkeit, sondern schliesst eine Luecke: Nach einer
+**Neuinstallation** ist der gemerkte Zustand aus Zweig 2 fort, waehrend die
+Reste im `/data/local/tmp` liegenbleiben — genau die Lage, in der die Aktion
+gebraucht wird. Zweig 3 stellt sie wieder her, und zwar durch eine Beobachtung
+statt durch ein Gedaechtnis.
+
+**Restfall, den auch das nicht deckt, und der bleibt:** Ein Nutzer, der neu
+installiert hat und **ausschliesslich** Reste unter Namen aelterer Versionen
+besitzt, sieht nichts — kein Helper verbunden, kein Gedaechtnis, kein bekannter
+Name. Das ist derselbe Restfall, den Stufe 3 des Aussagerahmens dauerhaft
+benennt, nur dass hier auch die Zeile fehlt, die ihn benennen wuerde. Die
+Alternative waere „immer sichtbar" gewesen, und die ist entschieden. **Der
+Restfall wird nicht wegdefiniert, er wird hier festgehalten** und gehoert als
+bekannte Grenze in die Uebergabe an den `architect` (AD-011, R1-Familie).
+
+### Entscheidung 3 — Der Knopf heisst „Stop the helper", das Aufraeumen ist integriert
+
+Wortlaut: *„aufraeumen soll generell integriert sein."* Die eigenstaendige
+Nutzeraktion „Helper beenden und aufraeumen" entfaellt als **Aktion**; das
+Aufraeumen laeuft, wo AD-011 es ohnehin vorsieht (Helper-Start, geordnetes
+Ende, Paket-fort-Pfad). Der Nutzer muss nichts finden.
+
+Was sich dadurch aendert:
+
+- **Beschriftung: "Stop the helper".** Kein zweiter Satz im Knopf. Der
+  Bestaetigungsdialog bleibt und nennt beides, weil beides passiert: Titel
+  "Stop the helper?", Text zwei Saetze — "The helper stops now, and everything
+  that needs it — the system EQ and the live monitor — stops with it until you
+  run the ADB command again. It removes the files it can name on its way out."
+  Knoepfe "Stop the helper" / "Cancel".
+- **Die zweite Beschriftung „Check for leftovers" entfaellt** ersatzlos. Ohne
+  verbundenen Helper gibt es keine Aktion mehr, sondern eine **Standzeile**
+  (siehe naechster Punkt).
+- **Der dreistufige Aussagerahmen bleibt vollstaendig gueltig** — er beschreibt
+  jetzt, was die App **nach dem Beenden berichtet**, nicht das Ergebnis einer
+  eigens angestossenen Aufraeumaktion. Stufe 1 (beobachteter Binder-Tod), Stufe 2
+  (je bekanntem Namen, am eigenen Oeffnungsversuch), Stufe 3 (dauerhaft „Cannot
+  check"). Alle Ehrlichkeitsregeln unveraendert: keine Summenzeile, kein
+  Gesamt-Pill, verbotene Zeichenketten unveraendert, Monitor danach auf
+  `CANNOT_TELL`.
+- **Neu, und der eigentliche Gehalt von „generell integriert": Stufe 3 wird zur
+  Standzeile.** Sie haengt nicht mehr an einer Aktion, sondern steht im Panel,
+  solange die Sichtbarkeitsbedingung aus Entscheidung 2 erfuellt ist — mit
+  ihrem `PillTone.NEUTRAL` und ihrem Satz, auch wenn der Nutzer nie etwas
+  drueckt. Begruendung: Eine Wissensgrenze, die man erst durch eine Aktion zu
+  sehen bekommt, ist als Wissensgrenze nichts wert.
+- **Eine Standzeile ueber das Verfahren, ein Satz**, in der zweiten Ebene des
+  Panels: "The helper removes the files it can name whenever it starts and when
+  it stops." Sie ersetzt jede Aufforderung, etwas anzustossen.
+- **Kein Ergebnisbericht bei Helper-Start.** Das Aufraeumen dort laeuft
+  wortlos. Ein Bericht ueber eine Arbeit, die der Nutzer nicht ausgeloest hat,
+  waere Laerm — und beim Start hat die App den Binder-Tod aus Stufe 1 gar nicht
+  zu beobachten.
+
+### Entscheidung 4 — Die Kalibrierpunkte kommen nicht in die App, und sie sind konfundiert
+
+Wortlaut: *„Ich hatte nur bei weniger Bitrate null. Ich weiss nicht, ob das
+hilft."*
+
+**Der Einwand ist ein methodischer Befund, und er ist richtig.** Unsere beiden
+Punkte unterscheiden sich nicht nur in der Dropout-Rate, sondern **gleichzeitig
+in der Bitratenstufe**: 0 Dropouts gab es ausschliesslich bei 492/660,
+~13 Dropouts ausschliesslich bei 990. Die Punkte sind **konfundiert**. Belegt
+ist damit: **„990 gepinnt klingt auf dieser Strecke kaputt, adaptiv nicht."**
+Nicht belegt ist: „13 Dropouts pro Minute sind hoerbar, unabhaengig von der
+Stufe."
+
+Folgen, alle eingearbeitet:
+
+- **Punkt 6 der zweiten Ebene entfaellt ersatzlos.** Die Kalibrierpunkte
+  erscheinen nirgends in der App. Damit kommt das Wort „audible" in der
+  gesamten Oberflaeche nicht mehr vor — was die Durchsetzung von R-C und R-E
+  von einer Textpruefung zu einer Grep-Regel macht.
+- **R-E wird staerker begruendet, nicht schwaecher.** Bisher: zwei Punkte, keine
+  Kurve. Jetzt zusaetzlich: **die zwei Punkte tragen eine zweite Variable mit
+  sich.** Selbst eine Gerade durch beide waere nicht nur unbelegt, sie waere
+  ueber zwei Groessen gleichzeitig gezogen. R-E gilt unveraendert und ist damit
+  besser begruendet als bei seiner Einfuehrung.
+- **`LOSS_ALERT_RATE_PER_MIN[dropouts]` = 12/min bleibt** — es ist die
+  bestbelegte Alarmschwelle, die dieses Projekt hat, und sie irrt allenfalls in
+  die vorsichtige Richtung (sie schlaegt eher zu spaet als zu frueh an, und sie
+  behauptet nichts ueber Klang). **In ihre Begruendung im KDoc gehoert der
+  Vorbehalt:** der Wert stammt aus einem Punktepaar, in dem Rate und
+  Bitratenstufe zusammen variiert haben.
+- **M-11 wird wichtiger und praeziser.** Zwischenpunkte muessen bei **gleicher
+  Stufe** erhoben werden, sonst messen sie wieder zwei Dinge auf einmal. Das
+  verschaerft den bereits benannten Vorbehalt: der einzige bekannte Hebel, der
+  ueberhaupt Dropouts erzeugt, ist das Pinnen auf 990 — und der veraendert die
+  Stufe per Konstruktion. **Es ist derzeit kein Verfahren bekannt, mit dem M-11
+  sauber messbar waere.** Wer eines findet, schliesst die Luecke; bis dahin ist
+  R-E nicht vorlaeufig, sondern dauerhaft.
+
+### Aenderungen an den Akzeptanzkriterien dieses Abschnitts
+
+**Zurueckgezogen:**
+
+- **AK-T009-26** (Verweildauer in der Stufenzeile) — gegenstandslos, die Zeile
+  traegt keine Verweildauer mehr. Die Sache selbst ist nicht verloren: sie
+  gilt jetzt als **AK-T009-40** fuer die Treppe.
+
+**Geaendert:**
+
+- **AK-T009-27** — „less than {2 × Kadenz}" gilt weiterhin fuer den
+  Log-Eintrag und die zweite Ebene. Im Graphen tritt an seine Stelle die Marke
+  aus G-6; eine Zahl steht dort nicht.
+- **AK-T009-30** — `LADDER_SETTLING` wird nicht mehr ueber eine Wechselrate
+  geprueft, sondern ueber `LADDER_SETTLING_MIN_DISTINCT_STEPS` im
+  Teilfenster. Der Testfall wird: vier verschiedene Stufen in 20 s ⟹ kein
+  Stufenanteil in Prozent; zwei Stufen ueber 90 s ⟹ Anteile erscheinen.
+- **AK-T009-33** — die Aktion heisst „Stop the helper" und laeuft weiterhin
+  ausschliesslich auf Nutzeraktion. Zusaetzlich pruefbar: das Aufraeumen selbst
+  haengt **nicht** an dieser Aktion (Entscheidung 3), also darf kein Codepfad
+  das Aufraeumen nur hier ausloesen.
+- **AK-T009-34** — Stufe 3 ist jetzt eine **Standzeile**: sie ist auch dann
+  sichtbar, wenn nie eine Aktion ausgeloest wurde, solange das Panel die
+  Sichtbarkeitsbedingung erfuellt. Compose-Test entsprechend erweitert.
+
+**Neu:**
+
+- **AK-T009-38** Die Bitratenspur wird als Treppe gezeichnet: zwischen zwei
+  Lesungen ausschliesslich waagerecht, am Wechsel ausschliesslich senkrecht. Es
+  existiert kein schraeges Segment und keine Glaettungsfunktion auf der
+  Stufenspur. Pruefbar per Grep auf Interpolations-/Spline-Aufrufe im
+  Graph-Pfad und als Pixel-/Pfadtest ueber die Wertefolge 492 → 660.
+- **AK-T009-39** Eine Stufe, die in genau **einer** Lesung stand, ist im
+  Graphen sichtbar — auch dann, wenn mehr Lesungen als Pixelspalten vorliegen.
+  Je Spalte werden Minimum und Maximum gezeichnet, nie ein Mittelwert. Unit-Test
+  mit der Wertefolge aus Arm A' (…, 660, **990**, 492, …) bei kuenstlich
+  verdichteter Spaltenzahl. **Das ist der Regressionstest gegen das
+  Wegglaetten des aussagekraeftigsten gemessenen Punktes.**
+- **AK-T009-40** Der Graph zeichnet keine Treppe ueber eine Messluecke: die
+  vorhandene `breakBefore`-Regel bleibt wirksam, und jede Lesung traegt eine
+  eigene Marke. Unit-Test mit einer kuenstlichen Luecke von mehr als zwei
+  erwarteten Intervallen.
+- **AK-T009-41** Meldet der ABR-Zaehler mehr Wechsel, als an Stufenwechseln
+  sichtbar sind, wird das betroffene Segment als „enthaelt ungesehene Wechsel"
+  markiert und die Caption nennt die Zahl. Die Markierung ist ohne
+  Farbwahrnehmung erkennbar (Strichform, nicht Farbe). Unit-Test:
+  `adjustments` +3 bei einem sichtbaren Wechsel ⟹ „2 more the readings did not
+  show".
+- **AK-T009-42** Ein gemessener Bitratenwert, der auf keiner bekannten
+  Nominalstufe liegt, wird gezeichnet und beschriftet wie gemessen und niemals
+  gerundet oder eingerastet. Unit-Test mit 396 und 492 gegen die
+  48/96-kHz-Leiter.
+- **AK-T009-43** Die Zeichenkette „audible" und die Zahlen der beiden
+  Kalibrierpunkte kommen in keiner Oberflaeche der App vor (Entscheidung 4).
+  Pruefbar per Grep ueber den gesamten `ui`-Baum und die Stringressourcen.
+- **AK-T009-44** Das Panel mit Helper-Aktion und Standzeile erscheint nur, wenn
+  einer der drei Zweige aus Entscheidung 2 zutrifft, und verschwindet sonst
+  vollstaendig. Unit-Test ueber alle acht Kombinationen der drei Zweige.
+
+### Offene Fragen an den App Designer
+
+Keine. Alle vier Fragen sind beantwortet und eingearbeitet.
+
+**Was offen bleibt, sind wieder Messungen, keine Entscheidungen** — und zwei
+davon sind durch diesen Nachtrag schwerer geworden statt leichter:
+
+- **M-11** (Zwischenpunkte der Hoerbarkeit) braucht Punkte bei **gleicher**
+  Stufe, und dafuer ist derzeit kein Verfahren bekannt. Solange keines
+  gefunden ist, ist R-E dauerhaft und nicht vorlaeufig.
+- **M-9** (Einschwingen) traegt jetzt zusaetzlich die Frage, ob ein
+  Einschwingvorgang immer mehr als zwei Stufen beruehrt — sonst hat
+  `LADDER_SETTLING_MIN_DISTINCT_STEPS` eine benannte Erkennungsluecke.
+- **D-11** (die `LDAC adaptive bit rate`-Zeilen im Parser) ist durch G-4 von
+  „waere genauer" zu **notwendig** geworden: ohne den Zaehler kann der Graph
+  nicht sagen, was er nicht gesehen hat.
