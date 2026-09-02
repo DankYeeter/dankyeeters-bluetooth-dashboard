@@ -482,3 +482,65 @@ Stufe. **Das traegt nicht.** Genau dieser Einzelfall wurde in T-028 ueber acht
 gueltige Abschnitte — vier mit Reiz, vier ohne — **nicht reproduziert**, alle
 0/0. Er gilt als nicht belastbar. Wer daran anknuepfen will, muesste zuerst die
 Reproduzierbarkeit herstellen. Nicht als Hebel weiterverwenden.
+
+### R-008 geliefert — EIN Stresshebel aus Bordmitteln gefunden
+
+Volltext `docs/research/R-008.md`. **Noch nicht committet.**
+
+**Der Hebel: die geoeffnete Seite "Neues Geraet koppeln".** Sie startet laut
+AOSP eine klassische Inquiry (10 x 1,28 s) plus LE-Scan und **startet sie
+automatisch neu, solange die Seite offen ist**. Entscheidend: Sie umgeht dabei
+die Schutzlogik, mit der Android Discovery bei laufendem A2DP sonst
+unterdrueckt — SettingsLib traegt dort den Kommentar "If we are playing music,
+dont scan unless forced", und die Kopplungsseite nutzt diesen Pfad nicht. Die
+Entwicklerdoku nennt Discovery als Vorgang, der die verfuegbare Bandbreite
+bestehender Verbindungen erheblich reduziert.
+
+**Erreichbar ueber die Oberflaeche, ohne Root, ohne Shell, ohne Fremdgeraet** —
+genau was der Nutzer wollte. **Nur zeitlich dosierbar** (Seite offen gegen zu),
+nicht in der Intensitaet. **Groessenordnung auf diesem Geraet unbelegt, muss
+gemessen werden.**
+
+Zweitbester: LE-Scan-Tastverhaeltnis ueber sechs `Settings.Global`-Schluessel,
+10 bis 100 Prozent, stufenlos, Shell ohne Root — Wirkung aber unbelegt, und die
+bisherigen Projektmessungen bei 10 bis 25 Prozent zeigten keinen Effekt.
+
+**Fazit:** Ein im strengen Sinn dosierbarer Hebel aus reinen Einstellungen
+existiert **nicht**; das zeitlich getaktete Inquiry-Verfahren ist der Ersatz.
+
+**Zwei Nebenbefunde von Gewicht:**
+
+- **Der Encoder-Thread laeuft SCHED_FIFO Prioritaet 1.** Damit ist die offene
+  Frage aus R-007 geschlossen: gewoehnliche Rechenlast kann ihn nicht
+  verdraengen, CPU-Last scheidet als Hebel endgueltig aus.
+- **`MAX_PCM_FRAME_NUM_PER_TICK`** wuerde die konstante Raeumungsgroesse 25 aus
+  T-029 erklaeren, war aber in den eingesehenen Headern nicht enthalten.
+  **Kandidat fuer einen eigenen Quelltext-Auftrag** — der Beleg dafuer, warum
+  eine Episode immer denselben Schwung mitnimmt.
+
+**Naechster Messschritt, vom Lauf vorgeschlagen:** Kopplungsseite zu, dann zu
+25, 50 und 100 Prozent der Zeit offen, je 3-5 min, fest 660, Zustandsbuch
+komplett. Davor per Read-back pruefen, ob Discovery bei offener Seite wirklich
+in Schleife laeuft.
+
+### R-009 und R-010 SIND geliefert — Korrektur des Directors
+
+Beide fable-Laeufe meldeten einen Abbruch am Nutzungslimit, und ich hatte
+daraus geschlossen, sie haetten nicht mehr geschrieben. **Das war falsch.**
+Der `archivist` hat es beim Sync bemerkt: `docs/research/R-009.md` (40 KB,
+22:28) und `R-010.md` (44 KB, 22:31) existieren, sind vollstaendig und in sich
+stimmig — beide Agenten hatten ihre Datei **vor** dem Abbruch gesichert. Der
+Abbruch traf nur den Abschlussbericht an mich.
+
+**Beide sind NICHT neu zu beauftragen.** Sie sind zu lesen und auszuwerten;
+das steht als erstes auf der Liste der naechsten Sitzung.
+
+**Der Nachtrag am Ende von `docs/tasks/T-031.md` behauptet ebenfalls faelschlich,
+sie seien nicht geliefert.** Die dort festgehaltene Zielrichtung (990 ist das
+Ziel) bleibt gueltig und wichtig — nur der Anlass stimmt nicht. Die Steuerung
+wurde den Laeufen waehrend der Arbeit per Nachricht mitgegeben; ob sie sie noch
+eingearbeitet haben, ist beim Lesen zu pruefen.
+
+**Lehre, fuer die Retrospektive:** Ein gemeldeter Agentenabbruch heisst nicht,
+dass nichts geschrieben wurde. Vor jeder Aussage "nicht geliefert" gehoert ein
+Blick ins Dateisystem — genau das hat der `archivist` getan und ich nicht.
