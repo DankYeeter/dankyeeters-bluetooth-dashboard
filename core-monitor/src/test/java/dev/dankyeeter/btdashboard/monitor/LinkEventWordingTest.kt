@@ -79,6 +79,32 @@ class LinkEventWordingTest {
         assertEquals("Audio was lost in a 2 s window: 3 app underruns, 1 dropped packet.", detail)
     }
 
+    /**
+     * The channel AK-T009-24 names, in the sentence a copied log shows.
+     *
+     * "stack dropouts" is what the criterion asks for word for word, so the
+     * words are asserted here and not merely the fact that some sentence came
+     * out. The underflow counter is set high in the same window on purpose: it
+     * rides along on the event as a record, and it must not turn up in a
+     * sentence that says audio was lost — see `A2dpTxDelta.hasLoss`.
+     */
+    @Test
+    fun `a dropout window names the stack dropouts and not the underflows`() {
+        val detail = LinkEvent.LossDetected(
+            timestampMs = 1L,
+            windowMs = 97_000L,
+            inputUnderruns = 0,
+            mixerUnderruns = 0,
+            txDropped = 0,
+            txDropouts = 21,
+            txUnderflows = 12,
+            detail = "Audio loss: 21 stack dropout(s)",
+        ).toMonitorEvent(null, null).detail
+
+        assertTrue(detail, detail.contains("21 stack dropouts"))
+        assertFalse(detail, detail.contains("underflow"))
+    }
+
     /** An uneven poll is reported as uneven, not rounded into a tidy lie. */
     @Test
     fun `an uneven window keeps its tenth of a second`() {

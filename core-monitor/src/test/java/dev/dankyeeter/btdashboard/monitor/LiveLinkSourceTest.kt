@@ -142,6 +142,74 @@ class LiveLinkSourceTest {
     }
 
     /**
+     * AK-T009-24 at the level where it is expensive: a window in which only the
+     * encoder underflow counter moved writes nothing at all.
+     *
+     * The 39-minute ABR run produced 23 such windows over music the owner heard
+     * as flawless (`docs/perf/T-011-messung.md`). Each one used to become a
+     * `LossDetected` — a red line in the panel, a row in the timeline and a row
+     * in the database, none of which described anything that happened.
+     */
+    @Test
+    fun `a window in which only underflow moved produces no loss event`() = runTest {
+        val clock = TestClock(1_000L)
+        val first = LiveLinkSource(shellOf(connected()), clock::now).readOnce()
+
+        clock.advance(2_000L)
+        val quiet = setCounter(connected(), "Counts (underflow)", "789")
+        val source = LiveLinkSource(shellOf(quiet), clock::now)
+        val second = source.readOnce(first)
+
+        val delta = requireNotNull(second.txDelta)
+        assertEquals(1L, delta.underflows)
+        assertEquals(0L, delta.dropped)
+        assertEquals(0L, delta.dropouts)
+        assertFalse("underflow alone is not audible loss", delta.hasLoss)
+        assertFalse("nor anywhere else on the path", second.hasLossThisWindow)
+        assertTrue(
+            "an underflow-only window wrote a loss event",
+            source.eventsBetween(first, second).filterIsInstance<LinkEvent.LossDetected>().isEmpty(),
+        )
+    }
+
+    /**
+     * The channel AK-T009-24 names in so many words — "stack dropouts" — pinned
+     * on the words rather than on the boolean, and pinned alone.
+     *
+     * The dropouts move here without any dropped packets, so the assertion
+     * cannot be satisfied by the other tx counter, and the underflow counter
+     * moves at the same time to show that it is carried on the event without
+     * being named in the sentence.
+     */
+    @Test
+    fun `a window of stack dropouts names that channel and not the underflows`() = runTest {
+        val clock = TestClock(1_000L)
+        val first = LiveLinkSource(shellOf(connected()), clock::now).readOnce()
+
+        clock.advance(97_000L)
+        var worse = setCounter(connected(), "Counts (flushed/dropped/dropouts)", "1 / 0 / 21")
+        worse = setCounter(worse, "Counts (underflow)", "800")
+        val source = LiveLinkSource(shellOf(worse), clock::now)
+        val second = source.readOnce(first)
+
+        val delta = requireNotNull(second.txDelta)
+        assertEquals(0L, delta.dropped)
+        assertEquals(21L, delta.dropouts)
+        assertTrue("21 stack dropouts are loss on their own", delta.hasLoss)
+
+        val loss = source.eventsBetween(first, second)
+            .filterIsInstance<LinkEvent.LossDetected>()
+            .single()
+        assertEquals(21L, loss.txDropouts)
+        assertEquals("the counter is still carried", 12L, loss.txUnderflows)
+        assertTrue(loss.detail, loss.detail.contains("21 stack dropout"))
+        assertFalse(
+            "a counter that cannot say loss must not be named in the loss sentence",
+            loss.detail.contains("underflow"),
+        )
+    }
+
+    /**
      * Counters only fall when the thing counting them restarted. "This window
      * cannot be measured" and "nothing happened in this window" look identical
      * on a chart and mean opposite things, so a fall produces no delta at all.

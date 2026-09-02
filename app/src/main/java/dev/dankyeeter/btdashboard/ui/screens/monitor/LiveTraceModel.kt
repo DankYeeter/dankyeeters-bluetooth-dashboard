@@ -187,7 +187,7 @@ fun TxProbeSample.toTracePoint(): TracePoint = TracePoint(
     timestampMs = timestampMs,
     bitrateKbps = bitrateKbps?.toDouble(),
     packetsPerSecond = delta?.packetsPerSecond,
-    lossCount = delta?.let { it.dropped + it.dropouts + it.underflows } ?: 0L,
+    lossCount = delta?.lossCount() ?: 0L,
 )
 
 /**
@@ -209,10 +209,22 @@ private fun LinkLiveSnapshot.lossCountThisWindow(): Long =
     inputUnderrunDelta +
         (mixer?.fastMixerUnderrunDelta ?: 0L) +
         (mixer?.normalMixerEmptyDelta ?: 0L) +
-        (txDelta?.let { it.dropped + it.dropouts + it.underflows } ?: 0L)
+        (txDelta?.lossCount() ?: 0L)
 
-/** Kept for symmetry with the probe channel; both graphs read the same shape. */
-internal fun A2dpTxDelta.lossCount(): Long = dropped + dropouts + underflows
+/**
+ * The stack's own audible loss in one window — the same two counters
+ * [A2dpTxDelta.hasLoss] asks about, and for the same reason.
+ *
+ * Encoder underflows are not counted. A mark on the graph is a claim that
+ * something was lost at that instant, and the counter that rose through 39
+ * minutes of clean playback cannot make it; it would have drawn about 23 marks
+ * over music that was fine (AK-T009-24). The counter is still shown in the
+ * panel, where it stands as a count and not as a verdict.
+ *
+ * One definition for both channels, so the close-up and the overview can never
+ * disagree about what put a mark on the line.
+ */
+internal fun A2dpTxDelta.lossCount(): Long = dropped + dropouts
 
 /**
  * Appends one full-pass reading, carrying its reason for being unplottable.

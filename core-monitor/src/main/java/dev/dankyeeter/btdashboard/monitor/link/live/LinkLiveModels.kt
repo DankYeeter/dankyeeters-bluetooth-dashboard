@@ -210,6 +210,7 @@ data class MixerOutputSnapshot(
  * is defaulted or guessed: a missing section produces a null [LdacStackState],
  * and the panel then falls back to saying the rate is not observable, which on
  * such a build is the truth.
+
  */
 data class LdacStackState(
     /**
@@ -575,8 +576,24 @@ data class A2dpTxDelta(
     val underflowBytes: Long = 0,
     val framesEncoded: Long = 0,
 ) {
-    /** Anything the user would have heard. */
-    val hasLoss: Boolean get() = dropped > 0 || dropouts > 0 || underflows > 0
+    /**
+     * Anything the user would have heard.
+     *
+     * [underflows] is deliberately not part of this. The device runs put the
+     * counter on the wrong side of the question twice over: it stayed at 0
+     * through the audibly broken 990 arm (`docs/perf/T-008-experimente.md`,
+     * section 3) and rose from 2 to 25 across 39 minutes of flawless playback
+     * with nothing dropped (`docs/perf/T-011-messung.md`). A window whose only
+     * moving counter is underflow is not loss, and treating it as loss painted
+     * a red line about every 100 s of a clean run (AK-T009-24).
+     *
+     * The counter keeps its value and its place on screen; it lost the verdict,
+     * not the visibility. Encoder starvation is a *rate*, and it is judged from
+     * [underflowsPerSecond] by `EncoderStarvationTripwire` — where the incident
+     * of 2026-08-28 sat at ~49/s against a resting 0.59/min, three orders of
+     * magnitude apart.
+     */
+    val hasLoss: Boolean get() = dropped > 0 || dropouts > 0
 
     /**
      * DERIVED: enqueue ticks per second across the window.
@@ -720,7 +737,12 @@ data class LinkLiveSnapshot(
     val inputUnderrunDelta: Long
         get() = inputs.sumOf { it.underrunDelta ?: 0L }
 
-    /** Whether this poll saw audible loss anywhere on the path. */
+    /**
+     * Whether this poll saw audible loss anywhere on the path.
+     *
+     * Encoder underflows are not one of the channels asked — see
+     * [A2dpTxDelta.hasLoss] for the measurements that took them out of it.
+     */
     val hasLossThisWindow: Boolean
         get() = txDelta?.hasLoss == true ||
             inputUnderrunDelta > 0 ||

@@ -74,8 +74,12 @@ sealed interface LinkEvent {
      * Deliberately carries the three counters apart rather than one total: they
      * fail in different places and mean different fixes. [inputUnderruns] is an
      * app that could not produce audio fast enough, [mixerUnderruns] is the
-     * output thread running dry, and [txDropped]/[txDropouts]/[txUnderflows]
-     * are the Bluetooth stack's own queue.
+     * output thread running dry, and [txDropped]/[txDropouts] are the Bluetooth
+     * stack's own queue.
+     *
+     * [txUnderflows] rides along as a record of what the encoder counter did in
+     * the same window; it never triggers this event and is never named in
+     * [detail], because it is not audible loss — see [A2dpTxDelta.hasLoss].
      */
     data class LossDetected(
         override val timestampMs: Long,
@@ -84,6 +88,7 @@ sealed interface LinkEvent {
         val mixerUnderruns: Long,
         val txDropped: Long,
         val txDropouts: Long,
+        /** MEASURED, carried for the record. Not a reason this event exists. */
         val txUnderflows: Long,
         override val detail: String,
     ) : LinkEvent
@@ -272,7 +277,9 @@ private fun LinkEvent.LossDetected.lossParts(): List<String> = buildList {
     if (mixerUnderruns > 0) add(count(mixerUnderruns, "mixer underrun"))
     if (txDropped > 0) add(count(txDropped, "dropped packet"))
     if (txDropouts > 0) add(count(txDropouts, "stack dropout"))
-    if (txUnderflows > 0) add(count(txUnderflows, "encoder underflow"))
+    // [LossDetected.txUnderflows] is on the event but not in this sentence: the
+    // sentence says audio was lost, and underflow cannot say that — see
+    // [A2dpTxDelta.hasLoss] for the two runs that settled it.
     // Never an empty list: the event only exists because something was counted,
     // but a future counter added upstream must not produce "Audio was lost: ."
     if (isEmpty()) add("no counter named it")

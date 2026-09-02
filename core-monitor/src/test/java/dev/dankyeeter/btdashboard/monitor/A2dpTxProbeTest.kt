@@ -150,6 +150,66 @@ class A2dpTxProbeTest {
         assertTrue("a window with 21 dropouts is loss whatever underflow says", delta!!.hasLoss)
     }
 
+    /**
+     * The other half of AK-T009-24: underflow on its own is not loss.
+     *
+     * The long ABR run measured `Counts (underflow)` climbing from 2 to 25 over
+     * 38.93 minutes in which nothing was dropped and the owner heard no fault
+     * (`docs/perf/T-011-messung.md`). At the default 2 s cadence each of those
+     * 23 increments is its own window, so a verdict built on this counter turned
+     * 39 minutes of clean music into 23 red "Audio lost" lines and 23 rows in
+     * the event log.
+     */
+    @Test
+    fun `a window whose only moving counter is underflow is not loss`() = runTest {
+        val first = probeOf(baseBt) { 1_000L }.readOnce()
+        // One increment, two seconds later, with every other counter standing
+        // still — one of the 23 windows from that run.
+        val quiet = setCounter(baseBt, "Counts (underflow)", "789")
+        val second = probeOf(quiet) { 3_000L }.readOnce()
+
+        val delta = probeOf(baseBt).sampleBetween(first, second).delta
+
+        assertEquals(1L, delta?.underflows)
+        assertEquals(0L, delta?.dropped)
+        assertEquals(0L, delta?.dropouts)
+        assertFalse("an underflow-only window is not audible loss", delta!!.hasLoss)
+    }
+
+    /**
+     * Dropouts alone, because the arm-B case above carries 525 dropped packets
+     * with them and would still read as loss if the dropout channel were dropped
+     * from the verdict entirely.
+     */
+    @Test
+    fun `stack dropouts alone are loss`() = runTest {
+        val first = probeOf(baseBt) { 1_000L }.readOnce()
+        val onlyDropouts = setCounter(baseBt, "Counts (flushed/dropped/dropouts)", "1 / 0 / 21")
+        val second = probeOf(onlyDropouts) { 98_000L }.readOnce()
+
+        val delta = probeOf(baseBt).sampleBetween(first, second).delta
+
+        assertEquals(0L, delta?.dropped)
+        assertEquals(21L, delta?.dropouts)
+        assertEquals(0L, delta?.underflows)
+        assertTrue("21 stack dropouts are loss on their own", delta!!.hasLoss)
+    }
+
+    /** The same for the other guarded channel, so neither can be lost silently. */
+    @Test
+    fun `dropped packets alone are loss`() = runTest {
+        val first = probeOf(baseBt) { 1_000L }.readOnce()
+        val onlyDropped = setCounter(baseBt, "Counts (flushed/dropped/dropouts)", "1 / 525 / 0")
+        val second = probeOf(onlyDropped) { 98_000L }.readOnce()
+
+        val delta = probeOf(baseBt).sampleBetween(first, second).delta
+
+        assertEquals(525L, delta?.dropped)
+        assertEquals(0L, delta?.dropouts)
+        assertEquals(0L, delta?.underflows)
+        assertTrue("525 dropped packets are loss on their own", delta!!.hasLoss)
+    }
+
     @Test
     fun `a counter that went backwards is not a window of zero`() = runTest {
         val first = probeOf(baseBt) { 1_000L }.readOnce()

@@ -299,6 +299,17 @@ private fun LdacSection(
  *
  * Quiet when nothing was — a green tick for "no dropouts" trains the eye to
  * skip the row, and this is the one row that must be noticed when it changes.
+ *
+ * ## Why the encoder underflows stand apart
+ *
+ * They used to be named inside the red sentence. Two measurements say they do
+ * not belong there: the counter did not move at all through the audibly broken
+ * 990 arm, and it climbed from 2 to 25 across 39 minutes of flawless playback
+ * (`docs/perf/T-008-experimente.md`, `docs/perf/T-011-messung.md`). At a 2 s
+ * cadence that second run would have printed some 23 red "Audio lost" lines
+ * over music that was fine. So the number stays on the screen — it is a
+ * measurement and AK-2 keeps it — but on its own line, in the quiet colour, as
+ * a bare count over a stated window and with no word about what it means.
  */
 @Composable
 private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
@@ -313,7 +324,6 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
         mixer.takeIf { it > 0 }?.let { add(plural(it, "mixer underrun")) }
         tx?.dropped?.takeIf { it > 0 }?.let { add(plural(it, "dropped packet")) }
         tx?.dropouts?.takeIf { it > 0 }?.let { add(plural(it, "stack dropout")) }
-        tx?.underflows?.takeIf { it > 0 }?.let { add(plural(it, "encoder underflow")) }
     }
 
     when {
@@ -334,6 +344,17 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
 
         else -> Text(
             "No loss this window.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    // Shown only when it moved, for the same reason the backlog row is: a "0"
+    // printed every two seconds teaches the eye to skip the line.
+    tx?.underflows?.takeIf { it > 0 }?.let { underflows ->
+        Text(
+            "${plural(underflows, "encoder underflow")} in the last " +
+                "${trimZero(windowSeconds)} s.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

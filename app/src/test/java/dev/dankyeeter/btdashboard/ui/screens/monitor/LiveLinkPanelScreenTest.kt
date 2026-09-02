@@ -249,6 +249,46 @@ class LiveLinkPanelScreenTest {
         assertShows("in the last 2 s")
     }
 
+    /**
+     * AK-T009-24 where the owner sees it: a window in which only the encoder
+     * underflow counter moved stays quiet, and the count is still on the screen.
+     *
+     * That pairing is the whole point of the fix. The counter rose 23 times over
+     * 38.93 minutes of playback with nothing dropped and no fault heard
+     * (`docs/perf/T-011-messung.md`), so a red "Audio lost" line for each of
+     * them was wrong — and dropping the number instead would have cost a
+     * measurement that AK-2 keeps.
+     */
+    @Test
+    fun `an underflow-only window stays quiet and still shows the count`() {
+        render(
+            snapshot(codecSpecific1 = 0L).let { base ->
+                base.copy(txDelta = base.txDelta?.copy(underflows = 3L))
+            },
+        )
+
+        assertShows("No loss this window.")
+        assertHides("Audio lost")
+        assertShows("3 encoder underflows in the last 2 s.")
+    }
+
+    /**
+     * The channel AK-T009-24 names word for word, asserted on the words.
+     *
+     * Dropouts move here on their own — no dropped packets alongside them — so
+     * the line cannot be produced by the other tx counter.
+     */
+    @Test
+    fun `a window of stack dropouts alone names that channel`() {
+        render(
+            snapshot(codecSpecific1 = 0L).let { base ->
+                base.copy(txDelta = base.txDelta?.copy(dropouts = 21L))
+            },
+        )
+
+        assertShows("Audio lost: 21 stack dropouts in the last 2 s.")
+    }
+
     @Test
     fun `an unnamed device is identified without printing a real address`() {
         // A userdebug build does not redact the dump, so the panel does its own

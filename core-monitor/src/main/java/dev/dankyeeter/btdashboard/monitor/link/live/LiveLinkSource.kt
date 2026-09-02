@@ -508,7 +508,6 @@ class LiveLinkSource(
             if (mixerUnderruns > 0) add("$mixerUnderruns mixer underrun(s)")
             tx?.dropped?.takeIf { it > 0 }?.let { add("$it dropped packet(s)") }
             tx?.dropouts?.takeIf { it > 0 }?.let { add("$it stack dropout(s)") }
-            tx?.underflows?.takeIf { it > 0 }?.let { add("$it encoder underflow(s)") }
         }
         return LinkEvent.LossDetected(
             timestampMs = current.timestampMs,
@@ -517,6 +516,8 @@ class LiveLinkSource(
             mixerUnderruns = mixerUnderruns,
             txDropped = tx?.dropped ?: 0L,
             txDropouts = tx?.dropouts ?: 0L,
+            // Recorded, never named in [detail]: this event is the verdict, and
+            // underflow does not carry one — see [A2dpTxDelta.hasLoss].
             txUnderflows = tx?.underflows ?: 0L,
             detail = "Audio loss: " + parts.joinToString(", "),
         )

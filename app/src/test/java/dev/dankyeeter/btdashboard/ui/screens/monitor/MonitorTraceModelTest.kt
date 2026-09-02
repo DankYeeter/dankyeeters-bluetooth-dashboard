@@ -179,7 +179,10 @@ class MonitorTraceModelTest {
         assertEquals(492.0, point.bitrateKbps!!, 0.001)
         assertEquals("the measured rate wins the line", 492.0, point.plotValue!!, 0.001)
         assertEquals(432.0, point.packetsPerSecond!!, 0.001)
-        assertEquals(4L, point.lossCount)
+        // One dropped packet and one dropout. The two underflows in the same
+        // window are not marks: a mark claims something was lost at that
+        // instant, and that counter cannot make the claim (AK-T009-24).
+        assertEquals(2L, point.lossCount)
     }
 
     /**
@@ -222,9 +225,43 @@ class MonitorTraceModelTest {
         val point = snapshot.toTracePoint()
 
         assertEquals(431.0, point.packetsPerSecond!!, 0.001)
-        // Three app underruns plus one dropped packet plus one underflow: the
-        // full pass sees all three places the path can lose audio.
-        assertEquals(5L, point.lossCount)
+        // Three app underruns plus one dropped packet: the full pass sees all
+        // three places the path can lose audio, and counts the two that can
+        // say so. The underflow in the same window is not one of them
+        // (AK-T009-24).
+        assertEquals(4L, point.lossCount)
+    }
+
+    /**
+     * The graph's half of AK-T009-24.
+     *
+     * A window in which only the encoder underflow counter moved draws no mark
+     * on either channel. In the 39-minute ABR run that counter moved 23 times
+     * over playback with nothing dropped and no fault heard
+     * (`docs/perf/T-011-messung.md`), which would have put 23 marks and a
+     * "23 loss marks" caption under a graph of a clean link.
+     */
+    @Test
+    fun `an underflow-only window puts no mark on either channel`() {
+        val delta = A2dpTxDelta(windowMs = 2_000, enqueued = 862, underflows = 3)
+
+        val closeUp = TxProbeSample(
+            timestampMs = 1_000L,
+            delta = delta,
+            bitrateKbps = 492,
+            observability = LinkObservability.HOST_ENCODED,
+        ).toTracePoint()
+        val overview = LinkLiveSnapshot(
+            timestampMs = 2_000L,
+            codec = LiveCodecSnapshot(family = CodecFamily.LDAC),
+            tx = A2dpTxStats(enqueueCount = 100),
+            txDelta = delta,
+        ).toTracePoint()
+
+        assertEquals(0L, closeUp.lossCount)
+        assertFalse("the close-up marked a window nothing was lost in", closeUp.hasLoss)
+        assertEquals(0L, overview.lossCount)
+        assertFalse("the overview marked a window nothing was lost in", overview.hasLoss)
     }
 
     /** The overview plots the same measured series the close-up does. */
