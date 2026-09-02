@@ -189,3 +189,61 @@ LDAC-Bitratenstufen, `ABR-Adj/min` = Zuwachs von
 
 Volle Aufnahme inkl. Konfiguration, Stoergroessen und Zeitreihentabelle:
 `docs/perf/T-007-aufnahme.md`.
+
+---
+
+## Szenario: LDAC-Wiedergabe, Ruherate ueber laengeren Zeitraum, App nicht
+## installiert, WLAN AN — Pixel 11 Pro
+
+**Neuer Abschnitt, nicht mit dem WLAN-aus-Szenario oben vermischen.**
+Unterscheidet sich in zwei Punkten: **WLAN ist an** (`wifi_on=1`,
+"Wi-Fi is enabled" durchgehend an den Buchenden geprueft) statt aus, und die
+Lauflaenge liegt bei **> 30 min** statt ~150 s — die einzige Messung, die
+laut `UI_SPEC.md` einen bereits gesetzten `LOSS_NOTICE_RATE_PER_MIN`-Wert
+wieder umwerfen konnte.
+
+**Definition:**
+
+- Geraet: Pixel 11 Pro `67011FDKX004XG`, Android 17 (SDK 37), am Kabel.
+- Kopfhoerer: derselbe wie oben, LDAC, `Rate=96000 Bits=32 Mode=STEREO`,
+  Quality-Mode `ABR` durchgehend (in allen Samples des Laufs bestaetigt).
+- `Priority: 5001` (System-Auswahl, nicht gepinnt) durchgehend.
+- Musik durchgehend (TIDAL, warmer Start), Bildschirm/Ladezustand nicht neu
+  geprueft (siehe T-011-Zustandsbuch fuer die Luecken im Nachher-Read-back).
+- **Aktive BLE-Scans wechselten waehrend des Laufs von 1 auf 2** (siehe
+  `docs/perf/T-011-messung.md` Abschnitt 2.1) — kein Eingriff, aber eine
+  Umgebungsaenderung *innerhalb* der Messung, nicht nur zwischen Armen.
+- Kadenz: nur die Bloecke `A2DP State:` und `A2DP LDAC State:` je Sample
+  erfasst (reduziert die Schreibmenge, nicht die Stack-Beruehrung).
+
+| Datum | Commit | Umgebung | Kadenz | Dauer | dropped | dropouts | underflow | ABR-Stufenwechsel/min | Budget | Notiz |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-02 | 4de36b6 (Repo; App nicht installiert) | Pixel 11 Pro, warm, WLAN an, BLE-Scans 1→2 waehrend des Laufs | 1302 ± 33 ms | 2335,82 s (38,93 min) | **0** | **0** | 2→25 (0,591/min) | 4,52 | **ja** | T-011/M-5, einzelner Lauf, lueckenlos (max. Sample-Abstand 1,465 s) |
+
+**Befund:**
+
+1. **Null `dropped`/`dropouts` ueber 38,93 min, an jedem der 1794
+   Sample-Uebergaenge geprueft** (nicht nur an den Eckwerten). Nach der
+   Dreierregel ergibt das allein eine Obergrenze von **0,077/min** fuer
+   diesen Lauf.
+2. **Kombiniert mit der 514-s-Referenz oben (WLAN aus, 5-fach belegt):**
+   Gesamtdauer 2849,82 s = 47,50 min → Dreierregel-Obergrenze
+   **0,063/min**. `LOSS_NOTICE_RATE_PER_MIN` = 1/min liegt damit **~16-fach**
+   ueber der Obergrenze (vorher: ~3-fach). Urteil: **Wert bleibt tragfaehig,
+   keine Sustain-Bedingung noetig.** Details und Vorbehalt zur
+   Pool-Bildung ueber zwei WLAN-Zustaende: `docs/perf/T-011-messung.md`
+   Abschnitt 5.
+3. **`underflow` ist hier NICHT null** (2 → 25, 0,591/min) — anders als in
+   der kurzen 514-s-Referenz. Bestaetigt `AK-T002-16`s Praezisierung „ein
+   Zaehler auf null sagt nur etwas ueber diesen Zaehler" mit einer echten
+   Zahl. Traegt nach T-009/R-D weiterhin kein Verdikt, ist aber ab jetzt
+   nicht mehr rein hypothetisch.
+4. **Der ABR-Regler probierte 990 kbps 31-mal, 30 davon fuer genau ein
+   Sample** — jedes Mal ohne Verlustereignis. Bestaetigt den
+   T-008-Einzelbefund („Regler verwirft 990 selbst") mit n=31 statt n=1.
+5. **Umgebungsaenderung innerhalb des Laufs (BLE-Scans 1→2) veraendert die
+   Nullrate nicht** — staerkt die Aussage gegenueber Schwankungen in dieser
+   Variable, ersetzt aber keinen kontrollierten Vergleich.
+
+Volle Aufnahme inkl. Zustandsbuch, Lueckenpruefung und M-8-Beitrag:
+`docs/perf/T-011-messung.md`.
