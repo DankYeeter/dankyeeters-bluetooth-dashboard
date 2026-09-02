@@ -630,8 +630,9 @@ data class A2dpTxDelta(
      *
      * [underflows] is deliberately not one of the channels. The device runs put
      * the counter on the wrong side of the question twice over: it stayed at 0
-     * through the audibly broken 990 arm (`docs/perf/T-008-experimente.md`,
-     * section 3) and rose from 2 to 25 across 39 minutes of flawless playback
+     * through the 990 arm where stack dropouts ran throughout
+     * (`docs/perf/T-008-experimente.md`, section 3) and rose from 2 to 25
+     * across 39 minutes of flawless playback
      * with nothing dropped (`docs/perf/T-011-messung.md`). A window whose only
      * moving counter is underflow is not loss, and treating it as loss painted
      * a red line about every 100 s of a clean run (AK-T009-24).

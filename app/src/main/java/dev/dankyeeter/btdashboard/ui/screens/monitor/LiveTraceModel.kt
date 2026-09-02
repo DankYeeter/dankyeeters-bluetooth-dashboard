@@ -31,7 +31,7 @@ data class TracePoint(
     /** DERIVED: enqueue ticks per second across the window ending here. */
     val packetsPerSecond: Double? = null,
     /**
-     * DERIVED: everything audible counted in this window, or null when not one
+     * DERIVED: everything this window counted as lost, or null when not one
      * of the counters could be differenced.
      *
      * Zero and null are different readings and the caption tells them apart. A
@@ -261,8 +261,8 @@ fun LinkLiveSnapshot.toTracePoint(): TracePoint = TracePoint(
 )
 
 /**
- * Everything audible in this window, from every counter that saw some — or null
- * when not one of them could be differenced.
+ * Everything this window counted as lost, from every counter that saw some — or
+ * null when not one of them could be differenced.
  *
  * The stack's share of it is [A2dpTxDelta.lossCount], which reads the one
  * definition of what counts as loss ([A2dpTxDelta.lossByChannel]) rather than
