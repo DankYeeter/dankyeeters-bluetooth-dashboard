@@ -968,8 +968,567 @@ schwer wird nichts; der Preis ist ein Buchstabe.
 
 ---
 
+### AD-015 — Die Verlustmechanik ist reine Logik in `:core-monitor`; gefaltet wird im ViewModel (2026-09-02, Status: aktiv)
+
+**Kontext:** T-021 hat belegt, dass die T-002/T-009-Mechanik im Code nicht
+existiert: keine der Parameterkonstanten, kein `SETTLING`, keine
+Zustandsmaschine. Die heutige `LossRow` rechnet eine rohe Poll-zu-Poll-Differenz.
+Rund 25 Akzeptanzkriterien sind damit gegenstandslos. Die Maschine traegt
+fachliche Regeln (Schwellen, Coverage, Hysterese, Episoden), braucht aber
+Historie und muss ohne Geraet testbar sein.
+
+**Kraefte:** Die Regeln gehoeren dorthin, wo sie ohne Android geprueft werden
+koennen; die Woerter gehoeren dorthin, wo Plural und Satzbau leben (`:app`, so
+begruendet im KDoc von `TxLossChannel`); das Fenster darf nicht laenger leben
+als der Bildschirm, der es fuellt.
+
+**Optionen:**
+A. Alles in `:app` neben `LiveTraceModel.kt`. Konsequenz: die Urteilsrechnung
+landet im Modul mit dem meisten Android und dem wenigsten Testkomfort, und die
+Schwellen stuenden neben den Saetzen, die sie beschreiben — genau die
+Vermischung, die `TxLossChannel` aufloest.
+B. Alles in `:core-monitor`, inklusive der Faltung, gehalten in
+`LiveLinkSource` neben `MeasuredBitrateTracker`. Konsequenz: ein Produzent fuer
+Zustand und Ereignisse — aber der Zustand haengt dann am prozessweiten
+Singleton `MonitorGraph.liveLink`, ueberlebt das Schliessen des Bildschirms und
+haelt Punkte aus einer Zeit, in der niemand gemessen hat. Genau das lehnt der
+Bestand fuer die Graphen ausdruecklich ab („Both windows are rebuilt rather than
+persisted", `MonitorViewModel`). Zusaetzlich teilen sich zwei moegliche
+Poll-Schleifen (`liveLinkUpdates` und `updates(interval)`) dieselbe Instanz;
+`MeasuredBitrateTracker` traegt diese Gefahr heute schon und sie ist dort als
+Wart benannt.
+C. Regeln und Datentypen in `:core-monitor` als **reine, unveraenderliche
+Faltung**; die Faltung selbst laeuft im `MonitorViewModel` ueber denselben
+`liveUpdates`-Fluss, aus dem heute `overviewTrace` entsteht. Konsequenz: die
+Lebensdauer des Fensters ist die des Bildschirms, ohne dass jemand sie
+verwalten muss; die Regeln sind mit einer Liste von Lesungen testbar; der
+Umschaltmarker aus `LdacTuning` (D-7) ist im ViewModel ohne neuen Port zu
+haben — `LdacTuning` liegt in `:app` und `:core-monitor` darf es nicht kennen.
+
+**Entscheidung:** C. Neues Paket
+`core-monitor/.../monitor/link/live/verdict/`, kein neues Gradle-Modul
+(dieselbe Begruendung wie AD-002), keine neue Abhaengigkeit, keine neue
+Bibliothek. Abhaengigkeitsrichtung unveraendert: `:app -> :core-monitor`, und
+die Maschine kennt weder Compose noch Android.
+
+**Konsequenzen:** Leicht wird, jedes der ~25 Kriterien als Unit-Test ueber eine
+Folge erfundener Lesungen zu schreiben, ohne Geraet und ohne Robolectric.
+Leicht wird auch, die Woerter zu erzwingen: die Zustands- und Grundtypen sind
+Bezeichner, die `when`-Ausdruecke in `:app` sind erschoepfend — ein neuer
+Zustand kompiliert nicht, bevor die Oberflaeche einen Satz dafuer hat. Dauerhaft
+schwer wird, den Zustand einem zweiten Bildschirm zu geben: der muesste ein
+zweites Mal falten. Solange es einen Monitor-Bildschirm gibt, ist das kein
+Preis; kaeme ein zweiter, waere die Faltung nach `MonitorGraph` zu heben, und
+dann gilt Option B samt ihrer Lebensdauer-Frage.
+
+**Umkehrbarkeit:** leicht — die Faltung ist eine Funktion; sie an einem anderen
+Ort aufzurufen ist ein Umzug von Aufrufstellen, kein Datenmodell.
+
+---
+
+### AD-016 — Die Maschine bekommt keine Uhr; die Zeit reist in den Lesungen (2026-09-02, Status: aktiv)
+
+**Kontext:** Ein Fenster ueber `LOSS_WINDOW_MS`, ein Halten ueber
+`LOSS_CLEAR_HOLD_MS`, eine Karenz ueber `SETTLE_AFTER_TRANSITION_MS` und ein
+Deckel ueber `SETTLE_MAX_SPAN_MS` brauchen Zeit. Es gibt kein Geraet; alles
+laeuft ueber Unit-Tests und Robolectric.
+
+**Wie der Bestand es loest — zweistufig:** Die Poll-Schleifen bekommen eine
+einspeisbare Uhr (`LiveLinkSource(clock = System::currentTimeMillis)`,
+`A2dpTxProbe(clock = …)`), und sie **stempeln damit die Lesung**
+(`TxProbeReading.timestampMs`, `LinkLiveSnapshot.timestampMs`). Alles, was
+danach rechnet, bekommt gar keine Uhr mehr, sondern liest die Stempel aus den
+Daten: `A2dpTxProbe.sampleBetween(previous, current)` ist genau deshalb rein und
+oeffentlich, `MeasuredBitrateTracker.onReading(timestampMs, …)` ebenso, und
+`LiveTrace` schneidet sein Fenster gegen `newestMs` statt gegen die Wanduhr.
+
+**Optionen:**
+A. Eigene `clock: () -> Long` im Konstruktor der Maschine, wie in den
+Poll-Schleifen. Konsequenz: sieht nach demselben Muster aus, ist aber die
+**zweite** Stufe — der Zustand koennte sich zwischen zwei Lesungen aendern und
+damit ueber Zeit urteilen, in der nichts gemessen wurde. Das widerspricht D-2
+(„Nenner ist die Summe der gemessenen `windowMs`"), D-8 und D-12.
+B. Virtuelle Zeit ueber `TestScope`/`kotlinx-coroutines-test` in den Tests.
+Konsequenz: ein zweites Zeitmuster im Projekt, und die Produktion behielte die
+Wanduhr — die Tests wuerden etwas anderes pruefen als das, was laeuft.
+C. Keine Uhr. Jede Frist wird gegen den Zeitstempel der **neuesten Lesung**
+ausgewertet.
+
+**Entscheidung:** C.
+
+**Warum das nicht zu einem eingefrorenen Freispruch fuehrt** — mit der
+Bedingung, unter der die Aussage geprueft ist: `LiveLinkSource.readPass`
+liefert auch dann eine Lesung, wenn die Helfer-Identitaet fehlt (Snapshot mit
+`warnings`, `tx = null`). Eine sterbende Strecke erzeugt also weiter Lesungen,
+und die Maschine faellt an einer Lesung auf `CANNOT_TELL`, nicht an einer
+Zeitschranke. Stillstehen kann die Faltung nur, wenn die Poll-Schleife steht —
+und die steht nur, wenn der Bildschirm weg ist und niemand hinsieht. Fuer
+`readOnce` gilt das **nicht**: die Maschine wird ausschliesslich aus dem
+Poll-Fluss gefuettert, dieselbe Trennung, die `EncoderStarvationTripwire` aus
+demselben Grund hat (`CodecModeCalibrator` verhandelt absichtlich neu).
+
+**Konsequenzen:** Leicht wird der Test: eine Liste von Lesungen mit erfundenen
+Zeitstempeln hinein, eine Liste von Zustaenden heraus, ohne Nebenlaeufigkeit und
+ohne Scheduler. Leicht wird auch die Ehrlichkeit: ueber ungemessene Zeit kann
+die Maschine nichts sagen, weil sie sie nicht sieht. Dauerhaft schwer wird eine
+Frist, die **ohne** Lesung ablaufen soll: sie feuert erst an der naechsten
+Lesung, also bis zu ein Poll-Intervall (1–5 s) spaet. Bei `LOSS_CLEAR_HOLD_MS`
+(35 s) und `SETTLE_AFTER_TRANSITION_MS` (20 s) sind das unter 25 % der Frist,
+und in der Anzeige ist es nicht bemerkbar, weil sie sich ohnehin nur an
+Lesungen aendert.
+
+**Umkehrbarkeit:** mittel — eine Uhr nachtraeglich hineinzureichen ist billig,
+aber jede Frist, die dann ueber ungemessene Zeit liefe, muesste einzeln gegen
+D-2/D-8/D-12 geprueft werden.
+
+---
+
+### AD-017 — Ein Fenster, in `:core-monitor`; der Ueberblicks-`LiveTrace` wird daraus projiziert (2026-09-02, Status: aktiv)
+
+**Kontext:** `LiveTrace` (`:app`, `LiveTraceModel.kt`) haelt bereits 60 s
+`TracePoint`s, kennt „nicht gemessen" gegen „null gemessen"
+(`lossCount: Long?`), zaehlt `measuredWindowCount`/`unmeasuredWindowCount` und
+den Warteschlangenanteil. Die Maschine braucht dasselbe Fenster — plus je Kanal
+getrennte Zaehler, die gemessene Spanne je Lesung, Coverage, den Umschaltmarker
+und die Stufenfelder (D-2, D-9, D-10).
+
+**Kraefte:** Doppelte Fensterhaltung ist Debt — und zwar genau der Debt, den
+QA-010 gerade teuer beseitigt hat, nur in der Zeitachse statt in der
+Kanalliste: zwei Fenster haetten zwei Nenner, und die Bildunterschrift („{k} of
+{n} windows") koennte dem Verdikt widersprechen, ohne dass ein Test das merkt.
+Ein zweckentfremdeter Trace waere ebenso Debt: `TracePoint.lossCount`
+**summiert** die Kanaele, und eine Summe darf nach AK-T002-8 und R-D nie
+Grundlage eines Verdikts sein. `LiveTrace` kann die Maschine also nicht
+fuettern — und die Maschine kann `LiveTrace` nicht lesen, weil `:core-monitor`
+`:app` nicht kennt.
+
+**Optionen:**
+A. Die Maschine bekommt einen eigenen Ring, `LiveTrace` bleibt wie er ist.
+Konsequenz: zwei Ringe ueber dieselben Lesungen, zwei Nenner, zwei
+Trimm-Regeln. Billig heute, und der Fehlertyp von QA-010 kehrt zurueck.
+B. `LiveTrace` nach `:core-monitor` umziehen und die Maschine daraus speisen.
+Konsequenz: greift in den Graphen ein, der als eigener Schritt (G-1..G-8)
+ohnehin umgebaut wird — zwei Umbauten derselben Datei nacheinander.
+C. Der Ring wird `LossWindow` in `:core-monitor` und ist der einzige;
+`LiveTrace` fuer den **Ueberblick** wird bei jeder Emission daraus
+**projiziert** (`window.toOverviewTrace(expectedIntervalMs)`), Form und
+Zeichenpfad unveraendert. `LiveTrace.plus/append` bleibt fuer die
+**Nahaufnahme**, die ein anderer Kanal mit einem anderen Gegenstand ist (10 s,
+nur Stack-Zaehler, `A2dpTxProbe`) und der Maschine bewusst nicht zugefuehrt
+wird — ihre Coverage ist konstruktionsbedingt `PARTIAL`.
+
+**Entscheidung:** C. `LOSS_WINDOW_MS` wird in `:core-monitor` definiert und
+`LiveTrace.OVERVIEW_WINDOW_MS` daraus abgeleitet — eine Zahl, ein Ort. Dass
+Zeile, Graph und Verlustfenster dasselbe Fenster meinen, ist seit T-009
+(Selbstkorrektur eins) Voraussetzung dafuer, dass man sie nebeneinander lesen
+darf, und keine Kosmetik mehr.
+
+**Konsequenzen:** Leicht wird, dass Bildunterschrift und Verdikt nie
+auseinanderlaufen koennen — sie zaehlen dieselben Lesungen. Leicht wird auch der
+Uebergang zum Graphen-Schritt: G-1..G-8 brauchen Stufenverlauf und ABR-Zaehler
+je Lesung, und beides liegt dann schon im Fenster. Dauerhaft schwer wird nichts,
+aber ein Pruefpunkt bleibt: die Projektion muss dieselben Zahlen liefern wie die
+heutige Akkumulation (`lossWindowCount`, `measuredWindowCount`,
+`unmeasuredWindowCount`, `queuePressureFraction`, `breakBefore`) — ein
+Regressionstest ueber eine feste Lesungsfolge, kein Augenschein.
+
+**Umkehrbarkeit:** mittel — die Projektion zurueckzunehmen heisst, die
+Akkumulation im ViewModel wiederherzustellen; die Zeichenschicht wird nicht
+angefasst.
+
+---
+
+### AD-018 — `TxLossChannel` bleibt der Zaehlersatz des Stacks; `LossChannel` ist die gezeigte Fuenfermenge (2026-09-02, Status: aktiv)
+
+**Kontext:** Die Anzeige kennt fuenf Kanaele (App-Underruns, Mixer-Underruns,
+dropped packets, stack dropouts, encoder underflows). `TxLossChannel` kennt
+zwei — die beiden, die dem `A2dpTxDelta` gehoeren und ein Verdikt tragen
+duerfen. Diese Kopplung („ein Kanal kompiliert nicht, bevor die Oberflaeche ein
+Wort dafuer hat") ist der teuer erkaufte Fix aus T-018/QA-010 und wird nicht
+angefasst.
+
+**Optionen:**
+A. `TxLossChannel` auf fuenf erweitern. Konsequenz: der Typ verspraeche, die
+Zaehler des Bluetooth-Stacks zu benennen, und truege dann zwei, die aus
+`media.audio_flinger` kommen. Und die dokumentierte Zusage von `lossByChannel` —
+„jeder Kanal steht mit seinem Wert da, Null eingeschlossen" — waere fuer drei
+Eintraege falsch; genau die Verwechslung „zaehlte nichts" gegen „wird nicht
+gefragt", die der Typ verhindern soll.
+B. Eine zweite Aufzaehlung ohne Verbindung zur ersten. Konsequenz: zwei
+handgepflegte Listen fuer „was ist ein Kanal" — QA-010 noch einmal.
+C. `LossChannel` (fuenf Werte) als die **geurteilte und gezeigte** Menge, plus
+**eine totale Abbildung** `TxLossChannel.judged(): LossChannel` als
+erschoepfendes `when`. Ein neuer Stack-Zaehler kompiliert damit nicht, bevor er
+in der gezeigten Menge angekommen ist; ein Test haelt beide Richtungen gegen
+`entries` — der Restfall, den der Director am 02.09. zu `lossByChannel` benannt
+hat.
+
+**Entscheidung:** C. Eingang der Maschine ist damit nicht `A2dpTxDelta` allein,
+sondern ein Lesungssatz, in `:core-monitor` aus dem vorhandenen
+`LinkLiveUpdate` gebaut:
+
+```kotlin
+data class LossReading(
+    val timestampMs: Long,
+    /** Gemessene Spanne dieser Lesung; null = keine vergleichbare Vorlesung. */
+    val measuredMs: Long?,
+    /** null je Kanal = in dieser Lesung nicht lesbar. Nie 0 als Ersatz. */
+    val counts: Map<LossChannel, Long?>,
+    val observability: LinkObservability,
+    val helperAvailable: Boolean,
+    val linkPresent: Boolean,
+    /** U-6: nur Verbindung, Codec, Playback, gepinnter Modus. Nie eine ABR-Stufe. */
+    val transition: LinkTransition?,
+    /** D-7: ein angemeldeter Umschaltlauf der App laeuft. */
+    val retuningAnnounced: Boolean,
+    val measuredKbps: Int?,
+    val isAdaptive: Boolean?,
+    val abr: AbrFacts?,          // siehe AD-022
+    val queueNotEmpty: Boolean?,
+)
+```
+
+**Konsequenzen:** Leicht wird, dass „nicht lesbar" nie zu einer Null wird — der
+Typ hat fuer beides verschiedene Werte, und die Rate je Kanal bekommt dadurch
+ihren eigenen Nenner: ein Kanal, der die halbe Zeit blind war, teilt durch die
+halbe Zeit, nicht durch das Fenster (D-2, AK-T002-9). Dauerhaft schwer wird,
+einen sechsten Kanal aufzunehmen, ohne drei Stellen anzufassen — was gewollt
+ist.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-019 — Eine Schwelle ohne Messung existiert nicht; ein Kanal ohne Schwelle spricht kein Verdikt (2026-09-02, Status: aktiv)
+
+**Kontext:** `UI_SPEC.md` setzt die meisten Parameter, laesst aber welche offen,
+und die offenen sind nicht alle von derselben Art: fuer App- und
+Mixer-Underruns ist **nie gemessen worden** (M-1), fuer `dropped` und
+`underflows` gibt es **bewusst keine** Alarmschwelle (dasselbe Ereignis bzw.
+kein gemessener gestoerter Wert). Beides als `null` zu fuehren, wuerde zwei
+verschiedene Aussagen gleich aussehen lassen. AD-004 hat fuer genau diese Frage
+schon entschieden: das Evidenzniveau gehoert ins Datenmodell.
+
+**Optionen:**
+A. Offene Werte mit einer plausiblen Zahl fuellen und `TODO` daneben.
+Konsequenz: die Zahl wirkt, der Kommentar nicht — ein geratener Wert verstoesst
+gegen AK-3 und gegen die bindende Vorgabe „uebernimm sie, erfinde keine".
+B. Offene Werte als `Double?` fuehren. Konsequenz: eine Null-Referenz fuer zwei
+verschiedene Gruende; die Anzeige kann nicht sagen, ob sie auf eine Messung
+wartet oder ob es nie eine Schwelle geben wird.
+C. Ein eigener Typ mit drei Faellen, nach dem Vorbild von AD-004:
+
+```kotlin
+sealed interface LossThreshold {
+    /** Gesetzt, mit der Messung, auf der er ruht. */
+    data class Measured(val ratePerMin: Double, val source: String) : LossThreshold
+    /** Offen, mit der einen Messung, die ihn schliesst — TODO(M-x). */
+    data class Open(val measurement: String) : LossThreshold
+    /** Bewusst keine, mit dem Grund. Kein Verdikt aus diesem Kanal. */
+    data class None(val reason: String) : LossThreshold
+}
+```
+
+**Entscheidung:** C. Ein Kanal, dessen `NOTICE` nicht `Measured` ist, ist
+**lesbar, aber nicht beurteilbar**: seine Zahlen erscheinen (zweite Ebene,
+`GOAL.md` AK-2), er geht in **kein** Verdikt ein, und die Coverage nennt ihn.
+Gibt es in einem Fenster **keinen** beurteilbaren Kanal, ist der Zustand
+`CANNOT_TELL` und nie `CLEAN` (AD-020).
+
+**Stand der Parameter, wie in `UI_SPEC.md` vorgefunden** — uebernommen, keiner
+erfunden:
+
+| Parameter | Stand |
+|---|---|
+| `LOSS_WINDOW_MS` = 60 000, `LOSS_CLEAR_HOLD_MS` = 35 000, `SETTLE_AFTER_TRANSITION_MS` = 20 000, `LOSS_EVENT_COOLDOWN_MS` = 600 000, `RATE_MIN_EVENTS_IN_WINDOW` = 10, `LOSS_ALERT_SUSTAINED_WINDOWS` = 2 (Mindestabstand `LOSS_WINDOW_MS / 4` = 15 s) | `Measured` |
+| `LOSS_NOTICE_RATE_PER_MIN[dropped, dropouts]` = 1/min; `LOSS_CLEAR_RATE_PER_MIN[dieselben]` = 0 | `Measured` (T-011/M-5) |
+| `LOSS_ALERT_RATE_PER_MIN[dropouts]` = 12/min | `Measured`, mit dem Vorbehalt der konfundierten Kalibrierpunkte im KDoc |
+| `LOSS_ALERT_RATE_PER_MIN[dropped]`, `[underflows]` | `None` — dasselbe Ereignis bzw. kein gemessener gestoerter Wert |
+| `LOSS_NOTICE/ALERT/CLEAR_RATE_PER_MIN[app underruns, mixer underruns]` | **`Open`, TODO(M-1)** |
+| `SETTLE_MAX_SPAN_MS`, nicht angemeldeter Fall | **`Open`, TODO(M-8)**; angemeldeter Fall als Formel `SETTLE_AFTER_TRANSITION_MS × (N + 1)` |
+| `LADDER_WINDOW_MS` = 60 000 (= `LOSS_WINDOW_MS`), `LADDER_SETTLING_MIN_DISTINCT_STEPS` = 3, `LADDER_SETTLING_SUBWINDOW_MS` = 20 000, `LADDER_REJECTED_MAX_READINGS` = 1, `LADDER_QUEUE_PRESSURE_FRACTION` = 0,20 | `Measured` |
+
+**Konsequenzen:** Leicht wird AK-T009-31: ein Wert **kann** nicht ohne Herkunft
+angelegt werden, weil der Konstruktor sie verlangt — statt einer Grep-Regel, die
+heute vakuum-gruen ist (QA-012). Dauerhaft schwer wird, eine Schwelle mal eben
+zu setzen; das ist der Zweck.
+
+**Ein bewusster Widerspruch zu `UI_SPEC.md`, benannt:** Die T-009-Tabelle
+„Verlustzeile — was sich gegenueber T-002 aendert" laesst `encoder underflows`
+noch `OCCASIONAL` tragen. Der Director hat am 02.09. anders entschieden und der
+Fix ist gebaut: **Underflow traegt kein Verdikt, in keiner Richtung.** Diese
+Entscheidung folgt dem gebauten Stand; die Zeile in `UI_SPEC.md` gehoert
+nachgezogen — Sache des `ui-ux-designer` bzw. des Directors, nicht meine.
+
+**Umkehrbarkeit:** leicht — eine `Open`-Schwelle wird zu `Measured`, sobald die
+Messung da ist; nichts anderes aendert sich.
+
+---
+
+### AD-020 — `CANNOT_TELL` ist ein tragender Zustand mit typisiertem Grund (2026-09-02, Status: aktiv)
+
+**Kontext:** `GOAL.md` AK-3 verlangt „cannot check" statt eines falschen
+Freispruchs. Ein `CANNOT_TELL`, das als Sonderfall von `CLEAN` gebaut ist, wird
+frueher oder spaeter wie `CLEAN` behandelt — der heutige Code zeigt es:
+`LossRow` faellt in den ruhigen Zweig, und die Coverage-Qualifikation steht
+darunter statt darin.
+
+**Optionen:**
+A. Ein Bool `canTell` neben dem Verdikt. Konsequenz: zwei Felder, die gemeinsam
+gelesen werden muessen, und jede Stelle, die es vergisst, spricht einen
+Freispruch aus.
+B. `CANNOT_TELL` als Wert einer Verdikt-Aufzaehlung. Konsequenz: besser, aber
+der **Grund** bliebe eine Zeichenkette aus der Datenschicht, und die Vorgabe
+verlangt fuer jeden Grund einen eigenen Satz.
+C. Ein versiegelter Zustandstyp, in dem `CannotTell` einen typisierten Grund
+traegt und `Clean` ohne mindestens einen gelesenen, beurteilbaren Kanal gar
+nicht konstruierbar ist:
+
+```kotlin
+sealed interface LossState {
+    data class Settling(val transitions: Int, val sinceMs: Long) : LossState
+    data object Measuring : LossState
+    data class CannotTell(val reason: CannotTellReason) : LossState
+    data class Clean(val coverage: Coverage) : LossState
+    data class Occasional(val channels: List<LossChannelReadout>) : LossState
+    data class Disturbed(val channel: LossChannelReadout) : LossState
+}
+
+enum class CannotTellReason {
+    OFFLOADED, NO_HELPER, NO_LINK, COUNTERS_RESET,
+    SETTLING_SPAN_EXCEEDED, NO_JUDGEABLE_CHANNEL,
+}
+```
+
+**Entscheidung:** C. Die Saetze zu den Gruenden stehen in `:app` in einem
+erschoepfenden `when` — dieselbe Kopplung wie `TxLossChannel.singularLabel()`:
+ein neuer Grund kompiliert nicht, bevor die Oberflaeche ihn ausspricht.
+
+**Zwei Regeln, die dieser Typ traegt:**
+
+- **Kein Ruecksprung nach `Clean` aus `CannotTell` ohne neue Messung.** Der Weg
+  zurueck fuehrt immer ueber `Measuring` (U-5, AK-T009-37): nach dem Beenden des
+  Helpers, nach einem Zaehler-Reset und nach einer gerissenen Umschaltspanne gibt
+  es keine vergleichbare Lesung, und ohne die gibt es kein Urteil.
+- **`NO_JUDGEABLE_CHANNEL` ist neu gegenueber `UI_SPEC.md` und folgt aus
+  AD-019:** Coverage `NONE` ist nicht der einzige Fall, in dem nichts gesagt
+  werden darf. Sind alle lesbaren Kanaele solche ohne gesetzte Schwelle, ist
+  ebenfalls nichts beurteilt — „alle gelesenen Kanaele unter der Schwelle" waere
+  dann eine Aussage ueber die leere Menge.
+
+**Konsequenzen:** Leicht wird der Compose-Test ueber alle Zustaende
+(AK-T002-15): der Typ zaehlt sie auf. Leicht wird auch die
+Graustufen-Unterscheidung aus AK-T002-3, weil sie aus dem Typ folgt (`Clean`
+ohne Pill, `CannotTell` mit) und nicht aus einer Regel im Kopf des Entwicklers.
+Dauerhaft schwer wird, `CANNOT_TELL` versehentlich wie `CLEAN` zu behandeln — es
+gibt keinen gemeinsamen Zweig.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-021 — Zwei Maschinen nebeneinander, kein gemeinsamer Zustand, keine Zwischenstufe (2026-09-02, Status: aktiv)
+
+**Kontext:** T-009 legt zwei Regime mit zwei Leitgroessen fest und verbietet
+ausdruecklich eine gemeinsame Ampel: es gibt keine Messung, die „492 statt 660"
+und „13 Aussetzer/min" vergleichbar machte. R-E verbietet zusaetzlich jede
+Abstufung fuer Raten echt zwischen 0 und 12/min — dauerhaft, weil M-11 nicht
+messbar ist und die zwei Kalibrierpunkte konfundiert sind.
+
+**Optionen:**
+A. Eine Maschine mit einem Schweregrad 0..1, aus dem die Oberflaeche Worte
+waehlt. Konsequenz: die Interpolation zwischen zwei gemessenen Punkten waere im
+Datenmodell verankert, und R-E waere nur noch eine Bitte an den Textautor.
+B. Eine Maschine mit einem gemeinsamen Zustand fuer Stufe und Verlust.
+Konsequenz: die verbotene gemeinsame Ampel, nur nicht so genannt.
+C. Zwei unabhaengige Faltungen ueber dasselbe Fenster: `LossState` (AD-020) und
+`LadderState`. Kein Typ, der beide zusammenfasst; das Rueckgabeobjekt haelt sie
+nebeneinander und hat selbst kein Urteil.
+
+**Entscheidung:** C, mit drei strukturellen Sperren gegen R-E-Verstoesse:
+
+1. `LossState` hat **keinen** numerischen Schweregrad, kein `Comparable`, keine
+   Ordnung ausser der Reihenfolge im Typ.
+2. Eine Rate entsteht nur, wenn `k >= RATE_MIN_EVENTS_IN_WINDOW`; darunter
+   traegt der Readout ein Alter — `LossChannelReadout` fuehrt `Rate` und `Age`
+   als zwei Faelle, nicht als zwei optionale Felder derselben Klasse.
+3. Zwischen `Occasional` und `Disturbed` gibt es keinen dritten Zustand und
+   keine Funktion, die aus einer Rate einen Anteil, einen Prozentsatz oder eine
+   Stufe macht.
+
+**Namensregel, aus `UI_SPEC.md` uebernommen:** Der `SETTLING`-Zustand der
+Verlustanzeige und der `LADDER_SETTLING`-Zustand der Stufenzeile duerfen im Code
+nicht denselben Namen tragen. Die Verlustmaschine heisst `LossState.Settling`,
+die Stufenmaschine `LadderState.MovingBetweenSteps` — die Vergleichbarkeit der
+**Zaehler** nach einem Umschalten und die Unruhe der **Stufenleiter** sind
+verschiedene Dinge, und eine ABR-Stufe loest weiterhin kein `SETTLING` aus
+(U-6, AK-T002-22).
+
+**Konsequenzen:** Leicht wird AK-T009-25: zwei Zustaende nebeneinander, ohne
+dass ein Satz sie verrechnet — es gibt keinen Ort, an dem das ginge. Dauerhaft
+schwer wird, spaeter doch eine Gesamtaussage zu bauen; sie braeuchte einen neuen
+Typ und damit eine sichtbare Entscheidung, was der Zweck ist.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-022 — Im gepinnten Modus fehlen die ABR-Fakten, nicht die Stufe (2026-09-02, Status: aktiv)
+
+**Kontext:** T-022 hat am Geraet belegt: der Stack druckt
+`LDAC adaptive bit rate encode quality mode index` und `adjustments` **nur** bei
+`LDAC quality mode: ABR`. Im gepinnten Modus fehlen beide Zeilen — und Verluste
+treten auf diesem Geraet ausschliesslich im gepinnten Zustand auf. Der Auftrag
+fasst das als „auch das ist `CANNOT_TELL`" zusammen. An der Fixture
+nachgeprueft ist das **zu weit gefasst**:
+`bt_manager_pixel11_ldac_990_loss.txt` traegt `LDAC quality mode: HIGH`,
+`LDAC transmission bitrate (Kbps): 990` und
+`LDAC saved transmit queue length: 11`. Die **gemessene Stufe** ist da, die
+Verlustzaehler sind da; nicht da sind die **ABR-Fakten**.
+
+**Optionen:**
+A. Die ganze Stufenzeile faellt im gepinnten Modus auf `CANNOT_TELL`.
+Konsequenz: ein gemessener Wert (990 kbps, MEASURED) verschwindet vom
+Bildschirm — Detailverlust gegen `GOAL.md` AK-2, ausgerechnet in dem Zustand, in
+dem der App Designer die Stoerung hoert. `UI_SPEC.md` haelt `LADDER_PINNED`
+ausdruecklich fuer richtig geloest.
+B. Fehlende ABR-Zeilen als 0 Wechsel lesen. Konsequenz: „keine ungesehenen
+Wechsel" waere behauptet, wo nichts gezaehlt wurde — der Freispruch aus AK-3,
+und G-4 haengt genau daran.
+C. Die ABR-Fakten sind ein eigener, abwesenheitsfaehiger Block:
+
+```kotlin
+data class AbrFacts(val rungIndex: Int?, val adjustments: Long?)
+// im Lesungssatz: val abr: AbrFacts?  — null mit Grund:
+enum class AbrGap { NOT_ADAPTIVE, NOT_PRINTED_BY_BUILD, NOT_READ }
+```
+
+**Entscheidung:** C. Der **Verlustzustand ist davon unberuehrt** — die
+Verlustzaehler sind im gepinnten Modus vollstaendig lesbar. Die Stufenzeile
+bleibt `LADDER_PINNED` mit Soll- und Messwert. `CANNOT_TELL` gilt fuer den
+**Stufenverlaufs-Block**: Anteile je Stufe, Wechselzahl, „angesteuert und
+verworfen" und die G-4-Markierung „enthaelt ungesehene Wechsel" sagen dort
+*nicht bestimmbar* — nie null und nie eine aus der Rate geratene Stufe.
+
+**Randbedingung dieser Aussage, damit sie nicht ueberdehnt wird:** geprueft an
+drei 990er-Dumps und 1795 ABR-Samples des Pixel 11 Pro (T-022, T-011). Ob ein
+anderer Build die Zeilen auch unter ABR weglaesst, ist **nicht** geprueft —
+deshalb `NOT_PRINTED_BY_BUILD` als eigener Grund neben `NOT_ADAPTIVE`.
+
+**Konsequenzen:** Leicht wird, dass Verlustpfad und Stufenpfad im gepinnten
+Modus unabhaengig ehrlich sind. Dauerhaft schwer wird der Graphen-Schritt: G-4
+kann seine Zusage („der Zaehler deckt auf, was die Abtastung verpasst hat") im
+gepinnten Modus **nicht** einloesen und muss dort eine Wissensgrenze zeichnen.
+Das ist keine Umsetzungsluecke, sondern eine Eigenschaft des Geraets, und sie
+gehoert so in den Graphen-Auftrag.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-023 — Episoden ersetzen die Poll-Ereignisse, mit genau einem Produzenten (2026-09-02, Status: aktiv)
+
+**Kontext:** `LiveLinkSource.lossEvent()` feuert heute bei **jedem** Poll mit
+irgendeinem Delta > 0 — ohne Schwelle, ohne Sustain, ohne Cooldown, und jedes
+davon wird als `DROPOUT` (`loud = true`) persistiert. T-002 verlangt statt
+dessen Episoden: eine je zusammenhaengender Stoerung, mit Dauer, Spitzenrate,
+dominantem Kanal und der gefahrenen Stufe, begrenzt durch
+`LOSS_EVENT_COOLDOWN_MS`; aus einer Umschaltspanne kommt gar kein `DROPOUT`,
+sondern ein einziger Detail-Eintrag (U-3, U-4).
+
+**Optionen:**
+A. Episodenlogik neben dem alten `lossEvent()` aufbauen und spaeter umschalten.
+Konsequenz: zwei Produzenten fuer dasselbe Ereignis — der Fehlertyp, den QA-010
+gerade beseitigt hat.
+B. `lossEvent()` in `LiveLinkSource` zur Episodenlogik ausbauen. Konsequenz: die
+Episode braucht das Fenster und den Umschaltmarker; beide liegen nach
+AD-015/AD-017 in der Faltung, nicht im Poller. Der Poller muesste sie sich
+zurueckholen.
+C. Der Episodenverfolger ist Teil derselben Faltung und gibt seine Ereignisse
+mit dem Zustand zurueck (`LossFold(state, events)`); `LiveLinkSource.lossEvent()`
+wird im selben Schritt **geloescht**. Die Ereignistypen bleiben in
+`:core-monitor` (`LinkEvent`), nur die Aufrufstelle wandert dorthin, wo heute
+schon persistiert wird (`MonitorViewModel.recordLiveEvents`).
+
+**Entscheidung:** C.
+
+**Konsequenzen:** Leicht wird AK-T002-7 und AK-T002-20 als Unit-Test: eine
+Lesungsfolge hinein, die Ereignisliste heraus. Leicht wird auch, dass Zeile,
+Graph und Zeitachse dieselbe Episode meinen. Dauerhaft schwer — und das ist der
+Preis dieser Entscheidung: Verlust-Ereignisse entstehen nur noch, solange der
+Monitor-Bildschirm faltet. Heute kostet das nichts (`recordLiveEvents` schreibt
+ohnehin nur von dort, und `MonitorGraph.liveLinkEvents` hat ausserhalb keinen
+Abnehmer), aber es ist die Stelle, die sich meldet, wenn jemand spaeter
+Ereignisse ohne offenen Bildschirm will — dann ist das eine Frage an `GOAL.md`
+AK-4 und nicht an diese Datei.
+
+**Umkehrbarkeit:** mittel — die Faltung in den Poller zu heben ist machbar
+(AD-015 Option B), aendert aber die Lebensdauer des Fensters.
+
+---
+
+### AD-024 — Dieser Bau bekommt die Schrittfolge `V-1..V-7` (2026-09-02, Status: aktiv)
+
+**Kontext:** AD-014 hat die Regel gesetzt: jedes Vorhaben mit eigener
+Schrittfolge bekommt einen eigenen Praefix. `S-` gehoert dem Scan, `U-` dem
+Transport. Dieser Bau bekommt `V-` (Verdikt).
+
+**Entscheidung:** Sieben Schritte, jeder einzeln lauffaehig, einzeln testbar,
+**keiner braucht ein Geraet**:
+
+| Schritt | Inhalt | Geraet | Haengt ab von |
+|---|---|---|---|
+| **V-1** | `LossThreshold` (AD-019) und alle Parameter als benannte Konstanten mit ihrer Messung im KDoc bzw. `TODO(M-x)`. Kein Verhalten. Test: Vollstaendigkeitsguard statt vakuum-gruener Grep-Regel (QA-012) | nein | — |
+| **V-2** | `LossChannel`, totale Abbildung aus `TxLossChannel`, `LossReading`, `LossWindow` (Ring, Trimmung, Zaehler und Nenner je Kanal). Rein. Tests: AK-T002-9 (halbe Fenster fehlen ⇒ gleiche Rate), „nicht lesbar" ≠ 0 | nein | V-1 |
+| **V-3** | `LossState` und die Faltung: Coverage, Beurteilbarkeit, Schwellen, Hysterese, Sustain, `Measuring`, `CannotTell`-Gruende. Tests: AK-T009-24, -37, AK-T002-17, -18, -21 | nein | V-2 |
+| **V-4** | Umschaltlatch und Uebergaenge U-1..U-6 inkl. angemeldetem Lauf (D-7). Tests: AK-T002-5, -6, -20, -22 | nein | V-3 |
+| **V-5** | Episodenverfolger und Episoden-Ereignis; `LiveLinkSource.lossEvent()` **loeschen**; `MonitorEventSummary`-Wortlaut. Tests: AK-T002-7, -20, AK-T009-28 | nein | V-4 |
+| **V-6** | `LadderState` inkl. `AbrFacts?` (AD-022), Verweildauer nur ueber luecklos gemessene Zeit, `MovingBetweenSteps`, „angesteuert und verworfen", Warteschlangenanteil aus dem Fenster. Tests: AK-T009-25, -27, -28, -30 und der gepinnte Fall aus T-022 | nein | V-2 |
+| **V-7** | Verdrahtung: Faltung im `MonitorViewModel` ueber `liveUpdates` und `LdacTuning.busy`; `overviewTrace` wird Projektion (AD-017); die zweite Akkumulation entfaellt. Test: Bildunterschriftszahlen unveraendert ueber eine feste Lesungsfolge | nein | V-3, V-6 |
+
+Die Oberflaeche ist **nicht** Teil dieser Folge. Was die Zeile sagt, entscheidet
+der `ui-ux-designer` gegen `UI_SPEC.md`; was sie wissen kann, steht nach V-7
+fest. Der Bitratengraph (G-1..G-8) ist ein eigener Schnitt und setzt auf
+`LossWindow` auf.
+
+**Risiken und Pruefpunkte:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Die Projektion aus V-7 aendert die Bildunterschrift | Regressionstest ueber `lossWindowCount`/`measuredWindowCount`/`unmeasuredWindowCount`/`queuePressureFraction` schlaegt aus | V-7 ist der einzige Schritt, der den Graphenpfad beruehrt, und fuer sich zuruecknehmbar |
+| `NOTICE` = 1/min erzeugt im Alltag Pills | Eine Sitzung ueber 30 min zeigt `Occasional` ohne hoerbaren Anlass | M-5 belegt 0,063/min als Obergrenze; tritt es doch auf, ist die Antwort eine Sustain-Bedingung, kein hoeherer Wert (T-009) |
+| App-/Mixer-Kanaele bleiben dauerhaft unbeurteilt | Coverage meldet nie fuenf beurteilte Kanaele | M-1; bis dahin sind die Zahlen sichtbar und ohne Verdikt (AD-019) |
+| Zustandswechsel kommt bis zu ein Poll-Intervall spaet (AD-016) | Eine Frist laeuft zwischen zwei Lesungen ab | Bewusst; die Anzeige aendert sich ohnehin nur an Lesungen |
+| Die Faltung stirbt mit dem Bildschirm (AD-023) | Kein Episoden-Eintrag aus einer Zeit ohne offenen Monitor | Heute identisch zum Bestand; eine Aenderung waere eine AK-4-Frage |
+
+**Umkehrbarkeit:** leicht — eine Schrittfolge ist ein Plan, kein Bauwerk.
+
+---
+
 ## Bewusst nicht getan
 
+- **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
+  ueber dieselben Lesungen haetten zwei Nenner, und Bildunterschrift und Verdikt
+  koennten auseinanderlaufen, ohne dass ein Test es merkt — QA-010 in der
+  Zeitachse. Wieder interessant, wenn der Ueberblicksgraph eines Tages ein
+  anderes Fenster als die Verlustzeile bekommt; dann ist es keine Doppelung
+  mehr, sondern eine Absicht. (AD-017)
+- **Eine eigene Uhr in der Zustandsmaschine.** Sie wuerde erlauben, ueber
+  ungemessene Zeit zu urteilen, und damit D-2/D-8/D-12 unterlaufen. Wieder
+  interessant nur, wenn die Anzeige eines Tages ohne Lesungen weiterlaufen
+  soll — was heute niemand will. (AD-016)
+- **Ein Schweregrad oder eine Skala zwischen `OCCASIONAL` und `DISTURBED`.**
+  Zwischen 0 und 12 Dropouts/min gibt es keinen Kalibrierpunkt, und die zwei
+  vorhandenen sind konfundiert. Wieder interessant, wenn M-11 ein Verfahren
+  findet, Zwischenpunkte bei **gleicher** Stufe zu erheben; solange nicht,
+  bleibt R-E bindend. (AD-021)
+- **Geratene Schwellen fuer App- und Mixer-Underruns.** Ein Wert ohne Messung
+  wirkt genau wie ein gemessener. Wieder interessant mit M-1 — bis dahin sind
+  diese Kanaele lesbar, sichtbar und unbeurteilt. (AD-019)
+- **`TxLossChannel` auf fuenf Kanaele erweitern.** Der Typ benennt die Zaehler
+  des Bluetooth-Stacks; App- und Mixer-Underruns kommen aus einem anderen Dump
+  und wuerden die Zusage von `lossByChannel` brechen. Wieder interessant, wenn
+  der Stack selbst eines Tages Eingangszaehler druckt. (AD-018)
 - **Neues Modul `:core-scan`.** Erst wieder interessant, wenn der Scan Logik
   bekommt, die weder Beobachtung noch Systemzustand ist, oder wenn
   `:core-monitor` aus anderen Gruenden geteilt wird. (AD-002)
