@@ -1,5 +1,40 @@
 # Stand — 2026-09-02, Part 4
 
+## UEBERGABE an die naechste Session — hier geht es weiter
+
+**T-027 ist beauftragt, aber NICHT gelaufen.** Der Agent wurde durch ein
+Prozessende abgebrochen, **bevor** er das Geraet angefasst hat. Er hat nichts
+hinterlassen: kein `docs/perf/T-027-messung.md`, keine Geraeteaenderung, keine
+halbfertige Zelle. Der Auftrag `docs/tasks/T-027.md` ist vollstaendig und kann
+**unveraendert neu erteilt werden** — Rolle `performance-tuner`, Modell sonnet.
+
+**Der Nutzer ist bereit:** Kopfhoerer verbunden, Musik laeuft (Stand 02.09.).
+
+**Stufe fuer die Messung: 660 kbps**, in den Entwickleroptionen als
+„Ausgewogene Audio- und Verbindungsqualitaet" — **nicht** „Adaptive Bitrate".
+Begruendung: hoechste fest waehlbare Stufe mit **null** Verlusten in T-008, hat
+also Luft nach oben; 990 ist untauglich, weil dort schon ohne Stoerung Verluste
+auftreten und die Kennlinie gesaettigt startet; adaptiv waere der Konfundierer
+selbst. In den Entwickleroptionen sind ohnehin nur 990 / 660 / 330 fest
+waehlbar — 492 und 396 erscheinen nur unter ABR.
+
+**Erster Schritt bleibt das Gate (Phase 0 in T-027):** traegt die Gleichsetzung
+`Priority: 1000000` gleich `quality_mode_index` / `codecSpecific1`, ja oder
+nein? Ohne belegtes Ja keine Phase 1-3.
+
+**Danach, und erst danach: die Hoersitzung mit dem Nutzer.** Die Kennlinie sagt
+nur „diese Stoerung erzeugt diese Rate". Die Zuordnung zum Hoereindruck
+entsteht ausschliesslich dadurch, dass Daniel hoert und der Director
+protokolliert — R-006 hat belegt, dass es dafuer keine Literaturschwelle gibt.
+Kein Agent darf diese Zuordnung schaetzen.
+
+**Offen aus dem Research-Block, nach der Messung in einem Rutsch:**
+`UI_SPEC.md` nachziehen (`ui-ux-designer`, Spec-Modus, opus) — `dropped`
+verliert das Verdikt, `encoder underflows` traegt in der T-009-Tabelle
+faelschlich noch `OCCASIONAL`, und AD-019 braucht die entsprechende
+`None`-Begruendung.
+
+
 Kurzfassung fuer die Agenten. Zielbild in `GOAL.md`, Historie in `HANDOVER.md`,
 Entwurf in `ARCHITECTURE.md`. Details stehen dort, nicht hier.
 
@@ -144,6 +179,15 @@ Zwei Nachtraege aus T-023:
 - **An den `ui-ux-designer`:** `UI_SPEC.md` (T-009-Tabelle) laesst
   `encoder underflows` noch `OCCASIONAL` tragen. Widerspricht dem gebauten Stand
   und QA-001. Nachzuziehen.
+
+**Entscheidung Nutzer 02.09. (nach R-005):** `dropped` **verliert das Verdikt**
+— gleiche Behandlung wie `underflow`. Es bleibt als Zahl sichtbar, traegt aber
+keine Schwelle. Grund: `dropped` zaehlt Eintraege variabler Groesse, eine Rate
+darauf addiert Ungleiches. **Alleinige Leitgroesse fuer Ueberlast ist
+`dropouts`** (Episoden je Minute) — die einzige Groesse, die der Quelltext als
+saubere Ereigniseinheit hergibt. Folge fuer AD-019: `LOSS_*_RATE_PER_MIN` fuer
+`dropped` wird `None` mit Grund, nicht `Measured`. `UI_SPEC.md` ist
+entsprechend nachzuziehen.
 
 **Entscheidung Nutzer 02.09.:** App- und Mixer-Underruns bleiben **unbeurteilt**
 (sichtbar als Zaehler, kein Verdikt), solange M-1 ihre Ruherate nicht kennt.
