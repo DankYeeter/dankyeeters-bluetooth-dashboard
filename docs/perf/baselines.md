@@ -247,3 +247,52 @@ wieder umwerfen konnte.
 
 Volle Aufnahme inkl. Zustandsbuch, Lueckenpruefung und M-8-Beitrag:
 `docs/perf/T-011-messung.md`.
+
+---
+
+## Szenario: LDAC-Wiedergabe, Ruherate bei GEPINNTEN 660 kbps (kein ABR),
+## App nicht installiert, WLAN an (5-GHz-Link) — Pixel 11 Pro
+
+**Neuer Abschnitt, nicht mit dem ABR-Ruherate-Abschnitt oben vermischt.**
+Die Stufe selbst ist die Szenario-Definition: hier **gepinnt auf 660 kbps**
+(„Ausgewogene Audio- und Verbindungsqualitaet", `mCodecSpecific1: 1001`,
+`LDAC quality mode: MID` durchgehend), nicht ABR. Diese Ruherate gab es vor
+T-027 nicht — M-5 hat nur die Ruherate unter ABR gemessen (Abschnitt oben).
+
+**Definition:**
+
+- Geraet: Pixel 11 Pro `67011FDKX004XG`, Android 17 (SDK 37), am Kabel,
+  Bildschirm ging waehrend des unbeaufsichtigten Laufs in `Dozing`.
+- Kopfhoerer: derselbe wie oben, LDAC, `Rate=96000 Bits=32 Mode=STEREO`.
+- **Dreifachpruefung statt `Priority`-Read-back** (T-027-Korrektur, s.
+  `docs/perf/T-027-messung.md` Abschnitt 6): `mCodecSpecific1`, `LDAC
+  quality mode`, ABR-Zeilen-Abwesenheit — an **jedem** der 1860
+  Sample-Uebergaenge geprueft, nicht nur an den Eckwerten.
+- WLAN an, auf dem **5-GHz-Link** desselben Access Points (`Frequency:
+  5200MHz`) — unveraendert zum Zustand, in dem auch Phase 2 (Stoerhebel)
+  dieses Laufs anschliessend gemessen wird.
+- App nicht installiert (`pm list packages`, rc=1). Kein Eingriff waehrend
+  des Laufs — reine Beobachtung.
+- Kadenz Ø 1,283 s (reduzierte Zwei-Block-Aufzeichnung wie M-5).
+
+| Datum | Commit | Umgebung | Kadenz | Dauer | dropped | dropouts | underflow | Dreifachpruefung | Budget | Notiz |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-02 | 49a7aa1 (Repo; App nicht installiert) | Pixel 11 Pro, gepinnt 660 kbps, WLAN an (5 GHz), unbeaufsichtigt (Dozing) | 1283 ± — ms | 2386,9 s (39,78 min) | **0** | **0** | 2→1353 (33,96/min) | **bestanden, 1860/1860 Uebergaenge** | **ja** | T-027 Phase 1, einzelner Lauf, lueckenlos |
+
+**Befund:**
+
+1. **Null `dropped`/`dropouts` ueber 39,78 min, an jedem der 1860
+   Sample-Uebergaenge geprueft.** Dreierregel-Obergrenze fuer diese Zelle
+   allein: **0,0754/min**. Nicht mit der ABR-Ruherate oben gepoolt — andere
+   Bedingung (Stufe gepinnt statt ABR).
+2. **`underflow` liegt mit 33,96/min deutlich ueber der ABR-Ruherate**
+   (0,591/min, M-5). Festgehalten, **kein Verdikt** — `underflow` traegt
+   seit 02.09. keine Bewertung mehr (QA-001, T-009/R-D). Moegliche Ursache
+   nicht untersucht (Recherche, nicht Messung).
+3. Dreifachpruefung durchgehend bestanden — diese Zelle ist die
+   Referenzzelle fuer Phase 2 (Stoerleiter auf demselben 5-GHz-Link,
+   „Last auf dem 5-GHz-Link, Mechanismus ungeklaert" — **keine**
+   2,4-GHz-Belegung, siehe `docs/perf/T-027-messung.md` Abschnitt 9).
+
+Volle Aufnahme inkl. Rohreihen-Pfad und Zustandsbuch:
+`docs/perf/T-027-messung.md` Abschnitt 7.
