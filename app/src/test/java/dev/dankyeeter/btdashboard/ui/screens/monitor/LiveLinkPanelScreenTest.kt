@@ -1,6 +1,10 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -20,6 +24,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveDeviceSnapshot
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -402,13 +407,19 @@ class LiveLinkPanelScreenTest {
     }
 
     /**
-     * QA-009: the loss row checks the observability itself.
+     * AK-T002-4 — on an offloaded link no stack channel is shown at all, and so
+     * none of them is shown as a zero. QA-009: the loss row checks the
+     * observability itself.
      *
      * `LiveLinkSource` clears these counters before the snapshot leaves the data
      * layer, and this is the second lock: the counters here are warm from a
      * host-encoded session that ended, and reading them would print a dropout
      * that belongs to another link — or, worse on a quiet one, a clean bill of
      * health for a stream nothing is measuring.
+     *
+     * The criterion's other half — that the words "no loss" and "nothing lost"
+     * are absent in this state too — is asserted over the same state by
+     * `no state of the loss display carries a forbidden wording` below.
      */
     @Test
     fun `an offloaded link does not read warm tx counters, whoever handed them over`() {
@@ -553,6 +564,149 @@ class LiveLinkPanelScreenTest {
         render(snapshot(codecSpecific1 = 0L), overview = offloaded)
 
         assertShows("no throughput to plot")
+    }
+
+    /**
+     * AK-T002-12 — no text of the loss display claims or denies audibility, and
+     * none makes the sound the subject of the sentence (rules R-A and R-C).
+     *
+     * The criterion names eight forbidden strings, and it asks for a grep *and* a
+     * rendered check. The grep half is not buildable over these files: the code's
+     * own comments name the removed lines in order to record that they were
+     * removed — one of them quotes this criterion by number — so a text grep would
+     * forbid the source from documenting the rule it obeys. This is the other
+     * half, and it is the stronger one anyway: it reads what the panel actually
+     * puts on the screen, so a forbidden wording assembled at runtime out of
+     * innocent pieces is caught too.
+     *
+     * Every branch the loss display has today, not the five states of the T-009
+     * table — that state machine is not built, and the criteria that need it are
+     * listed as open rather than claimed here.
+     *
+     * The close-up is switched on so its caption is on screen as well. That
+     * caption reads "no stack loss in this window", which is deliberately left
+     * alone: it carries none of the eight strings — "no loss" does not occur in
+     * it — while still making loss the subject of the denial. That is a wording
+     * question, it is `DESIGN_REVIEW.md` DR-005, and it belongs to the
+     * `ui-ux-designer`; pinning it here would decide it.
+     */
+    @Test
+    fun `no state of the loss display carries a forbidden wording`() {
+        val states = lossDisplayStates()
+        val shown = mutableStateOf(states.first().second)
+        composeRule.setContent {
+            BtDashboardTheme {
+                LiveLinkPanel(
+                    snapshot = shown.value,
+                    intervalMs = 2_000L,
+                    onIntervalChange = {},
+                    ldacTuning = LdacTuningState(),
+                    onLdacQuality = {},
+                    onDismissLdacMessage = {},
+                    overviewTrace = quietTrace(LiveTrace.overview(2_000L)),
+                    closeUpTrace = quietTrace(LiveTrace.closeUp(500L)),
+                    closeUpEnabled = true,
+                    onCloseUpEnabled = {},
+                )
+            }
+        }
+
+        states.forEach { (state, snapshot) ->
+            shown.value = snapshot
+            composeRule.waitForIdle()
+            assertNoForbiddenWording(state)
+        }
+
+        // And the second layer of the one loss row that has one. The R-D sentence
+        // behind the question mark is where a claim about hearing would be most
+        // tempting to write, and it is the sentence T-017 had to correct once
+        // already.
+        shown.value = states.single { it.first == "encoder underflows alone" }.second
+        composeRule.waitForIdle()
+        openExplanation("3 encoder underflows in the last 2 s.")
+        assertNoForbiddenWording("the underflow explanation")
+    }
+
+    /** Every branch [LossRow] and [TxRows] can take, named for the failure message. */
+    private fun lossDisplayStates(): List<Pair<String, LinkLiveSnapshot>> {
+        val base = snapshot(codecSpecific1 = 0L, measuredKbps = 396)
+        return listOf(
+            "a window in which no counter moved" to base,
+            "app underruns alone" to
+                base.copy(inputs = base.inputs.map { it.copy(underrunDelta = 3L) }),
+            "stack dropouts alone" to base.copy(txDelta = base.txDelta?.copy(dropouts = 21L)),
+            "dropped packets alone" to base.copy(txDelta = base.txDelta?.copy(dropped = 525L)),
+            "encoder underflows alone" to base.copy(txDelta = base.txDelta?.copy(underflows = 3L)),
+            "every channel at once" to base.copy(
+                inputs = base.inputs.map { it.copy(underrunDelta = 3L) },
+                txDelta = base.txDelta?.copy(dropped = 525L, dropouts = 21L, underflows = 3L),
+            ),
+            "nothing to difference yet" to base.copy(
+                txDelta = null,
+                inputs = base.inputs.map { it.copy(underrunDelta = null) },
+            ),
+            "a codec the controller encodes" to base.copy(
+                codec = base.codec?.copy(isOffloaded = true),
+                txDelta = base.txDelta?.copy(dropped = 525L, dropouts = 21L, underflows = 3L),
+            ),
+        )
+    }
+
+    /** A full window of readings that lost nothing — the quiet caption, drawn. */
+    private fun quietTrace(empty: LiveTrace): LiveTrace {
+        var trace = empty
+        (0 until 5).forEach { i ->
+            trace = trace.plus(
+                TracePoint(
+                    timestampMs = 1_000L + i * empty.windowMs / 5L,
+                    bitrateKbps = 492.0,
+                    lossCount = 0,
+                ),
+            )
+        }
+        return trace
+    }
+
+    /** The eight strings `UI_SPEC.md` (T-002, AK-T002-12) forbids, verbatim. */
+    private val forbiddenWordings = listOf(
+        "audio lost",
+        "no loss",
+        "nothing lost",
+        "audible",
+        "you heard",
+        "all good",
+        "healthy",
+        "everything fine",
+    )
+
+    /** Everything the panel currently puts in front of a reader, labels included. */
+    private fun renderedText(): List<String> = composeRule
+        .onAllNodes(
+            SemanticsMatcher("carries text or a description") { node ->
+                node.config.getOrNull(SemanticsProperties.Text) != null ||
+                    node.config.getOrNull(SemanticsProperties.ContentDescription) != null
+            },
+            useUnmergedTree = true,
+        )
+        .fetchSemanticsNodes()
+        .flatMap { node ->
+            node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text } +
+                node.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
+        }
+
+    private fun assertNoForbiddenWording(state: String) {
+        val texts = renderedText()
+        // A state that drew nothing would pass every wording rule ever written.
+        assertTrue("AK-T002-12: $state rendered no text at all", texts.isNotEmpty())
+
+        val offending = texts.filter { text ->
+            forbiddenWordings.any { text.contains(it, ignoreCase = true) }
+        }
+        assertTrue(
+            "AK-T002-12: $state showed a wording the spec forbids:\n" +
+                offending.joinToString("\n"),
+            offending.isEmpty(),
+        )
     }
 
     private fun snapshot(
