@@ -1,0 +1,33 @@
+A2DP State:
+  TxQueue:
+  Counts (enqueue/dequeue/readbuf)                        : 41385 / 102558 / 143339
+  Last update time ago in ms (enqueue/dequeue/readbuf)    : 5 / 23 / 23
+  Frames per packet (total/max/ave)                       : 518167 / 8 / 12
+  Counts (flushed/dropped/dropouts)                       : 0 / 0 / 0
+  Counts (max dropped)                                    : 0
+  Last update time ago in ms (flushed/dropped)            : 0 / 0
+  Counts (underflow)                                      : 2
+  Bytes (underflow)                                       : 2048
+  Last update time ago in ms (underflow)                  : 0
+  Enqueue deviation counts (overdue/premature)            : 36347 / 4796
+  Enqueue overdue scheduling time in ms (total/max/ave)   : 4266 / 3 / 0
+  Enqueue premature scheduling time in ms (total/max/ave) : 4273 / 3 / 0
+  Dequeue deviation counts (overdue/premature)            : 26989 / 75316
+  Dequeue overdue scheduling time in ms (total/max/ave)   : 37536 / 21 / 1
+  Dequeue premature scheduling time in ms (total/max/ave) : 1261083 / 19 / 16
+
+A2DP LDAC State:
+  Priority: 5001
+  Config: Rate=96000 Bits=32 Mode=STEREO
+  Selectable: Rate=44100|48000|88200|96000 Bits=16|24|32 Mode=STEREO
+  Local capability: Rate=44100|48000|88200|96000 Bits=16|24|32 Mode=STEREO
+  LDAC quality mode                                       : ABR
+  LDAC transmission bitrate (Kbps)                        : 492
+  LDAC saved transmit queue length                        : 0
+  LDAC adaptive bit rate encode quality mode index        : 3
+  LDAC adaptive bit rate adjustments                      : 105
+  Encoder interval (ms): 20
+  Effective MTU: 883
+  Packet counts (expected/dropped)                        : 136468 / 0
+  PCM read counts (expected/actual)                       : 620777 / 620775
+  PCM read bytes (expected/actual)                        : 635675648 / 635673600
