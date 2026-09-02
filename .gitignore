@@ -14,3 +14,6 @@ build/
 /gradle/wrapper/gradle-wrapper.jar.sha256
 
 .kotlin/
+
+# Agent-Gedaechtnis (geraetelokal, gehoert nicht ins Repo)
+.claude/agent-memory/
