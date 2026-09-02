@@ -49,8 +49,83 @@ Fortschritt.
 
 Warteschlange (vom Nutzer freigegeben 02.09.):
 1. Research-Block T-024/T-025/T-026 — **erledigt**, R-005/R-006/R-007
-2. Kalibriermessung am Geraet — **naechster Schritt**, Zuschnitt steht (siehe unten)
+2. Kalibriermessung T-027 — **teilweise erledigt**, siehe unten. Offen bleibt
+   die **Hoersitzung**, und die muss vorwaerts gefuehrt werden.
 3. V-1..V-7 Verlustmechanik bauen
+
+## T-027 — was gemessen wurde (02.09. Abend)
+
+Berichte: `docs/perf/T-027-messung.md` (Gate, Phase 1, 5-GHz-Leiter),
+`docs/perf/T-027-messung-24ghz.md` (2,4-GHz-Leiter),
+`docs/perf/T-027-hoereindruck.md` (Hoerprotokoll, **fuehrt nur der Director**).
+Rohdaten gesichert unter `C:\Users\Daniel\t027-rawdata` — **ausserhalb des
+Repos**, weil sie Geraetenamen und MACs enthalten (SR-012-Familie).
+
+**Gate: `Priority` ist NICHT die LDAC-Stufe.** Drei Stufenwechsel, `Priority`
+bewegt sich kein einziges Mal; `mCodecSpecific1` bewegt sich jedes Mal und
+kehrt exakt zurueck (1001 = MID/660, 1002 = LOW/330, 1003 = ABR). Die alte
+Notiz „Pin-Marker 1000000" ist damit widerlegt, der Widerspruch 5001 gegen
+1000000 war eine Scheinfrage. **Der Stufen-Read-back laeuft ab jetzt ueber
+drei Groessen gemeinsam:** `mCodecSpecific1`, `LDAC quality mode`, Abwesenheit
+der ABR-Zeilen.
+
+**Phase 1 — Ruherate bei gepinnten 660 (neu, gab es nicht):** 39,78 min,
+1861 Samples, **alle 1860 Uebergaenge geprueft**, `dropped`/`dropouts` = 0/0.
+Dreierregel-Obergrenze **0,0754/min**. `LOSS_NOTICE_RATE_PER_MIN` = 1/min liegt
+rund 13-fach darueber — der Wert haelt auch fuer den gepinnten Fall.
+
+**5-GHz-Leiter: sauberes Nein.** Sieben Zellen, bis 16 Stroeme, real bis
+~365 Mbit/s: **0/0 in jeder Zelle**, kein dosisabhaengiges Muster, Queue in
+allen 1264 Samples leer. Rueckkehrzelle identisch zur Kontrolle (A/B/A' sauber).
+Nachweisgrenze 0,105/min — lockerer als Phase 1, weil kuerzer; das gehoert zur
+Aussage. **Last auf dem 5-GHz-Link erreicht den Bluetooth-Pfad nicht.**
+
+**2,4-GHz-Leiter (nach Router-Umstellung durch den Nutzer, verifiziert:
+2462 MHz): zwei echte Funde und ein Haken.**
+
+| Zelle | Δ`dropped`/min | Δ`dropouts`/min |
+|---|---|---|
+| Kontrolle 0 | **5,86** | 0,24 |
+| 1 Strom (19:24:04–19:28:23) | **39,3** | **1,71** |
+| 2 / 4 / 8 / 16 Stroeme | 0 | 0 |
+| Rueckkehr 0' | 0 | 0 |
+
+- **Fund 1: Die Ruherate ist umgebungsabhaengig, nicht geraetefest.** Allein die
+  2,4-GHz-Assoziation hebt die Kontrollzelle von 0 auf 5,86 `dropped`/min — bei
+  identischer Stufe, wo Phase 1 ueber 40 min exakt null hatte. **Das ist fuer
+  die Anzeige bedeutsam:** eine feste Schwelle unterstellt eine feste Ruherate.
+- **Fund 2: dritte Fixture-Luecke geschlossen** —
+  `bt_manager_pixel11_ldac_pinned_660_24ghz_induced_loss.txt`, echter Verlust
+  bei fester Stufe, extern induziert. **Offen: Golden-Test dazu fehlt**, gehoert
+  an `developer`/`qa-engineer`.
+- **NACHTRAEGLICHER KONFUNDIERER, gefunden beim T-028-Vorabtest:** Das Geraet
+  hat die WLAN-Assoziation um **19:48:49** verloren und sie nicht
+  wiederhergestellt. Das faellt **mitten in die 16-Strom-Zelle** (19:44:24–
+  19:50:51), und die **Rueckkehrzelle 0' (19:51:38–19:55:49) lief vollstaendig
+  ohne WLAN**. Sie ist damit **keine gueltige Gegenprobe** fuer „2,4 GHz
+  assoziiert, ohne Last" — sie misst „kein WLAN". Der A/B/A'-Beleg aus dem
+  Phase-4-Bericht traegt in dieser Form nicht und ist beim naechsten Lauf zu
+  wiederholen.
+  **Hypothese, ungeprueft, aber jetzt naheliegend:** Wenn die Verbindung unter
+  hoher Stromzahl bereits schwaechelte, war die tatsaechliche 2,4-GHz-Belegung
+  bei 8 und 16 Stroemen moeglicherweise **geringer** als bei 1 Strom — was das
+  nicht-monotone Muster erklaeren wuerde, ohne einen Zufall bemuehen zu muessen.
+  Der naechste Lauf muss die Assoziation deshalb **je Abschnitt** pruefen, nicht
+  nur am Anfang.
+- **Der Haken: die Leiter ist NICHT monoton.** Ausschlag bei einem Strom, ab
+  zwei Stroemen nichts mehr, obwohl der Durchsatz weiter stieg. Das ist **keine
+  Dosis-Wirkungs-Beziehung**. Der Ausschlag bei Stufe 1 ist ein **einzelnes,
+  unwiederholtes Ereignis** — jede Stufe lief genau einmal, es gibt keine
+  Streuung. **Daraus laesst sich keine Schwelle ableiten.** Reproduzierbarkeit
+  ist offen und muss der naechste Lauf klaeren.
+
+**Hoersitzung ergebnislos — und das ist ein Verfahrensbefund.** Rueckblickend
+abgefragt konnte der Nutzer fuer beide Zeitfenster nur „weiss ich nicht mehr
+sicher" sagen. Er hoerte nebenbei, ohne zu wissen, wann ein Reiz anlag. Die
+naechste Sitzung muss **vorwaerts, aktiv und blind** gefuehrt werden, mit
+kurzen, mehrfach wiederholten Abschnitten — Anforderungen stehen in
+`docs/perf/T-027-hoereindruck.md`. **Ohne diese Sitzung gibt es keinen
+belegten Hoerbarkeitspunkt**, und `LOSS_ALERT_RATE_PER_MIN` bleibt unbelegt.
 
 ## Der Research-Block — was er geaendert hat (02.09.)
 
@@ -268,3 +343,59 @@ Deinstallation**. Behebung ist T-006/U-0..U-6, braucht Geraet.
   als Nominalstufe. Leiter fuer 96 kHz/32 bit unverstanden.
 - `AudioEffectSessionReceiver` exportiert — eigenes Security-Review ausstehend.
 - QA-011: historische Fixture, ehrlich markiert.
+
+## NEUE RICHTUNG — Entscheidungen des App Designers 02.09. spaet
+
+Nach T-029 hat der Nutzer das Vorhaben erweitert. Drei Bausteine, in dieser
+Reihenfolge:
+
+1. **Bessere Verlustdarstellung.** Zwei getrennte Zahlen statt einer:
+   **hoerbare Verluste** (Sendeseite: `dropped`/`dropouts`, Warteschlangen-
+   raeumung, Audio das nie rausging) gegen **regulaere** (Quellseite:
+   `underflow`, mit Stille aufgefuellt). Belegt: heute korrelierte der
+   Hoereindruck mit der Sendeseite, waehrend underflow in einem 39-min-Lauf
+   ohne jede Wahrnehmung hochlief.
+2. **Testsuite:** exakt messen, wie viele Pakete bei LDAC 990 wie verloren
+   gehen; Einstellungen durchtunen und jeweils gegenpruefen.
+3. **Bluetooth-Tuning im Dashboard**, als **gefuehrter Prozess** — nicht als
+   Liste vorgeschlagener Regeln, weil moeglicherweise jedes Geraet anders ist.
+
+### Entscheidungen des Nutzers dazu
+
+- **Die App aendert keine Einstellungen selbst, sie leitet nur an.** Kein
+  Ausbau des privilegierten Helfers, keine neue Angriffsflaeche.
+- **Stress = 990 gepinnt PLUS externe Funklast.** Achtung: Die externe Last
+  hat sich in T-028 als Hebel NICHT reproduzieren lassen; sie ist vor dem Bau
+  der Suite erst zu belegen.
+- **Zielbild wird neu geschrieben**, zwei Varianten zur Wahl: urteilende App
+  gegen zeigende App, jeweils mit Tuning als drittem Standbein.
+- **Sitzungslaenge, aus den Messdaten abgeleitet:** Laengste verlustfreie Phase
+  bei 990 war 4,4 min, typisch 40 s bis 2 min, 10 Cluster in 25 min.
+  Abwesenheit zu belegen braucht daher >5 min. **Vergleichen** braucht das
+  nicht: Schnelldurchlauf 3-5 min je Einstellung unter Stress, danach EIN
+  Bestaetigungslauf 20-30 min ohne Stress fuer die gewonnene Einstellung.
+  **Der Schnelldurchlauf misst relative Verbesserung unter Stress, nicht
+  Alltagsqualitaet — das gehoert sichtbar in die Anzeige, nicht in eine
+  Fussnote.**
+
+### Zaehler-Inventar aus einem echten Dump — mehr als bisher genutzt
+
+Sendeseite: `Counts (flushed/dropped/dropouts)`, `Counts (max dropped)`,
+`LDAC saved transmit queue length`.
+Quellseite: `Counts (underflow)`, `Bytes (underflow)`,
+`PCM read counts (expected/actual)`.
+Scheduling: `Enqueue/Dequeue deviation counts (overdue/premature)` samt
+Zeitsummen — **direkt messbarer Jitter, fuer Tuning die interessanteste
+Familie und bisher voellig ungenutzt.**
+
+**Der Fund, der die Sprache aendert:** `Packet counts (expected/dropped)` stand
+bei **1279910 / 0**, waehrend gleichzeitig 807 Warteschlangeneintraege verworfen
+wurden. **Auf Paketebene geht nichts verloren.** Was das Projekt "Paketverlust"
+nennt, ist ein Warteschlangenueberlauf: Die Funkstrecke wiederholt selbst, das
+Problem ist Verzoegerung, nicht Verlust. Das erklaert auch 990 kbps — die
+Strecke wird die Datenmenge nicht rechtzeitig los.
+
+**BELEGSTAND, nicht ueberdehnen:** Am Quelltext belegt sind nur `dropped`,
+`dropouts`, `underflow` (R-005). Die Bedeutung von `Packet counts`,
+`max dropped` und den Deviation-Zaehlern ist **Director-Lesart, unbelegt** —
+gehoert recherchiert, bevor ein Messapparat darauf gebaut wird.
