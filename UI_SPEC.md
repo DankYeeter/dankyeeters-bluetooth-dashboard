@@ -1616,9 +1616,34 @@ Folgen, alle eingearbeitet:
   Nominalstufe liegt, wird gezeichnet und beschriftet wie gemessen und niemals
   gerundet oder eingerastet. Unit-Test mit 396 und 492 gegen die
   48/96-kHz-Leiter.
-- **AK-T009-43** Die Zeichenkette „audible" und die Zahlen der beiden
-  Kalibrierpunkte kommen in keiner Oberflaeche der App vor (Entscheidung 4).
-  Pruefbar per Grep ueber den gesamten `ui`-Baum und die Stringressourcen.
+- **AK-T009-43** Die Wortfamilie „audible/audibly/audibility" und die
+  Zahlen der beiden Kalibrierpunkte kommen auf den Bluetooth-Link- und
+  Verlust-Oberflaechen der App nicht vor (Entscheidung 4). Pruefbar per
+  Grep gegen `ui/screens/monitor` und die dort verwendeten
+  Stringressourcen.
+
+  **Praezisiert 2026-09-02, nach Rueckfrage des Coordinators (zwei
+  Aenderungen, beide begruendet):**
+  1. **Wortfamilie statt Zeichenkette.** Der urspruengliche Wortlaut
+     „die Zeichenkette 'audible'" liess „audibly" durchgreppen — belegt am
+     Fund des `developer` in T-017. Verboten ist die *Aussage*, dass eine
+     gezaehlte Rate hoerbar sei; das gilt fuer jede Beugung des Worts.
+     Grund unveraendert: die zwei Kalibrierpunkte sind konfundiert (0
+     Dropouts nur bei 492/660 kbps, 12,94–12,99/min nur bei 990 kbps
+     gepinnt) — belegt ist „990 gepinnt klingt kaputt", nicht „diese Rate
+     ist hoerbar".
+  2. **Scope auf Monitor/Link-Oberflaechen eingegrenzt, nicht app-weit.**
+     Der urspruengliche Wortlaut „in keiner Oberflaeche der App" war zu
+     weit gefasst. Der EQ-Screen (`ui/screens/eq/CompensationSection.kt`)
+     verwendet „audible" an drei Stellen fuer die Hoerkompensation
+     (Loudness-Restoration, per Text selbst: „real listeners tested
+     against the prescription"). Das ist eine andere Aussage mit einer
+     anderen Beleglage — sie behauptet nichts ueber einen BT-Verlust-
+     Zaehler und traegt nicht den Konfundierer, den Entscheidung 4 aus
+     T-009 verhindern soll. Diese Vorgabe (T-002/T-009) behandelt die
+     Verlust- und Link-Anzeige; sie legt der Hoerkompensation keine Regel
+     auf. Ob die EQ-Formulierungen selbst belegt sind, ist eine eigene
+     Frage und nicht Teil dieser Pruefung.
 - **AK-T009-44** Das Panel mit Helper-Aktion und Standzeile erscheint nur, wenn
   einer der drei Zweige aus Entscheidung 2 zutrifft, und verschwindet sonst
   vollstaendig. Unit-Test ueber alle acht Kombinationen der drei Zweige.
@@ -1639,3 +1664,163 @@ davon sind durch diesen Nachtrag schwerer geworden statt leichter:
 - **D-11** (die `LDAC adaptive bit rate`-Zeilen im Parser) ist durch G-4 von
   „waere genauer" zu **notwendig** geworden: ohne den Zaehler kann der Graph
   nicht sagen, was er nicht gesehen hat.
+
+---
+
+## Nachtrag T-017: Wortlaut der Underflow-Zeile (Review, 2026-09-02)
+
+Der `developer` hat beim Fix von QA-001 eine neue Zeile unter `LossRow`
+eingefuehrt, ohne dass dafuer eine Vorgabe existierte (`Counts (underflow)`
+kam bisher ausschliesslich in der roten Verlustzeile vor; sie dort zu
+streichen haette den Zaehler ganz von der Oberflaeche genommen und
+`GOAL.md` AK-2 verletzt). Diese Entscheidung schliesst die Luecke, im
+`ui-ux-designer`-Review-Modus (`T-017`), am Quelltext gepruft
+(unverifiziert — kein Geraet).
+
+**Befund:** `LossRow` (`LiveLinkPanel.kt:354-361`) zeigt im typischen
+Ruhefall zwei Zeilen uebereinander:
+
+    No loss this window.
+    3 encoder underflows in the last 2 s.
+
+Beide in `bodySmall`/`onSurfaceVariant` — das ist die richtige Stufe, es
+entsteht **keine** neue Betonungsstufe zwischen „normal" und „Fehler", und
+R-E ist eingehalten (kein abstufendes Wort im aktuellen String). Das
+verbleibende Problem ist die **Lesbarkeit im Kontext**: das Wort
+„underflow" klingt fuer eine Leserin, die die Kanalrangfolge aus T-009
+nicht kennt, nach Defekt — direkt unter einer Zeile, die Entwarnung gibt.
+Genau dieses Muster (eine Zahl, die bei tadelloser Verbindung nach Schaden
+aussieht) war der Ausloeser von T-002 selbst.
+
+**Entscheidung:**
+
+1. **Satzform bleibt, keine Kurzschreibweise.** Der Alternativvorschlag des
+   `developer` („Encoder underflows: 3 (2 s)") wird **abgelehnt**: kein
+   anderer Wert in diesem Panel wird als Doppelpunkt-Klammer-Paar notiert,
+   jede Zeile ist ein vollstaendiger Satz. Eine einzelne Ausnahme waere ein
+   sechster Stil in einem Panel, das bereits drei Ebenen (MEASURED,
+   NOMINAL, UNAVAILABLE) konsequent in Prosa haelt.
+2. **Die Zeile wird auf `ExplainedRow` umgestellt** (Bestand, bereits in
+   derselben Datei fuer die LDAC-Zeile verwendet — kein neues Token, keine
+   neue Komponente). Erste Ebene unveraendert: **„{N} encoder underflow(s)
+   in the last {W} s."** Neu ist die Erklaerung hinter dem Fragezeichen:
+   **„This count carries no verdict, in either direction: the same counter
+   stayed at zero on a link where stack dropouts ran throughout, and it
+   climbed here through 39 minutes of playback with nothing else wrong."**
+   — eine Umformulierung des bereits beschlossenen R-D-Satzes aus der
+   zweiten Ebene der Verlustzeile, nicht neu erfunden.
+
+   **Korrektur 2026-09-02, nach Rueckfrage des Coordinators:** Der erste
+   Entwurf sagte „on a link that was audibly breaking up". Der `developer`
+   hat zu Recht gemeldet, dass „audibly" den Grep von AK-T009-43 (verbotene
+   Zeichenkette „audible") nicht trifft. Der Coordinator hat entschieden
+   und ich teile die Entscheidung: **die Regel meint die Wortfamilie, nicht
+   die Zeichenkette** — Grund ist die konfundierte Beleglage der zwei
+   Kalibrierpunkte (0 Dropouts nur bei 492/660 kbps, 12,94–12,99/min nur
+   bei 990 kbps gepinnt), belegt ist „990 gepinnt klingt kaputt", nicht
+   „diese Rate ist hoerbar" — ein Satz mit „audibly" behauptet exakt den
+   Teil, fuer den der Beleg fehlt. Der obige Wortlaut ersetzt „audibly
+   breaking up" durch **„where stack dropouts ran throughout"**: benennt
+   dasselbe Phaenomen (Arm B, T-008) ueber den Kanal, der es tatsaechlich
+   traegt, mit dem Zaehler als Subjekt (R-A), ohne eine Aussage ueber das
+   Hoeren zu treffen. Damit ist AK-T009-43 auch im Geist, nicht nur im Grep,
+   eingehalten.
+3. **Warum ein Tap statt eines laengeren Erstzeilen-Satzes:** AK-T002-13
+   verbietet Textwachstum gegenueber `babe3d8` in der ersten Ebene. Ein
+   Disclaimer, der nur bei Bedarf gelesen wird, loest den
+   Kontrastwiderspruch, ohne die Zeile schwerer zu machen als die anderen.
+4. **Keine Umsortierung.** Die Zeile bleibt direkt unter der Verlustzeile
+   (T-009: „Underflow verliert die Hauptrolle, behaelt die Zeile").
+
+   **Korrektur 2026-09-02, nach Rueckfrage des Coordinators, zur
+   Einrueckung:** „keine Einrueckung" war zu weit gefasst und wird
+   zurueckgenommen. `ExplainedRow` rueckt sein Label bauartbedingt 8 dp ein
+   — Bestandsverhalten in 17 Aufrufern app-weit, u. a. der `LdacSection`-
+   Zeile direkt ueber `LossRow` in diesem selben Panel. Diesen Achtungsdrang
+   fuer eine Zeile zu unterbinden, muesste entweder die geteilte Komponente
+   fuer 17 Aufrufer aendern oder eine Sonderpolsterung einfuehren — beides
+   ist ein Eingriff in geteilten Code fuer einen rein optischen 8-dp-Versatz
+   zwischen zwei ruhigen, kleinen Zeilen, den kein Kontrast-, Zielgroessen-
+   oder Lesefehler begleitet. Der Versatz ist zudem kein neues Muster: die
+   `LdacSection`-Zeile ist im selben Panel bereits genauso gegen die
+   flachen `LinkHeader`/`FormatLine`-Zeilen ueber ihr eingerueckt. **Wird
+   hingenommen, keine Sonderbehandlung.** Gemeint war und bleibt: keine
+   zusaetzliche, ueber `ExplainedRow` hinausgehende Einrueckung.
+
+**Neue Akzeptanzkriterien:**
+
+- **AK-T017-1** Die Underflow-Zeile ist ein `ExplainedRow` mit einer
+  Erklaerung, die R-D wortgleich fuer den nicht-null-Fall ausspricht. Ohne
+  Erklaerungstext ist das Kriterium nicht erfuellt.
+- **AK-T017-2** Kein Doppelpunkt-Klammer-Format in diesem Panel. Pruefbar
+  per Grep gegen `Regex(""":\s*\d+\s*\(""")` im `LiveLinkPanel.kt`-Quelltext.
+
+**Wortlaut der Graph-Caption:** keine neue Entscheidung noetig — AK-T002-11
+("{k} of {n} windows lost something") ist seit T-002 bindend und
+unveraendert; sie ist nur nicht gebaut (siehe `DESIGN_REVIEW.md` DR-002).
+„Verluste nennen" (Ereigniszahlen summieren) wird hiermit ausdruecklich noch
+einmal verworfen: es ist exakt die unbegrenzt wachsende, bei tadelloser
+Verbindung schadensverdaechtige Zahl, gegen die T-002 ueberhaupt geschrieben
+wurde — nur diesmal in der Graph-Caption statt in der Verlustzeile.
+
+**Vorbefund des `developer` (2026-09-02), hier quittiert:** „Audio lost: …"
+(`LiveLinkPanel.kt:350`), „No loss this window." (`LiveLinkPanel.kt:365`)
+und der Default `quietText = "no loss in this window"`
+(`LiveLinkGraph.kt:207`, greift auf der 60-s-Uebersicht, da dort kein
+Override gesetzt wird) stehen alle drei woertlich auf der Verbotsliste aus
+AK-T002-12 und in `LiveLinkPanel.kt`/`LiveLinkGraph.kt` seit T-002
+(30.08.) unveraendert. Kein Regress von T-017 — die T-002-Verlustzeile
+selbst wurde nie auf R-A umgebaut, obwohl R-A und AK-T002-12 seit T-002
+bindend sind. Auch hier keine neue Wortlaut-Entscheidung noetig: Abschnitt
+„Formulierungen erste Ebene" (oben, T-002) schreibt fuer genau diesen Fall
+bereits `"No counter moved in the last {W}."` vor (`CLEAN`/`ALL_FIVE`) —
+der Code zeigt stattdessen weiterhin den Vor-Spec-Satz „No loss this
+window.". Siehe `DESIGN_REVIEW.md` DR-004 fuer die Einordnung (Kritisch,
+hoechste Prioritaet der bisher in diesem Zyklus gefundenen Punkte).
+
+**Nachtrag 2026-09-02 (zweite Rueckfrage, dritter Zweig von DR-004):**
+Zwei der drei Zeichenketten sind gebaut — `"No counter moved in the last
+{W} s."` ersetzt sowohl `"No loss this window."` als auch den
+Graph-Default. Fuer den dritten, nicht-leeren Zweig
+(`LiveLinkPanel.kt:350`, „Audio lost: …") bietet die Formulierungstabelle
+nur `OCCASIONAL`/`DISTURBED`-Saetze, und beide brauchen entweder eine Rate
+ueber `LOSS_WINDOW_MS` (Parameter selbst noch offen — T-001) oder ein
+gemessenes Ereignis-Alter (D-8). Beides existiert nicht: `LossRow` liefert
+heute eine rohe Poll-zu-Poll-Differenz, keine 60-s-Aggregation, keine
+Coverage-Klassifikation.
+
+**Entscheidung: Option (a).** Die Zeile bekommt eine reduzierte, ratenlose
+Sofortformulierung — **keine Aenderung an der Bedeutung**, nur an der
+Grammatik:
+
+    "${parts.joinToString(", ")} in the last ${trimZero(windowSeconds)} s."
+
+Das ist der bestehende String **minus** dem Praefix „Audio lost: ". Kein
+neuer Text wird erfunden: `parts` liefert bereits genau die
+Kanal-Fragmente, die die `OCCASIONAL`-Zeile fuer einen einzelnen Kanal
+vorschreibt (`"{N} {kanal} in the last {W}"`), nur fuer mehrere gleichzeitig
+betroffene Kanaele aneinandergereiht, wie es der Code schon vor T-017 tat.
+
+- **R-A eingehalten:** Das Subjekt ist jetzt die Liste der Zaehler
+  („3 app underruns, 1 stack dropout …"), nicht mehr „Audio". Der einzige
+  R-A-Verstoss war das Praefix; er ist weg.
+- **R-E eingehalten:** keine Rate, also keine abstufende Aussage moeglich —
+  R-E betrifft Raten zwischen 0 und 12/min und greift hier nicht.
+- **Taeuscht keine Zustandsmaschine vor:** Der reduzierte Satz traegt
+  keinen der beiden Marker, an denen `OCCASIONAL`/`DISTURBED` erkennbar
+  sind (kein „— about {R}/min", kein „for {D} now") — er ist damit
+  strukturell, nicht nur inhaltlich, von einem Verdikt unterscheidbar und
+  kann nicht als Rate oder Dauer gelesen werden, die niemand gemessen hat.
+  Das Fenster bleibt das tatsaechlich gemessene Poll-Intervall (`tx.windowMs`
+  bzw. `intervalMs`), nie `LOSS_WINDOW_MS` — AK-T002-1 ist damit erfuellt,
+  ohne einen Wert vorzutaeuschen, den es noch nicht gibt.
+- **Warum nicht (b):** „Audio lost" ist der auffaelligste R-A-Verstoss der
+  gesamten Oberflaeche — ihn stehenzulassen, bis die volle
+  Zustandsmaschine kommt, hiesse, den sichtbarsten Fehler am laengsten zu
+  behalten. Die Kuerzung kostet nichts an Aussage, die heute ohnehin nicht
+  belegt waere.
+
+**Damit ist DR-004 vollstaendig entschieden** (3 von 3 Zweigen), Umsetzung
+liegt beim `developer`. Die Rate-/Alters-Verfeinerung (volle
+`OCCASIONAL`/`DISTURBED`-Formulierung) bleibt fuer den Zyklus stehen, der
+die T-009-Zustandsmaschine baut — kein neuer Auftrag hier.
