@@ -399,3 +399,86 @@ Strecke wird die Datenmenge nicht rechtzeitig los.
 `dropouts`, `underflow` (R-005). Die Bedeutung von `Packet counts`,
 `max dropped` und den Deviation-Zaehlern ist **Director-Lesart, unbelegt** —
 gehoert recherchiert, bevor ein Messapparat darauf gebaut wird.
+
+### ZIELPRAEZISIERUNG des App Designers, 02.09. spaet — WICHTIG
+
+**990 kbps ist kein Nachteil, den es zu vermeiden gilt. Es ist das Ziel.**
+Der Nutzer will ausdruecklich die hoechste Qualitaet und Bitrate fahren. Die
+leitende Frage des Vorhabens lautet damit nicht mehr "wie erkennen wir, dass
+990 kippt", sondern **"was muss gegeben sein, damit 990 stabil laeuft".**
+
+Folgen, die sofort gelten:
+
+- **Stufe senken ist keine Loesung mehr, sondern das zu Vermeidende.** Auch der
+  Wechsel auf AAC, aptX oder SBC gilt als Aufgabe der Qualitaet, nicht als
+  Behebung. Ratschlaege, die in Wahrheit nur die Bitrate senken, sind als
+  solche zu entlarven.
+- **Hauptkategorie wird alles, was Sendezeit, Latenz und Scheduling im
+  Sendepfad verbessert.** Messlage dazu: bei fest 660 blieben ueber 2,3 Mio
+  Pakete verlustfrei, bei fest 990 entstehen Verluste ohne jeden externen Reiz.
+  Die Grenze liegt vermutlich an verfuegbarer Luftzeit und Rechtzeitigkeit,
+  nicht an "Funkqualitaet" im naiven Sinn — **ungeprueft, aber die tragende
+  Arbeitshypothese**.
+- Ein Faktor, der bei 660 folgenlos bleibt und bei 990 den Ausschlag gibt, ist
+  fuer dieses Projekt der wichtigste ueberhaupt.
+- R-009 und R-010 wurden waehrend des Laufs entsprechend nachgesteuert.
+
+**Das beruehrt `GOAL.md` an der Wurzel** und ist beim Neuschreiben des
+Zielbilds zu beruecksichtigen: Das Ziel ist nicht mehr nur "ehrlich anzeigen",
+sondern "die hoechste Stufe nutzbar machen". Zwei Varianten stehen zur Wahl
+(urteilende gegen zeigende App); beide muessen dieses dritte Standbein tragen.
+
+### OFFEN: PII in drei Messberichten — blockiert deren Commit
+
+Der `archivist` hat den Commit von `docs/perf/T-027-messung.md`,
+`T-027-messung-24ghz.md` und `T-028-hoersitzung-reizplan.md` **verweigert**:
+sie enthalten die reale SSID, die BSSID des Access Points und LAN-IPs des
+Nutzers. Die Dateien liegen unveraendert im Working Tree. **Vor dem naechsten
+sync-out zu bereinigen** — Platzhalter statt Klartext, Fundstellen stehen im
+Archivist-Bericht. Die vier neuen Fixtures wurden gegengeprueft und sind sauber.
+
+### T-030 geliefert — Buendelungskriterium steht in UI_SPEC.md
+
+Neuer Abschnitt ab Zeile 1830, 14 neue Kriterien AK-T030-1..14, sieben
+bestehende geaendert. **Noch nicht committet** (lief waehrend des sync-out).
+
+**Die Groesse:** Ein Ausbruch liegt vor, wenn im zurueckliegenden
+`LOSS_BURST_WINDOW_MS` (30 s) mindestens `LOSS_BURST_MIN_EPISODES` (3)
+`dropouts`-Episoden gezaehlt wurden. Verworfen wurden: **Einzelabstand** (der
+gemessene Median im Buendel, 2,70 s, liegt unter der Poll-Kadenz der App — ein
+solches Kriterium misst den Poller, nicht die Strecke) und **Anteil gestoerter
+Zeit** (Dauer je Episode ist mit den vorhandenen Zaehlern nicht messbar, der
+Nenner waere erfunden).
+
+**Zwei Zeilen, zwei Einheiten:** „Dropped audio: {N} incidents" traegt das
+Verdikt; „Encoder ran dry: {N} times" steht gleichrangig daneben, nie rot, ohne
+Verdikt und ohne verkleinerndes Wort. Neue Regel R-G: das Wort „packet" steht
+nicht mehr fuer die Raeumungsfamilie. Neue Regel R-F: keine Groesse je Minute
+oder Sekunde in der Verlustanzeige.
+
+**Ehrlichkeit des Entwurfs, ausdruecklich festgehalten:** Die zweite Haelfte
+meiner eigenen Auftragsbegruendung traegt NICHT. „Dieselben 11 Episoden
+gleichmaessig verteilt waeren ein anderer Hoereindruck" ruhte auf dem
+zurueckgenommenen Schluss, Einzelereignisse seien nicht bemerkt worden. Das
+Kriterium spricht gleichmaessig Verteiltes deshalb **nicht** frei. Sein Gewinn
+gegenueber der Rate ist, dass der **kurze dichte Ausbruch ueberhaupt erkannt**
+wird — 11 Episoden in 21 s haette die alte 12/min-Schwelle verfehlt.
+
+**Zwei bisher als `Measured` gefuehrte Werte sind falsifiziert** und
+zurueckgezogen: `LOSS_ALERT_SUSTAINED_WINDOWS` = 2 (haette den kleinsten
+gemeldeten Ausbruch verschluckt) und `LOSS_CLEAR_HOLD_MS` = 35 000 (Basis
+ueberholt). Sieben Nachzuege an `ARCHITECTURE.md` sind gemeldet, darunter: der
+Typ `LossThreshold.Measured(ratePerMin)` traegt die neuen Werte nicht — „3 in
+30 s" ist keine Rate.
+
+Neu als `Open`: obere Kante des Burst-Fensters `TODO(M-12)`, untere Kante der
+Episodenzahl `TODO(M-13)` (ein Buendel aus genau 2 kam im Lauf nie vor),
+Anteil gestoerter Zeit `TODO(M-14)` (kein Verfahren bekannt).
+
+**RICHTIGSTELLUNG DES DIRECTORS zu einem Hinweis aus T-030:** Der Entwurf
+nennt den Verlustfall aus `T-027-messung-24ghz.md` (660 kbps, WLAN-Konkurrenz
+im 2,4-GHz-Band) als moeglichen ersten Hebel fuer Verlust bei gleicher, tieferer
+Stufe. **Das traegt nicht.** Genau dieser Einzelfall wurde in T-028 ueber acht
+gueltige Abschnitte — vier mit Reiz, vier ohne — **nicht reproduziert**, alle
+0/0. Er gilt als nicht belastbar. Wer daran anknuepfen will, muesste zuerst die
+Reproduzierbarkeit herstellen. Nicht als Hebel weiterverwenden.
