@@ -6,6 +6,12 @@ plugins {
 android {
     namespace = "dev.dankyeeter.btdashboard.audio"
     compileSdk = 36
+    // Pinned to the NDK already installed on the build machines (r27d).
+    // Without this, AGP picks its own default NDK version and may trigger
+    // an unnecessary ~2.5 GB download. The C++17 / c++_shared / 16 KB page
+    // size flags below are exactly what NDK r27 provides by default, so
+    // pinning the r27 line is consistent with the rest of this block.
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         minSdk = 31
