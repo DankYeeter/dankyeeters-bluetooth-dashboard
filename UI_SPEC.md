@@ -1824,3 +1824,628 @@ betroffene Kanaele aneinandergereiht, wie es der Code schon vor T-017 tat.
 liegt beim `developer`. Die Rate-/Alters-Verfeinerung (volle
 `OCCASIONAL`/`DISTURBED`-Formulierung) bleibt fuer den Zyklus stehen, der
 die T-009-Zustandsmaschine baut — kein neuer Auftrag hier.
+
+---
+
+## Buendelungskriterium statt Rate je Minute (T-030) — 2026-09-02
+
+Fortschreibung von T-002 und T-009, **nicht** Ersatz. Alles, was hier nicht
+ausdruecklich geaendert wird, gilt unveraendert weiter — insbesondere die
+Zustandsmechanik (fuenf Zustaende, Coverage, U-1..U-6), die Regeln R-A bis R-D,
+der Datenweg D-1..D-12 und die gesamte Stufenzeile aus T-009.
+
+Quellen: `docs/perf/T-029-korrelation-hoereindruck.md` (Zuordnung Hoereindruck,
+Director), `docs/perf/T-029-990-korrelation.md` (Messseite,
+`performance-tuner`), `docs/research/R-006.md` (Literaturlage), `docs/state.md`
+(Entscheidungen des Nutzers vom 02.09.), `ARCHITECTURE.md` AD-019/AD-020/AD-021.
+
+**Diese Fortschreibung ist unverifiziert (Spezifikation ohne Geraet und ohne
+laufende App).** Es gab nichts anzusehen; sie ruht ausschliesslich auf den
+Messberichten. Alle Zahlen stammen aus **einem** Lauf, mit **einem** Hoerer, an
+**einem** Geraet, nicht wiederholt — jede Aussage unten traegt genau so weit.
+
+### Der Anlass, in einem Satz
+
+Cluster 1 des T-029-Laufs trug **11 Episoden in 21,2 s** und wurde gemeldet; auf
+die Minute gerechnet sind das 11/min und damit **unter** der bisher gesetzten
+Alarmschwelle `LOSS_ALERT_RATE_PER_MIN[dropouts]` = 12/min. Eine Rate je Minute
+haette den einzigen kurz-und-dicht gemessenen Fall verschwiegen.
+
+### Warum die Leitgroesse der Ueberlast wechselt — drei Belege
+
+1. **Die Struktur ist zweigipflig, gemessen.** Ereignisabstaende *innerhalb* der
+   zehn Cluster: n = 117, Minimum 1,10 s, Median 2,70 s, Maximum **23,3 s**.
+   Ruhephasen *zwischen* den Clustern: n = 11, Minimum **35,6 s**, Median
+   84,1 s, Maximum 261,2 s. **Zwischen 23,3 s und 35,6 s liegt kein einziger
+   gemessener Abstand.** Das ist keine Folge der 30-s-Clustergrenze des
+   `performance-tuner`: ein realer Abstand von 28 s waere als "innerhalb"
+   gezaehlt worden und haette das Maximum gehoben, einer von 32 s als
+   "zwischen" und haette das Minimum gesenkt. Beides ist nicht eingetreten,
+   also ist die Luecke beobachtet, nicht definiert.
+2. **Die Zuordnung trennt entlang der Buendel, nicht entlang einer Rate.** Alle
+   fuenf Cluster mit mehr als einer Episode wurden gemeldet (Cluster 1, 3, 4, 5,
+   7); alle fuenf isolierten Einzelereignisse (Cluster 2, 6, 8, 9, 10) wurden
+   nicht gemeldet. Elf von vierzehn Meldungen treffen die Struktur, die drei
+   Fehltreffer betreffen Rueckblick und Dauer, keiner die Frage, ob ueberhaupt
+   etwas war.
+3. **Die Literatur kennt die Rate je Zeit nicht.** R-006 ist ein ausdruecklicher
+   Negativbefund ueber den gesamten Rechercheumfang: Anteile, Lueckenlaengen und
+   Burst-Muster tragen die Aussage, **eine normierte Ereignisrate je Zeit taucht
+   in keiner gefundenen Quelle auf**.
+
+**Was diese drei Belege NICHT hergeben, ausdruecklich:** Sie sagen nichts
+darueber, ob gleichmaessig verteilte Episoden harmlos sind. Der urspruengliche
+Schluss "Einzelereignisse wurden nicht bemerkt" ist vom App Designer
+zurueckgenommen worden — **er hat sie gehoert und nur nicht jedes Mal
+gemeldet**. Der belegte Gegensatz ist **"bemerkbar gegen stoerend"**, nicht
+"hoerbar gegen unhoerbar". Die untere Grenze der Hoerbarkeit ist damit **nicht
+bestimmt**, und keine Formulierung dieser Vorgabe darf so tun, als waere sie es.
+
+---
+
+### Die Groesse: Episoden in einem kurzen Fenster
+
+**Ein Ausbruch ist erkannt, wenn im zurueckliegenden `LOSS_BURST_WINDOW_MS`
+mindestens `LOSS_BURST_MIN_EPISODES` `dropouts`-Episoden gezaehlt wurden.**
+Gezaehlt wird ausschliesslich auf `dropouts`; das ist die einzige Groesse, die
+der Quelltext als saubere Ereigniseinheit hergibt (R-005, Entscheidung Nutzer
+02.09.).
+
+**Warum nicht der Abstand aufeinanderfolgender Ereignisse (Kandidat 2):**
+
+- Der gemessene Median des Abstands *innerhalb* eines Buendels ist **2,70 s**,
+  41 von 117 Abstaenden liegen unter 1,5 s. Die Poll-Kadenz der App liegt bei
+  ~2 s, die T-029-Abtastung bei 1 Hz. Ein Kriterium auf Einzelabstaenden wuerde
+  im dichten Teil der Verteilung **den Poller messen, nicht die Strecke**.
+- Sein einziger Parameter — die Obergrenze des Abstands, der noch "dasselbe
+  Buendel" ist — ist genau die unbestimmte Groesse: nach unten belegt durch
+  Cluster 5 (**6,6 s** Abstand, trotzdem als Buendel gemeldet), nach oben durch
+  35,6 s (kuerzeste Ruhephase, die der Hoerer als ruhig gemeldet hat), und
+  dazwischen widersprochen durch **zwei** Meldungen, in denen eine Binnenluecke
+  eines laufenden Clusters als dessen Ende gehoert wurde. Der Wert waere zu
+  raten. Das verbietet AD-019.
+- Ein Kettenkriterium haette ausserdem kein natuerliches Gedaechtnis: der
+  Zustand haengt an der gesamten Vorgeschichte statt an einem Fenster.
+
+**Warum nicht der Anteil gestoerter Zeit (Kandidat 3):** Das waere die
+literaturnaechste Groesse (R-006: Prozent bzw. verlorener Zeitanteil) und ist
+auf diesem Geraet **nicht bildbar**. Ein Anteil braucht eine Dauer je Episode;
+die Zaehler geben nur Episodenzahl und verworfene Warteschlangeneintraege her
+(~25 `dropped` je `dropout`, T-029 Abschnitt 10). Wieviele Millisekunden Ton
+eine Episode entfernt, ist **nicht gemessen und mit den vorhandenen Zaehlern
+nicht messbar**. Eine Umrechnung waere ein erfundener Nenner — derselbe
+AK-3-Verstoss, der schon die Prozentanzeige aus T-002 ausgeschlossen hat.
+Offen gefuehrt als M-14.
+
+**Aufloesungsvorbehalt, bindend:** Bei 1-Hz- bzw. 2-s-Abtastung fallen mehrere
+Episoden derselben Sekunde in **eine** Lesung (belegt: 26 von 127 Lesungen des
+Laufs trugen 2 bis 5 `dropouts`). Zaehlungen sind dadurch nicht betroffen —
+`dropouts` ist ein Delta —, **Spannenangaben schon**. Faellt ein ganzer Ausbruch
+in eine einzige Lesung, ist seine Spanne nicht aufgeloest; der Text sagt dann
+**nie** "0 s" und nie eine Sub-Kadenz-Zahl, sondern uebernimmt das bereits
+beschlossene Muster aus T-009 ("held for less than {2 x Kadenz}").
+
+**Was die Wahl NICHT behauptet:** Sie spricht gleichmaessig verteilte Episoden
+nicht frei. Elf Episoden im Abstand von 5,5 s erfuellen das Kriterium ebenfalls
+— und das ist richtig so, denn die gemessenen, gemeldeten Cluster 3 und 4 lagen
+mit 3,2–3,3 s mittlerem Abstand in derselben Groessenordnung. Der Unterschied
+zur Rate je Minute ist nicht, dass Verteiltes entlastet wird, sondern dass
+**der kurze dichte Ausbruch ueberhaupt erkannt wird** (11/min haette 12/min nie
+erreicht) und dass die Anzeige auf der Zeitskala des Ausbruchs reagiert
+(Sekunden) statt auf der einer Minutenmittelung.
+
+---
+
+### Zwei Stufen, verschieden begruendet
+
+| Stufe | Bedingung | Begruendung, je eigen |
+|---|---|---|
+| `OCCASIONAL` | mindestens **eine** `dropouts`-Episode im `LOSS_WINDOW_MS` | **Zwei unabhaengige Gruende.** Erstens: die Ruherate dieses Kanals ist ueber 514 s in fuenf Laeufen exakt 0 (T-008) — eine Episode ist bereits ausserhalb des gemessenen Ruhezustands. Zweitens, neu aus T-029: **Einzelereignisse werden gehoert**, nach eigener Aussage des Hoerers. Die untere Stufe darf deshalb auf das Einzelereignis reagieren. |
+| `DISTURBED` | `LOSS_BURST_MIN_EPISODES` Episoden innerhalb `LOSS_BURST_WINDOW_MS` | **Braucht die Buendelung.** Gemeldet wurden ausschliesslich Buendel; das kleinste gemeldete trug **3 Episoden in 6,6 s** (Cluster 5). Fuenf isolierte Einzelereignisse wurden gehoert, aber nicht gemeldet. Die obere Stufe bildet "stoerend" ab, nicht "hoerbar". |
+
+Damit traegt die zweistufige Anlage aus T-002 zum ersten Mal zwei **getrennte**
+Begruendungen statt zweier Punkte auf derselben Rate-Achse. Das ist der Kern
+dieser Fortschreibung.
+
+---
+
+### Verlustzeile — Kanaele und Verdikte, Stand 2026-09-02
+
+Ersetzt die Tabelle "Verlustzeile — was sich gegenueber T-002 aendert" aus
+T-009 vollstaendig. Zwei Zeilen sind Nachzuege bereits gefallener
+Entscheidungen, drei sind neu bzw. korrigiert.
+
+| Kanal (Feld) | UI-Wort | `OCCASIONAL` | `DISTURBED` | Schwellentyp (AD-019) | Woraus |
+|---|---|---|---|---|---|
+| `A2dpTxDelta.dropouts` | **"dropped audio", in "incidents"** | **ja** | **ja — der einzige** | `Measured` | einzige saubere Ereigniseinheit (R-005); einziger Kanal mit einer Zuordnung zum Hoereindruck (T-029) |
+| `A2dpTxDelta.dropped` | "send queue entries cleared" — **nie "packets"** (R-G) | **nein** (geaendert) | nein | `None` | zaehlt Warteschlangeneintraege variabler Groesse; eine Rate darauf addiert Ungleiches. **Entscheidung Nutzer 02.09. nach R-005**, hier nachgezogen |
+| `A2dpTxDelta.underflows` | "encoder ran dry", in "times" | **nein** (geaendert) | nein | `None` | im einzigen gemessenen hoerbar kaputten Arm null. **Nachzug**: die T-009-Tabelle liess hier faelschlich `OCCASIONAL` stehen; AD-019 und der gebaute Stand (QA-001) sagen seit dem 02.09. anderes |
+| App underruns | "app audio ran dry", in "times" | **nein** (geaendert) | nein | `Open`, `TODO(M-1)` | nie gemessen, weder ruhend noch gestoert. **Entscheidung Nutzer 02.09.**: sichtbar als Zahl, kein Verdikt, keine rote Zeile |
+| Mixer underruns | "mixer ran dry", in "times" | **nein** (geaendert) | nein | `Open`, `TODO(M-1)` | dito |
+
+**Folge, ausdruecklich benannt: `dropouts` ist der einzige beurteilende Kanal
+der gesamten Anzeige.** Ist er nicht lesbar (offloaded, kein Helper, kein Link),
+gibt es keinen beurteilbaren Kanal, und der Zustand ist `CANNOT_TELL` mit Grund
+`NO_JUDGEABLE_CHANNEL` — nie `CLEAN` (AD-019/AD-020). Alle uebrigen vier Kanaele
+bleiben in der zweiten Ebene **sichtbar und unbeurteilt** (`GOAL.md` AK-2).
+
+---
+
+### Die Woerter: zwei Zahlen, zwei Familien (Entscheidung App Designer, 02.09.)
+
+**Entschieden vom App Designer, hier eingearbeitet:** Die beurteilende Groesse
+heisst in der Oberflaeche **"dropped audio"** und wird in **"incidents"**
+gezaehlt. Daneben steht eine **zweite, getrennte Zahl** fuer die Quellseite.
+
+**Der Messbefund, der die bisherige Projektsprache korrigiert** (vom Director
+quittiert; **von mir nicht selbst am Dump geprueft**): Ein echter Dump zeigt
+`Packet counts (expected/dropped): 1279910 / 0` bei gleichzeitig
+`Counts (flushed/dropped/dropouts): 1 / 807 / 35`. **Auf Paketebene geht nichts
+verloren.** Was das Projekt bisher "Paketverlust" nannte, ist eine **Raeumung
+der Sendewarteschlange**: Der Stack wirft Audio weg, das er nicht rechtzeitig
+losgeworden ist. Die Funkstrecke wiederholt selbst — das Problem ist
+**Verzoegerung, nicht Verlust auf der Strecke**.
+
+**Zwei Familien, zwei Defekte, ausdruecklich nicht zwei Stufen desselben:**
+
+| Familie | Zaehler | Was passiert | UI-Wort | Verdikt |
+|---|---|---|---|---|
+| **Sendeseite** | `dropouts` (Ereigniseinheit), `dropped` (geraeumte Eintraege) | Der Stack **verwirft** fertiges Audio aus der Sendewarteschlange. Es fehlt. | **"dropped audio"**, gezaehlt in **"incidents"** | traegt das Verdikt (`OCCASIONAL`/`DISTURBED`) |
+| **Quellseite** | `underflows`, `Bytes (underflow)`, `PCM read counts (expected/actual)` | Dem Encoder **fehlte PCM-Material**; die Luecke wird **mit Stille aufgefuellt**, nicht uebersprungen. | **"ran dry"**, gezaehlt in **"times"** | **kein Verdikt, in keiner Richtung** (QA-001, AD-019) |
+
+- **Verschiedene Einheitenwoerter sind Absicht.** "incidents" und "times"
+  duerfen nicht dasselbe Wort sein, sonst laedt die Oberflaeche zum Vergleichen
+  und Addieren ein — und die zwei Zahlen sind nicht vergleichbar (AK-T002-8
+  verbietet die Summe bereits).
+- **Die zweite Zahl ist ein anderer Defekt, kein kleinerer.** Sie wird nicht
+  leiser gesetzt als die erste: gleiche Typografie, gleiche Textstufe, kein
+  "just", kein "only", keine Verkleinerungsform. Sie wird **nur nie rot**, weil
+  fuer sie keine Schwelle gemessen ist — nicht, weil sie harmlos waere. Genau
+  das sagt ihre Erklaerung hinter dem Fragezeichen.
+- **Warum "dropped audio" R-A nicht verletzt:** R-A macht den Zaehler zum
+  Subjekt und verbietet Aussagen ueber den Klang. T-002 hat fuer genau diesen
+  Kanal die Ausnahme schon begruendet: *"Ein 'dropped'-Kanal darf 'dropped'
+  heissen, weil der Stack das Audio nachweislich selbst weggeworfen hat."* Das
+  ist hier der Fall und jetzt zusaetzlich am Dump belegt. Verboten bleibt
+  unveraendert **"audio lost"** — das behauptet eine Folge beim Hoerer,
+  "dropped audio" benennt eine Handlung des Stacks.
+
+**R-G — Kein Wort der Verlustanzeige nennt diese Groesse einen Paketverlust
+(neu).** "packet", "packets", "packet loss" und jede Beugung stehen in der
+Verlust- und Link-Anzeige **nicht** fuer die Raeumungsfamilie. Belegt: auf
+Paketebene ist der Zaehler null, waehrend geraeumt wird — die Bezeichnung waere
+**sachlich falsch**, nicht bloss ungenau. Durchsetzung in derselben Form wie
+AK-T009-43 (Wortfamilie, Grep, nicht Zeichenkette).
+
+**Ausdrueckliche Ausnahme, damit die Regel nicht zu weit greift:** Der
+Liveness-Fallback der Bitratenlinie darf weiterhin `packets/s` sagen — er
+benennt **echte** transportierte Pakete (die es gibt: 1 279 910 erwartet), nicht
+die Raeumung. R-G gilt der Verlustgroesse, nicht dem Wort an sich.
+
+**Betroffene Stellen in dieser Datei, die dadurch ueberholt sind:**
+
+- `UI_SPEC.md:128` — Kanaltabelle T-002, Zeile "Dropped packets". Neuer UI-Name:
+  **"send queue entries cleared"** (zweite Ebene, ohne Verdikt). Der Feldname
+  `A2dpTxDelta.dropped` im Code bleibt, was er ist.
+- `UI_SPEC.md:949` — der R-D-Satz der zweiten Ebene lautete "...the encoder
+  underflow counter stayed at zero on a link that was dropping packets."
+  **Neuer Wortlaut:** "...stayed at zero on a link that was dropping audio
+  throughout." Derselbe Beleg, ohne die falsche Ebene.
+- `UI_SPEC.md:906` — die dortige Kanaltabelle ist bereits durch die Tabelle
+  oben ersetzt.
+- `UI_SPEC.md:876`/`1239` — "Bluetooth is falling behind: {N} packets queued"
+  ist bereits gestrichen (AK-T009-29) und bleibt gestrichen; die Nennung dort
+  ist ein Verbot, kein Vorkommen.
+
+**Selbstkorrektur zu T-017, benannt:** T-017 hat die Form
+"Label: Wert" abgelehnt und volle Saetze verlangt. Der App Designer hat jetzt
+"Dropped audio: 3 incidents" gewaehlt; seine Entscheidung geht vor, und die
+Begruendung von damals traegt hier ohnehin nur halb — abgelehnt war das
+**Doppelpunkt-Klammer-Paar** ("Encoder underflows: 3 (2 s)"), das das Fenster in
+eine Klammer schiebt. Das bleibt verboten (AK-T017-2 unveraendert): das Fenster
+behaelt seine eigenen Woerter ("in the last 60 s"). Erlaubt ist ab jetzt der
+Doppelpunkt zwischen Groessenname und Zahl, wenn der Rest ein Satz bleibt.
+
+---
+
+### Formulierungen erste Ebene (Aenderung gegenueber T-002/T-009)
+
+Subjekt bleibt der Zaehler (R-A). Neu sind: **die Rate je Minute verschwindet**,
+und **die zwei Familien bekommen zwei getrennte Zeilen** mit zwei getrennten
+Einheitenwoertern.
+
+| Zustand / Zeile | Wortlaut (Englisch, verbindlich) |
+|---|---|
+| `CLEAN` (`ALL_FIVE`), **alle** gelesenen Zaehler auf null | "No counter moved in the last {W}." — **unveraendert** |
+| Sendeseite ruhig, Quellseite hat gezaehlt | "Dropped audio: no incidents in the last {W}." — die Quellseite steht in ihrer eigenen Zeile darunter |
+| `OCCASIONAL` | "Dropped audio: {N} incident(s) in the last {W} — last counted {D} ago." |
+| `OCCASIONAL`, Spanne nicht luecklos gemessen | "Dropped audio: {N} incident(s) in the {M} this panel has measured." |
+| `DISTURBED`, Spanne ueber mindestens zwei Lesungen | "Dropped audio: {k} incidents within {s} s." |
+| `DISTURBED`, alle Episoden in einer Lesung | "Dropped audio: {k} incidents in under {c} s." — `{c}` = 2 x gemessene Kadenz |
+| `DISTURBED`, Zusatzzeile | "Watch closely reads the stack twice a second while it is on." — **unveraendert** |
+| **Quellseite, eigene Zeile, immer sichtbar wenn lesbar** | "Encoder ran dry: {N} times in the last {W}." |
+| **Quellseite, Erklaerung hinter dem Fragezeichen** (`ExplainedRow`, T-017) | "This count carries no verdict, in either direction: the same counter stayed at zero on a link that was dropping audio throughout, and it climbed through 39 minutes of playback with nothing else wrong. It names a different fault, not a smaller one — the encoder had no PCM to take, and that gap is filled with silence rather than skipped." |
+
+**Was wegfaellt und warum:** "— about {R}/min" (T-002) und "{Kanal} for {D} now
+— about {R}/min" (T-009). Zwei Gruende, jeder fuer sich hinreichend:
+
+1. **Die Zahl ist bei gesetztem `LOSS_WINDOW_MS` = 60 000 redundant.** Ueber ein
+   volles, luecklos gemessenes 60-s-Fenster ist `{R}` identisch mit `{N}`. Sie
+   unterscheidet sich nur dann, wenn **weniger als eine Minute gemessen wurde** —
+   also genau dort, wo das Hochrechnen auf eine Minute am wenigsten belegt ist.
+2. **Sie ist die Groesse, die T-029 widerlegt hat**, und sie legt eine Achse
+   nahe, auf der man Zustaende ordnen koennte. Genau das verbietet R-E.
+
+**Eine Folge, die benannt gehoert:** Wenn die Quellseite im Normalbetrieb
+mitlaeuft — und das tut sie belegt (39 min Wiedergabe ohne wahrgenommene
+Stoerung, Zaehler stieg trotzdem) —, dann ist **"No counter moved in the last
+{W}." fast nie wahr**. Der Satz bleibt richtig und bleibt stehen, er wird nur
+selten. Die Regel dahinter ist R-D: ein Zaehler auf null sagt nur etwas ueber
+diesen Zaehler, also sagt jede Familie ihren eigenen Satz. Wer stattdessen die
+Quellseite aus dem `CLEAN`-Urteil herausrechnen wuerde, um den ruhigen Satz
+haeufiger zu sehen, baut genau den falschen Freispruch aus `GOAL.md` AK-3.
+
+**Strukturelle Unterscheidbarkeit** (Muster aus T-017): `OCCASIONAL` nennt ein
+**gesetztes Fenster** ("in the last {W}"), `DISTURBED` eine **gemessene Spanne**
+("within {s} s"). Die zwei Saetze sind ohne Farbe, ohne Pill und ohne
+Betonungsstufe voneinander zu unterscheiden.
+
+**Zahlenraum, gegen Textwachstum geprueft (AK-T002-13):** `{k}` ist durch das
+Fenster begrenzt (im gesamten T-029-Lauf maximal 61 Episoden in 15 s), `{s}` ist
+durch `LOSS_BURST_WINDOW_MS` auf zwei Stellen begrenzt. Die Zeile kann nicht
+laenger werden als der bisherige Ratensatz.
+
+---
+
+### Die zweite Ebene — was ueber die Buendelung gesagt wird
+
+Punkte 1–5 aus T-002/T-009 bleiben. Punkt 6 bleibt entfallen (Entscheidung 4).
+**Neu ist Punkt 7**, als Zeilen, nie als Prosa:
+
+7. **Die Buendelstruktur im Fenster** (Sendeseite):
+   - "Dropped audio in the last {W}: {N} incidents." — Zahl, **keine Rate**
+   - "Largest run in the last {W}: {k} incidents within {s} s." — nur wenn
+     `k >= 2`
+   - "Longest stretch without one in the last {W}: {q} s."
+   - "Send queue entries cleared in the last {W}: {N}." — die feinere Zaehlung
+     hinter denselben Vorfaellen (`A2dpTxDelta.dropped`), ohne Verdikt und
+     **ohne das Wort "packet"** (R-G)
+   - Erklaertext des Blocks, ein Satz: "Dropped audio is counted in runs, not as
+     a rate per minute — the same number of incidents packed into a few seconds
+     or spread across a minute are not the same thing, and a per-minute number
+     cannot tell them apart."
+
+Die Zeilen sind genau die Groessen, die R-006 als literaturnah ausweist, soweit
+dieses Geraet sie hergibt: Anzahl, Buendelgroesse, Lueckenlaenge. Der Anteil
+gestoerter Zeit fehlt und bleibt begruendet fort (M-14).
+
+8. **Die Quellseite, als eigener Block mit eigener Ueberschrift** — nie in
+   denselben Absatz wie Punkt 7 gemischt, nie mit ihm summiert (AK-T002-8):
+   - "Encoder ran dry in the last {W}: {N} times."
+   - "Bytes the encoder could not take in the last {W}: {N}."
+     (`Bytes (underflow)`)
+   - "PCM reads in the last {W}: {actual} of {expected}."
+     (`PCM read counts (expected/actual)`)
+   - Erklaertext des Blocks, zwei Saetze: "These counters are about the audio
+     the encoder was handed, not about what the Bluetooth stack sent. A gap here
+     is filled with silence rather than skipped, and none of these three carries
+     a verdict — no measurement says what a normal value is."
+
+   **Datenwegforderung D-13 (neu):** `Bytes (underflow)` und
+   `PCM read counts (expected/actual)` sind heute nicht im Lesungssatz. Solange
+   sie nicht geparst sind, sagen ihre Zeilen **"not readable"** — nie eine 0
+   (Regel aus T-002, AK-T002-4). Der Block erscheint dann mit zwei lesbaren und
+   einer nicht lesbaren Zeile, nicht gar nicht.
+
+**Die Decke (R-B) bleibt dreiteilig; ein Satz wird im Wortlaut korrigiert.** Der
+R-D-Satz lautet ab jetzt "...stayed at zero on a link that was dropping audio
+throughout." statt "...dropping packets." (R-G). Kein vierter Satz.
+
+---
+
+### Das Protokoll — ein Eintrag je Ausbruch
+
+Ersetzt die bisherige Cooldown-gesteuerte Episodenbildung fuer diesen Pfad.
+
+- **Ein `EventLayer.DETAIL`-Eintrag je beendetem Ausbruch**, geschrieben, wenn
+  der Ausbruch endet. Er traegt `{k}`, `{s}`, die gefahrene Bitratenstufe und ob
+  gepinnt oder adaptiv (AK-T002-23 unveraendert).
+- **Laeuft ein Ausbruch laenger als `LOSS_EVENT_COOLDOWN_MS`** (10 min), wird je
+  angefangener Cooldown-Spanne ein Zwischeneintrag geschrieben. Damit behaelt
+  die Konstante ihren Zweck (eine lange Stoerung schreibt keine neunzig Zeilen)
+  und verliert die Rolle, die sie nicht mehr erfuellen kann: **getrennte
+  Ausbrueche zusammenzufassen.** Im T-029-Lauf lagen fuenf Ausbrueche in 25 min,
+  paarweise 36–261 s auseinander — ein 10-Minuten-Cooldown haette sie zu zwei
+  Eintraegen verschmolzen und genau die Struktur zerstoert, die den ganzen
+  Befund traegt.
+- **Einzelne Episoden erzeugen keinen Protokolleintrag.** Sie erscheinen als
+  Marke im Graphen und als Zahl in der zweiten Ebene. Begruendung: Sie sind
+  bemerkbar, aber nicht als Vorfall meldenswert — und eine Liste, die zwei
+  Stunden zurueckreicht, war der Ausloeser von T-002.
+
+---
+
+### Parameter
+
+**Gesetzt (`Measured` im Sinne von AD-019):**
+
+| Parameter | Wert | Woraus — und was den Wert noch nicht stuetzt |
+|---|---|---|
+| `LOSS_BURST_WINDOW_MS` | **30 000** | Liegt in der **gemessenen leeren Spanne** zwischen dem groessten Abstand innerhalb eines Buendels (23,3 s) und der kuerzesten Ruhephase zwischen Buendeln (35,6 s). Dieselbe Form wie `LADDER_QUEUE_PRESSURE_FRACTION`: Grenze in die leere Mitte zweier gemessener Haufen. **Was ihn nicht stuetzt:** die Abstaende zu beiden Seiten sind nur 1,29x bzw. 1,19x entfernt — deutlich enger als bei der Queue-Schwelle (14x / 4x). Ein Lauf, n = 117 + 11 Abstaende. **Zwei Meldungen widersprechen der oberen Haelfte:** zweimal wurde eine Binnenluecke als Ende gehoert; der wahrnehmungsseitige Wert liegt vermutlich darunter. Der Wert kann durch M-12 **nur sinken**, nie steigen — und fuer jedes Fenster zwischen ~15 s und 30 s faellt die Entscheidung fuer alle fuenf gemeldeten Buendel gleich aus. |
+| `LOSS_BURST_MIN_EPISODES` | **3** | Die **kleinste tatsaechlich gemeldete Buendelgroesse**: Cluster 5, 3 Episoden in 6,6 s. Dagegen fuenf isolierte Einzelereignisse, keines gemeldet. **Was ihn nicht stuetzt:** ein Buendel aus **genau 2** Episoden ist im Lauf **nie vorgekommen** — ueber 2 sagt die Messung nichts, und die Anzeige sagt dort nichts (R-E). 3 irrt allenfalls in die vorsichtige Richtung: es schlaegt spaeter an, nie frueher als der Beleg. Verfeinert durch M-13. |
+| `LOSS_BURST_CLEAR_HOLD_MS` | **5 000** | Gegen Blinken an der Fensterkante. **Die Decke ist gemessen:** die Summe aus Fenster und Haltezeit ist die maximale Nachlaufzeit nach der letzten Episode und muss unter der kuerzesten Ruhephase bleiben, die der Hoerer im Lauf als ruhig gemeldet hat (**35,6 s**) — sonst behauptet die Anzeige eine Stoerung in einer Spanne, die belegt als ruhig gemeldet wurde. 30 000 + 5 000 = 35 000 < 35 600. **Was ihn nicht stuetzt:** die Untergrenze. Jeder Wert in (0; 5 600] erfuellt die Messlage; die Wahl des groessten runden Werts darin ist Ruhe im Bild, keine Messung. |
+| `LOSS_NOTICE_MIN_EPISODES[dropouts]` | **1** Episode im `LOSS_WINDOW_MS` | Numerisch identisch mit dem bisherigen `LOSS_NOTICE_RATE_PER_MIN[dropouts]` = 1/min, aber als **Zahl statt Rate** gefuehrt — dieselbe Groesse wie die obere Stufe, damit die zwei Stufen nicht auf zwei Achsen sitzen. Belegt wie bisher (Ruherate exakt 0 ueber 514 s, Obergrenze nach Dreierregel 0,35/min) und **neu zusaetzlich** dadurch, dass Einzelereignisse gehoert werden. |
+| `LOSS_WINDOW_MS` | **60 000, unveraendert — Begruendung ersetzt** | Die T-009-Begruendung ("bei 12,94/min enthaelt das Fenster k = 13 >= `RATE_MIN_EVENTS_IN_WINDOW`") ist **hinfaellig**, weil keine Rate mehr gebildet wird. Der Wert bleibt aus zwei anderen Gruenden: Deckungsgleichheit mit `LiveTrace.OVERVIEW_WINDOW_MS` und `LADDER_WINDOW_MS` (Zeile und Graph meinen dasselbe Fenster), und die gemessenen Ruhephasen (Median 84,1 s) sind mehrheitlich laenger als 60 s — die ruhige Aussage bleibt in Ruhephasen also erreichbar. |
+
+**Offen (`Open` im Sinne von AD-019, mit genau einer Messung):**
+
+| Parameter | Warum offen | Schliesst |
+|---|---|---|
+| `LOSS_NOTICE/ALERT/CLEAR[app underruns, mixer underruns]` | nie gemessen, weder ruhend noch gestoert | `TODO(M-1)` — unveraendert |
+| `SETTLE_MAX_SPAN_MS`, nicht angemeldeter Fall | unveraendert offen | `TODO(M-8)` |
+| **obere Kante von `LOSS_BURST_WINDOW_MS`** — der Wert ist gesetzt, seine wahrnehmungsseitige Obergrenze nicht | zweimal wurde eine Binnenluecke als Ende gehoert; wie lang diese Luecken waren, steht in der aufgezeichneten Rohreihe und ist noch nicht ausgewertet | `TODO(M-12)` |
+| **untere Kante von `LOSS_BURST_MIN_EPISODES`** — ob 2 Episoden bereits ein Buendel sind | im Lauf nie vorgekommen | `TODO(M-13)` |
+| **Anteil gestoerter Zeit** als Groesse ueberhaupt | Dauer je Episode ist unbekannt und mit den vorhandenen Zaehlern nicht bestimmbar | `TODO(M-14)`, derzeit **ohne bekanntes Verfahren** |
+
+**Zurueckgezogen — mit Grund, damit kein spaeterer Durchlauf sie wiederbelebt:**
+
+| Parameter | Grund |
+|---|---|
+| `LOSS_ALERT_RATE_PER_MIN[dropouts]` = 12/min | **Konstruktiv ungeeignet, nicht bloss unbelegt.** Der einzige kurz-und-dicht gemessene, gemeldete Fall (11 Episoden in 21,2 s) liegt auf die Minute gerechnet **unter** dem Wert. Die Groesse wird ersetzt, nicht neu beziffert. |
+| `LOSS_ALERT_SUSTAINED_WINDOWS` = 2 (Mindestabstand 15 s) | **Die Begruendung ist von T-029 falsifiziert.** Sie lautete: "zwischen 15 s und 97 s liegt kein gemessener Fall". T-029 misst dort drei: 6,6 s, 21,2 s und 38,0 s — und **alle drei wurden gemeldet**. Die Sustain-Bedingung haette den kleinsten gemeldeten Ausbruch (6,6 s) vollstaendig verschluckt. Das Buendelkriterium traegt seine eigene Fehlalarmsperre: es braucht drei Episoden, nicht eine. |
+| `LOSS_CLEAR_HOLD_MS` = 35 000 | Die Begruendung (4x der laengste Binnenabstand von 7,68 s aus 12 Abstaenden) ist durch 117 gemessene Abstaende mit Maximum 23,3 s ueberholt; **unter ihrer eigenen Regel** ergaebe sie jetzt >= 93 s. Eine Nachlaufzeit von 93 s widerspricht der gemessenen Wahrnehmung (kuerzeste als ruhig gemeldete Phase: 35,6 s). Ersetzt durch das gleitende Fenster selbst plus `LOSS_BURST_CLEAR_HOLD_MS`. |
+| `LOSS_CLEAR_RATE_PER_MIN[*]` | gegenstandslos: es gibt keine Rate mehr, und unter der Ganzzahlschwelle 1 liegt nur die Null — das ist das leere Fenster, kein eigener Parameter. |
+| `LOSS_NOTICE/ALERT_RATE_PER_MIN[dropped]`, `[underflows]` | `None` statt `Open`: diese Kanaele tragen kein Verdikt, in keiner Richtung (siehe Kanaltabelle). |
+
+**Warum das gleitende Fenster die Hysterese ersetzen kann:** Die Flatterfurcht
+aus T-002 galt einer **stetigen Rate**, die um eine Schwelle pendelt. Eine
+**Ganzzahl im gleitenden Fenster** kann ohne neue gezaehlte Ereignisse nicht
+hin- und herspringen: `OCCASIONAL` endet exakt `LOSS_WINDOW_MS` nach der letzten
+Episode, `DISTURBED` fruehestens `LOSS_BURST_WINDOW_MS` danach. Ein Wechsel
+setzt immer ein neues, echtes Ereignis voraus.
+
+`RATE_MIN_EVENTS_IN_WINDOW` = 10 bleibt unveraendert bestehen — es gilt weiterhin
+fuer die Stufenzeile; **fuer die Verlustzeile ist es gegenstandslos**, weil dort
+keine Rate mehr gebildet wird.
+
+---
+
+### Regeln
+
+**R-E — Geltungsbereich praezisiert (keine neue Regel, keine Lockerung).** Der
+bisherige Wortlaut band die Verbote an "jede `dropouts`-Rate echt zwischen 0 und
+`LOSS_ALERT_RATE_PER_MIN`". Diese Schwelle existiert nicht mehr; ohne
+Nachfuehrung haette die Regel keinen Anwendungsbereich. Neuer Bezug, sonst
+wortgleich: **Die Verbote gelten in jedem gezaehlten Zustand, der nicht
+`DISTURBED` ist — und ebenso innerhalb von `DISTURBED`.** Verboten bleiben
+"minor", "slight", "barely", "probably inaudible", "should not be noticeable",
+"may be audible", jede Abstufung wie "mild/moderate/severe" und jedes
+mehrstufige Bildzeichen. Es gibt keine dritte Stufe und keinen Schweregrad
+innerhalb einer Stufe.
+
+**R-F — Keine Zahl der Verlustanzeige wird auf eine Zeit normiert, die nicht so
+gemessen wurde (neu).** In der Verlustzeile, ihrer zweiten Ebene, der
+Graph-Caption und den Protokolleintraegen erscheint **keine** Groesse je Minute
+oder je Sekunde. Erlaubt sind: Anzahl mit Fenster, gemessene Spanne, gemessenes
+Alter, gemessene Lueckenlaenge. Begruendung: T-029 (die Mittelung ueber eine
+Minute loescht genau die Struktur, die den Unterschied macht) und R-006 (die
+Groesse kommt in keiner gefundenen Quelle vor). **Geltungsbereich ausdruecklich
+nur die Verlustanzeige** — die Stufenzeile und ihre Wechselzahlen sind davon
+nicht beruehrt, dort ist die Zeitachse nicht die strittige Groesse.
+
+**R-G** ist oben im Abschnitt "Die Woerter" ausformuliert und gilt gleichrangig:
+kein Wort der Verlustanzeige nennt die Raeumungsfamilie einen Paketverlust.
+
+R-A, R-B, R-C, R-D gelten unveraendert. AK-T009-43 (die Wortfamilie
+"audible/audibly/audibility" kommt auf den Monitor- und Link-Oberflaechen nicht
+vor) gilt unveraendert und wird von keiner Formulierung dieser Fortschreibung
+beruehrt.
+
+---
+
+### Zustaende vollstaendig — was die Zeile in jedem Fall zeigt
+
+| Fall | Erste Ebene |
+|---|---|
+| leer (nichts gezaehlt, alles gelesen) | "No counter moved in the last {W}." — kein Pill |
+| laedt (< 2 vergleichbare Lesungen) | "Loss needs two readings." — unveraendert |
+| Fehler / nicht lesbar | `CANNOT_TELL` mit typisiertem Grund; **neu haeufiger**, weil `dropouts` der einzige beurteilende Kanal ist (`NO_JUDGEABLE_CHANNEL`) |
+| ein Vorfall | "Dropped audio: 1 incident in the last {W} — last counted {D} ago." |
+| sehr viele Vorfaelle (Dauerausbruch) | "Dropped audio: {k} incidents within {s} s." — Zeilenlaenge konstant, `{s}` <= 30 |
+| alle Vorfaelle in einer Lesung | "Dropped audio: {k} incidents in under {c} s." — nie "0 s" |
+| Messluecke in der Spanne | `{M}`-Formulierung aus T-002, kein Alter |
+| Umschaltspanne | `SETTLING`, unveraendert |
+| Quellseite laeuft, Sendeseite ruhig | "No counter moved in the last {W}." **entfaellt** — es hat sich einer bewegt. Sendeseite: "Dropped audio: no incidents in the last {W}."; Quellseite: ihre Zahl, eine Zeile darunter. **Kein Satz verrechnet die zwei** (AD-021) |
+| Quellseite nicht geparst (D-13) | "not readable", nie eine 0 |
+
+---
+
+### Aufbau, Token, Plattform
+
+- **Kein neuer Platz, keine neue Komponente, kein neues Token.** Die
+  Verlustzeile bleibt an ihrem Ort; die zweite Ebene bleibt hinter dem
+  vorhandenen `ExplainedRow`-Fragezeichen. Verwendet werden ausschliesslich
+  `Pill`/`PillTone` (`Panel.kt:154`), `bodySmall`/`onSurfaceVariant` und
+  `colorScheme.error` fuer den Fliesstext von `DISTURBED` — alles Bestand.
+- **Keine neue Interaktion.** Es kommt kein Bedienelement hinzu; die einzige
+  Beruehrflaeche bleibt das bestehende `ExplainedRow`. Material-3-Zielgroesse
+  >= 48 dp gilt dort unveraendert (nicht neu geprueft — kein Geraet).
+- **Ohne Farbe lesbar:** `CLEAN` ohne Pill, `CANNOT_TELL` mit Pill,
+  `OCCASIONAL`/`DISTURBED` durch **Wortwahl und Satzbau** getrennt (gesetztes
+  Fenster gegen gemessene Spanne). In einem Graustufen-Screenshot bleibt jede
+  Unterscheidung erhalten.
+- **Graph unveraendert.** Die Verlustmarken auf der Zeitachse **sind** bereits
+  die ehrliche Darstellung der Buendelung — sie zeigen sie ohne jede Schwelle.
+  Es kommt ausdruecklich **keine** Hervorhebung von Ausbruechen hinzu: das waere
+  ein mehrstufiges Bildzeichen (R-E). Die Caption bleibt AK-T002-11.
+
+---
+
+### Akzeptanzkriterien
+
+- **AK-T030-1** In der Verlustzeile, ihrer zweiten Ebene, der Graph-Caption und
+  den Protokolleintraegen erscheint keine Groesse je Minute oder je Sekunde
+  (R-F). Pruefbar per Grep auf `/min`, `per minute`, `perMinute` im Verlustpfad
+  und als Compose-Test ueber alle Zustaende.
+- **AK-T030-2** `DISTURBED` entsteht ausschliesslich aus
+  `LOSS_BURST_MIN_EPISODES` `dropouts`-Episoden innerhalb
+  `LOSS_BURST_WINDOW_MS`. Unit-Test mit vier Faellen aus T-029: **11 Episoden in
+  21,2 s ergeben `DISTURBED`** (der Fall, den 12/min verfehlt haette),
+  **3 Episoden in 6,6 s ergeben `DISTURBED`** (kleinstes gemeldetes Buendel),
+  **1 Episode ergibt `OCCASIONAL`**, **2 Episoden in 30 s ergeben
+  `OCCASIONAL`**.
+- **AK-T030-3** Faellt ein ganzer Ausbruch in eine Lesung, lautet der Text
+  "in under {2 x Kadenz}"; eine 0 s oder eine Sub-Kadenz-Zahl erscheint nirgends.
+  Unit-Test mit einer Lesung, die 3 `dropouts` traegt.
+- **AK-T030-4** Kein Kanal ausser `dropouts` erzeugt ein Verdikt. Unit-Test:
+  `dropped` = 5000 und `underflows` = 40 im Fenster bei `dropouts` = 0 ergeben
+  `CLEAN` bzw. `CANNOT_TELL`, **nie** `OCCASIONAL`; beide Zahlen bleiben in der
+  zweiten Ebene sichtbar (`GOAL.md` AK-2).
+- **AK-T030-5** Ein beendeter Ausbruch erzeugt genau **einen**
+  `EventLayer.DETAIL`-Eintrag; ein Ausbruch, der laenger als
+  `LOSS_EVENT_COOLDOWN_MS` laeuft, je angefangener Spanne einen weiteren; eine
+  einzelne Episode **keinen**. Unit-Test mit der Clusterfolge aus T-029
+  (10 Cluster in 25 min ergeben **5** Eintraege).
+- **AK-T030-6** Nach der letzten gezaehlten Episode faellt `DISTURBED`
+  spaetestens nach `LOSS_BURST_WINDOW_MS` + `LOSS_BURST_CLEAR_HOLD_MS` = 35 s.
+  Unit-Test. **Das ist der Regressionstest gegen eine Nachlaufzeit, die laenger
+  waere als die kuerzeste Ruhephase, die der Hoerer als ruhig gemeldet hat
+  (35,6 s).**
+- **AK-T030-7** `LOSS_ALERT_RATE_PER_MIN`, `LOSS_ALERT_SUSTAINED_WINDOWS`,
+  `LOSS_CLEAR_HOLD_MS` und `LOSS_CLEAR_RATE_PER_MIN` existieren im Verlustpfad
+  nicht mehr — weder als Konstante noch als Feld. Pruefbar per Grep.
+- **AK-T030-8** Die Zeile "Largest run in the last {W}: {k} within {s} s."
+  erscheint nur bei `k >= 2`. Unit-Test mit k = 1 und k = 2.
+- **AK-T030-9** Jeder Parameter dieser Fortschreibung traegt im KDoc die
+  Messung, auf der er ruht, **mit Cluster oder Kennzahl** (z. B. "T-029
+  Cluster 5: 3 Episoden in 6,6 s, gemeldet"), und jeder offene `TODO(M-x)` mit
+  genau einer Messung. `LOSS_BURST_WINDOW_MS` traegt zusaetzlich den Vorbehalt
+  der schmalen Abstaende (1,29x / 1,19x) und den Hinweis, dass der Wert durch
+  M-12 nur sinken kann.
+- **AK-T030-10** Es existiert keine Funktion, die aus Episodenzahl und Spanne
+  eine Rate, einen Anteil, einen Prozentsatz oder einen Schweregrad bildet
+  (AD-021, Sperre 3). Pruefbar per Grep auf Divisionen durch eine Fenster- oder
+  Spannenlaenge im Verlustpfad.
+- **AK-T030-11** Die Wortfamilie "packet/packets/packet loss" steht auf den
+  Monitor- und Link-Oberflaechen an **keiner** Stelle fuer die Raeumungsfamilie
+  (`dropped`, `dropouts`) — R-G. Pruefbar per Grep gegen `ui/screens/monitor`
+  und die dort verwendeten Stringressourcen, in derselben Form wie AK-T009-43.
+  **Erlaubte Ausnahme, im Test mitgefuehrt:** der Liveness-Fallback der
+  Bitratenlinie (`packets/s`), der echte transportierte Pakete benennt.
+- **AK-T030-12** Sende- und Quellseite erscheinen als **zwei** Zeilen, mit
+  **zwei verschiedenen Einheitenwoertern** ("incidents" gegen "times"). Es
+  existiert kein Satz, keine Summe und keine Sortierung, die beide zu einer Zahl
+  oder zu einer Rangfolge verbindet (AK-T002-8, AD-021). Die Quellseiten-Zeile
+  traegt **keinen Pill, keine Fehlerfarbe und kein verkleinerndes Wort**
+  ("just", "only", "minor"), aber dieselbe Textstufe wie die Sendeseite.
+  Compose-Test ueber die Kombination "Sendeseite null, Quellseite ungleich
+  null".
+- **AK-T030-13** Ist ein Quellseiten-Zaehler nicht geparst oder nicht lesbar,
+  steht in seiner Zeile "not readable" — nie eine 0 (D-13, AK-T002-4).
+  Unit-Test mit einem Lesungssatz ohne `Bytes (underflow)`.
+- **AK-T030-14** Der R-D-Satz der zweiten Ebene endet auf "dropping audio
+  throughout", nicht auf "dropping packets". Pruefbar per Grep — das ist der
+  einzige gebaute bzw. spezifizierte UI-Satz, den R-G umwirft.
+
+**Geaendert an bestehenden Kriterien:**
+
+- **AK-T002-1 praezisiert:** Neben Fenster, Rate und Epoche gilt die **gemessene
+  Spanne** ("within {s} s") als Bezugsrahmen. Die Nennung "eine Rate (`/min`)"
+  entfaellt fuer die Verlustanzeige (R-F).
+- **AK-T002-17 praezisiert:** In der Verlustanzeige erscheint **gar keine**
+  Rate; das Kriterium gilt unveraendert fuer die Stufenzeile.
+- **AK-T002-7 ersetzt** durch AK-T030-5 (Episodenbildung laeuft ueber den
+  Ausbruch, nicht ueber den Cooldown).
+- **AK-T002-12 erweitert** um R-F: `/min` ist im Verlustpfad eine verbotene
+  Zeichenkette.
+- **AK-T009-24 neu formuliert, Zweck unveraendert:** Snapshot `underflows` = 0,
+  `dropped` = 525, `dropouts` = 21 in 97 s ergibt `DISTURBED`, Kanal "stack
+  dropouts" — jetzt ueber das Buendelkriterium erreicht (21 Episoden in 97 s
+  ergeben in jedem 30-s-Fenster mindestens 3), nicht ueber eine Rate.
+- **AK-T009-25 unveraendert gueltig** (zwei Zeilen, keine Verrechnung).
+- **AK-T017-1 erweitert:** Die Erklaerung der Quellseiten-Zeile nennt jetzt
+  zusaetzlich, dass die Luecke **mit Stille aufgefuellt** wird und dass es sich
+  um einen **anderen**, nicht um einen kleineren Fehler handelt. Ohne diesen
+  Zusatz ist das Kriterium nicht erfuellt.
+- **AK-T017-2 praezisiert:** Verboten bleibt das Doppelpunkt-**Klammer**-Paar
+  (`Regex(""":\s*\d+\s*\(""")`). Der Doppelpunkt zwischen Groessenname und Zahl
+  ist ab jetzt erlaubt ("Dropped audio: 3 incidents in the last 60 s."),
+  Entscheidung des App Designers vom 02.09.
+
+---
+
+### Messanforderungen
+
+- **M-12 → obere Kante von `LOSS_BURST_WINDOW_MS`. Keine neue Geraetesitzung
+  noetig.** Frage: **Wie lang waren die zwei Binnenluecken, die der Hoerer als
+  Ende gehoert hat** (Meldungen 21:23:08 in Cluster 3 und 21:33:18 in
+  Cluster 7)? Die Antwort steht bereits in der aufgezeichneten Rohreihe des
+  T-029-Laufs und ist eine Nachrechnung, keine Messung. Ergebnis: die
+  wahrnehmungsseitige Obergrenze des Buendelfensters. Liegt sie unter 30 s, wird
+  der Parameter gesenkt. **Das ist der billigste und zugleich entscheidendste
+  offene Punkt dieser Vorgabe.** Mitzurechnen waere dabei, ab welchem Fenster
+  eines der fuenf gemeldeten Buendel nicht mehr ausloest — damit auch die
+  Untergrenze belegt statt geschaetzt ist.
+- **M-13 → `LOSS_BURST_MIN_EPISODES` und Bestaetigung des Fensters.** Zweite
+  Hoersitzung an einem anderen Tag bei fest derselben Stufe. Fragen: Wird ein
+  Buendel aus **genau zwei** Episoden gemeldet? Bleibt die Abstandsverteilung
+  zweigipflig, und bleibt die Luecke zwischen ~23 s und ~36 s leer? Ohne diese
+  Wiederholung ruht das gesamte Kriterium auf einem Lauf, einer Person, einem
+  Geraet. **Moeglicher Hebel, unabhaengig vom Pinnen auf 990:**
+  `docs/perf/T-027-messung-24ghz.md` hat bei fest **660** kbps ueber
+  WLAN-Konkurrenz im 2,4-GHz-Band einen Verlustfall erzeugt (eine Zelle, nicht
+  wiederholt, ohne Hoerdaten). Traegt er, waeren erstmals Buendel bei **gleicher
+  und niedrigerer** Stufe herstellbar — das beruehrt auch M-11.
+- **M-14 → der Anteil gestoerter Zeit als Groesse.** Frage: **Wieviele
+  Millisekunden Ton entfernt eine `dropouts`-Episode?** Erst damit waere die von
+  R-006 als literaturnah ausgewiesene Groesse ueberhaupt bildbar. **Derzeit ist
+  kein Verfahren bekannt**, das sie mit den vorhandenen Zaehlern liefert; sie
+  braeuchte eine Messung im Audiobereich, nicht im Zaehlerbereich. Wie M-11 wird
+  sie benannt, nicht versprochen.
+
+**Unveraendert offen:** M-1 (Eingangskanaele), M-8 (`SETTLE_MAX_SPAN_MS`),
+M-11 (Zwischenpunkte der Hoerbarkeit — durch T-029 **nicht** geschlossen; die
+untere Grenze bleibt unbestimmt, R-E bleibt bindend).
+
+**Ausdruecklich nicht geschlossen durch T-029: M-5.** Der Lauf fuhr **fest
+990/HIGH**, nicht adaptiv. Die Ruherate von `dropouts` unter ABR ueber
+mindestens 30 min ist damit weiterhin unbekannt, und
+`LOSS_NOTICE_MIN_EPISODES` = 1 ruht weiterhin auf den 514 s aus T-008.
+
+---
+
+### Ausdruecklich nicht Teil dieser Fortschreibung
+
+- **Eine Aussage darueber, ob gleichmaessig verteilte Episoden stoeren.** Das
+  Kriterium spricht sie nicht frei und verurteilt sie nicht; es beschreibt, was
+  gezaehlt wurde.
+- **Die untere Hoerbarkeitsgrenze.** Unbestimmt, siehe M-11.
+- **Die Ursache der Buendelung.** T-029 hat sie bewusst nicht untersucht; die
+  Anzeige nennt den Zustand, nie die Ursache.
+- **Schwellen je Bitratenstufe.** M-4 ist weiterhin nur fuer 990 beantwortet.
+- **Die Stufenzeile, der Graph und die Helper-Aktion.** Unberuehrt.
+- **Eine Zusammenfassung ueber Verlust und Stufe.** AD-021 unveraendert.
+
+---
+
+### Offene Fragen an den App Designer
+
+1. **Soll die untere Stufe ueberhaupt einen Pill tragen?** `OCCASIONAL` loest
+   bei einer einzigen Episode im 60-s-Fenster aus. Im gemessenen 990er-Lauf
+   waere der Pill dadurch in grob der Haelfte aller Fenster sichtbar gewesen
+   (50–61 % der Fenster waren exakt null). Das ist ehrlich, aber ein
+   Merkzeichen, das die halbe Zeit steht, wird ueberlesen. Alternative:
+   `OCCASIONAL` behaelt seinen Satz und verliert den Pill; nur `DISTURBED`
+   traegt eines. **Beide Varianten sind gleich ehrlich** — die Frage ist, ob das
+   Auge auf "es wurde etwas gezaehlt" oder erst auf "es kam gebuendelt"
+   anspringen soll. Ich habe den Pill vorlaeufig gelassen (Stabilitaetsregel:
+   T-002 hat ihn so entschieden), halte die Gegenvariante aber fuer die ruhigere
+   Anzeige.
+2. **Soll die Anzeige dem Ohr oder der Struktur folgen, wenn ein Ausbruch eine
+   Pause macht?** Der Hoerer hat zweimal eine Binnenluecke eines laufenden
+   Clusters als dessen Ende gemeldet. Ein kurzes Buendelfenster folgt dem Ohr,
+   springt dafuer waehrend eines langen Clusters mehrfach an und aus. Ein
+   laengeres Fenster bleibt ruhig stehen und behauptet dabei eine Stoerung in
+   einer Spanne, die sich fuer den Hoerer vorbei anfuehlte. **M-12 sagt, wo die
+   Kante liegt — nicht, welche der beiden Eigenschaften wichtiger ist.** Das ist
+   eine Produktentscheidung.
