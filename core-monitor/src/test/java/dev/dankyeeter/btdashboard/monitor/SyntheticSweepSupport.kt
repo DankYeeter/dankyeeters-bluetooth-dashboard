@@ -175,9 +175,16 @@ internal object ParserInvariants {
             ldac.adaptiveBitrateAdjustments?.let {
                 assertTrue("$label: negative adaptiveBitrateAdjustments $it", it >= 0)
             }
-            // A row that was never printed must not materialise as a number. The
-            // truncation sweep cuts inside these rows, so this is where a
-            // half-read line would show up as a rung nobody measured.
+            // A row that was never printed must not materialise as a number.
+            //
+            // Absence is all this pins. The truncation sweep does not reach
+            // inside these two rows: none of its cut points lands in them, and
+            // every prefix that contains the LDAC block contains both of them
+            // whole. The case it cannot reach is a cut just behind the colon,
+            // where `: 12` is left reading `: 1` — a plausible smaller number
+            // that no assertion here can separate from a real one, because the
+            // parser has no oracle for it either. Named rather than left
+            // implied: a comment that claims cover ends the search for the gap.
             if (!text.contains("LDAC adaptive bit rate encode quality mode index")) {
                 assertNull(
                     "$label: an adaptive rung appeared from a dump without the row",
