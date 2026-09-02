@@ -247,6 +247,40 @@ class LiveLinkSourceTest {
         assertTrue(snapshot.modeInference.reason.contains("cannot observe"))
     }
 
+    /**
+     * The transition the KDoc on [LinkObservability] warns about, played out
+     * over two polls instead of asserted on one (QA-009).
+     *
+     * A link that was host-encoded a moment ago leaves `btif_a2dp_source`'s
+     * counters standing at whatever they reached. Read across the switch they
+     * are not merely stale, they are a *difference* against a live session — 525
+     * dropped packets and 21 dropouts that belong to a stream this codec no
+     * longer goes through. The single-poll test above covers a link that was
+     * offloaded all along and cannot see this at all.
+     */
+    @Test
+    fun `counters that stay warm across a switch to offload are not differenced`() = runTest {
+        val clock = TestClock(1_000L)
+        val first = LiveLinkSource(shellOf(connected()), clock::now).readOnce()
+        assertEquals(LinkObservability.HOST_ENCODED, first.observability)
+
+        clock.advance(2_000L)
+        val warm = setCounter(connected(), "Counts (flushed/dropped/dropouts)", "1 / 525 / 21")
+        val second = LiveLinkSource(shellOf(withLdacOffloaded(warm)), clock::now).readOnce(first)
+
+        assertEquals(LinkObservability.OFFLOADED, second.observability)
+        assertNull("warm counters must not survive the switch", second.tx)
+        assertNull("and nothing may be differenced out of them", second.txDelta)
+        assertFalse("nor may the path report loss from them", second.hasLossThisWindow)
+
+        // The same reading without the switch does produce the delta, so what
+        // the three assertions above pin is the offload and not an unreadable
+        // dump or a clock that never moved.
+        val hostEncoded = LiveLinkSource(shellOf(warm), clock::now).readOnce(first)
+        assertEquals(525L, hostEncoded.txDelta?.dropped)
+        assertEquals(21L, hostEncoded.txDelta?.dropouts)
+    }
+
     @Test
     fun `a host-encoded codec is marked observable`() = runTest {
         val snapshot = LiveLinkSource(shellOf(connected())).readOnce()
