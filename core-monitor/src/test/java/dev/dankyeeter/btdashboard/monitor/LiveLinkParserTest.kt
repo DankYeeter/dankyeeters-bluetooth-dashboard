@@ -60,6 +60,19 @@ class LiveLinkParserTest {
             if (line.trim().startsWith(label)) line.substringBefore(':') + ": " + value else line
         }
 
+    /**
+     * Drops whole rows, which is how a build that prints fewer of them looks.
+     *
+     * The rows this app reads are a debugging surface with no compatibility
+     * promise; older stacks print a shorter block. Removing a row from the
+     * capture is the only way to test that case without inventing a dump nobody
+     * recorded — the remaining lines are still the device's own.
+     */
+    private fun withoutLabels(dump: String, vararg labels: String): String =
+        dump.lineSequence()
+            .filterNot { line -> labels.any { line.trim().startsWith(it) } }
+            .joinToString("\n")
+
     // ---- the negotiated link -------------------------------------------------
 
     @Test
@@ -204,6 +217,78 @@ class LiveLinkParserTest {
             "the note must not still claim the rate is unreadable",
             ldac.note.contains("cannot be read"),
         )
+    }
+
+    /**
+     * D-11: the two `LDAC adaptive bit rate` rows, which this parser used to
+     * walk past.
+     *
+     * They are the figures all three measurement runs were evaluated on
+     * (`docs/perf/T-007-aufnahme.md`, `T-008-experimente.md`,
+     * `T-011-messung.md`), and the adjustments counter is the only one that
+     * reports a rung change that fell between two polls. Without it every change
+     * rate computed downstream undercounts, silently and by an unknown amount.
+     */
+    @Test
+    fun `reads the adaptive bitrate rung and its change count off a real Pixel 11 dump`() {
+        val stack = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
+        assertEquals(4, stack.adaptiveBitrateIndex)
+        assertEquals(3L, stack.adaptiveBitrateAdjustments)
+        // The rung is the stack's own numbering and is never mapped to a rate:
+        // this capture pairs index 4 with 396 kbps, while T-007 measured index 1
+        // at 660 and index 3 at 492.
+        assertEquals(396, stack.transmissionKbps)
+    }
+
+    /**
+     * A build that does not print these rows must read as absent. Zero is a
+     * count the encoder can genuinely have, so the two cases cannot share a
+     * value.
+     */
+    @Test
+    fun `a build without the adaptive bitrate rows reports absence and not zero`() {
+        val older = withoutLabels(
+            ldacState,
+            "LDAC adaptive bit rate encode quality mode index",
+            "LDAC adaptive bit rate adjustments",
+        )
+        val stack = present(A2dpLinkDumpParser.parse(older).ldacStack, "LDAC state")
+        assertNull("a row that is not printed is not a rung of 0", stack.adaptiveBitrateIndex)
+        assertNull("a row that is not printed is not a count of 0", stack.adaptiveBitrateAdjustments)
+        // The rest of the block is unaffected: a shorter block is still a block.
+        assertEquals(396, stack.transmissionKbps)
+        assertEquals("ABR", stack.qualityMode)
+    }
+
+    /** The other half of the same distinction: a printed zero is a measurement. */
+    @Test
+    fun `a printed zero in the adaptive bitrate rows is a value and not absence`() {
+        val untouched = rewriteLabel(ldacState, "LDAC adaptive bit rate adjustments", "0")
+            .let { rewriteLabel(it, "LDAC adaptive bit rate encode quality mode index", "0") }
+        val stack = present(A2dpLinkDumpParser.parse(untouched).ldacStack, "LDAC state")
+        assertEquals(0, stack.adaptiveBitrateIndex)
+        assertEquals(0L, stack.adaptiveBitrateAdjustments)
+    }
+
+    /**
+     * A reading of 990 kbps is a reading, not an event.
+     *
+     * The adaptive controller steers onto that rung by itself and leaves it
+     * again inside a single sample — 31 times in one 39-minute run, 30 of them
+     * for exactly one sample, none of them with any loss
+     * (`docs/perf/T-011-messung.md`). Anything in this layer that treated the
+     * number as special would have produced 31 false alarms in that run, so the
+     * whole reading must differ in the one field that was rewritten and in no
+     * other.
+     */
+    @Test
+    fun `a reading of 990 kbps changes the rate and nothing else`() {
+        val base = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
+        val at990 = rewriteLabel(ldacState, "LDAC transmission bitrate (Kbps)", "990")
+
+        val stack = present(A2dpLinkDumpParser.parse(at990).ldacStack, "LDAC state")
+
+        assertEquals(base.copy(transmissionKbps = 990), stack)
     }
 
     /**

@@ -117,6 +117,39 @@ class A2dpTxProbeTest {
         assertTrue(delta!!.hasLoss)
     }
 
+    /**
+     * AK-T009-24, the regression test against the finding itself: a window with
+     * **no** encoder underflows and 21 stack dropouts is loss.
+     *
+     * The numbers are arm B of `docs/perf/T-008-experimente.md`, section 3 —
+     * 990 kbps pinned, 97 s, 525 dropped packets, 21 dropouts, and
+     * `Counts (underflow)` unmoved at its previous value. That arm was audibly
+     * broken throughout. A reading that took underflow for the leading indicator
+     * would have called it a healthy link, and the long ABR run measured the
+     * opposite pairing as well — underflow rising at 0.59/min while nothing was
+     * dropped and the sound was perfect (`docs/perf/T-011-messung.md`).
+     *
+     * So the two are independent channels here, and this test pins that a zero
+     * in one of them suppresses nothing in the others.
+     */
+    @Test
+    fun `dropouts are loss even when the underflow counter never moved`() = runTest {
+        val first = probeOf(baseBt) { 1_000L }.readOnce()
+        // 97 s later: the queue overflowed 525 times in 21 episodes, and the
+        // encoder was never short of PCM — `Counts (underflow)` still reads 788.
+        val armB = setCounter(baseBt, "Counts (flushed/dropped/dropouts)", "1 / 525 / 21")
+            .let { setCounter(it, "Counts (enqueue/dequeue/readbuf)", "394047 / 854736 / 1240579") }
+        val second = probeOf(armB) { 98_000L }.readOnce()
+
+        val delta = probeOf(baseBt).sampleBetween(first, second).delta
+
+        assertEquals(97_000L, delta?.windowMs)
+        assertEquals(0L, delta?.underflows)
+        assertEquals(525L, delta?.dropped)
+        assertEquals(21L, delta?.dropouts)
+        assertTrue("a window with 21 dropouts is loss whatever underflow says", delta!!.hasLoss)
+    }
+
     @Test
     fun `a counter that went backwards is not a window of zero`() = runTest {
         val first = probeOf(baseBt) { 1_000L }.readOnce()
@@ -165,6 +198,22 @@ class A2dpTxProbeTest {
         assertEquals(396, reading.ldacStack?.transmissionKbps)
         assertEquals("ABR", reading.ldacStack?.qualityMode)
         assertEquals(listOf(listOf("dumpsys", "bluetooth_manager")), shell.commands)
+    }
+
+    /**
+     * The adaptive rung and the stack's own count of rung changes travel with
+     * the reading, out of the same single dump (D-11).
+     *
+     * The count is what a sampled series cannot supply: at this channel's 500 ms
+     * cadence a rung the encoder held for less than one interval is invisible,
+     * and only the counter says how many were missed.
+     */
+    @Test
+    fun `the reading carries the adaptive rung and the count of rung changes`() = runTest {
+        val reading = probeOf(liveBt).readOnce()
+
+        assertEquals(4, reading.ldacStack?.adaptiveBitrateIndex)
+        assertEquals(3L, reading.ldacStack?.adaptiveBitrateAdjustments)
     }
 
     /**

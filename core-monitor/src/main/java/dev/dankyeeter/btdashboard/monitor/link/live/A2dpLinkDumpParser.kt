@@ -349,6 +349,19 @@ object A2dpLinkDumpParser {
      * A block whose `Config:` line says `Invalid` is the stack's own way of
      * saying "this codec is not the one running", and it is rejected here rather
      * than passed on as a bitrate of zero.
+     *
+     * ## Six rows, no verdicts
+     *
+     * The two `LDAC adaptive bit rate` rows are read alongside the rate because
+     * the rate alone cannot say what happened between two polls; see
+     * [LdacStackState.adaptiveBitrateAdjustments]. Like every other row they are
+     * carried as read and nothing here decides what they mean — in particular a
+     * reading of 990 kbps is a reading and not an event. The adaptive controller
+     * tries that rung on its own and leaves it again within a single sample: 31
+     * times in one 39-minute run, 30 of them for exactly one sample and none of
+     * them with any loss (`docs/perf/T-011-messung.md`). A parser that treated
+     * each such reading as something worth reporting would have raised 31 false
+     * alarms in that run.
      */
     private fun readLdacStackState(dump: String): LdacStackState? {
         var inBlock = false
@@ -358,6 +371,8 @@ object A2dpLinkDumpParser {
         var kbps: Int? = null
         var mtu: Int? = null
         var savedQueue: Int? = null
+        var abrIndex: Int? = null
+        var abrAdjustments: Long? = null
 
         for (raw in dump.lineSequence()) {
             val line = raw.trimEnd()
@@ -380,6 +395,8 @@ object A2dpLinkDumpParser {
                 LDAC_BITRATE -> kbps = value.toIntOrNull()
                 LDAC_EFFECTIVE_MTU -> mtu = value.toIntOrNull()
                 LDAC_SAVED_QUEUE -> savedQueue = value.toIntOrNull()
+                LDAC_ABR_INDEX -> abrIndex = value.toIntOrNull()
+                LDAC_ABR_ADJUSTMENTS -> abrAdjustments = value.toLongOrNull()
             }
         }
         if (!sawBlock || invalidConfig) return null
@@ -390,6 +407,11 @@ object A2dpLinkDumpParser {
             transmissionKbps = kbps?.takeIf { it > 0 },
             effectiveMtu = mtu?.takeIf { it > 0 },
             savedTxQueueLength = savedQueue,
+            // Both pass through exactly as printed, zero included: a rung of 0
+            // and a count of 0 are answers, and the row not being there is the
+            // only thing that reads as null.
+            adaptiveBitrateIndex = abrIndex,
+            adaptiveBitrateAdjustments = abrAdjustments,
         ).takeUnless { it.isEmpty }
     }
 
@@ -402,6 +424,8 @@ object A2dpLinkDumpParser {
     private const val LDAC_BITRATE = "LDAC transmission bitrate (Kbps)"
     private const val LDAC_EFFECTIVE_MTU = "Effective MTU"
     private const val LDAC_SAVED_QUEUE = "LDAC saved transmit queue length"
+    private const val LDAC_ABR_INDEX = "LDAC adaptive bit rate encode quality mode index"
+    private const val LDAC_ABR_ADJUSTMENTS = "LDAC adaptive bit rate adjustments"
 
     // Labels exactly as `btif_a2dp_source_debug_dump` prints them. Kept as
     // constants because a silent rename upstream should fail one obvious test,

@@ -169,6 +169,27 @@ internal object ParserInvariants {
             ldac.savedTxQueueLength?.let {
                 assertTrue("$label: negative savedTxQueueLength $it", it >= 0)
             }
+            ldac.adaptiveBitrateIndex?.let {
+                assertTrue("$label: negative adaptiveBitrateIndex $it", it >= 0)
+            }
+            ldac.adaptiveBitrateAdjustments?.let {
+                assertTrue("$label: negative adaptiveBitrateAdjustments $it", it >= 0)
+            }
+            // A row that was never printed must not materialise as a number. The
+            // truncation sweep cuts inside these rows, so this is where a
+            // half-read line would show up as a rung nobody measured.
+            if (!text.contains("LDAC adaptive bit rate encode quality mode index")) {
+                assertNull(
+                    "$label: an adaptive rung appeared from a dump without the row",
+                    ldac.adaptiveBitrateIndex,
+                )
+            }
+            if (!text.contains("LDAC adaptive bit rate adjustments")) {
+                assertNull(
+                    "$label: an adjustments count appeared from a dump without the row",
+                    ldac.adaptiveBitrateAdjustments,
+                )
+            }
         }
 
         if (dump.device == null) {
