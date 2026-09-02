@@ -200,11 +200,19 @@ fun LabelledTraceGraph(
     /**
      * How to say "nothing was lost" for *this* channel.
      *
-     * The close-up reads one dump and can only see the Bluetooth stack's own
-     * loss, so a bare "no loss" there would claim something about the app and
-     * the mixer that this channel never looked at.
+     * The default is the CLEAN/ALL_FIVE sentence `UI_SPEC.md` (T-002,
+     * "Formulierungen erste Ebene") prescribes: the counter is the subject,
+     * never the audio (R-A). The pre-spec default this replaced —
+     * "no loss in this window" — carried the string AK-T002-12 forbids
+     * (DR-004); it was never asserted by a test because no clean-window
+     * caption case existed yet.
+     *
+     * The close-up overrides this: it reads one dump and can only see the
+     * Bluetooth stack's own loss, so a bare "no counter moved" there would
+     * claim something about the app and the mixer that this channel never
+     * looked at.
      */
-    quietText: String = "no loss in this window",
+    quietText: String = "No counter moved in the last ${trimZero(trace.windowMs / 1000.0)} s.",
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {

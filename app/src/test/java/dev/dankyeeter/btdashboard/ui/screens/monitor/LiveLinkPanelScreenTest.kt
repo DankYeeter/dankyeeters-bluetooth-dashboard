@@ -256,7 +256,11 @@ class LiveLinkPanelScreenTest {
     fun `a clean window is quiet`() {
         render(snapshot(codecSpecific1 = 0L))
 
-        assertShows("No loss this window.")
+        // DR-004: the pre-spec "No loss this window." made the audio the
+        // sentence's subject and carried the forbidden string "no loss"
+        // (AK-T002-12). `UI_SPEC.md` (T-002) prescribes this sentence for
+        // CLEAN/ALL_FIVE.
+        assertShows("No counter moved in the last 2 s.")
     }
 
     @Test
@@ -294,7 +298,7 @@ class LiveLinkPanelScreenTest {
             },
         )
 
-        assertShows("No loss this window.")
+        assertShows("No counter moved in the last 2 s.")
         assertHides("Audio lost")
         assertShows("3 encoder underflows in the last 2 s.")
     }
@@ -469,6 +473,27 @@ class LiveLinkPanelScreenTest {
         // (DR-002); the number the graph can be checked against is the windows.
         assertShows("1 of 20 windows lost something")
         assertHides("loss mark")
+    }
+
+    /**
+     * DR-004: the graph's own quiet caption, not just the loss row's. No test
+     * had ever rendered a fully clean overview trace before, so the pre-spec
+     * default "no loss in this window" — forbidden by AK-T002-12 and making
+     * the audio the subject in violation of R-A — went unnoticed.
+     */
+    @Test
+    fun `a clean overview caption names the counter, not the audio`() {
+        var trace = LiveTrace.overview(2_000L)
+        (0 until 5).forEach { i ->
+            trace = trace.plus(
+                TracePoint(timestampMs = 1_000L + i * 2_000L, bitrateKbps = 492.0, lossCount = 0),
+            )
+        }
+
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = 396), overview = trace)
+
+        assertShows("No counter moved in the last 60 s.")
+        assertHides("no loss")
     }
 
     /**

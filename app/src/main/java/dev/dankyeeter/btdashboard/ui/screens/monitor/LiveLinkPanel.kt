@@ -346,6 +346,14 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
     }
 
     when {
+        // TODO(DR-004): "Audio lost: " makes the audio the sentence's subject
+        // and is forbidden by AK-T002-12/R-A. Left as-is on purpose (T-019):
+        // the wording table's replacements for a non-empty window
+        // ("{N} {kanal} ... about {R}/min." / "... last counted {D} ago.")
+        // need a rate and an event age that this per-poll delta does not
+        // compute, so substituting either here would be invented wording,
+        // not the prescribed one. Reported to the director/ui-ux-designer
+        // instead of guessed.
         parts.isNotEmpty() -> Text(
             "Audio lost: ${parts.joinToString(", ")} in the last ${trimZero(windowSeconds)} s.",
             style = MaterialTheme.typography.bodyMedium,
@@ -361,8 +369,14 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        // R-A / AK-T002-12 (DR-004): the counter is the subject, never the
+        // audio. This is the CLEAN/ALL_FIVE sentence the wording table in
+        // `UI_SPEC.md` (T-002, "Formulierungen erste Ebene") has prescribed
+        // since 2026-08-30; the pre-spec "No loss this window." shown here
+        // before carried the forbidden string "no loss" and made the audio
+        // the subject of a claim this row cannot back.
         else -> Text(
-            "No loss this window.",
+            "No counter moved in the last ${trimZero(windowSeconds)} s.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -554,7 +568,7 @@ private const val TRACE_EXPLANATION =
 
 private const val UNDERFLOW_EXPLANATION =
     "This count carries no verdict, in either direction: the same counter stayed at zero on " +
-        "a link that was audibly breaking up, and it climbed here through 39 minutes of " +
+        "a link where stack dropouts ran throughout, and it climbed here through 39 minutes of " +
         "playback with nothing else wrong."
 
 /**
@@ -681,8 +695,15 @@ private fun formatKhz(hz: Int): String {
     }
 }
 
-/** "2 s" rather than "2.0 s", "1.8 s" when the window really was uneven. */
-private fun trimZero(seconds: Double): String =
+/**
+ * "2 s" rather than "2.0 s", "1.8 s" when the window really was uneven.
+ *
+ * `internal` rather than `private`: [LabelledTraceGraph]'s default quiet
+ * caption needs the same "{W} s" formatting for its own window (DR-004), and
+ * a second copy of this one-line rule would be the kind of drift that let the
+ * two files' wording diverge from `UI_SPEC.md` in the first place.
+ */
+internal fun trimZero(seconds: Double): String =
     if (seconds == seconds.toInt().toDouble()) {
         seconds.toInt().toString()
     } else {
