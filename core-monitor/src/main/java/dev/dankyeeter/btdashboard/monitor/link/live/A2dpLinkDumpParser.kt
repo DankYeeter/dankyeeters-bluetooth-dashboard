@@ -408,8 +408,9 @@ object A2dpLinkDumpParser {
             effectiveMtu = mtu?.takeIf { it > 0 },
             savedTxQueueLength = savedQueue,
             // Both pass through exactly as printed, zero included: a rung of 0
-            // and a count of 0 are answers, and the row not being there is the
-            // only thing that reads as null.
+            // and a count of 0 are answers. Null is absence — and, with the
+            // same value, a printed number this could not read; the two are not
+            // separated here, see [LdacStackState] for why.
             adaptiveBitrateIndex = abrIndex,
             adaptiveBitrateAdjustments = abrAdjustments,
         ).takeUnless { it.isEmpty }

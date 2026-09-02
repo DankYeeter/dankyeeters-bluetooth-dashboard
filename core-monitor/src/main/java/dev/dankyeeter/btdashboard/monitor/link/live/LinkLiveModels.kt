@@ -210,7 +210,21 @@ data class MixerOutputSnapshot(
  * is defaulted or guessed: a missing section produces a null [LdacStackState],
  * and the panel then falls back to saying the rate is not observable, which on
  * such a build is the truth.
-
+ *
+ * ## What null does not distinguish
+ *
+ * On [adaptiveBitrateIndex] and [adaptiveBitrateAdjustments], null is "the row
+ * was not printed" **and** "the row was printed but its value could not be
+ * read" — a digit string past `Int`/`Long` range, or a truncated read that left
+ * no digits at all. Both arrive as null and cannot be told apart. This is
+ * stated rather than fixed because no reader exists that could act on the
+ * difference; a second state invented ahead of its consumer would be a guess
+ * about how it is meant to be used.
+ *
+ * A negative value, unlike a value out of range, is carried through as printed.
+ * The `takeIf { it > 0 }` that guards [transmissionKbps] and [effectiveMtu]
+ * cannot be copied here, because 0 is a legal rung and a legal count on these
+ * two rows; no stack has ever printed a negative one.
  */
 data class LdacStackState(
     /**
@@ -238,7 +252,9 @@ data class LdacStackState(
      * ladder the way a reader would guess, and only three of its rungs have ever
      * been seen. [transmissionKbps] is the rate; this is the rung.
      *
-     * A value of 0 is a rung, not a missing row: absence is null.
+     * A value of 0 is a rung, not a missing row: absence is null — and so is a
+     * value that could not be read, which null does not distinguish from
+     * absence. See "What null does not distinguish" above.
      */
     val adaptiveBitrateIndex: Int? = null,
     /**
@@ -248,7 +264,8 @@ data class LdacStackState(
      * Cumulative, so a window's worth of changes is the difference between two
      * readings; a single reading says only how much the encoder has moved in
      * this stack's lifetime. Zero is a real count — a link that has not moved —
-     * and a build that does not print the row reads as null.
+     * and a build that does not print the row reads as null, as does a printed
+     * value that could not be read. See "What null does not distinguish" above.
      */
     val adaptiveBitrateAdjustments: Long? = null,
 ) {

@@ -271,6 +271,34 @@ class LiveLinkParserTest {
     }
 
     /**
+     * The limit of that distinction, pinned so it is not read as wider than it
+     * is: a printed value this cannot read comes back as null as well, and
+     * nothing downstream can tell it from a row that was never printed.
+     *
+     * Pinned rather than closed. Separating the two needs a state that says
+     * "printed, unreadable", and there is no reader that would do anything
+     * different with it — inventing one ahead of its consumer would be a guess
+     * about how it is meant to be used.
+     */
+    @Test
+    fun `a value too large to read comes back as null just like an absent row`() {
+        val huge = rewriteLabel(
+            ldacState,
+            "LDAC adaptive bit rate encode quality mode index",
+            "99999999999",
+        ).let { rewriteLabel(it, "LDAC adaptive bit rate adjustments", "99999999999999999999") }
+
+        val stack = present(A2dpLinkDumpParser.parse(huge).ldacStack, "LDAC state")
+
+        assertNull("a value out of Int range is not a rung", stack.adaptiveBitrateIndex)
+        assertNull("a value out of Long range is not a count", stack.adaptiveBitrateAdjustments)
+        // The rest of the block still reads, so this is the value's doing and
+        // not a block that fell over.
+        assertEquals(396, stack.transmissionKbps)
+        assertEquals("ABR", stack.qualityMode)
+    }
+
+    /**
      * A reading of 990 kbps is a reading, not an event.
      *
      * The adaptive controller steers onto that rung by itself and leaves it
