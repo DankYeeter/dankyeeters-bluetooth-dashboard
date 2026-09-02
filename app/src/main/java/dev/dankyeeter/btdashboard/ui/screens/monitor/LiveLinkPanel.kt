@@ -17,10 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
+import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxDelta
 import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.TxLossChannel
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
@@ -116,6 +118,7 @@ fun LiveLinkPanel(
                     storedQuality,
                     onLdacQuality,
                     onDismissLdacMessage,
+                    queuePressureNote(overviewTrace),
                 )
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
@@ -228,6 +231,15 @@ private fun LdacSection(
     storedQuality: Long,
     onLdacQuality: (Long) -> Unit,
     onDismissMessage: () -> Unit,
+    /**
+     * The send-queue sentence, when there is one — see [queuePressureNote].
+     *
+     * It joins this row's second layer rather than getting a line of its own
+     * because queue pressure is an early indicator about the *step ladder*, not
+     * an event: it says the link is at its limit, and what was actually lost is
+     * the loss row's sentence to make (`UI_SPEC.md` T-009, AK-T009-29).
+     */
+    queuePressureNote: String?,
 ) {
     val ldac = snapshot.ldac ?: return
     val sampleRateHz = snapshot.codec?.sampleRateHz
@@ -239,7 +251,8 @@ private fun LdacSection(
     // part a user needs in order to do something about it.
     ExplainedRow(
         label = ldac.rateLine(),
-        explanation = ldac.note,
+        explanation = listOfNotNull(ldac.note.takeIf { it.isNotBlank() }, queuePressureNote)
+            .joinToString("\n\n"),
         control = {
             Pill(
                 ldac.mode.label,
@@ -313,7 +326,7 @@ private fun LdacSection(
  */
 @Composable
 private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
-    val tx = snapshot.txDelta
+    val tx = snapshot.observableTxDelta
     // The tx window is measured between two polls and is the honest figure; the
     // configured interval is only used when there is no tx block to measure.
     val windowSeconds = ((tx?.windowMs ?: intervalMs) / 100L).toDouble().roundToInt() / 10.0
@@ -322,8 +335,14 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
         val mixer = (snapshot.mixer?.fastMixerUnderrunDelta ?: 0L) +
             (snapshot.mixer?.normalMixerEmptyDelta ?: 0L)
         mixer.takeIf { it > 0 }?.let { add(plural(it, "mixer underrun")) }
-        tx?.dropped?.takeIf { it > 0 }?.let { add(plural(it, "dropped packet")) }
-        tx?.dropouts?.takeIf { it > 0 }?.let { add(plural(it, "stack dropout")) }
+        // The stack's channels are not listed again here. Which of its counters
+        // may say "lost" is one decision and it is taken once, in
+        // [A2dpTxDelta.lossByChannel]; this row only puts words to what it finds
+        // there. Rebuilding the list by hand is how "stack dropouts" once ended
+        // up in the sentence without a single test holding it there (QA-010).
+        tx?.lossByChannel?.forEach { (channel, count) ->
+            count.takeIf { it > 0 }?.let { add(plural(it, channel.singularLabel())) }
+        }
     }
 
     when {
@@ -349,16 +368,54 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
         )
     }
 
-    // Shown only when it moved, for the same reason the backlog row is: a "0"
-    // printed every two seconds teaches the eye to skip the line.
+    // Shown only when it moved: a "0" printed every two seconds teaches the eye
+    // to skip the line. The sentence is the first layer and says only what was
+    // counted; what the number is worth is behind the question mark, because
+    // read on its own — under a line that has just given the all-clear — the
+    // word "underflow" reads as a fault (DR-001, AK-T017-1).
     tx?.underflows?.takeIf { it > 0 }?.let { underflows ->
-        Text(
-            "${plural(underflows, "encoder underflow")} in the last " +
+        ExplainedRow(
+            label = "${plural(underflows, "encoder underflow")} in the last " +
                 "${trimZero(windowSeconds)} s.",
+            explanation = UNDERFLOW_EXPLANATION,
+            // The quiet style the row had as a plain Text. The disclosure is
+            // what changes here, not the emphasis.
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            control = {},
         )
     }
+}
+
+/**
+ * The tx window this panel may read, or null when it may read none of it.
+ *
+ * `LiveLinkSource.readPass` already withholds `tx` and `txDelta` on a codec the
+ * controller encodes, and that is where the rule belongs. This is the second
+ * lock on the same door, and it is here because of what is behind it: the loss
+ * row prints a *verdict*, and a verdict must not rest on an invariant kept one
+ * module away and covered by a single test. The counters of an offloaded link
+ * are whatever the last host-encoded session left in them — read here they
+ * would show a frozen, perfectly healthy link that nothing is measuring
+ * (QA-009).
+ *
+ * Only the stack's own counters are withheld. The app and mixer underrun
+ * counters keep counting whoever does the encoding, so they keep their say.
+ */
+private val LinkLiveSnapshot.observableTxDelta: A2dpTxDelta?
+    get() = txDelta.takeIf { codec?.isOffloaded != true }
+
+/**
+ * What the panel calls each loss channel, singular; [plural] adds the "s".
+ *
+ * Exhaustive on purpose. The channels live in `core-monitor`, which has no
+ * business holding display text, so the words live here — and this `when` is
+ * what keeps the two ends together: a channel added to [TxLossChannel] does not
+ * compile until this panel has a word for it.
+ */
+private fun TxLossChannel.singularLabel(): String = when (this) {
+    TxLossChannel.DROPPED_PACKETS -> "dropped packet"
+    TxLossChannel.STACK_DROPOUTS -> "stack dropout"
 }
 
 /**
@@ -375,35 +432,33 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
  * broken. A row that is always the same number teaches the eye to skip the
  * section it lives in.
  *
- * What is left is the backlog, which is the opposite kind of row: absent on a
- * healthy link, and present exactly when something a listener will hear is about
- * to happen.
+ * ## The other row that is not here any more
+ *
+ * "Bluetooth is falling behind: {N} packets queued." sat here in error colour,
+ * in the first layer, on every reading with a queue longer than zero. The
+ * measurements say that is a false alarm generator: a non-empty send queue
+ * occurs in 0-1.4 % of readings on a **healthy** link (1/70, 0/70, 2/262 — and
+ * in T-007 the only two were on step-downs, which is the regulator doing its
+ * job) against 79-81 % under overload (55/70, 129/160). A line that fires on a
+ * single sample cannot tell those apart, so in any long session it would blink
+ * red over nothing at all. What replaced it is the *share* over a window, on
+ * the ladder row's second layer, from `LADDER_QUEUE_PRESSURE_FRACTION` up —
+ * AK-T009-29, and [queuePressureNote] builds the sentence.
  */
 @Composable
 private fun TxRows(snapshot: LinkLiveSnapshot) {
-    val codec = snapshot.codec
-    if (codec != null && codec.isOffloaded) {
-        // Not a silent blank: the counters exist, are non-zero, and belong to
-        // whatever host-encoded session ran last. Reading them here would report
-        // a perfectly healthy link that nothing is measuring.
-        Text(
-            "${codec.family.displayName} is encoded by the controller — " +
-                "loss counters do not apply.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
+    val codec = snapshot.codec ?: return
+    if (!codec.isOffloaded) return
 
-    snapshot.ldac?.stack?.savedTxQueueLength?.takeIf { it > 0 }?.let { queued ->
-        // Only when it is not zero: a "0" here every second trains the eye past
-        // the row, and a backlog is exactly the thing worth noticing.
-        Text(
-            "Bluetooth is falling behind: $queued packets queued.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error,
-        )
-    }
+    // Not a silent blank: the counters exist, are non-zero, and belong to
+    // whatever host-encoded session ran last. Reading them here would report
+    // a perfectly healthy link that nothing is measuring.
+    Text(
+        "${codec.family.displayName} is encoded by the controller — " +
+            "loss counters do not apply.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /**
@@ -496,6 +551,41 @@ private const val TRACE_EXPLANATION =
         "audio marked red on the same time axis; a missed reading leaves a break rather " +
         "than a drawn-across guess. The 10-second close-up sees stack loss only and " +
         "costs a measured 233 ms per reading, which is why it is off until you ask."
+
+private const val UNDERFLOW_EXPLANATION =
+    "This count carries no verdict, in either direction: the same counter stayed at zero on " +
+        "a link that was audibly breaking up, and it climbed here through 39 minutes of " +
+        "playback with nothing else wrong."
+
+/**
+ * The share of readings with a non-empty send queue at which the queue becomes
+ * worth a sentence.
+ *
+ * Measured, not chosen: the resting values are 1/70 = 1.43 % (T-008 arm A0),
+ * 0/70 (arm A') and 2/262 = 0.76 % (T-007), the overload values 55/70 = 79 %
+ * and 129/160 = 81 %. 0.20 sits 14x above the highest resting value and 4x
+ * below the lowest overload one — the best-evidenced threshold in `UI_SPEC.md`
+ * (T-009, "Warteschlangendruck statt Einzelpaket-Alarm").
+ */
+private const val LADDER_QUEUE_PRESSURE_FRACTION = 0.20
+
+/**
+ * The ladder row's second-layer sentence about the send queue, or null while
+ * the queue is not the story.
+ *
+ * Null in three different situations that all mean "do not say anything": no
+ * reading in the window carried the queue at all, the share is below the
+ * threshold, or there is no window yet. The subject of the sentence is the
+ * queue — a counter — rather than "Bluetooth", which keeps it a reading instead
+ * of a verdict (R-A).
+ */
+internal fun queuePressureNote(trace: LiveTrace): String? {
+    val fraction = trace.queuePressureFraction ?: return null
+    if (fraction < LADDER_QUEUE_PRESSURE_FRACTION) return null
+    val percent = (fraction * 100).roundToInt()
+    return "The send queue was not empty in $percent % of the readings in the last " +
+        "${trimZero(trace.windowMs / 1000.0)} s."
+}
 
 private const val UPDATE_RATE_EXPLANATION =
     "How often the panel re-reads the link. One pass takes roughly half a second of " +

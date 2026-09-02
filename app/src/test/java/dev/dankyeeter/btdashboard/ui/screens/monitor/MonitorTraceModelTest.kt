@@ -49,6 +49,33 @@ class MonitorTraceModelTest {
 
     private fun closeUp() = LiveTrace.closeUp(500L)
 
+    /**
+     * A minute-long window of [readings] polls, the first [nonEmpty] of which
+     * found something in the send queue.
+     *
+     * Built with its own spacing rather than through [LiveTrace.overview] so
+     * that the ratios the device actually produced — 1/70, 55/70, 2/262 — can be
+     * put in as they were measured instead of being rescaled to fit a poll rate.
+     */
+    private fun queueTrace(nonEmpty: Int, readings: Int, spacingMs: Long = 200L): LiveTrace {
+        var trace = LiveTrace(
+            windowMs = 60_000L,
+            expectedIntervalMs = spacingMs,
+            maxPoints = readings + 2,
+        )
+        (0 until readings).forEach { i ->
+            trace = trace.plus(
+                TracePoint(
+                    timestampMs = 1_000L + i * spacingMs,
+                    bitrateKbps = 492.0,
+                    lossCount = 0,
+                    txQueueNotEmpty = i < nonEmpty,
+                ),
+            )
+        }
+        return trace
+    }
+
     @Test
     fun `the window really is the window it claims`() {
         var trace = closeUp()
@@ -83,7 +110,7 @@ class MonitorTraceModelTest {
             .plus(point(1_200L, loss = 1))
 
         assertEquals(2, trace.points.size)
-        assertEquals(2L, trace.lossTotal)
+        assertEquals("two readings that lost something are two marks", 2, trace.lossWindowCount)
     }
 
     @Test
@@ -119,7 +146,8 @@ class MonitorTraceModelTest {
         assertFalse(trace.hasRate)
         assertNull(trace.peakValue)
         assertNull(trace.newestMs)
-        assertEquals(0L, trace.lossTotal)
+        assertEquals(0, trace.lossWindowCount)
+        assertEquals(0, trace.measuredWindowCount)
     }
 
     /**
@@ -200,7 +228,11 @@ class MonitorTraceModelTest {
 
         assertEquals(396.0, point.plotValue!!, 0.001)
         assertNull(point.packetsPerSecond)
-        assertEquals(0L, point.lossCount)
+        // Not zero: with nothing to subtract from, this window's loss was not
+        // measured, and a caption counting it among the measured ones would
+        // claim a reading nobody took.
+        assertNull("a window with no delta counted nothing, it did not count zero", point.lossCount)
+        assertFalse(point.hasLoss)
     }
 
     @Test
@@ -317,6 +349,105 @@ class MonitorTraceModelTest {
 
         assertFalse(trace.hasRate)
         assertTrue(trace.unavailable!!.contains("two readings"))
+    }
+
+    /**
+     * The graph half of the one loss definition (QA-010).
+     *
+     * `stack dropouts` alone has to put a mark on both channels. Before this
+     * file said so, the only tests that named the channel asked
+     * `A2dpTxDelta.hasLoss` and the panel's sentence — so taking the channel out
+     * of the definition would have left the graph quietly unmarked with every
+     * test still green, which is precisely how QA-002 happened.
+     */
+    @Test
+    fun `a window of stack dropouts alone puts a mark on both channels`() {
+        val delta = A2dpTxDelta(windowMs = 2_000, enqueued = 862, dropouts = 21)
+
+        val closeUp = TxProbeSample(
+            timestampMs = 1_000L,
+            delta = delta,
+            bitrateKbps = 492,
+            observability = LinkObservability.HOST_ENCODED,
+        ).toTracePoint()
+        val overview = LinkLiveSnapshot(
+            timestampMs = 2_000L,
+            codec = LiveCodecSnapshot(family = CodecFamily.LDAC),
+            tx = A2dpTxStats(enqueueCount = 100),
+            txDelta = delta,
+        ).toTracePoint()
+
+        assertEquals(21L, closeUp.lossCount)
+        assertTrue("the close-up left a window of 21 dropouts unmarked", closeUp.hasLoss)
+        assertEquals(21L, overview.lossCount)
+        assertTrue("the overview left a window of 21 dropouts unmarked", overview.hasLoss)
+    }
+
+    /**
+     * A window nobody could count is not a window in which nothing happened.
+     *
+     * The overview reads three places and this snapshot carries none of them:
+     * no delta, no mixer, no input with a difference. Counting that as a
+     * measured zero is what put unmeasured windows into the caption's
+     * denominator (DR-002, AK-T002-11).
+     */
+    @Test
+    fun `a pass with nothing to difference counts no loss rather than zero loss`() {
+        val point = LinkLiveSnapshot(
+            timestampMs = 1_000L,
+            codec = LiveCodecSnapshot(family = CodecFamily.LDAC),
+            tx = A2dpTxStats(enqueueCount = 100),
+        ).toTracePoint()
+
+        assertNull(point.lossCount)
+        assertFalse(point.hasLoss)
+    }
+
+    @Test
+    fun `the queue-pressure share counts only the readings that carried the queue`() {
+        val trace = closeUp()
+            .plus(point(1_000L).copy(txQueueNotEmpty = true))
+            .plus(point(1_500L).copy(txQueueNotEmpty = false))
+            // A reading that never saw the queue at all: it is not a third of
+            // the sample, it is outside the sample.
+            .plus(point(2_000L))
+
+        assertEquals(0.5, trace.queuePressureFraction!!, 0.001)
+    }
+
+    @Test
+    fun `a window that never read the queue has no share rather than an empty one`() {
+        assertNull(closeUp().plus(point(1_000L)).queuePressureFraction)
+    }
+
+    /**
+     * AK-T009-29 on the numbers it was set from.
+     *
+     * The resting arms (1/70, 0/70, 2/262) must produce no sentence and the
+     * overload arms (55/70, 129/160) must produce one — the replacement for a
+     * line that fired on every single non-zero reading and therefore in every
+     * healthy session too (DR-003). The threshold is inclusive, so a fifth of
+     * the readings is already the story.
+     */
+    @Test
+    fun `the send-queue sentence keeps quiet at rest and speaks under overload`() {
+        assertNull("T-008 arm A0: 1 of 70 readings", queuePressureNote(queueTrace(1, 70)))
+        assertNull("T-008 arm A prime: 0 of 70", queuePressureNote(queueTrace(0, 70)))
+        assertNull("T-007: 2 of 262", queuePressureNote(queueTrace(2, 262)))
+
+        assertEquals(
+            "The send queue was not empty in 79 % of the readings in the last 60 s.",
+            queuePressureNote(queueTrace(55, 70)),
+        )
+        assertEquals(
+            "The send queue was not empty in 81 % of the readings in the last 60 s.",
+            queuePressureNote(queueTrace(129, 160)),
+        )
+        assertEquals(
+            "the threshold is a floor to appear at, not one to pass",
+            "The send queue was not empty in 20 % of the readings in the last 60 s.",
+            queuePressureNote(queueTrace(1, 5)),
+        )
     }
 
     @Test

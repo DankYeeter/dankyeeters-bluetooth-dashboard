@@ -220,7 +220,7 @@ fun LabelledTraceGraph(
         Text(
             trace.caption(quietText),
             style = MaterialTheme.typography.labelSmall,
-            color = if (trace.lossTotal > 0) {
+            color = if (trace.lossWindowCount > 0) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -230,12 +230,23 @@ fun LabelledTraceGraph(
 }
 
 /**
- * "396 kbps now · peak 660 · 2 loss marks", with only the parts that exist.
+ * "396 kbps now · peak 660 · 2 of 30 windows lost something", with only the
+ * parts that exist.
  *
  * The unit is read off the window rather than hard-coded, because the same graph
  * draws two different series — the measured bitrate, and the enqueue rate as a
  * liveness fallback on a link that does not report one. A caption that said
  * "kbps" over the fallback would turn a stand-in into a claim.
+ *
+ * ## Why it counts windows and not counters
+ *
+ * It used to say "{sum of every counter} loss marks", so a single window that
+ * dropped 525 packets — one mark, drawn once, at one x — was captioned "525
+ * loss marks" (DR-002). That is the graph describing itself wrongly, and it is
+ * also the unbounded, alarming-on-a-flawless-link number the whole loss rework
+ * was written against. AK-T002-11 has said "{k} of {n} windows lost something"
+ * since T-002; this is that sentence, with the windows nobody could count named
+ * separately instead of being folded into `n`.
  */
 private fun LiveTrace.caption(quietText: String): String {
     if (!hasRate) return ""
@@ -243,11 +254,12 @@ private fun LiveTrace.caption(quietText: String): String {
         latestValue?.let { add("${it.roundToInt()} $unitLabel now") }
         peakValue?.let { add("peak ${it.roundToInt()}") }
         add(
-            when (lossTotal) {
-                0L -> quietText
-                1L -> "1 loss mark"
-                else -> "$lossTotal loss marks"
+            if (lossWindowCount == 0) {
+                quietText
+            } else {
+                "$lossWindowCount of $measuredWindowCount windows lost something"
             },
         )
+        if (unmeasuredWindowCount > 0) add("$unmeasuredWindowCount not measured")
     }.joinToString(" · ")
 }

@@ -30,10 +30,32 @@ data class TracePoint(
     val bitrateKbps: Double? = null,
     /** DERIVED: enqueue ticks per second across the window ending here. */
     val packetsPerSecond: Double? = null,
-    /** DERIVED: everything audible counted in this window. Zero is a fact here. */
-    val lossCount: Long = 0,
+    /**
+     * DERIVED: everything audible counted in this window, or null when not one
+     * of the counters could be differenced.
+     *
+     * Zero and null are different readings and the caption tells them apart. A
+     * zero says "every counter this channel reads stood still"; a null says the
+     * window has no countable loss in it at all — the first pass of a run, a
+     * counter that restarted, a codec the controller encodes. Calling that zero
+     * would put a window nobody measured into the denominator of "{k} of {n}
+     * windows lost something" (AK-T002-11, `GOAL.md` AK-3).
+     */
+    val lossCount: Long? = null,
+    /**
+     * MEASURED: whether the stack's send queue held anything at this reading,
+     * or null where the reading does not carry it.
+     *
+     * One bit rather than the length, because the length is not what the panel
+     * is allowed to say anything about: a single queued packet on a step change
+     * is the regulator working, and only the *share* of readings over a window
+     * separates that from a link at its limit (AK-T009-29, `UI_SPEC.md` T-009).
+     * Null on the close-up channel, whose probe never reads the queue — see
+     * [TxProbeSample.toTracePoint].
+     */
+    val txQueueNotEmpty: Boolean? = null,
 ) {
-    val hasLoss: Boolean get() = lossCount > 0
+    val hasLoss: Boolean get() = (lossCount ?: 0L) > 0
 
     /**
      * What this point contributes to the line, measured figure first.
@@ -120,7 +142,35 @@ data class LiveTrace(
     /** True when the line is the measured bitrate rather than the liveness fallback. */
     val isMeasuredBitrate: Boolean get() = points.any { it.bitrateKbps != null }
 
-    val lossTotal: Long get() = points.sumOf { it.lossCount }
+    /**
+     * AK-T002-11's `k`: how many **marks** the graph drew.
+     *
+     * One window that lost something is one mark, whether it lost one packet or
+     * 525 of them, so this is a count of windows and never of events. The
+     * caption said `525 loss marks` under a single mark until DR-002.
+     */
+    val lossWindowCount: Int get() = points.count { it.hasLoss }
+
+    /** AK-T002-11's `n`: windows whose loss could be counted at all. */
+    val measuredWindowCount: Int get() = points.count { it.lossCount != null }
+
+    /** AK-T002-11's `m`: readings that carry no countable loss, named rather than hidden. */
+    val unmeasuredWindowCount: Int get() = points.count { it.lossCount == null }
+
+    /**
+     * AK-T009-29: the share of readings in this window whose send queue was not
+     * empty, or null when no reading in it could say.
+     *
+     * The denominator is the readings that carried the queue, not every reading
+     * in the window — a share over samples that were never taken would be the
+     * same lie as drawing a line across a gap. Null rather than 0.0 for the same
+     * reason: nothing read is not "the queue was empty".
+     */
+    val queuePressureFraction: Double?
+        get() {
+            val known = points.mapNotNull { it.txQueueNotEmpty }
+            return if (known.isEmpty()) null else known.count { it }.toDouble() / known.size
+        }
 
     /** The instant the axis ends at: the newest reading, never the wall clock. */
     val newestMs: Long? get() = points.lastOrNull()?.timestampMs
@@ -187,7 +237,12 @@ fun TxProbeSample.toTracePoint(): TracePoint = TracePoint(
     timestampMs = timestampMs,
     bitrateKbps = bitrateKbps?.toDouble(),
     packetsPerSecond = delta?.packetsPerSecond,
-    lossCount = delta?.lossCount() ?: 0L,
+    // No delta, no count: the rate is a reading and survives, the loss is a
+    // difference and does not exist yet.
+    lossCount = delta?.lossCount,
+    // This probe reads the tx block and the LDAC bitrate, not the queue length,
+    // so it says nothing about queue pressure rather than saying "empty".
+    txQueueNotEmpty = null,
 )
 
 /**
@@ -202,29 +257,30 @@ fun LinkLiveSnapshot.toTracePoint(): TracePoint = TracePoint(
     bitrateKbps = ldac?.measuredKbps?.toDouble(),
     packetsPerSecond = txDelta?.packetsPerSecond,
     lossCount = lossCountThisWindow(),
+    txQueueNotEmpty = ldac?.stack?.savedTxQueueLength?.let { it > 0 },
 )
 
-/** Everything audible in this window, from every counter that saw some. */
-private fun LinkLiveSnapshot.lossCountThisWindow(): Long =
-    inputUnderrunDelta +
-        (mixer?.fastMixerUnderrunDelta ?: 0L) +
-        (mixer?.normalMixerEmptyDelta ?: 0L) +
-        (txDelta?.lossCount() ?: 0L)
-
 /**
- * The stack's own audible loss in one window — the same two counters
- * [A2dpTxDelta.hasLoss] asks about, and for the same reason.
+ * Everything audible in this window, from every counter that saw some — or null
+ * when not one of them could be differenced.
  *
- * Encoder underflows are not counted. A mark on the graph is a claim that
- * something was lost at that instant, and the counter that rose through 39
- * minutes of clean playback cannot make it; it would have drawn about 23 marks
- * over music that was fine (AK-T009-24). The counter is still shown in the
- * panel, where it stands as a count and not as a verdict.
- *
- * One definition for both channels, so the close-up and the overview can never
- * disagree about what put a mark on the line.
+ * The stack's share of it is [A2dpTxDelta.lossCount], which reads the one
+ * definition of what counts as loss ([A2dpTxDelta.lossByChannel]) rather than
+ * naming the counters again here. Encoder underflows are not among them: a mark
+ * on the graph claims something was lost at that instant, and the counter that
+ * rose through 39 minutes of clean playback cannot make that claim — it would
+ * have drawn about 23 marks over music that was fine (AK-T009-24).
  */
-internal fun A2dpTxDelta.lossCount(): Long = dropped + dropouts
+private fun LinkLiveSnapshot.lossCountThisWindow(): Long? {
+    val inputUnderruns = inputs.mapNotNull { it.underrunDelta }.takeIf { it.isNotEmpty() }?.sum()
+    val counted = listOfNotNull(
+        inputUnderruns,
+        mixer?.fastMixerUnderrunDelta,
+        mixer?.normalMixerEmptyDelta,
+        txDelta?.lossCount,
+    )
+    return if (counted.isEmpty()) null else counted.sum()
+}
 
 /**
  * Appends one full-pass reading, carrying its reason for being unplottable.

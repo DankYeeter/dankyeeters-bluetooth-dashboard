@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
 import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxDelta
@@ -87,6 +89,31 @@ class LiveLinkPanelScreenTest {
             )
         }
         return trace
+    }
+
+    /**
+     * A minute of readings of which the first [nonEmpty] found the send queue
+     * occupied — the only thing AK-T009-29 lets the panel speak about.
+     */
+    private fun overviewWithQueue(nonEmpty: Int, readings: Int = 50): LiveTrace {
+        var trace = LiveTrace.overview(1_000L)
+        (0 until readings).forEach { i ->
+            trace = trace.plus(
+                TracePoint(
+                    timestampMs = 1_000L + i * 1_000L,
+                    bitrateKbps = 492.0,
+                    lossCount = 0,
+                    txQueueNotEmpty = i < nonEmpty,
+                ),
+            )
+        }
+        return trace
+    }
+
+    /** Opens the second layer of the row labelled [label]. */
+    private fun openExplanation(label: String) {
+        composeRule.onNodeWithContentDescription("What is $label?").performClick()
+        composeRule.waitForIdle()
     }
 
     private fun assertShows(text: String) =
@@ -289,6 +316,112 @@ class LiveLinkPanelScreenTest {
         assertShows("Audio lost: 21 stack dropouts in the last 2 s.")
     }
 
+    /**
+     * The other channel of the one loss definition, pinned in the panel as well
+     * (QA-010). Dropped packets move on their own here.
+     */
+    @Test
+    fun `a window of dropped packets alone names that channel`() {
+        render(
+            snapshot(codecSpecific1 = 0L).let { base ->
+                base.copy(txDelta = base.txDelta?.copy(dropped = 525L))
+            },
+        )
+
+        assertShows("Audio lost: 525 dropped packets in the last 2 s.")
+    }
+
+    /**
+     * AK-T017-1: the count is in the first layer and what it is worth is behind
+     * the question mark.
+     *
+     * The sentence is R-D in the words `UI_SPEC.md` (T-017) settled on. Without
+     * it the line reads as a fault report directly under a line that has just
+     * said nothing was lost (DR-001).
+     */
+    @Test
+    fun `the underflow count carries its disclaimer behind the question mark`() {
+        render(
+            snapshot(codecSpecific1 = 0L).let { base ->
+                base.copy(txDelta = base.txDelta?.copy(underflows = 3L))
+            },
+        )
+
+        val line = "3 encoder underflows in the last 2 s."
+        assertShows(line)
+        // Second layer, so it is not on the screen until it is asked for.
+        assertHides("carries no verdict")
+
+        openExplanation(line)
+
+        assertShows("This count carries no verdict, in either direction")
+    }
+
+    /**
+     * DR-003 / AK-T009-29: the single-sample alarm is gone.
+     *
+     * A non-empty send queue happens in 0-1.4 % of readings on a healthy link,
+     * so a line that fired on each one fired in every long session. What is left
+     * is a share over the window, and it is in the ladder row's second layer.
+     */
+    @Test
+    fun `queue pressure is a share in the second layer, never a red line`() {
+        render(
+            snapshot(codecSpecific1 = 0L, measuredKbps = 396),
+            overview = overviewWithQueue(nonEmpty = 40),
+        )
+
+        assertHides("falling behind")
+        assertHides("packets queued")
+        // Not in the first layer either, however true it is.
+        assertHides("The send queue was not empty")
+
+        openExplanation("Adaptive — 396 kbps right now (measured)")
+
+        assertShows("The send queue was not empty in 80 % of the readings in the last 60 s.")
+    }
+
+    /** The resting case: one reading in fifty, which is the regulator working. */
+    @Test
+    fun `a queue that is busy now and then says nothing at all`() {
+        render(
+            snapshot(codecSpecific1 = 0L, measuredKbps = 396),
+            overview = overviewWithQueue(nonEmpty = 1),
+        )
+
+        openExplanation("Adaptive — 396 kbps right now (measured)")
+
+        assertHides("send queue")
+        assertHides("falling behind")
+    }
+
+    /**
+     * QA-009: the loss row checks the observability itself.
+     *
+     * `LiveLinkSource` clears these counters before the snapshot leaves the data
+     * layer, and this is the second lock: the counters here are warm from a
+     * host-encoded session that ended, and reading them would print a dropout
+     * that belongs to another link — or, worse on a quiet one, a clean bill of
+     * health for a stream nothing is measuring.
+     */
+    @Test
+    fun `an offloaded link does not read warm tx counters, whoever handed them over`() {
+        render(
+            snapshot(codecSpecific1 = 0L).let { base ->
+                base.copy(
+                    codec = base.codec?.copy(isOffloaded = true),
+                    txDelta = base.txDelta?.copy(dropped = 525L, dropouts = 21L, underflows = 3L),
+                )
+            },
+        )
+
+        assertHides("Audio lost")
+        assertHides("dropped packet")
+        assertHides("stack dropout")
+        assertHides("encoder underflow")
+        assertShows("encoded by the controller")
+    }
+
     @Test
     fun `an unnamed device is identified without printing a real address`() {
         // A userdebug build does not redact the dump, so the panel does its own
@@ -331,7 +464,33 @@ class LiveLinkPanelScreenTest {
         // rate that shares the same graph shape an order of magnitude lower.
         assertShows("492 kbps now")
         assertShows("peak 492")
-        assertShows("3 loss marks")
+        // One window of the twenty lost something. It lost three things, and the
+        // caption used to say "3 loss marks" about the one mark that was drawn
+        // (DR-002); the number the graph can be checked against is the windows.
+        assertShows("1 of 20 windows lost something")
+        assertHides("loss mark")
+    }
+
+    /**
+     * DR-002 at the size that made it visible: 525 dropped packets in one
+     * window drew one mark and were captioned "525 loss marks".
+     *
+     * The reading before them could not be differenced at all, so it is named
+     * separately instead of being counted as a window that lost nothing
+     * (AK-T002-11).
+     */
+    @Test
+    fun `the caption counts marks and names the windows it could not count`() {
+        val trace = LiveTrace.overview(2_000L)
+            .plus(TracePoint(timestampMs = 1_000L, bitrateKbps = 492.0, lossCount = null))
+            .plus(TracePoint(timestampMs = 3_000L, bitrateKbps = 492.0, lossCount = 0))
+            .plus(TracePoint(timestampMs = 5_000L, bitrateKbps = 330.0, lossCount = 525))
+
+        render(snapshot(codecSpecific1 = 0L, measuredKbps = 396), overview = trace)
+
+        assertShows("1 of 2 windows lost something")
+        assertShows("1 not measured")
+        assertHides("525 loss marks")
     }
 
     /**

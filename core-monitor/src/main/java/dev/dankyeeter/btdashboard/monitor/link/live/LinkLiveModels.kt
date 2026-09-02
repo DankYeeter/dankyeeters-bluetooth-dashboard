@@ -579,6 +579,27 @@ data class A2dpTxStats(
 }
 
 /**
+ * A Bluetooth-stack counter that is allowed to say audio was lost.
+ *
+ * Identifiers, not words for a screen. What the panel prints for these two —
+ * "dropped packets", "stack dropouts" — is display text and stays with the
+ * display, which is also the module that knows about plurals and sentences;
+ * what belongs here is the *set*, because which counters count is a fact about
+ * the measurement rather than about the screen. The two halves are held
+ * together by the `when` that names them being exhaustive: a channel added to
+ * this enum does not compile until the panel has a word for it.
+ *
+ * The set itself, with the values of one window, is [A2dpTxDelta.lossByChannel].
+ */
+enum class TxLossChannel {
+    /** `Counts (flushed/dropped/dropouts)`, middle field: packets the full queue threw away. */
+    DROPPED_PACKETS,
+
+    /** Same row, last field: distinct dropout episodes as the stack counts them. */
+    STACK_DROPOUTS,
+}
+
+/**
  * The change in [A2dpTxStats] between two polls, plus the window it covers.
  *
  * DERIVED throughout. This — not the totals — is what a dropout looks like.
@@ -594,10 +615,21 @@ data class A2dpTxDelta(
     val framesEncoded: Long = 0,
 ) {
     /**
-     * Anything the user would have heard.
+     * **The** definition of what this window lost, per channel, in the order the
+     * screen names them. Every other answer on this subject is derived from it.
      *
-     * [underflows] is deliberately not part of this. The device runs put the
-     * counter on the wrong side of the question twice over: it stayed at 0
+     * There used to be three of these, written out by hand in three files: this
+     * class asked `dropped > 0 || dropouts > 0`, the graph model added
+     * `dropped + dropouts`, and the panel's loss row rebuilt the same list a
+     * third time out of the raw fields. All three agreed, none of them was
+     * connected to the others, and a channel could therefore be added or taken
+     * away in one of them while the other two carried on as before — which is
+     * exactly how a whole channel once went unpinned (QA-002, QA-010). Anything
+     * that wants to know what counts as loss reads this map; a change here
+     * moves the boolean, the graph mark and the sentence together or not at all.
+     *
+     * [underflows] is deliberately not one of the channels. The device runs put
+     * the counter on the wrong side of the question twice over: it stayed at 0
      * through the audibly broken 990 arm (`docs/perf/T-008-experimente.md`,
      * section 3) and rose from 2 to 25 across 39 minutes of flawless playback
      * with nothing dropped (`docs/perf/T-011-messung.md`). A window whose only
@@ -609,8 +641,28 @@ data class A2dpTxDelta(
      * [underflowsPerSecond] by `EncoderStarvationTripwire` — where the incident
      * of 2026-08-28 sat at ~49/s against a resting 0.59/min, three orders of
      * magnitude apart.
+     *
+     * Every channel is listed with the value it actually has, zero included, so
+     * that a reader can tell "this channel counted nothing" from "this channel
+     * is not asked about" — the caller decides which of the two it needs.
      */
-    val hasLoss: Boolean get() = dropped > 0 || dropouts > 0
+    val lossByChannel: Map<TxLossChannel, Long>
+        get() = mapOf(
+            TxLossChannel.DROPPED_PACKETS to dropped,
+            TxLossChannel.STACK_DROPOUTS to dropouts,
+        )
+
+    /** Anything the user would have heard, from [lossByChannel] and nowhere else. */
+    val hasLoss: Boolean get() = lossByChannel.values.any { it > 0 }
+
+    /**
+     * How much was lost in this window, added across [lossByChannel].
+     *
+     * A count of *events*, not of marks: one window with 525 dropped packets is
+     * one mark on the graph and 525 here. Whoever needs marks counts windows
+     * with [hasLoss].
+     */
+    val lossCount: Long get() = lossByChannel.values.sum()
 
     /**
      * DERIVED: enqueue ticks per second across the window.

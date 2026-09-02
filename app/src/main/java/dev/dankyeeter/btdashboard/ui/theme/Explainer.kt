@@ -20,6 +20,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 
 /**
@@ -38,6 +40,19 @@ fun ExplainedRow(
     label: String,
     explanation: String,
     modifier: Modifier = Modifier,
+    /**
+     * How loud the first layer is, defaulting to the row style every caller had
+     * before there was a choice.
+     *
+     * It is a parameter because one line needs the disclosure without the
+     * promotion: the live panel's encoder-underflow count is deliberately in the
+     * quiet style, and rendering it a size louder in exchange for a question
+     * mark would have traded one wrong impression for another (DR-001,
+     * `UI_SPEC.md` T-017).
+     */
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    /** The label's colour; unspecified inherits, as every existing row does. */
+    color: Color = Color.Unspecified,
     control: @Composable () -> Unit,
 ) {
     var open by rememberSaveable(label) { mutableStateOf(false) }
@@ -47,7 +62,8 @@ fun ExplainedRow(
             control()
             Text(
                 label,
-                style = MaterialTheme.typography.bodyLarge,
+                style = style,
+                color = color,
                 modifier = Modifier.padding(start = 8.dp),
             )
             IconButton(onClick = { open = !open }) {
