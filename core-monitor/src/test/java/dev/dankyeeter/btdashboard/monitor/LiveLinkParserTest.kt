@@ -277,12 +277,16 @@ class LiveLinkParserTest {
      * again inside a single sample — 31 times in one 39-minute run, 30 of them
      * for exactly one sample, none of them with any loss
      * (`docs/perf/T-011-messung.md`). Anything in this layer that treated the
-     * number as special would have produced 31 false alarms in that run, so the
-     * whole reading must differ in the one field that was rewritten and in no
-     * other.
+     * number as special would have produced 31 false alarms in that run.
+     *
+     * What this can show is exactly that much: the parser does not branch on
+     * the value, so the whole reading differs in the one rewritten field and in
+     * no other. Where 990 does change an outcome is a layer up, in
+     * `MeasuredBitrateTracker`, whose HIGH boundary sits between 660 and 990 —
+     * that is not this test's subject, and the title no longer suggests it is.
      */
     @Test
-    fun `a reading of 990 kbps changes the rate and nothing else`() {
+    fun `the parser does not branch on a reading of 990 kbps`() {
         val base = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
         val at990 = rewriteLabel(ldacState, "LDAC transmission bitrate (Kbps)", "990")
 
