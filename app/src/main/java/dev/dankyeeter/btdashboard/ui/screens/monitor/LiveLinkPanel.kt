@@ -346,16 +346,17 @@ private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
     }
 
     when {
-        // TODO(DR-004): "Audio lost: " makes the audio the sentence's subject
-        // and is forbidden by AK-T002-12/R-A. Left as-is on purpose (T-019):
-        // the wording table's replacements for a non-empty window
-        // ("{N} {kanal} ... about {R}/min." / "... last counted {D} ago.")
-        // need a rate and an event age that this per-poll delta does not
-        // compute, so substituting either here would be invented wording,
-        // not the prescribed one. Reported to the director/ui-ux-designer
-        // instead of guessed.
+        // R-A / AK-T002-12 (DR-004): the counter is the subject, never the
+        // audio. "Audio lost: " used to lead this sentence and was the
+        // loudest R-A violation in the app; dropped rather than replaced,
+        // because `parts` already reads exactly like the OCCASIONAL wording
+        // for a single channel ("{N} {kanal} in the last {W}") strung
+        // together for however many channels moved. No rate or age suffix
+        // is added — the window stays the measured poll interval, never
+        // `LOSS_WINDOW_MS` — so the sentence cannot be mistaken for
+        // OCCASIONAL/DISTURBED and claims no frequency nobody measured.
         parts.isNotEmpty() -> Text(
-            "Audio lost: ${parts.joinToString(", ")} in the last ${trimZero(windowSeconds)} s.",
+            "${parts.joinToString(", ")} in the last ${trimZero(windowSeconds)} s.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )

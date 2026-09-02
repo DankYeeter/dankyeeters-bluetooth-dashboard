@@ -274,7 +274,9 @@ class LiveLinkPanelScreenTest {
             },
         )
 
-        assertShows("Audio lost:")
+        // R-A / DR-004: "Audio lost: " is gone, not renamed — the parts
+        // themselves (channel name, count, window) are the whole sentence.
+        assertHides("Audio lost")
         assertShows("3 app underruns")
         assertShows("1 encoder underflow")
         assertShows("in the last 2 s")
@@ -317,7 +319,7 @@ class LiveLinkPanelScreenTest {
             },
         )
 
-        assertShows("Audio lost: 21 stack dropouts in the last 2 s.")
+        assertShows("21 stack dropouts in the last 2 s.")
     }
 
     /**
@@ -332,7 +334,7 @@ class LiveLinkPanelScreenTest {
             },
         )
 
-        assertShows("Audio lost: 525 dropped packets in the last 2 s.")
+        assertShows("525 dropped packets in the last 2 s.")
     }
 
     /**
