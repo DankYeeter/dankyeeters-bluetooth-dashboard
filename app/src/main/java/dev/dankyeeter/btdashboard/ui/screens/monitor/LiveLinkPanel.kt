@@ -316,13 +316,14 @@ private fun LdacSection(
  * ## Why the encoder underflows stand apart
  *
  * They used to be named inside the red sentence. Two measurements say they do
- * not belong there: the counter did not move at all through the audibly broken
- * 990 arm, and it climbed from 2 to 25 across 39 minutes of flawless playback
- * (`docs/perf/T-008-experimente.md`, `docs/perf/T-011-messung.md`). At a 2 s
- * cadence that second run would have printed some 23 red "Audio lost" lines
- * over music that was fine. So the number stays on the screen — it is a
- * measurement and AK-2 keeps it — but on its own line, in the quiet colour, as
- * a bare count over a stated window and with no word about what it means.
+ * not belong there: the counter did not move at all through the 990 arm where
+ * stack dropouts ran throughout, and it climbed from 2 to 25 across 39 minutes
+ * of flawless playback (`docs/perf/T-008-experimente.md`,
+ * `docs/perf/T-011-messung.md`). At a 2 s cadence that second run would have
+ * printed some 23 red "Audio lost" lines over music that was fine. So the
+ * number stays on the screen — it is a measurement and AK-2 keeps it — but on
+ * its own line, in the quiet colour, as a bare count over a stated window and
+ * with no word about what it means.
  */
 @Composable
 private fun LossRow(snapshot: LinkLiveSnapshot, intervalMs: Long) {
@@ -581,6 +582,23 @@ private const val UNDERFLOW_EXPLANATION =
  * and 129/160 = 81 %. 0.20 sits 14x above the highest resting value and 4x
  * below the lowest overload one — the best-evidenced threshold in `UI_SPEC.md`
  * (T-009, "Warteschlangendruck statt Einzelpaket-Alarm").
+ *
+ * ## How coarsely it can be met
+ *
+ * Those readings were taken at a fast cadence; the panel's slowest is 5 s, and
+ * the window is 60 s. That leaves about twelve readings, so one non-empty sample
+ * moves the share by some 8.3 points: 3 of 12 is 25 % and speaks, 2 of 12 is
+ * 16.7 % and does not. The threshold is met in steps, not exactly.
+ *
+ * Harmless between the populations it was drawn from. Resting is 0-1.4 % and
+ * overload 79-81 %, fourteen times below the line and four times above it, so no
+ * single sample can carry a window from one of them across it.
+ *
+ * Whether an operating state exists *between* those two is **not measured** —
+ * neither for it nor against it. M-11, the measurement that would settle it, has
+ * no known method: the only lever that produces dropouts at all is pinning 990,
+ * and that moves the ladder step at the same time. So this says where the
+ * evidence stops instead of reading past it, which is the rule R-E rests on.
  */
 private const val LADDER_QUEUE_PRESSURE_FRACTION = 0.20
 
