@@ -64,6 +64,44 @@ Auflagen A6–A16, Schrittfolge U-0..U-6.
   nie auf `CLEAN`. **A16 haengt nicht am Dateimodus**, sondern daran, dass
   keine Datei dieser Form mehr existiert.
 
+## Wichtige Klarstellung 02.09.: „gesetzt" heisst NICHT „gebaut"
+
+Die Parameter aus T-009 (`LOSS_NOTICE_RATE_PER_MIN`, `LOSS_ALERT_RATE_PER_MIN`,
+`LOSS_WINDOW_MS`, `LOSS_CLEAR_HOLD_MS`, `SETTLE_AFTER_TRANSITION_MS`,
+`RATE_MIN_EVENTS_IN_WINDOW`, `LOSS_EVENT_COOLDOWN_MS`) sind in `UI_SPEC.md`
+**festgelegt** — im Code existiert **keine** davon. Belegt in T-021 per Grep.
+Die einzige Verlust-Konstante im Code ist `LADDER_QUEUE_PRESSURE_FRACTION`.
+
+Dasselbe gilt fuer den `SETTLING`-Zustand der Verlustanzeige und fuer die
+Zustandsmaschine CLEAN/OCCASIONAL/DISTURBED/CANNOT_TELL insgesamt. Die
+heutige `LossRow` rechnet eine rohe Poll-zu-Poll-Differenz, sonst nichts.
+
+**Folge fuer die Berichtslage:** Wo frueher stand „Wert gesetzt" oder „M-5
+bestaetigt den Wert", ist gemeint: die **Vorgabe** steht und ist durch eine
+Messung gedeckt. Gebaut ist sie nicht. Rund **25 Akzeptanzkriterien** haben
+deshalb keinen Test — nicht aus Nachlaessigkeit, sondern weil ihr Gegenstand
+fehlt. Die vollstaendige Liste steht im T-021-Bericht.
+
+## Stand 02.09. Nachmittag — was heute gebaut wurde
+
+**Die Kette ist offen und laeuft.** 2332 -> **2390 Tests, 0 Failures**.
+Neun Commits sind auf `origin/master` gepusht, der Rest liegt lokal.
+
+- **D-11 behoben:** Der Parser liest die beiden `LDAC adaptive bit rate`-Zeilen.
+- **Zwei Fehlalarme beseitigt**, beide vom selben Typ „Anzeige schlaegt im
+  gesunden Alltag Alarm": Underflow im Verlust-Verdikt (~23 rote Meldungen je
+  39 min fehlerfreier Musik) und „Bluetooth is falling behind" (feuerte bei
+  0–1,4 % der Lesungen). Underflow bleibt **sichtbar**, verliert nur das
+  Verdikt (AK-2).
+- **Die strukturelle Ursache ist weg:** Die Verlustdefinition stand dreimal
+  von Hand im Code. Jetzt einmal, als `TxLossChannel` + `lossByChannel`. Ein
+  neuer Kanal **kompiliert nicht**, bevor die Oberflaeche ein Wort dafuer hat
+  — vom `qa-engineer` per Mutation belegt (5 Fehlschlaege ueber 3 Pfade).
+- **AK-T002-12 erfuellt:** „Audio lost:", „No loss this window.",
+  „no loss in this window" sind ersetzt bzw. gestrichen.
+- **12 Akzeptanzkriterien maschinell verankert** (vorher: eines).
+- **Vier neue Fixtures**, darunter die **erste mit echten Verlusten**.
+
 ## Laufende Auftraege
 
 | ID | Rolle | Thema | Status |
@@ -75,6 +113,8 @@ Auflagen A6–A16, Schrittfolge U-0..U-6.
 | T-005 | architect | Scan-Entwurf | geliefert (`docs/scan/T-005-ENTWURF.md`); Umsetzungsschnitt S-1..S-7 |
 | T-006 | architect → developer | Transport SR-001/SR-009 | Entwurf abgenommen; Umsetzung braucht Geraet + Toolchain |
 | T-008 | performance-tuner | Eingriffsexperimente | E-2 fertig; E-1/E-3 offen (nur von Hand, kein Shell-Hebel) |
+| T-021 | developer | AK-Verankerung (QA-008) | **geliefert**; Retest offen |
+| T-022 | performance-tuner | Fixtures: Verlustfall, ABR-Stufen, Pause | **geliefert**; Read-back laeuft |
 | SR-012 | performance-tuner | `umask 077` in `docs/perf/tools/*.sh` + Reste loeschen | zurueckgestellt bis Ende der Messreihe |
 
 ## Rahmen (korrigiert 02.09.)
@@ -116,6 +156,45 @@ akzeptiert. Es fehlte Konfiguration, nicht Software. Belege und Plan in
   — am Geraet vollstaendig geprueft. Nur von Hand.
 - Vierte T-008-Zelle bleibt **INCONCLUSIVE** (WLAN-Konfundierer). Wiederholung
   waere „990 plus Scans aus" unter kontrolliertem WLAN.
+
+## T-013 geliefert (D-11), QA laeuft
+
+Der Parser liest jetzt `LDAC adaptive bit rate encode quality mode index` und
+`adjustments` — die Groessen, auf denen T-007/T-008/T-011 ausgewertet haben.
+Zwei neue Felder in `LdacStackState`, Commit `5e03694` auf `master`, **noch
+nicht gepusht**. 2332 -> **2344 Tests, 0 Failures**. Keine sichtbare
+Aenderung an der Oberflaeche.
+
+- **Der Index ist KEINE Bitrate.** Gemessen: 660<->1, 492<->3, 396<->4 — die
+  Leiter ist nicht monoton. Eine Abbildung Index->Rate waere geraten und wurde
+  bewusst nicht gebaut. Nicht als Rate beschriften.
+- **Entscheidung Director 02.09.: AK-T009-24 bleibt stehen, unveraendert.**
+  Die Verdikt-Ebene (`DISTURBED`, `CANNOT_TELL`, `LOSS_*_RATE_PER_MIN`)
+  existiert im Code nicht; das Kriterium ist heute eine Spezifikation fuer
+  Code, den es noch nicht gibt. **Das ist der Zweck einer Spec.** Es auf das
+  umzuformulieren, was zufaellig schon existiert, wuerde die Latte senken.
+  Abgedeckt ist bisher die **Datenhaelfte** (underflow=0 unterdrueckt keinen
+  anderen Kanal); die Verdikthaelfte gehoert in den UI-Zyklus.
+
+### Drei Fixture-Luecken — Auftrag fuer die naechste Geraetesitzung
+
+1. **Kein aufgenommener Dump aus dem 990er-Arm.** Im Repo liegt keine Fixture
+   mit `dropped`/`dropouts` != 0. AK-T009-24 laeuft ueber **gesetzte**
+   Zaehlerstaende — ein Test ueber die Arithmetik, **kein** Beleg, dass der
+   Parser einen echten 990er-Dump liest. **Wer je wieder auf 990 pinnt: Dump
+   mitnehmen.** Daraus wird eine Golden-Fixture.
+2. Kein Dump eines Builds **ohne** die beiden ABR-Zeilen (heute aus der echten
+   Aufnahme entfernt).
+3. **Nur ein Rung-Wert aufgenommen** (Index 4 / 396 kbps). 660<->1 und 492<->3
+   stehen nur in der Messdoku, nicht in einer Fixture. Ein Dump je Stufe waere
+   der Beleg, dass der Index wirklich nicht monoton laeuft.
+
+### Offene Kopplung fuer den UI-Zyklus
+
+`A2dpTxProbe.sampleBetween` kopiert nur `bitrateKbps` und `qualityModeLabel`
+in den `TxProbeSample`. Der 60-s-Pfad bekommt die neuen Felder geschenkt, der
+**Nahaufnahme-Kanal nicht** — und G-4/AK-T009-41 braucht den Zaehler genau
+dort. Feldergaenzung an einem Typ, den die UI-Trace-Modelle lesen.
 
 ## Zurueckgestellt
 
