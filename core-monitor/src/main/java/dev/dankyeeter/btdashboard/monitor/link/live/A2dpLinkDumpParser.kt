@@ -46,8 +46,8 @@ data class A2dpLinkDump(
  * Aid audio HAL and the LE Audio HAL client — and the other two sit at zero on
  * a phone with neither connected, so a whole-dump scan finds a real counter, a
  * zero and a zero in an order nothing guarantees. `Effective MTU:` is worse:
- * **every** codec prints one, and the six codecs that are not negotiated all
- * print `0`.
+ * of the seven per-codec blocks, five print one and four of those are `0` —
+ * two blocks (LHDCv5, Opus) print no `Effective MTU:` line at all.
  *
  * ## No new regexes here
  *

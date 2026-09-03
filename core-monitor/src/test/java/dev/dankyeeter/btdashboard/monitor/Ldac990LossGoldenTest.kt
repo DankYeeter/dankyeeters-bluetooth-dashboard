@@ -135,9 +135,9 @@ class Ldac990LossGoldenTest {
 
         assertEquals("LDAC quality mode, verbatim", "HIGH", stack.qualityMode)
         assertEquals("LDAC transmission bitrate (Kbps)", 990, stack.transmissionKbps)
-        // Every one of the seven per-codec blocks prints an `Effective MTU:`
-        // and six of them print 0, so this value is also the proof that the
-        // LDAC block is the one that was read.
+        // Five of the seven per-codec blocks print an `Effective MTU:` line
+        // (LHDCv5 and Opus print none), and four of those five are 0, so this
+        // value is also the proof that the LDAC block is the one that was read.
         assertEquals("Effective MTU", 883, stack.effectiveMtu)
         assertEquals("LDAC saved transmit queue length", 11, stack.savedTxQueueLength)
         assertEquals("HIGH is a fixed tier, not adaptive", false, stack.isAdaptive)

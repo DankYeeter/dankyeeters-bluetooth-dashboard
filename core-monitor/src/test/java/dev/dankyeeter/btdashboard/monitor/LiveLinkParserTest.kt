@@ -132,6 +132,35 @@ class LiveLinkParserTest {
         assertFalse(device.isPlaying)
     }
 
+    /**
+     * The redaction-tolerant half of `sameAddress`, unreached by every fixture
+     * in this repo: they all redact the active-device address and the state
+     * machine header the same way, so the exact-match branch always wins.
+     *
+     * This hand-built snippet gives the two addresses different redaction
+     * levels of the same device — `active_a2dp_devices` fully redacted, the
+     * state machine header not — so only the last-octet fallback can match
+     * them.
+     */
+    @Test
+    fun `an active device is recognised across different redaction levels of the same address`() {
+        // Built with explicit newlines rather than a trimmed triple-quoted
+        // block: trimIndent() would strip the header line back to column 0,
+        // which readStateMachine reads as the start of the next top-level
+        // section and discards before sameAddress ever runs.
+        val dump = "  active_a2dp_devices: [xx:xx:xx:xx:AB:CD]\n" +
+            "  === A2dpStateMachine for 11:22:33:44:AB:CD (Active) ===\n" +
+            "    mConnectionState: STATE_CONNECTED, mLastConnectionState: STATE_DISCONNECTED"
+
+        val device = present(A2dpLinkDumpParser.parse(dump).device, "device")
+        assertEquals("11:22:33:44:AB:CD", device.address)
+        assertTrue(
+            "xx:xx:xx:xx:AB:CD and 11:22:33:44:AB:CD share only their last octet, " +
+                "which is exactly the case the redaction-tolerant fallback exists for",
+            device.isActive,
+        )
+    }
+
     @Test
     fun `reads a pinned LDAC quality when one is set`() {
         val codec = present(A2dpLinkDumpParser.parse(fixture("bt_manager_pixel8_ldac.txt")).codec, "codec")
@@ -424,6 +453,23 @@ class LiveLinkParserTest {
         val tx = present(A2dpLinkDumpParser.parse(pixel11).tx, "tx stats")
         assertEquals(788L, tx.underflowCount)
         assertEquals(806_912L, tx.underflowBytes)
+    }
+
+    /**
+     * `framesPerPacketMax` and `framesPerPacketAvg` read fields 1 and 2 of the
+     * same `Frames per packet (total/max/ave)` row. On the `pixel11` fixture
+     * used above both fields happen to be 12, so a test that only checks that
+     * fixture cannot tell the two apart if their indices were swapped — the
+     * 990 loss capture is the same way (12 / 12). `ldacState` is not: it reads
+     * `18492 / 10 / 8`, so max and ave are distinct values, and swapping their
+     * indices in the parser would fail exactly this assertion.
+     */
+    @Test
+    fun `max and ave frames per packet are not interchangeable`() {
+        val tx = present(A2dpLinkDumpParser.parse(ldacState).tx, "tx stats")
+        assertEquals("Frames per packet (total/max/ave), field 1", 18_492L, tx.framesPerPacketTotal)
+        assertEquals("Frames per packet (total/max/ave), field 2 (max)", 10, tx.framesPerPacketMax)
+        assertEquals("Frames per packet (total/max/ave), field 3 (ave)", 8, tx.framesPerPacketAvg)
     }
 
     @Test
