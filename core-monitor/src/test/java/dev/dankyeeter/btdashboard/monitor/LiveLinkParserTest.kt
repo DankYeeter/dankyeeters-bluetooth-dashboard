@@ -139,8 +139,16 @@ class LiveLinkParserTest {
      *
      * This hand-built snippet gives the two addresses different redaction
      * levels of the same device — `active_a2dp_devices` fully redacted, the
-     * state machine header not — so only the last-octet fallback can match
-     * them.
+     * state machine header not — so only the last-two-octet fallback can
+     * match them. The tail differs **only in case** (`11:cd` vs. `11:CD`): a
+     * case-sensitive comparison there would also reject this pair, which is
+     * what pins `ignoreCase = true` and not just the fallback's existence.
+     * The window width (`takeLast(5)` vs. a narrower cut) is a separate
+     * parameter and is not pinned by this test — see the one below, which
+     * a positive match like this one cannot bind: a wider window that
+     * matches always still matches through any narrower subset of the same
+     * tail, so only a case where the **correct** answer is "different
+     * device" can catch a window that was cut too far.
      */
     @Test
     fun `an active device is recognised across different redaction levels of the same address`() {
@@ -148,15 +156,43 @@ class LiveLinkParserTest {
         // block: trimIndent() would strip the header line back to column 0,
         // which readStateMachine reads as the start of the next top-level
         // section and discards before sameAddress ever runs.
-        val dump = "  active_a2dp_devices: [xx:xx:xx:xx:AB:CD]\n" +
-            "  === A2dpStateMachine for 11:22:33:44:AB:CD (Active) ===\n" +
+        val dump = "  active_a2dp_devices: [xx:xx:xx:xx:11:cd]\n" +
+            "  === A2dpStateMachine for 99:88:77:66:11:CD (Active) ===\n" +
             "    mConnectionState: STATE_CONNECTED, mLastConnectionState: STATE_DISCONNECTED"
 
         val device = present(A2dpLinkDumpParser.parse(dump).device, "device")
-        assertEquals("11:22:33:44:AB:CD", device.address)
+        assertEquals("99:88:77:66:11:CD", device.address)
         assertTrue(
-            "xx:xx:xx:xx:AB:CD and 11:22:33:44:AB:CD share only their last octet, " +
-                "which is exactly the case the redaction-tolerant fallback exists for",
+            "xx:xx:xx:xx:11:cd and 99:88:77:66:11:CD share only their last two octets, " +
+                "differing only in case — exactly the case the redaction-tolerant, " +
+                "case-insensitive fallback exists for",
+            device.isActive,
+        )
+    }
+
+    /**
+     * The other half of QA-018: the fallback's window has to stay at the
+     * last **two** octets (5 characters), not narrow to the last one.
+     *
+     * These two addresses share only their very last octet (`CD`); the
+     * octet before it (`99` vs. `11`) differs, which is exactly what a real
+     * different device looks like next to one whose last octet happens to
+     * collide. `sameAddress` must say "different" here — a fallback narrowed
+     * to `takeLast(2)` would instead match on the last octet alone and wrongly
+     * mark an unrelated device as the active one.
+     */
+    @Test
+    fun `two devices that share only their last octet are not conflated as the active one`() {
+        val dump = "  active_a2dp_devices: [xx:xx:xx:xx:99:CD]\n" +
+            "  === A2dpStateMachine for 11:22:33:44:11:CD (Active) ===\n" +
+            "    mConnectionState: STATE_CONNECTED, mLastConnectionState: STATE_DISCONNECTED"
+
+        val device = present(A2dpLinkDumpParser.parse(dump).device, "device")
+        assertEquals("11:22:33:44:11:CD", device.address)
+        assertFalse(
+            "xx:xx:xx:xx:99:CD and 11:22:33:44:11:CD differ in the octet before the " +
+                "last one (99 vs. 11) and must not be read as the same device just " +
+                "because their last octet (CD) happens to match",
             device.isActive,
         )
     }
