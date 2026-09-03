@@ -46,17 +46,43 @@ Sendezeit fressen. RSSI allein haette hier „alles gut“ gesagt.
 
 ### Drei Korrekturen, die Bestand haben
 
-1. **`Frames per packet (ave)` taugt NICHT als Pakettyp-Indikator.** Wert
-   konstant **13**, passt zu keiner R-010-Erwartung (~2/~3), und `max=4`
-   widerspricht `ave=13` intern. **Die Heuristik aus R-010 ist auf diesem
-   Geraet tot** — stattdessen den direkten BQR-Pakettyp nehmen. Was das Feld
-   zaehlt, ist offen (schon seit R-001).
-2. **Die Fixture-Luecke 1 war falsch beschrieben.** Ein 990er-Dump mit echtem
-   Verlust existiert bereits:
-   `core-monitor/src/test/resources/dumps/bt_manager_pixel11_ldac_990_loss.txt`
-   (T-022, 0/1851/74, HIGH, 990). **Die echte Luecke ist der fehlende
-   Golden-Test** — Auftrag an `developer`, Retest `qa-engineer`. Kein neues
-   Fixture noetig.
+1. **`Frames per packet (ave)` taugt NICHT als Pakettyp-Indikator** — der
+   Schluss haelt, **meine Begruendung dafuer war ueberdehnt** (aufgedeckt vom
+   `developer` in T-034, 03.09.). Richtig ist:
+   - T-032 las `115111 / 4 / 13` — dort ist `max=4` kleiner als `ave=13`, was
+     bei „Durchschnitt <= Maximum“ nicht sein kann. **Diese Auffaelligkeit
+     gilt fuer diese Aufnahme**, nicht als Eigenschaft des Feldes.
+   - Die 990er-Verlust-Fixture vom 02.09. liest `2763962 / 12 / 12` —
+     **intern voellig stimmig**, `max` gleich `ave`.
+   - **Der Wert ist auch nicht „konstant 13“**, wie ich geschrieben hatte. Er
+     war konstant 13 **innerhalb** des T-032-Laufs; ueber Aufnahmen hinweg
+     steht 12 gegen 13.
+   **Was traegt:** Weder 12 noch 13 passt zu den R-010-Erwartungen (~2 fuer
+   2-DH5, ~3 fuer 3-DH5). Die Heuristik faellt aus — wegen der
+   Groessenordnung, nicht wegen eines internen Widerspruchs. **Neue offene
+   Frage:** Warum liest dasselbe Feld am selben Geraet einmal 4/13 und einmal
+   12/12? Gehoert an `researcher` oder `performance-tuner`, nicht gedeutet.
+   Verwendet wird der direkte BQR-Pakettyp.
+2. **Die Fixture-Luecke 1 war falsch beschrieben — und ist jetzt geschlossen.**
+   Ein 990er-Dump mit echtem Verlust existierte bereits
+   (`bt_manager_pixel11_ldac_990_loss.txt`, T-022, 0/1851/74, HIGH, 990). Die
+   echte Luecke war der fehlende Golden-Test. **T-034 hat ihn gebaut** —
+   Commit `0dbea4e`, sechs Tests, Rot-vorher-Beleg ueber vier Mutationen,
+   Bericht `docs/tasks/T-034-bericht.md`. **QA-Retest erledigt und
+   abgenommen** (`docs/tasks/T-034-retest-bericht.md`): alle vier Mutationen
+   woertlich reproduziert, **14 eigene** gefahren, fuenf weitere Regressionen
+   gefangen. Drei neue Befunde QA-014..QA-016, keiner blockiert. **QA-014 vor
+   dem naechsten Anfassen von `MonitorDatabase` erledigen.**
+   **Einschraenkung, die zur Abnahme gehoert:** Die Datei prueft **AK-T009-24
+   nicht** — mechanismus-gebunden belegt, der wieder eingebaute QA-001-Fehler
+   laesst alle sechs Tests gruen. Die Zielaussage gilt fuer den Zaehler- und
+   Bitratenpfad, **nicht** fuer den Verlust-Verdikt-Pfad; meine
+   Auftragsformulierung war dort zu weit.
+   Praezisierung des `developer`: „von keinem Testcode geladen“ stimmte nicht
+   ganz — `FixtureSweepTest` zaehlt das Verzeichnis auf und schickt die Datei
+   durch jeden Parser, aber nur gegen Invarianten, die auch gelten, wenn jeder
+   Zaehler `null` gelesen wird. **Die Datei war geladen und unbehauptet.**
+   Das ist die genauere Fassung.
 3. **Der BQR-Abschnitt leert sich beim Lesen.** 25 Altereignisse waren beim
    ersten Read da, nach weiteren `dumpsys`-Aufrufen `Event queue is empty.`
    **Lesart, nicht am Quelltext belegt** — aber folgenschwer: Eine App, die
@@ -70,10 +96,89 @@ seiner Laufzeit `docs/state.md` und `T-029` veraendert und den GOAL-Entwurf
 angelegt. Das war **der Director in derselben Sitzung**, nicht eine parallele
 Session. Kein Konflikt, keine Klaerung noetig.
 
-**Danach als erstes: `docs/GOAL-entwurf-part5.md` mit dem Nutzer abnehmen.**
-Das ist der Entwurf des neuen Zielbilds; er ersetzt `GOAL.md` erst nach
-seinem Ja. Ohne abgenommenes Zielbild kein Baubeginn — die Abnahmekriterien
-fuer Tuning-Prozess und Testsuite haetten sonst keine legitime Herkunft.
+**`GOAL.md` ist neu gefasst und in Kraft — abgenommen vom Nutzer 03.09.**
+Der Entwurf `docs/GOAL-entwurf-part5.md` wurde durchgesprochen, mit zwei
+Aenderungen angenommen und **geloescht**; sein Inhalt ist jetzt `GOAL.md`.
+Drei Saeulen: Anzeigen → Stellen → Optimieren. 990 ist das Ziel, nicht der
+Fehler. AK-1..AK-6 unveraendert, **AK-8..AK-16 neu in Kraft** (neun Stueck).
+
+Die zwei Aenderungen des Nutzers:
+- **AK-7 zurueckgestellt, Nummer reserviert.** Erst nach der Quelltext-
+  Klaerung des BQR-Read-Clear. **Bis dahin wird an diesem Kanal nichts
+  gebaut.** Laeuft als T-033.
+- **AK-14 umgeformt auf „ohne kuenstliche Stoerung“.** Grund: kein belegter
+  Stresshebel. **Damit ist die Testsuite nicht mehr blockiert** — sie
+  vergleicht Vorher/Nachher ohne kuenstlichen Reiz.
+
+## AK-7 — der Stand nach R-011 und T-035 (03.09.)
+
+**R-011: Read-Clear ist belegt, und zwar in der schlechtesten Variante.**
+`bqr::DebugDump()` in `btif_bqr.cc` dequeued und loescht die Eintraege in einer
+Schleife; bei leerer Queue druckt sie woertlich `Event queue is empty.` — genau
+der Text aus T-032. Auf `main` und `android17-release` identisch, dreifach
+gegengeprueft. **Es gibt keinen Leser-Cursor:** eine einzige prozessweite
+Instanz, wer liest nimmt die Ereignisse allen weg. Zweiter, unabhaengiger
+Verlustweg: die Queue fasst **25** Eintraege (`kBqrEventQueueSize`) und
+verdraengt beim Ueberlauf den aeltesten — das erklaert die exakt 25 Ereignisse
+in T-032, die Queue war voll.
+
+**Folge, hart:** Eine pollende Anzeige ist nicht baubar, ohne AK-1
+(Nicht-Einmischung) zu verletzen. Sie wuerde fremde Diagnose zerstoeren.
+**`dumpsys bluetooth_manager` ist ab sofort ein Eingriff, kein Read-back** —
+in jedem kuenftigen Auftrag mitdenken, der die BQR-Daten braucht.
+
+**T-035: Der Ausweg ist offen.** Der nicht-destruktive Kanal
+`registerBluetoothQualityReportReadyCallback` verlangt `BLUETOOTH_PRIVILEGED`.
+**uid 2000 haelt sie** — deklariert, gewaehrt und **zur Laufzeit durchsetzbar**,
+belegt mit drei unabhaengigen Verfahren, darunter ein echter
+`checkPermission`-Aufruf aus einem `app_process`-Kontext unter uid 2000. Die
+Methode existiert auf dem Geraet, ist `public`, kein Hidden-API-Fehler.
+Volltext `docs/perf/T-035-readback.md`. Die BQR-Queue blieb unberuehrt.
+
+**Die eine Frage, an der AK-7 jetzt noch haengt — ausdruecklich ungeklaert,
+nicht geraten:** Speist der Callback aus **derselben** Queue, die `DebugDump()`
+leert, oder aus einem eigenen Zustellweg? R-011 legt einen eigenen nahe, hat
+ihn aber nur einfach belegt, nicht gegengeprueft. **Speist er aus derselben,
+ist nichts gewonnen.**
+
+**Entscheidung des Nutzers 03.09.:** Diese Frage wird **mit der Trennmessung
+verbunden, aber in getrennten Laeufen** — die Trennmessung darf nicht durch
+den noetigen `dumpsys`-Aufruf verfaelscht werden. Reihenfolge:
+1. **T-036 Trennmessung** — 30 min bei 990 **mit** 2,4-GHz-Assoziation gegen
+   30 min **ohne**. Kein `dumpsys bluetooth_manager` zur Zwischenkontrolle.
+   Klaert den Widerspruch T-029 gegen T-032 und testet Massnahme 1 aus R-010.
+2. **T-037 Callback-Probe** — direkt danach, eigener kurzer Lauf: Callback
+   registrieren, echtes BQR-Ereignis abwarten, dann **einmalig** pruefen, ob es
+   im Dump noch steht. Braucht Stoerung, deshalb nach der 2,4-GHz-Zelle.
+   **Vor jedem Helfer-Kommando daraus: `security-reviewer`, AK-10.**
+   Ein Wegwerf-Diagnosewerkzeug ausserhalb des Repos ist kein Helfer-Kommando
+   und faellt nicht darunter (Director-Entscheidung 03.09., Anlass T-035).
+
+Beide brauchen das Geraet: Kopfhoerer verbunden, Musik, 990 gepinnt, und fuer
+die erste Zelle WLAN auf 2,4 GHz assoziiert.
+
+**Sobald R-011 da ist, sind das die naechsten Schritte:**
+1. AK-7 entscheiden — festschreiben, umformulieren oder streichen. Nur der
+   Nutzer.
+2. **Die Trennmessung:** 30 min bei 990 **mit** 2,4-GHz-Assoziation gegen 30
+   min **ohne**. Das ist der Kandidat, der aus dem Widerspruch T-029 gegen
+   T-032 folgt, und zugleich der Test von Massnahme 1 aus R-010. Rolle
+   `performance-tuner`; Geraetezustand vorher beim Nutzer bestaetigen.
+3. **Golden-Test: gebaut (T-034), QA-Retest offen.** Siehe Korrektur 2.
+   **Neue Anforderung an T-036, aus T-034 hervorgegangen:** R-D ist weiterhin
+   nur gegen handgesetzte Zaehler belegt, weil `A2dpTxDelta.lossByChannel` auf
+   einem **Delta zwischen zwei Lesungen** lebt und nur **eine** Aufnahme im
+   Repo liegt. Die aeltere T-022-Lesung existiert nicht mehr (geprueft: C:\Users\Daniel\
+   haelt nur t027-, t029- und t032-rawdata). **T-036 muss deshalb zwei
+   Aufnahmen im Abstand von ~4 min aus derselben Verlustphase mitnehmen** —
+   damit wird AK-T009-24 am Geraetedump statt an erfundenen Zahlen belegbar.
+   **Bedingung an das Intervall (Director-Entscheidung 03.09.):** Es muss eines
+   sein, in dem `underflow` sich **nicht bewegt**, waehrend `dropouts` zaehlen.
+   Grund: `UI_SPEC.md:2361` formuliert das Kriterium als **Snapshot ueber ein
+   Fenster** („`underflows` = 0, `dropouts` = 21 **in 97 s**“) — Fensterwerte,
+   nicht absolute Zaehlerstaende. Genau dieser Fall trat in T-022 auf
+   (`underflow` 623 → 623 bei steigenden `dropouts`). Damit traegt die
+   Doppelaufnahme **beide Haelften** des Kriteriums.
 
 **Erledigt in dieser Sitzung (03.09.):**
 
@@ -453,7 +558,9 @@ Keine rote Zeile mehr aus diesen Kanaelen. AD-019 wird so gebaut.
   Kopfhoerer verbunden **und** laufende Musik. `A2dpOffloadEnabled: true`.
 - Toolchain steht: JDK 21 unter `~/tools/jdk/jdk-21.0.12.1+1`, NDK gepinnt
   `27.3.13750724` (durch nativen Bau belegt, 16-KB-Zusage haelt), build-tools
-  35.0.0 genuegt AGP 8.9.3. `gradlew test`: **2390 Tests, 0 Failures**.
+  35.0.0 genuegt AGP 8.9.3. `gradlew test`: **2482 Tests, 0 Failures** (Stand 03.09. nach T-034;
+  Basislinie davor 2470, beide eigenhaendig gemessen. Die frueher notierten
+  2390 passen zu dieser Zaehlweise nicht).
 - **Risiko R-2:** zwei adb-Binaries (`C:\RSL\2.1HF5\adb\adb.exe` und
   `platform-tools\adb.exe`) killen sich den Server. Waehrend einer Messung nur
   **eines** benutzen.
