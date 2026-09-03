@@ -184,3 +184,65 @@ der die Liste erweitert.
   `990_loss.txt` sind Nebenprodukt der spaeteren Aufnahme, **kein**
   Delta-Testfall. Wer daraus einen Zwei-Poll-Test baut, muss das eigens
   begruenden — die Fixture ist dafuer nicht erhoben worden.
+
+---
+
+## T-034-Retest — 2026-09-03
+
+Golden-Test gegen den echten 990er-Verlustdump (Commit `0dbea4e`). **Abgenommen**
+durch den Director; Einschraenkung siehe unten. Der QA-Lauf hat alle vier
+Rot-vorher-Mutationen des `developer` woertlich reproduziert und **14 eigene**
+gefahren; zwei ueberlebten die volle Suite.
+
+| ID | Titel | Prio | Sev / Likelihood | Adressat | Status | Zuletzt geprueft | Auftrag |
+|---|---|---|---|---|---|---|---|
+| QA-014 | `frames per packet (max/ave)` im ganzen Baum vertauschbar — kein Nachweisweg | P3 | Minor / Mittel | developer | **offen**, mutationsbelegt (Q9 ueberlebt 2482 Tests) | 2026-09-03 | T-034-Retest |
+| QA-015 | Redaktionstoleranter Zweig von `sameAddress` von keiner Fixture erreicht (**vorbestehend**) | P4 | Minor / Niedrig | developer | **offen**, mutationsbelegt (Q13 ueberlebt 2482 Tests) | 2026-09-03 | T-034-Retest |
+| QA-016 | „sieben Bloecke, sechs Nullen“ bei `Effective MTU` stimmt nicht mit der Fixture (7 / 5 / 4) | P4 | Trivial / Niedrig | developer | **offen** | 2026-09-03 | T-034-Retest |
+
+**QA-014 vor dem naechsten Anfassen von `MonitorDatabase` erledigen** —
+`framesPerPacketMax` wird dort persistiert; eine Vertauschung verfaelschte
+gespeicherte Historie still.
+
+**QA-012 ist hier NICHT eingetreten.** Die Rot-vorher-Kette dieser Datei ist
+vollstaendig belegt: jeder der sechs Tests wird von mindestens einer Mutation
+rot, die Meldetexte reproduzieren woertlich, der Produktivcode ist per
+`git hash-object` bytegleich wiederhergestellt.
+
+**Was die neue Datei zusaetzlich faengt** (vom `developer` nicht geprueft, vom
+QA-Lauf gefunden): Zaehlertausch `dropped` gegen `dropouts`; **beide**
+Abschnittsgrenzen — bei aufgeweichter Grenze liest der Parser die
+`Counts (underflow)`-Zeile des LE-Audio-HAL (Wert 0) statt der A2DP-Zeile
+(623), die Datei enthaelt drei solche Zeilen; die zweite `assertNull` auf die
+ABR-Felder; und der Vorzug des verbundenen Geraets bei mehreren Geraeten im
+Dump — dafuer ist diese Fixture der einzige gesehene Nachweisweg.
+
+### Die Einschraenkung, die zur Abnahme gehoert
+
+**AK-T009-24 wird von dieser Datei NICHT geprueft** — mechanismus-gebunden
+belegt: Baut man den urspruenglichen QA-001-Fehler wieder ein (`underflows`
+zaehlt wieder als Verlustkanal, `STACK_DROPOUTS to dropouts + underflows`),
+bleiben alle sechs Tests **gruen**; rot werden nur vier andere Tests, alle mit
+handgesetzten Zaehlern.
+
+**Entscheidung des Directors zur Reichweite der Zielaussage:** Der Satz aus
+`docs/tasks/T-034.md` — „der Weg vom echten Geraete-Dump bis zu den Zahlen,
+auf denen die Anzeige beruht, ist durch einen Test abgedeckt“ — gilt **fuer
+den Zaehler- und Bitratenpfad** (Parser → Probe → `LdacState` → Panel).
+Fuer den **Verlust-Verdikt-Pfad gilt er nicht** und wird auch nicht so
+gebucht. Meine Auftragsformulierung war an dieser Stelle zu weit; die
+Einschraenkung des QA-Laufs ist berechtigt und wird uebernommen.
+
+### Entscheidung zur zweiten offenen Frage des QA-Laufs
+
+Der QA-Lauf fragt, ob eine Doppelaufnahme fuer AK-T009-24 **(b)** genuegt, da
+das Kriterium ueber `underflow = 0` spricht, dieser Dump aber 623 traegt.
+**Antwort: sie genuegt.** Die Neufassung in `UI_SPEC.md:2361` lautet
+„Snapshot `underflows` = 0, `dropped` = 525, `dropouts` = 21 **in 97 s**“ —
+das sind **Fensterwerte, keine absoluten Zaehlerstaende**. Genau dieser Fall
+ist in der T-022-Sitzung aufgetreten und in `dumps/README.md` festgehalten:
+`underflow` stand 623 → 623 still, waehrend `dropouts` stiegen. Eine
+Doppelaufnahme aus einem Intervall, in dem `underflow` sich nicht bewegt und
+`dropouts` zaehlen, traegt das Kriterium also vollstaendig — **beide Haelften**.
+**Das ist als Anforderung in T-036 aufgenommen**, samt der Bedingung an das
+Intervall.
