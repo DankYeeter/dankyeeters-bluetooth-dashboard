@@ -32,8 +32,8 @@ Beantwortet die letzte Frage zu AK-7. Braucht Stoerung, deshalb nach der
 2,4-GHz-Zelle — und **getrennt**, damit der `dumpsys`-Aufruf T-036 nicht
 verfaelscht.
 
-**Ohne Geraet moeglich:** QA-014 bis QA-016 (`qa/findings.md`), klein, keiner
-blockiert. **QA-014 vor dem naechsten Anfassen von `MonitorDatabase`.**
+**Ohne Geraet offen: nichts mehr.** QA-014 bis QA-018 sind behoben und
+gegengeprueft (03.09.) — Details in `qa/findings.md`.
 
 ## Zielbild — neu gefasst und in Kraft (03.09.)
 
@@ -187,9 +187,16 @@ keine Groesse je Minute/Sekunde in der Verlustanzeige. Regel **R-G**: das Wort
 
 ## Stand des Codes
 
-`gradlew test`: **2482 Tests, 0 Failures** (03.09., zweimal eigenhaendig
-gemessen; Basislinie vor T-034 waren 2470). Die frueher notierten „2390“ passen
-zu dieser Zaehlweise nicht.
+`gradlew test`: **2488 Tests, 0 Failures** (03.09. nach T-038, von `developer`
+und `qa-engineer` unabhaengig gezaehlt). Verlauf des Tages: 2470 vor T-034 →
+2482 → 2488. Die frueher notierten „2390“ passen zu dieser Zaehlweise nicht.
+
+**T-038 abgeschlossen** (`374be69`, `5218455`, `de2454b`, `5f605b1`): die fuenf
+Befunde QA-014..QA-018 sind behoben und gegengeprueft. **Zwei Lehren daraus
+stehen in `qa/findings.md`** und gelten weiter: (1) Ein Kommentar- oder
+Textbefund ist erst erledigt, wenn **projektweit gesucht** wurde — nicht, wenn
+die genannten Stellen erledigt sind. (2) Ein **positiver** Testfall kann eine
+Fensterbreite strukturell nicht binden; dafuer braucht es einen negativen.
 
 **T-034 abgenommen** (Commit `0dbea4e`): Golden-Test bindet den echten
 990er-Verlustdump an behauptende Tests. QA-Retest hat alle vier
@@ -235,7 +242,7 @@ braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen
 |---|---|---|---|
 | T-036 | performance-tuner | Trennmessung 2,4 GHz bei 990 + Doppelaufnahme | **naechster Schritt**, braucht Geraet |
 | T-037 | performance-tuner | Callback-Probe, letzte AK-7-Frage | nach T-036 |
-| QA-014..016 | developer | drei Befunde aus dem T-034-Retest | offen, kein Geraet noetig |
+| QA-014..018 | developer | Befunde aus dem T-034-Retest und den Nachtraegen | **erledigt**, gegengeprueft 03.09. |
 | T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
 | T-008 | performance-tuner | E-1/E-3 (Nearby-Scans, Spatializer aus) | offen, **kein Shell-Hebel**, nur von Hand |
