@@ -342,8 +342,9 @@ object A2dpLinkDumpParser {
      *
      * Scoped exactly like [readTxStats] and for a sharper version of the same
      * reason: this dump prints one `A2DP <codec> State:` block per codec the
-     * phone can do, so `Effective MTU:` appears seven times and six of them are
-     * `0`. Reading the labels anywhere but inside this one block would pick up
+     * phone can do. Of the seven such blocks, five print an `Effective MTU:`
+     * line and four of those are `0` — LHDCv5 and Opus print no such line at
+     * all. Reading the labels anywhere but inside this one block would pick up
      * whichever unnegotiated codec happened to sort first.
      *
      * A block whose `Config:` line says `Invalid` is the stack's own way of
