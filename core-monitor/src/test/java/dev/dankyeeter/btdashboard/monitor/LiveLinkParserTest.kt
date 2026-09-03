@@ -353,9 +353,10 @@ class LiveLinkParserTest {
     }
 
     /**
-     * `Effective MTU:` is printed by **every** codec's state block, and the six
-     * codecs that are not negotiated all print `0`. A whole-dump scan for the
-     * label would therefore report whichever one it reached first.
+     * Of the seven per-codec state blocks, five print an `Effective MTU:` line
+     * and four of those are `0` — LHDCv5 and Opus print no such line at all. A
+     * whole-dump scan for the label would therefore report whichever one it
+     * reached first.
      */
     @Test
     fun `the MTU comes from the LDAC block and not from an idle codec's`() {
