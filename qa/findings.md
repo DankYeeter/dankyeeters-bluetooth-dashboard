@@ -246,3 +246,50 @@ Doppelaufnahme aus einem Intervall, in dem `underflow` sich nicht bewegt und
 `dropouts` zaehlen, traegt das Kriterium also vollstaendig — **beide Haelften**.
 **Das ist als Anforderung in T-036 aufgenommen**, samt der Bedingung an das
 Intervall.
+
+---
+
+## T-038 und Nachtraege — 2026-09-03, Kette geschlossen
+
+Alle fuenf Befunde behoben und **unabhaengig gegengeprueft**. Commits `374be69`,
+`5218455`, `de2454b`, `5f605b1`. Suite **2488 / 0** (von 2482).
+
+| ID | Titel | Status | Beleg |
+|---|---|---|---|
+| QA-014 | `frames per packet (max/ave)` vertauschbar | **geschlossen** | Rot-vorher unabhaengig reproduziert; Test erreicht den Pfad nachweislich |
+| QA-015 | `sameAddress`-Fallback unerreicht | **geschlossen** | Zweig gebunden; die `trimIndent()`-Falle nachweislich umgangen |
+| QA-016 | falsche `Effective MTU`-Zahl | **geschlossen** | vier Fundorte korrigiert, projektweiter Grep ohne weiteren Treffer |
+| QA-017 | vierter Fundort derselben Zahl | **geschlossen** | eigener Grep des `qa-engineer` mit eigenen Mustern: keine fuenfte Stelle |
+| QA-018 | Parameter des Fallbacks ungebunden | **geschlossen** | beide Mutationen einzeln, je genau ein Test rot |
+
+### Die Lehre aus dieser Kette — zwei Muster, beide teuer
+
+**1. Einzelfunde sind keine Suche.** QA-016 wurde dreimal an Stellen behoben,
+die jemand **zufaellig gesehen** hatte. Erst als der Director einen
+projektweiten Grep als Abschlussprobe verlangte, war klar, dass es einen
+vierten gab — und erst danach, dass es keinen fuenften gibt. **Regel fuer
+kuenftige Kommentar- und Textbefunde: Der Fix ist erst fertig, wenn projektweit
+gesucht wurde, nicht wenn die genannten Stellen erledigt sind.**
+
+**2. Ein positiver Testfall kann eine Fensterbreite nicht binden.**
+Der Fallback ist `a.takeLast(5).equals(b.takeLast(5), ignoreCase = true)`. Die
+letzten zwei Zeichen sind **Suffix** der letzten fuenf — stimmen zwei Adressen
+auf 5 ueberein, dann zwangslaeufig auch auf 2. Eine Verengung `takeLast(5)` →
+`takeLast(2)` kann also **nur mehr** matchen, nie weniger, und bleibt unter
+jedem positiven Testfall gruen. Gebunden wird die Breite **nur durch einen
+negativen Fall**: zwei Geraete, die sich im vorletzten Oktett unterscheiden
+und im letzten gleichen.
+
+**Der Vorschlag aus dem QA-015-Retest (`xx:xx:xx:xx:11:CD` gegen
+`22:33:44:55:11:cd`) waere daran gescheitert** — beide Tails matchen auch bei
+Fenster 2. Der `developer` hat das gefangen und stattdessen einen echten
+negativen Fall gebaut; der `qa-engineer` hat die Herleitung im
+Bestaetigungslauf nachvollzogen und seinen eigenen frueheren Vorschlag
+ausdruecklich als untauglich eingeraeumt. **Der Director hatte den Vorschlag
+ungeprueft weitergereicht** — das ist der eigentliche Fehler dieser Runde.
+Verwandt mit der stehenden Regel: eine Regel aus wenigen Beispielen ist eine
+Hypothese, keine Tatsache.
+
+**Entscheidung des Directors:** Der `sameAddress`-Zweig **bleibt**. Der Test
+belegt, dass er einen erreichbaren, korrekten Fall abdeckt — „ungetestet“ war
+kein Grund zum Entfernen, sondern einer zum Testen.
