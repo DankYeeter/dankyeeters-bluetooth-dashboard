@@ -183,3 +183,189 @@ nicht angeordneten Prüfaufwand möglich wurde:**
   Auftragsbeschreibung dieses Zyklus — der aktuelle Stand von
   `security/findings.md` enthaelt A16 bereits vollstaendig, die Korrektur ist
   demnach bereits nachgetragen).
+
+## Zyklus 2 — 2026-09-03
+
+**Ziel des Zyklus:** Research-Block R-008/009/010 auswerten, Zielbild neu
+fassen und vom Nutzer abnehmen lassen (`GOAL.md`), zwei Geraete-Read-backs
+(T-032, T-035) und eine Recherche (R-011) zur BQR-Queue, einen Golden-Test auf
+den echten 990er-Verlustdump binden (T-034) und dessen QA-Retest fahren, sowie
+eine Befundkette QA-014..QA-018 ueber vier Runden abschliessen (T-038 plus
+zwei Nachtraege plus Bestaetigungslauf).
+
+**Gut gelaufen — ausdruecklich benannt, damit es nicht verloren geht:**
+
+- **Der Rot-vorher-Beleg hat wiederholt echte, sonst unsichtbare Luecken
+  offengelegt**, nicht nur formal abgehakt. Der QA-Retest zu T-034 fuhr 14
+  eigene Mutationen zusaetzlich zu den vier des `developer` und fand zwei
+  Ueberlebende (QA-014, QA-015) — beide durch Rot-vorher am Meldetext
+  verifiziert, nicht nur "Test existiert". In der QA-018-Kette bewahrte
+  dieselbe Disziplin das Projekt vor einem Schein-Fix: die zwei neuen Tests
+  wurden **einzeln** mutiert und jede Mutation traf **genau** den dafuer
+  vorgesehenen Test (`T-038-retest-bericht.md`, Abschnitt "Zweiter Lauf").
+  Diese Praxis braucht keine Aenderung, nur Fortsetzung.
+- **Rollenuebergreifende Fehlerannahme ohne Verteidigung, mit Mehrwert statt
+  blosser Korrektur** — derselbe Zug wie in Zyklus 1, diesmal an anderer
+  Stelle bestaetigt: Der `developer` erkannte und begruendete mathematisch,
+  dass der vom `qa-engineer` (und vom Director befuerwortete) Testvorschlag
+  fuer QA-018 den Befund strukturell nicht haette binden koennen, und baute
+  einen echten negativen Fall statt den Vorschlag auszufuehren
+  (`T-038-retest-bericht.md`, "QA-018 geschlossen"). Der `qa-engineer` nahm
+  die Herleitung an und raeumte den eigenen fruesheren Vorschlag **aktiv**
+  als untauglich ein, statt ihn stillschweigend fallen zu lassen.
+- **Funde ausserhalb des eigenen Scopes wurden gemeldet, nicht nebenbei
+  mitgeaendert.** Der `developer` fand beim QA-016-Fix eine dritte,
+  nicht beauftragte Fundstelle und legte sie dem Director zur Freigabe vor,
+  statt sie einfach mitzupatchen (`T-038-bericht.md`, "Der dritte Fundort war
+  ein Zufallsfund"). Ebenso meldete er transparent den eigenen
+  Encoding-Fehltritt beim Gedankenstrich, bevor er committete.
+- **`docs/state.md` wurde von 834 auf ~270 Zeilen verdichtet** (`4f84e9e`),
+  was den unten beschriebenen Fehler erst sichtbar machte — die Verdichtung
+  selbst war der richtige Schritt, nur zu spaet angesetzt (siehe L-002).
+
+### L-002 — Eine Abwesenheits-, Unveraendert- oder Nichtlieferungs-Behauptung stuetzt sich auf eine gealterte oder abgeleitete Quelle statt auf eine direkte Pruefung des aktuellen Bestands
+
+**Belege:**
+- 2026-09-01: `archivist` meldete, `GOAL.md` fehle im Repo-Root — die Datei
+  lag dort tatsaechlich (`docs/lessons.md`, Zyklus 1, Beobachtungen).
+- 2026-09-02: Zwei `researcher`-Laeufe brachen am Nutzungslimit ab; daraus
+  wurde geschlossen, sie haetten nichts geliefert. Der `archivist` fand beide
+  Recherchedateien **vollstaendig** auf der Platte. Ein gemeldeter
+  Agentenabbruch heisst nicht, dass nichts geschrieben wurde — diese Lehre
+  ging beim Verdichten von `docs/state.md` verloren und wird hiermit
+  nachgetragen (Direktoranweisung fuer diesen Zyklus).
+- 2026-09-03: `docs/state.md` trug bei 834 Zeilen gleichzeitig „PII
+  bereinigt" (Zeile 188) und „OFFEN: PII in drei Messberichten — blockiert
+  deren Commit" (Zeile 719) — eine laengst erledigte, nie entfernte Notiz.
+  Wer nur den hinteren Abschnitt las, mutmasste einen offenen Blocker, der
+  keiner mehr war (belegt per `git show bcf0aa4:docs/state.md`).
+
+**Ursache:** Keine Konvention verlangt, dass eine Aussage ueber Abwesenheit,
+Unveraendertheit oder Nichtlieferung an der **primaeren** Quelle (Dateisystem,
+Git, aktueller Code-/Repo-Zustand) geprueft wird, bevor sie getroffen wird —
+eine **sekundaere** Quelle (eine Notiz, ein Statuswort wie „abgebrochen", der
+zuerst gelesene Teil eines langen Dokuments) genuegt bislang. Zusaetzlich
+verletzte `docs/state.md` wiederholt seine eigene, am Kopf der Datei stehende
+Regel „Erledigtes fliegt raus" — die Datei wuchs vier Sitzungen lang, bevor
+verdichtet wurde, was genug Zeit liess, dass eine ueberholte Zeile stehen
+blieb und falsch gelesen wurde. Dies ist die durch ein drittes Vorkommen
+bestaetigte Fortsetzung der Zyklus-1-Beobachtung „unvollstaendige
+Zustandspruefung vor einer Abwesenheits- oder Unveraendert-Behauptung".
+
+**Massnahme (Vorschlag — betrifft den Uebergabe-Kontrakt bzw. `CLAUDE.md`,
+siehe Grenzen; keine Aenderung durch mich):**
+
+1. Im Uebergabe-Kontrakt, Abschnitt zu `GELESEN`/Berichtsdisziplin, ergaenzen:
+   *„Eine Aussage der Form 'nicht vorhanden', 'nicht geliefert' oder
+   'unveraendert' wird nur getroffen, nachdem der aktuelle Bestand direkt
+   geprueft wurde (Dateisystem, `git status`/`git show`, Grep) — nicht aus
+   einer abgeleiteten Quelle wie einer Notiz oder einem Statuswort
+   uebernommen. Ein gemeldeter Abbruch eines Agentenlaufs ist keine Aussage
+   ueber das Ergebnis; das Dateisystem entscheidet."*
+2. Am Kopf von `docs/state.md` (Vorschlag an den `archivist`, der die Datei
+   pflegt) ergaenzen: *„Wird eine Zeile durch einen neuen Eintrag ersetzt
+   oder widerlegt, wird die alte Zeile im selben Bearbeitungsschritt entfernt
+   — nicht gesammelt bis zur naechsten Verdichtung."*
+
+**Erfolgskriterium:** In den naechsten zwei Zyklen taucht keine weitere
+Abwesenheits-/Nichtlieferungs-Behauptung mehr auf, die sich als falsch
+herausstellt, weil eine sekundaere statt der primaeren Quelle geprueft wurde.
+Gleichzeitig bleibt `docs/state.md` bei jeder Pruefung unter ~350 Zeilen,
+ohne dass eine grosse Verdichtung noetig wird.
+
+**Status:** vorgeschlagen (2026-09-03) — Nutzerentscheidung noetig, betrifft
+Uebergabe-Kontrakt/Konvention.
+
+**Kostenabwaegung:** Ein zusaetzlicher Pruefschritt vor genau der Art
+Aussage, die dreimal in zwei Zyklen zu einer falschen Behauptung fuehrte,
+zuletzt mit einem konkreten Fehlbefund (PII-Blocker). Der zweite Teil der
+Massnahme ist Selbstdisziplin ohne Mehraufwand — er verschiebt Arbeit nicht,
+er verteilt sie nur anders (sofort statt gesammelt). Nutzen uebersteigt Kosten.
+
+### L-003 — Ein Kommentar- oder Textbefund gilt als erledigt, sobald die im Befund genannten Stellen behoben sind, statt wenn projektweit gesucht wurde
+
+**Belege:** QA-016 (falsche `Effective MTU`-Zahl im Kommentar) wurde in drei
+aufeinanderfolgenden Commits an Stellen behoben, die der `developer` zufaellig
+gesehen hatte (`374be69`, `5218455`, `de2454b`). Erst ein vom Director
+verlangter projektweiter Grep als Abschlussprobe deckte einen vierten
+Fundort auf (QA-017); erst der vom `qa-engineer` **unabhaengig mit eigenen
+Suchmustern** gefahrene Gegen-Grep belegte, dass es keinen fuenften mehr gibt
+(`T-038-retest-bericht.md`, "Zweiter Lauf"). Vier Runden fuer einen reinen
+Kommentarfehler ohne Verhaltensaenderung.
+
+**Ursache:** Kein Schritt im Ablauf eines Kommentar-/Textbefunds verlangt
+projektweite Suche als Abschlusskriterium; „die genannten Stellen sind
+korrigiert" wird mit „der Befund ist erledigt" verwechselt, obwohl der Befund
+selbst nie eine vollstaendige Fundstellenliste behauptet hatte.
+
+**Massnahme (Vorschlag — betrifft `qa-engineer`- und `developer`-Konventionen
+bzw. `CLAUDE.md`, siehe Grenzen; keine Aenderung durch mich; Formulierung ist
+bereits im Team entstanden, `qa/findings.md`, "Die Lehre aus dieser Kette",
+und wird hier nur uebernommen statt neu erfunden):** *„Ein Kommentar- oder
+Textbefund gilt erst als behoben, wenn projektweit gesucht wurde (Grep ueber
+den vollstaendigen Baum mit mindestens einer vom urspruenglichen Fund
+unabhaengigen Suchmaske) und diese Suche im Bericht mit Trefferzahl
+dokumentiert ist — nicht, wenn die im Befund genannten Stellen korrigiert
+sind."*
+
+**Erfolgskriterium:** In den naechsten zwei Zyklen braucht ein
+Kommentar-/Textbefund hoechstens eine Korrekturrunde plus eine
+Bestaetigungsrunde (zwei statt vier), weil die erste Runde bereits
+projektweit sucht.
+
+**Status:** vorgeschlagen (2026-09-03) — Nutzerentscheidung noetig.
+
+**Kostenabwaegung:** Ein Grep-Lauf und ein Satz Dokumentation je
+Textbefund — Sekunden, gegen drei zusaetzliche Runden Berichte, Commits und
+Retests, die diese Sitzung tatsaechlich gekostet hat. Nutzen uebersteigt
+Kosten deutlich.
+
+### Wirkungskontrolle frueherer Massnahmen
+
+| ID | Massnahme | Uebernommen am | Wirkung | Konsequenz |
+|---|---|---|---|---|
+| L-001 | Randbedingung bei jeder tragenden Aussage nennen | nicht foermlich uebernommen (Status weiterhin „vorgeschlagen") | Einmal informell bereits angewendet, **vor** diesem Zyklus: `ARCHITECTURE.md` Zeile 1413 formuliert eine Aussage explizit mit „Randbedingung dieser Aussage, damit sie nicht ueberdehnt wird" (Commit `569a2d0`, 02.09.). In den Berichten dieses Zyklus (T-034, T-038) keine Verletzung des L-001-Musters gefunden. | Keine Zwei-Zyklen-Bewertung moeglich, solange der Nutzer nicht entscheidet. Weiter vorschlagen, nicht wiederholen — ein zweiter identischer Vorschlag waere Regelinflation. |
+| — (02.09., ad hoc) | „Absenz-Behauptungen brauchen Durchsicht" (Read-back deckt das vollstaendige Zustandsbuch ab) | 02.09., nicht als L-ID gefuehrt | **Teilweise gewirkt.** Fuer Geraete-Read-backs (T-032, T-035) keine Verletzung in den Material dieses Zyklus. Die Regel deckte aber nur Geraetezustand ab — der strukturell gleiche Fehler trat am 03.09. in anderer Form auf (veraltete `docs/state.md`-Zeile, siehe L-002). | In L-002 verallgemeinert: nicht mehr auf „Zustandsbuch" beschraenkt, sondern auf jede Abwesenheits-/Nichtlieferungs-Behauptung. |
+| — (02.09., ad hoc) | „Eine Regel aus wenigen Beispielen ist eine Hypothese" | 02.09., nicht als L-ID gefuehrt | **Griff hier nicht** — der Director befuerwortete den QA-018-Testvorschlag des `qa-engineer` ausdruecklich, ohne ihn zu pruefen (`T-038-retest-bericht.md`, „Fehler des Directors in dieser Kette"). Analyse: andere Mechanik als die Regel abdeckt. Die Regel warnt vor **eigener** Verallgemeinerung geprueften Wissens; hier wurde eine **fremde, ungeprüfte** Aussage weitergereicht, nicht generalisiert. Die Regel hatte diesen Fall nicht im Blick. | **Kein Muster** (ein Vorkommen) — bleibt Beobachtung unten, keine neue Massnahme. Aufgefangen durch die bestehende Rot-vorher-Pflicht beim `developer`, ohne dass Schaden entstand — das Sicherheitsnetz hat gehalten. |
+| Rot-vorher-Beleg (Nutzerregel, projektuebergreifend) | „Ein gruener Test zaehlt erst, wenn er beim Wiedereinbau des Fehlers rot wird" | vor Zyklus 1 in Kraft | **Wirkt weiter, mehrfach belegt.** T-034 (4+14 Mutationen), T-038/T-038-Retest (Mutationen einzeln, treffsicher). Keine Aenderung vorgeschlagen. | Beibehalten, keine Massnahme noetig. |
+
+### Beobachtungen (noch kein Muster)
+
+**Neu (1 Vorkommen) — Der Director befuerwortet einen fremden Vorschlag aus
+einem Pruefbericht in einem Auftrag, ohne ihn selbst zu pruefen:**
+- 2026-09-03: Der `qa-engineer` schlug fuer QA-018 Testadressen vor
+  (`xx:xx:xx:xx:11:CD` / `22:33:44:55:11:cd`), die die geprüfte
+  `takeLast(5)`-Fensterbreite strukturell nicht binden konnten — beide Tails
+  stimmen auch bei `takeLast(2)` ueberein. Der Director uebernahm den
+  Vorschlag „ausdruecklich befuerwortend" in den Auftrag an den `developer`,
+  ohne die eine Zeile Nachrechnung selbst zu leisten. Der `developer` fing es
+  (siehe „Gut gelaufen" oben). Kein Schaden entstanden, aber der Mechanismus
+  ist real: Weiterreichen einer fremden Bewertung als eigene Freigabe, ohne
+  dass „befuerworten" eine tatsaechliche Pruefung bedeutete. Sollte sich das
+  wiederholen — insbesondere bei einem Vorschlag, den keine nachgeschaltete
+  Rot-vorher-Pflicht mehr auffangen kann — waere die Massnahme: *„Der
+  Director prueft einen aus einem Bericht uebernommenen und im eigenen
+  Auftrag befuerworteten Vorschlag mit derselben Sorgfalt wie eine eigene
+  Aussage; 'befuerwortet' heisst geprueft, nicht weitergereicht."* Bis dahin:
+  beobachten.
+
+**Geprueft, kein Befund — Entwickler-Commits nur lokal bis `sync-out`:**
+- 2026-09-03: Vier `developer`-Commits (`374be69` bis `5f605b1`) lagen lokal,
+  bis der `sync-out` sie mitnahm. Das entspricht der vorgesehenen
+  Rollentrennung (Commit durch `developer`, Push nach Pruefung durch
+  `sync-out`) und ist durch `CLAUDE.md` (Remote-Kategorie-Pruefung vor Push)
+  begruendet. Kein Datenverlust, keine Verzoegerung mit erkennbarer Wirkung
+  in diesem Zyklus. Keine Massnahme — als gepruefter Nicht-Befund vermerkt,
+  damit ein spaeterer Zyklus das nicht neu untersuchen muss.
+
+**Fortbestehend aus Zyklus 1 (weiterhin 2 Vorkommen, kein drittes in diesem
+Zyklus gefunden):**
+- „Unvollstaendige Zustandspruefung vor einer Abwesenheits- oder
+  Unveraendert-Behauptung" — **hiermit nach L-002 verschoben** (drittes
+  Vorkommen bestaetigt, siehe oben). Aus der Beobachtungsliste entfernt.
+- „Selbstkorrektur, die nur durch zusaetzlichen, nicht angeordneten
+  Pruefaufwand moeglich wurde" — kein neues Vorkommen in diesem Zyklus. Die
+  in T-034/T-038 gesehene zusaetzliche Pruefung durch den `qa-engineer` war
+  **angeordnete** Rollenaufgabe (Mutationstests sind Konvention), nicht
+  Eigeninitiative wie in den beiden Zyklus-1-Faellen — zaehlt daher nicht als
+  drittes Vorkommen. Weiter beobachten.
