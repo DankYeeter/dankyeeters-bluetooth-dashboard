@@ -1,38 +1,115 @@
-# Stand — 2026-09-02, Part 4
+# Stand — 2026-09-03, Part 5
 
 ## UEBERGABE an die naechste Session — hier geht es weiter
 
-**T-027 ist beauftragt, aber NICHT gelaufen.** Der Agent wurde durch ein
-Prozessende abgebrochen, **bevor** er das Geraet angefasst hat. Er hat nichts
-hinterlassen: kein `docs/perf/T-027-messung.md`, keine Geraeteaenderung, keine
-halbfertige Zelle. Der Auftrag `docs/tasks/T-027.md` ist vollstaendig und kann
-**unveraendert neu erteilt werden** — Rolle `performance-tuner`, Modell sonnet.
+**Der Research-Block T-031 ist vollstaendig gelesen und ausgewertet**
+(R-008, R-009, R-010). Damit ist der Punkt "R-009/R-010 lesen", der Part 4
+als erstes vorsah, **erledigt**. Was daraus folgt, steht unten unter
+"Auswertung des Research-Blocks (03.09.)".
 
-**Der Nutzer ist bereit:** Kopfhoerer verbunden, Musik laeuft (Stand 02.09.).
+**Der naechste offene Punkt ist keine Agentenarbeit, sondern eine
+Entscheidung des App Designers.** Vier Stueck liegen vor:
 
-**Stufe fuer die Messung: 660 kbps**, in den Entwickleroptionen als
-„Ausgewogene Audio- und Verbindungsqualitaet" — **nicht** „Adaptive Bitrate".
-Begruendung: hoechste fest waehlbare Stufe mit **null** Verlusten in T-008, hat
-also Luft nach oben; 990 ist untauglich, weil dort schon ohne Stoerung Verluste
-auftreten und die Kennlinie gesaettigt startet; adaptiv waere der Konfundierer
-selbst. In den Entwickleroptionen sind ohnehin nur 990 / 660 / 330 fest
-waehlbar — 492 und 396 erscheinen nur unter ABR.
+1. **`GOAL.md` neu schreiben** — urteilende App gegen zeigende App, beide
+   mit Tuning als drittem Standbein, und die Zielpraezisierung "990 ist das
+   Ziel" muss hinein. **Nur der Nutzer aendert `GOAL.md`.**
+2. **Welche Massnahmen kommen in den gefuehrten Prozess** — Vorschlag aus
+   R-010: A1-A5 plus A7, alles andere als "Ausweichen" bzw. gar nicht.
+3. **PII in drei Messberichten** — redigieren oder dauerhaft per
+   `.gitignore` ausschliessen. Blockiert deren Commit, sonst nichts.
+4. **Ein Geraete-Read-back vor jedem weiteren Bau** (Details unten) —
+   braucht Kopfhoerer verbunden und Musik.
 
-**Erster Schritt bleibt das Gate (Phase 0 in T-027):** traegt die Gleichsetzung
-`Priority: 1000000` gleich `quality_mode_index` / `codecSpecific1`, ja oder
-nein? Ohne belegtes Ja keine Phase 1-3.
+Ohne 1 und 2 kein Baubeginn an Tuning-Prozess oder Testsuite: die
+Abnahmekriterien dafuer haben sonst keine legitime Herkunft.
 
-**Danach, und erst danach: die Hoersitzung mit dem Nutzer.** Die Kennlinie sagt
-nur „diese Stoerung erzeugt diese Rate". Die Zuordnung zum Hoereindruck
-entsteht ausschliesslich dadurch, dass Daniel hoert und der Director
-protokolliert — R-006 hat belegt, dass es dafuer keine Literaturschwelle gibt.
-Kein Agent darf diese Zuordnung schaetzen.
+## Auswertung des Research-Blocks (03.09.) — was jetzt belegt ist
 
-**Offen aus dem Research-Block, nach der Messung in einem Rutsch:**
-`UI_SPEC.md` nachziehen (`ui-ux-designer`, Spec-Modus, opus) — `dropped`
-verliert das Verdikt, `encoder underflows` traegt in der T-009-Tabelle
-faelschlich noch `OCCASIONAL`, und AD-019 braucht die entsprechende
-`None`-Begruendung.
+**Die tragende Erklaerung heisst Luftzeit, nicht Signalqualitaet.** 990 kbps
+belegt auf einem 2-DH5-Link rund 70 Prozent der Kapazitaet, 660 rund 47-59.
+Funkfehler werden per ARQ in Wiederholungen und damit ebenfalls in Luftzeit
+umgesetzt — "Latenz gegen Signalqualitaet" ist deshalb **keine** Trennung.
+Die Sendewarteschlange fasst 28 Pakete, bei 990 nur rund **150 ms** Audio.
+Das erklaert, warum dieselbe Stoerung bei 660 folgenlos bleibt und 990 kippt.
+**Belegstand:** Konstanten am Quelltext belegt, die Prozentrechnung ist
+eigene Arithmetik auf sekundaer belegten Paketgroessen — Rahmen, keine Messung.
+
+**Eine Director-Lesart ist widerlegt (R-010, Teil 0):** `Packet counts
+(expected/dropped)` = 1279910/0 sagt **nichts** ueber die Funkstrecke. Der
+Zaehler zaehlt Encoder-Aufrufe und `ldacBT_encode()`-Fehler. Der Satz "auf
+Paketebene geht nichts verloren" bleibt als Protokolleigenschaft richtig,
+ist aber **durch diesen Zaehler nicht belegt**. Wer damit argumentiert,
+argumentiert falsch.
+
+**Der Ueberlauf entsteht auf der Abflussseite**, nicht am Host-Timer:
+`tx_audio_queue` wird nur geleert, solange `l2c_bufs` unter der Schwelle
+liegt; nimmt der Controller nichts ab, staut es sich bis zur Raeumung.
+Belegt am Quelltext.
+
+### Die Stellschrauben — was die App empfehlen kann (R-010, Teil 1)
+
+Alle ohne Root, alle nur **anleitbar**, keine von der App stellbar. Keine
+davon ist unter 990 gepinnt gemessen — die Rangfolge ist Belegstaerke, nicht
+Wirkungsgroesse.
+
+| Rang | Massnahme | Beleg |
+|---|---|---|
+| 1 | 2,4-GHz-WLAN weg (aus, oder Router-SSID auf 5 GHz) | eigene Messung n=1 bei 660 + PTA-Mechanismus |
+| 2 | Keine Discovery/Scans: Koppel-Bildschirm zu, Fast-Pair-Suche aus, scannende Apps finden | AOSP-Javadoc woertlich |
+| 3 | Kein zweites BT-Geraet, Multipoint am Sink aus | Sony schaltet LDAC bei Multipoint ganz ab |
+| 4 | Koerper aus der Funkstrecke, Abstand klein, Sichtlinie | Fachliteratur 10-21 dB Daempfung |
+| 5 | USB-3-Kabel waehrend der Wiedergabe ab | Sekundaerquelle; **im Projekt nie ohne Kabel gemessen** |
+| 6 | Sink-Modus, der LDAC zulaesst | Herstellerdoku, nur Sony belegt |
+
+**Ausweichen statt Hilfe** (gehoert sichtbar so beschriftet): Stufe senken,
+ABR, Codec-Wechsel auf AAC/SBC/aptX, 44,1-kHz-Familie (909 statt 990).
+**Zwei Nebenbefunde:** 990 existiert nur in der 48/96-kHz-Familie; ein
+Wechsel 96 auf 48 kHz spart **keine** Luftzeit, nur Resampling.
+
+**Widerlegt oder ohne Mechanismus** — gehoeren nicht in den Prozess, aber in
+die Begruendung, warum sie fehlen: Absolute Lautstaerke, AVRCP-Version,
+Bittiefe, 48 gegen 96 kHz, Akku-/App-Optimierung, BT-Cache loeschen,
+Neukoppeln, Flugmodus-Zyklus, Schalter "Bluetooth-Scannen", "maximale
+Audiogeraete" bei einem Sink, Neustart — und auf **diesem** Geraet der
+A2DP-Offload-Schalter, weil LDAC hier im Host-Encoder-Pfad laeuft.
+
+**Nur mit Systemrechten, also unbrauchbar:** `setBufferLengthMillis`
+(groesserer Sendepuffer gegen Latenz), Interop-Listen, HCI/Flush-Timeout.
+
+### Der Fund mit dem groessten Hebel fuer die App (R-009)
+
+`dumpsys bluetooth_manager` enthaelt auf diesem Geraet einen
+**BT-Quality-Report-Abschnitt** mit Pakettyp, RSSI, Sendeleistungsstufe,
+Wiederholungen (`ReTx/TxTotal`), Nicht-Empfang (`NoRX`) und
+AFH-Kanalauslass — **echte Firmware-Telemetrie, ohne Root lesbar**, mit
+Zeitstempel je Ereignis. Das ist die Groesse, die das Projekt bisher aus der
+Warteschlange zurueckzuschliessen versucht hat. **Nicht stellbar, nur
+lesbar.** Vorbehalt: nur bei Ereignissen oder im Monitoring-Modus gefuellt,
+Felder sind herstellerdefiniert (BQR v5-v7).
+
+Der Dump zeigte Choppy-Ereignisse bei **RSSI -47 dBm** — starkes Signal.
+Das stuetzt die Luftzeit-These und schwaecht "schlechter Empfang".
+
+### Der Geraete-Read-back, der vor allem anderen kommt
+
+Ein einziger Lauf beantwortet, ob 990 auf dieser Paarung ueberhaupt tragen
+kann, und liefert die Ist-Werte fuer die Luftzeitrechnung:
+
+- `Frames per packet (ave)` — bei 990 heisst ca. 2 ein 2-DH5-Link, ca. 3 ein
+  3-DH5-Link. Liegt der Link in der 2-DH3-Klasse, hilft **keine** Massnahme.
+- BQR: Pakettyp, `ReTx/TxTotal`, `NoRX` **waehrend** eines 990er-Clusters
+  gegen eine Ruhephase.
+- Laeuft LDAC wirklich im Host-Pfad? Logcat "software codec=".
+- Bietet das Geraet aptX an? `Selectable`-Zeile.
+- Remote-Features der Gegenstelle: 3-Mbps-EDR ja/nein, effektive MTU (Dump
+  sagte 883 gegen angebotene 1005).
+
+Rolle: `performance-tuner`. Braucht Kopfhoerer verbunden und Musik.
+
+**Offen geblieben und nicht zu klaeren war:** Chipsatz des Pixel 11 Pro,
+warum die Firmware bei -47 dBm 2-DH5 faehrt, Herkunft der MTU 883,
+Zahlenwert von `MAX_PCM_FRAME_NUM_PER_TICK`, Semantik von
+`Frames per packet` (offen seit R-001).
 
 
 Kurzfassung fuer die Agenten. Zielbild in `GOAL.md`, Historie in `HANDOVER.md`,
@@ -294,9 +371,12 @@ Keine rote Zeile mehr aus diesen Kanaelen. AD-019 wird so gebaut.
 | ID | Rolle | Thema | Status |
 |---|---|---|---|
 | T-023 | architect | Entwurf Verlustmechanik | **erledigt**, AD-015..AD-024 auf `master` |
-| T-024 | researcher | Semantik `dropped`/`dropouts`/`underflow`, nach R-005 | **laeuft** |
-| T-025 | researcher | Hoerbarkeitsschwellen A2DP, nach R-006 | **laeuft** |
-| T-026 | researcher | Hebel fuer Verlust bei konstanter Stufe (M-11), nach R-007 | **laeuft** |
+| T-024 | researcher | Semantik `dropped`/`dropouts`/`underflow` | **erledigt**, R-005 |
+| T-025 | researcher | Hoerbarkeitsschwellen A2DP | **erledigt**, R-006 |
+| T-026 | researcher | Hebel fuer Verlust bei konstanter Stufe (M-11) | **erledigt**, R-007 |
+| T-029 | performance-tuner | Buendelstruktur der 990er-Verluste | **erledigt** |
+| T-030 | ui-ux-designer | Buendelungskriterium in `UI_SPEC.md` | **erledigt**, AK-T030-1..14, **nicht committet** |
+| T-031 | researcher x3 | Stresshebel / Schadfaktoren / Massnahmen | **erledigt**, R-008/R-009/R-010, **ausgewertet 03.09.** |
 | T-021 | developer | AK-Verankerung (QA-008) | **erledigt**; Retest gelaufen, Restbefunde QA-012/QA-013 |
 | T-022 | performance-tuner | Fixtures Verlustfall/Stufen/Pause | geliefert |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen; **vor** dem Transport-Messlauf (U-6/S-6) |
