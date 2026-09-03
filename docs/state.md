@@ -2,8 +2,13 @@
 
 Kurzfassung fuer die Agenten. Zielbild in `GOAL.md`, Historie in `HANDOVER.md`,
 Entwurf in `ARCHITECTURE.md`, Oberflaeche in `UI_SPEC.md`, Befunde in
-`qa/findings.md`. Details stehen dort, nicht hier. **Diese Datei bleibt kurz;
-Erledigtes fliegt raus.**
+`qa/findings.md`. Details stehen dort, nicht hier.
+
+**K-3 (Nutzer 03.09.): Erledigtes fliegt SOFORT raus, nicht bei der naechsten
+Verdichtung.** Diese Datei ist das Nervensystem des Teams — was hier veraltet
+steht, lesen Agenten als Tatsache und melden es weiter. Genau das ist am 03.09.
+passiert: eine erledigte PII-Notiz liess den `archivist` einen Falschbefund
+melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 ## Hier geht es weiter
 
