@@ -2,26 +2,127 @@
 
 ## UEBERGABE an die naechste Session — hier geht es weiter
 
-**Der Research-Block T-031 ist vollstaendig gelesen und ausgewertet**
-(R-008, R-009, R-010). Damit ist der Punkt "R-009/R-010 lesen", der Part 4
-als erstes vorsah, **erledigt**. Was daraus folgt, steht unten unter
-"Auswertung des Research-Blocks (03.09.)".
+**T-032 ist gelaufen und ausgewertet.** Volltext `docs/perf/T-032-readback.md`.
+Rohdaten `C:\Users\Daniel\t032-rawdata` (ausserhalb Repo, MACs).
+Neues Werkzeug `docs/perf/tools/t032_run.sh` (Sampler mit BQR-Watcher).
 
-**Der naechste offene Punkt ist keine Agentenarbeit, sondern eine
-Entscheidung des App Designers.** Vier Stueck liegen vor:
+**DER BEFUND: 27,78 min bei gepinnten 990, ohne WLAN-Assoziation — 0 Verluste.**
+1143 Samples, alle 1142 Uebergaenge geprueft. `dropped`/`dropouts`/`flushed`/
+`max dropped` in **jedem** Sample 0. Kein Stufenwechsel, kein BQR-Ereignis.
+Queue einmal auf 6, sofort zurueck. `underflow` 2->18 (0,58/min, keine Haeufung).
+Nachweisgrenze (Dreierregel) **0,1080/min**.
 
-1. **`GOAL.md` neu schreiben** — urteilende App gegen zeigende App, beide
-   mit Tuning als drittem Standbein, und die Zielpraezisierung "990 ist das
-   Ziel" muss hinein. **Nur der Nutzer aendert `GOAL.md`.**
-2. **Welche Massnahmen kommen in den gefuehrten Prozess** — Vorschlag aus
-   R-010: A1-A5 plus A7, alles andere als "Ausweichen" bzw. gar nicht.
-3. **PII in drei Messberichten** — redigieren oder dauerhaft per
-   `.gitignore` ausschliessen. Blockiert deren Commit, sonst nichts.
-4. **Ein Geraete-Read-back vor jedem weiteren Bau** (Details unten) —
-   braucht Kopfhoerer verbunden und Musik.
+**Das steht gegen T-029** (10 Cluster in 25 min, gleiche Paarung, gleiche Stufe).
+Der Unterschied: T-029 hat die WLAN-Assoziation nie geprueft, heute war
+durchgehend keine da. **Das ist eine Hypothese, keine Erklaerung** — n=1 gegen
+n=1, keine kontrollierte Variable. T-029 nennt selbst Ruhephasen bis 4,4 min.
+**Die naechste Messung muss genau das trennen:** dieselben 30 min mit
+2,4-GHz-Assoziation gegen ohne. Das ist der erste echte Kandidat fuer einen
+belegten Hebel bei 990 — und zugleich der Test von Massnahme 1 aus R-010.
 
-Ohne 1 und 2 kein Baubeginn an Tuning-Prozess oder Testsuite: die
-Abnahmekriterien dafuer haben sonst keine legitime Herkunft.
+**Zustandsbuch-Abweichung, dokumentationspflichtig:** Der Nutzer meldete
+„WLAN aus“. Das Radio war **an** (`Wifi is enabled`), nur **nicht assoziiert**
+(`Supplicant state: DISCONNECTED`), `wifi_scan_always_enabled` = 1. Funktional
+die staerkste Auspraegung von „kein WLAN im Spiel“, aber nicht „aus“.
+
+### Linkfakten (Phase 1) — die Kernfrage ist beantwortet
+
+| Groesse | Befund |
+|---|---|
+| **Pakettyp (BQR, direkt)** | **2DH5** in 24/25 Ereignissen, 1x 2DH3 |
+| Effektive MTU | **883** gegen verhandelte 1005 (frisch bestaetigt) |
+| EDR Gegenstelle | `EDR: true`, `Support 3Mbps: true` |
+| Encoder-Ort | **Host-Pfad belegt** — LDAC fehlt in `codecConfigOffloading` trotz `mA2dpOffloadEnabled: true`; Zaehler laufen |
+| aptX | **wird angeboten** (`Selectable`, 44,1/48 kHz, 16 bit), inaktiv |
+| ReTx/TxTotal (BQR, 09-02) | **23,5-33,2 %** bei RSSI -43 bis -58 dBm |
+
+**Damit ist die Kernfrage beantwortet: Die Paarung liegt in der 2-DH5-Klasse**,
+nicht in 2-DH3. Massnahmen aus R-010 Teil 1 koennen also greifen. Vorbehalt:
+Die BQR-Belege stammen vom 09-02; heute gab es kein einziges BQR-Ereignis.
+
+**Wiederholrate 23-33 % bei starkem Signal** ist der bisher staerkste Beleg
+fuer die Luftzeit-These: Nicht schlechter Empfang, sondern Wiederholungen, die
+Sendezeit fressen. RSSI allein haette hier „alles gut“ gesagt.
+
+### Drei Korrekturen, die Bestand haben
+
+1. **`Frames per packet (ave)` taugt NICHT als Pakettyp-Indikator.** Wert
+   konstant **13**, passt zu keiner R-010-Erwartung (~2/~3), und `max=4`
+   widerspricht `ave=13` intern. **Die Heuristik aus R-010 ist auf diesem
+   Geraet tot** — stattdessen den direkten BQR-Pakettyp nehmen. Was das Feld
+   zaehlt, ist offen (schon seit R-001).
+2. **Die Fixture-Luecke 1 war falsch beschrieben.** Ein 990er-Dump mit echtem
+   Verlust existiert bereits:
+   `core-monitor/src/test/resources/dumps/bt_manager_pixel11_ldac_990_loss.txt`
+   (T-022, 0/1851/74, HIGH, 990). **Die echte Luecke ist der fehlende
+   Golden-Test** — Auftrag an `developer`, Retest `qa-engineer`. Kein neues
+   Fixture noetig.
+3. **Der BQR-Abschnitt leert sich beim Lesen.** 25 Altereignisse waren beim
+   ersten Read da, nach weiteren `dumpsys`-Aufrufen `Event queue is empty.`
+   **Lesart, nicht am Quelltext belegt** — aber folgenschwer: Eine App, die
+   periodisch pollt, **loescht die Telemetrie, die sie anzeigen will**, und
+   nimmt sie zugleich jedem anderen Leser weg. Das beruehrt AK-7 des
+   Zielbild-Entwurfs unmittelbar. **Vor jedem Bau am BQR-Kanal per
+   `researcher` am Quelltext klaeren.**
+
+**Fehlalarm im Bericht:** Der tuner meldet, „eine andere Session“ habe waehrend
+seiner Laufzeit `docs/state.md` und `T-029` veraendert und den GOAL-Entwurf
+angelegt. Das war **der Director in derselben Sitzung**, nicht eine parallele
+Session. Kein Konflikt, keine Klaerung noetig.
+
+**Danach als erstes: `docs/GOAL-entwurf-part5.md` mit dem Nutzer abnehmen.**
+Das ist der Entwurf des neuen Zielbilds; er ersetzt `GOAL.md` erst nach
+seinem Ja. Ohne abgenommenes Zielbild kein Baubeginn — die Abnahmekriterien
+fuer Tuning-Prozess und Testsuite haetten sonst keine legitime Herkunft.
+
+**Erledigt in dieser Sitzung (03.09.):**
+
+- Research-Block T-031 vollstaendig gelesen und ausgewertet (R-008/R-009/R-010),
+  Ergebnis unten unter "Auswertung des Research-Blocks".
+- `docs/state.md` Part 5 committet und gepusht (e08a692).
+- **PII bereinigt.** `T-027-messung.md`, `T-027-messung-24ghz.md`,
+  `T-028-hoersitzung-reizplan.md` (22 Fundstellen) und nachtraeglich
+  `T-029-990-korrelation.md` (1 Fundstelle). Platzhalter konsistent:
+  `SSID_A`, `AP_BSSID`, `IP_1` (Host), `IP_2` (Telefon). Keine Messaussage
+  veraendert, keine Umformulierung noetig. **Alle vier noch nicht committet** —
+  das ist der erste Auftrag an den `archivist` (sync-out) der naechsten Sitzung,
+  sobald T-032 nicht mehr laeuft.
+- Uebrige Dateien in `docs/perf/` und `docs/perf/tools/` geprueft: sauber.
+
+**Entscheidungen des App Designers 03.09. — bindend:**
+
+1. **Zielbild: alle drei Saeulen.** Basis ist Anzeigen **und** Kontrolle ueber
+   die Einstellungen; Erweiterung ist Optimieren auf Basis der Messungen.
+   "Durch das Auslesen soll die App einen auch gleichzeitig anweisen."
+2. **UMKEHR gegenueber 02.09.: Die App stellt Einstellungen selbst**, wo das
+   ohne Root geht. Der privilegierte Helfer darf dafuer wachsen. Gegengewichte
+   im Entwurf: AK-10 (jedes Kommando einzeln vom `security-reviewer`
+   abgenommen) und AK-11 (Rueckweg garantiert, Ausgangszustand vorher
+   festgehalten). **Folge: Jeder Zyklus, der ein Helfer-Kommando anfasst, zieht
+   den `security-reviewer` — ohne Ausnahme.**
+3. **Tuning-Prozess: die sechs belegten Massnahmen plus eine ausdruecklich als
+   "Ausweichen" benannte Kategorie.** Widerlegte Ratschlaege erscheinen gar
+   nicht.
+4. **PII: redigieren statt ausschliessen** — Begruendung des Nutzers: Die
+   Berichte haben Wert fuer andere, die PII darin nicht.
+
+**Offen, dem Nutzer vorgelegt, noch nicht entschieden:**
+
+- **Git-Historie:** `T-029-990-korrelation.md` enthaelt die LAN-IP im Klartext
+  in bereits committeten Staenden. Empfehlung des Directors: **nichts tun**,
+  solange das Repo privat bleibt (private RFC1918-Adresse, Aufwand eines
+  History-Rewrite unverhaeltnismaessig). Vor einer Veroeffentlichung neu zu
+  bewerten.
+- **Vorbehalt des Directors zur Generalisierung:** Der Nutzer plant, von
+  diesem Geraet auf andere current-gen Geraete zu schliessen. R-009 stuetzt das
+  nur zur Haelfte — Stack-Konstanten ja, Hardwarefakten (Pakettyp, effektive
+  MTU 883, EDR-Klasse, Wiederholrate, Encoder-Ort) nein, die sind Eigenschaft
+  **der Paarung**, nicht des Telefons. Im Entwurf als AK-15 aufgenommen.
+- **Folge fuer die Testsuite, im Entwurf gezogen:** Solange kein Stresshebel
+  belegt ist (T-028 hat ihn ueber acht gueltige Abschnitte nicht reproduziert),
+  kann es keinen "Schnelldurchlauf unter Stress" geben. Die Suite bleibt bis
+  dahin auf Vorher/Nachher ohne kuenstliche Stoerung beschraenkt. Das weicht
+  vom Plan des Nutzers vom 02.09. ab und braucht seine Bestaetigung.
 
 ## Auswertung des Research-Blocks (03.09.) — was jetzt belegt ist
 
