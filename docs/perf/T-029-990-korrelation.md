@@ -72,7 +72,7 @@ State:` alle ~1 s), aufgerufen mit `n_streams=0` (kein Stimulus, keine
 `dd`/`nc`-Stroeme) und `duration=1500` s (25 min). Aufruf:
 
 ```
-adb shell "umask 077; sh /data/local/tmp/btperf/t027p2/cell.sh t029_990corr 0 1500 192.168.178.31 5502"
+adb shell "umask 077; sh /data/local/tmp/btperf/t027p2/cell.sh t029_990corr 0 1500 IP_1 5502"
 ```
 
 Host-IP/Port sind bei `n_streams=0` funktionslos (kein Verbindungsaufbau),
