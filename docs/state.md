@@ -40,6 +40,58 @@ verfaelscht.
 **Ohne Geraet offen: nichts mehr.** QA-014 bis QA-018 sind behoben und
 gegengeprueft (03.09.) — Details in `qa/findings.md`.
 
+## AK-17 / T-039 — Beobachtungslauf: Spec liegt, zwei Fragen offen
+
+**AK-17 steht in `GOAL.md`** (Nutzer 03.09.): Bei ABR zeigt die Oberflaeche
+waehrend eines Beobachtungslaufs **Minimum**, **Zeitanteil ueber einer
+waehlbaren Schwelle** und **Verweildauer je Stufe** — damit der Nutzer belegen
+kann, ob eine feste Stufe traegt, statt es zu vermuten. **Nur bei offener
+Oberflaeche, keine Persistenz** — AK-4 bleibt unangetastet.
+
+**Spec geliefert:** `UI_SPEC.md` ab Z. 2454, **AK-T039-1..16**. Ausserdem
+AK-T002-11 erweitert (`low` neben `peak`) und AK-T002-13 praezisiert.
+Neue Messanforderungen **M-15** und **M-16**.
+
+Tragende Festlegungen der Spec:
+- **Ausdruecklich gestarteter Lauf, kein gleitendes Fenster.** `{T}` ist die
+  **Summe der abgedeckten Intervalle**, nie `jetzt - Start` — so kann keine
+  unbeobachtete Sekunde mitgerechnet werden.
+- **Eigener Abschnitt** unter `TraceSection`, getrennt von der 60-s-Caption.
+  Ruhezustand: eine Zeile plus Chip.
+- **Rechnung ueber Intervalle statt ueber Lesungen** — immun gegen den
+  Kadenzwechsel 1/2/5 s, erzeugt keine Rate (R-F auch dem Geist nach gehalten).
+- **Peak bleibt in der Caption, bekommt `low` daneben**; im Lauf fuehrt das
+  Minimum, ein Hoechstwert erscheint dort gar nicht.
+- **Zahlen erst ab 120 s und 30 Lesungen**, davor „Collecting“. Pause,
+  ausgefallene Lesung, Hintergrund = Luecke. Trennung, Stufen-/Codecwechsel,
+  Luecke > 2 min = **Lauf endet mit genanntem Grund**. Screen verlassen
+  verwirft ihn.
+
+**Vom Nutzer entschieden (03.09.):**
+- Lauf wird **von Hand gestartet**, nicht automatisch beim Oeffnen.
+- **Einmaliger Hinweis** beim Start, dass Verlassen des Bildschirms den Lauf
+  verwirft.
+
+**OFFEN — zwei Wortlaut-/Umfangsfragen, der Nutzer hat die Entscheidung
+vertagt. Nicht selbst entscheiden, nicht ungefragt bauen:**
+1. Steht der Zeitbezug **bei jeder der drei Zahlen** („Niedrigster Wert:
+   606 kbps · ueber 24 min beobachtet“) oder **einmal als Abschnitts-
+   ueberschrift** („Beobachtungslauf · 24 min“)? Die Spec empfiehlt bei jeder
+   Zahl, wortgetreu zu AK-17.
+2. Sind als Schwelle **nur die pinnbaren Stufen** waehlbar (330/660/990 bzw.
+   303/606/909, Default die mittlere) oder **auch die Zwischenstufen 396/492**,
+   die ABR faehrt, aber die sich nicht fest einstellen lassen? Die Spec
+   empfiehlt nur die pinnbaren — jedes Ergebnis fuehrt dann zu einer Handlung.
+
+**Vorbehalt der Spec, nicht ueberdehnen:** `RUN_MIN_OBSERVED_MS` = 120 s und
+`RUN_GAP_MAX_MS` = 120 s sind **begruendete Kanten, keine Messung**. M-15
+schliesst die erste aus einem bereits moeglichen 30-min-ABR-Lauf; M-16
+(500 ms gegen 5 s) sagt, wie stark „Lowest reading“ untertreibt. **Bis M-16
+beantwortet ist, darf der Wortlaut nicht zu „lowest rate“ werden.**
+
+**Naechster Schritt nach den zwei Antworten:** `developer` gegen AK-T039-1..16,
+danach `qa-engineer`. Kein Geraet noetig.
+
 ## Zielbild — neu gefasst und in Kraft (03.09.)
 
 `GOAL.md` ist vom Nutzer abgenommen. Drei Saeulen: **Anzeigen → Stellen →

@@ -125,6 +125,27 @@ stoert, ist schlechter als keine Anzeige.
   Paarung 990 kbps aus strukturellen Gruenden nicht tragen kann, sagt die App
   das — statt Massnahmen vorzuschlagen, die daran nichts aendern koennen.
 
+### Neu — Saeule 3, Nachtrag vom 2026-09-03
+
+- **AK-17 (Eine feste Stufe laesst sich belegen, nicht nur vermuten):** Bei
+  adaptiver Bitrate zeigt die Oberflaeche waehrend eines Beobachtungslaufs
+  drei Groessen, die heute fehlen: das **Minimum** der gemessenen Bitrate ueber
+  das Fenster, den **Zeitanteil oberhalb einer waehlbaren Schwelle**, und die
+  **Verweildauer je Stufe**. Damit kann der Nutzer entscheiden, ob eine feste
+  Stufe tragfaehig ist, statt es zu vermuten.
+  **Ehrlichkeitspflicht (folgt aus AK-3 und AK-8):** Jede dieser Zahlen nennt
+  **an Ort und Stelle das Fenster**, ueber das sie gilt — „Minimum 606 kbps
+  ueber 24 min beobachtet“, nie „Minimum 606“. Eine Aussage ueber Zeitraeume,
+  in denen nicht beobachtet wurde, wird nicht gemacht und nicht nahegelegt.
+  **Ausdruecklich nicht erfuellt** ist das Kriterium durch das bestehende
+  Event-Log: Der `MeasuredBitrateTracker` meldet bewusst untermeldend (erst
+  nach drei Lesungen, nur bei groesserem Sprung), eine kurze Einbrechung
+  erzeugt dort keinen Eintrag. Ein leeres Log heisst „nichts Gemeldetes“, nicht
+  „nichts Passiertes“.
+  **Grenze, bewusst gezogen:** Die Erhebung laeuft **nur bei offener
+  Oberflaeche**. AK-4 bleibt unangetastet — es gibt keine
+  Hintergrundaufzeichnung und damit keine Aussage ueber unbeobachtete Zeit.
+
 ## Nicht-Ziele
 
 - Kein Klang-"Verbessern" jenseits der spezifizierten Hoerkompensation.
@@ -209,3 +230,16 @@ gehen damit **neun** in Kraft:
 AK-8 bis AK-16 sind ab sofort gueltige Abnahmekriterien. Herkunft: Entwurf des
 Directors aus den Entscheidungen des App Designers vom 02. und 03.09.2026,
 **freigegeben durch den Nutzer am 2026-09-03**.
+
+**2026-09-03, Nachtrag — AK-17, Entscheidung des App Designers.**
+Anlass: Der Nutzer will bei ABR live verfolgen koennen, welche Bitrate anliegt,
+um zu entscheiden, ob er eine feste Stufe fahren kann. Der Ist-Stand wurde am
+Code geprueft: Der **Momentanwert** wird bereits angezeigt, auch unter ABR; was
+fehlt, ist das **Gedaechtnis** — der Verlauf endet nach 60 s, und die einzigen
+Kennzahlen sind *jetzt* und *Peak*. Der Peak ist fuer diese Frage die falsche
+Groesse: Er sagt, wie hoch man war, gefragt ist, wie tief.
+**Bewusst klein geschnitten:** nur bei offener Oberflaeche, keine
+Hintergrundaufzeichnung, keine Persistenz. Damit kollidiert AK-17 **nicht** mit
+AK-4. Die groessere Variante (Sitzungen aufzeichnen und spaeter auswerten) hat
+der Nutzer am 03.09. ausdruecklich **nicht** gewaehlt.
+
