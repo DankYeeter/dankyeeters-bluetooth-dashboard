@@ -369,41 +369,109 @@ class LiveLinkPanelScreenTest {
     }
 
     /**
-     * DR-003 / AK-T009-29: the single-sample alarm is gone.
+     * DR-003 / AK-T009-29 — the line "Bluetooth is falling behind: {N} packets
+     * queued" does not exist, and queue pressure appears only as a share over
+     * the window, from `LADDER_QUEUE_PRESSURE_FRACTION` up, in the ladder row's
+     * second layer.
      *
      * A non-empty send queue happens in 0-1.4 % of readings on a healthy link,
-     * so a line that fired on each one fired in every long session. What is left
-     * is a share over the window, and it is in the ladder row's second layer.
+     * so a line that fired on each one fired in every long session.
+     *
+     * Built like the AK-T002-12 sweep below: every queue state the window can
+     * be in, both layers, read off the semantics tree — text and content
+     * descriptions — with a guard that each state drew something. The snapshot
+     * carries a saved transmit queue of 37 throughout, so the {N} the removed
+     * line printed is there to be printed.
      */
     @Test
-    fun `queue pressure is a share in the second layer, never a red line`() {
-        render(
-            snapshot(codecSpecific1 = 0L, measuredKbps = 396),
-            overview = overviewWithQueue(nonEmpty = 40),
-        )
+    fun `no queue state brings back the falling-behind line`() {
+        val states = queueStates()
+        val shown = mutableStateOf(states.first().second)
+        composeRule.setContent {
+            BtDashboardTheme {
+                LiveLinkPanel(
+                    snapshot = snapshot(codecSpecific1 = 0L, measuredKbps = 396, savedTxQueueLength = 37),
+                    intervalMs = 1_000L,
+                    onIntervalChange = {},
+                    ldacTuning = LdacTuningState(),
+                    onLdacQuality = {},
+                    onDismissLdacMessage = {},
+                    overviewTrace = shown.value,
+                    closeUpTrace = LiveTrace.closeUp(500L),
+                    closeUpEnabled = false,
+                    onCloseUpEnabled = {},
+                )
+            }
+        }
 
-        assertHides("falling behind")
-        assertHides("packets queued")
-        // Not in the first layer either, however true it is.
-        assertHides("The send queue was not empty")
+        // First layer: the share is never here, however true it is.
+        states.forEach { (state, trace, _) ->
+            shown.value = trace
+            composeRule.waitForIdle()
+            assertQueueWording("$state, first layer", shareLine = null)
+        }
 
         openExplanation("Adaptive — 396 kbps right now (measured)")
-
-        assertShows("The send queue was not empty in 80 % of the readings in the last 60 s.")
+        states.forEach { (state, trace, shareLine) ->
+            shown.value = trace
+            composeRule.waitForIdle()
+            assertQueueWording("$state, second layer", shareLine)
+            assertTrue(
+                "AK-T009-29: $state — the second layer closed, nothing was read",
+                "Hide explanation" in renderedText(),
+            )
+        }
     }
 
-    /** The resting case: one reading in fifty, which is the regulator working. */
-    @Test
-    fun `a queue that is busy now and then says nothing at all`() {
-        render(
-            snapshot(codecSpecific1 = 0L, measuredKbps = 396),
-            overview = overviewWithQueue(nonEmpty = 1),
+    /**
+     * Every state the window's queue share can be in, with the second-layer
+     * sentence each one must show — null where it must say nothing. The
+     * threshold is 20 %, written out here rather than read from the panel.
+     */
+    private fun queueStates(): List<Triple<String, LiveTrace, String?>> {
+        fun share(percent: Int) =
+            "The send queue was not empty in $percent % of the readings in the last 60 s."
+        return listOf(
+            Triple("no reading yet", LiveTrace.overview(1_000L), null),
+            Triple("readings that never carried the queue", quietTrace(LiveTrace.overview(1_000L)), null),
+            Triple("an empty queue throughout", overviewWithQueue(nonEmpty = 0), null),
+            Triple("one busy reading in fifty", overviewWithQueue(nonEmpty = 1), null),
+            Triple("just under the threshold", overviewWithQueue(nonEmpty = 9), null),
+            Triple("at the threshold", overviewWithQueue(nonEmpty = 10), share(20)),
+            Triple("under overload", overviewWithQueue(nonEmpty = 40), share(80)),
+            Triple("busy on every reading", overviewWithQueue(nonEmpty = 50), share(100)),
+        )
+    }
+
+    /** The two halves of the removed line, as the panel printed them. */
+    private val removedQueueLine = listOf("falling behind", "packets queued")
+
+    private fun assertQueueWording(state: String, shareLine: String?) {
+        val texts = renderedText()
+        // A state that drew nothing would pass every wording rule ever written.
+        assertTrue("AK-T009-29: $state rendered no text at all", texts.isNotEmpty())
+
+        val offending = texts.filter { text ->
+            removedQueueLine.any { text.contains(it, ignoreCase = true) }
+        }
+        assertTrue(
+            "AK-T009-29: $state brought back the removed queue line:\n" +
+                offending.joinToString("\n"),
+            offending.isEmpty(),
         )
 
-        openExplanation("Adaptive — 396 kbps right now (measured)")
-
-        assertHides("send queue")
-        assertHides("falling behind")
+        val aboutTheQueue = texts.filter { it.contains("send queue", ignoreCase = true) }
+        if (shareLine == null) {
+            assertTrue(
+                "AK-T009-29: $state spoke about the send queue:\n" + aboutTheQueue.joinToString("\n"),
+                aboutTheQueue.isEmpty(),
+            )
+        } else {
+            assertTrue(
+                "AK-T009-29: $state did not show \"$shareLine\"",
+                aboutTheQueue.any { shareLine in it },
+            )
+        }
     }
 
     /**
@@ -714,6 +782,7 @@ class LiveLinkPanelScreenTest {
         sampleRateHz: Int = 96_000,
         /** Null models a build with no `A2DP LDAC State:` section. */
         measuredKbps: Int? = null,
+        savedTxQueueLength: Int? = null,
     ) = LinkLiveSnapshot(
         timestampMs = 1_700_000_000_000L,
         device = LiveDeviceSnapshot(
@@ -739,7 +808,11 @@ class LiveLinkPanelScreenTest {
             // 1000 and the block reports HIGH rather than ABR. Deriving it here
             // keeps the two halves of the fixture from contradicting each other.
             measuredKbps?.let {
-                LdacStackState(qualityMode = stackToken(codecSpecific1), transmissionKbps = it)
+                LdacStackState(
+                    qualityMode = stackToken(codecSpecific1),
+                    transmissionKbps = it,
+                    savedTxQueueLength = savedTxQueueLength,
+                )
             },
         ),
         // framesPerPacketAvg is still parsed and still must never reach a row.
