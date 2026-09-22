@@ -8,7 +8,6 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadPath
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysDevice
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysSnapshot
-import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals

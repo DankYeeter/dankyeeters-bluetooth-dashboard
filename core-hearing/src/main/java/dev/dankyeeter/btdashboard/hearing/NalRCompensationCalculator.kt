@@ -2,7 +2,6 @@ package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
-import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import kotlin.math.abs
 
@@ -27,9 +26,14 @@ import kotlin.math.abs
  */
 class NalRCompensationCalculator(
     private val presets: CalibrationPresetRepository = BundledCalibrationPresets,
-) : CompensationCalculator {
+) {
 
-    override fun compute(
+    /**
+     * @param intensity 0.0..1.0 user slider
+     * @param partialFactor protocol partial compensation factor
+     * @return sanitized [EqSettings] including negative pre-gain headroom
+     */
+    fun compute(
         audiogram: Audiogram,
         calibrationPresetId: String,
         intensity: Float,

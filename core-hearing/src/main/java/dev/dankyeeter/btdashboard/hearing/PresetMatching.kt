@@ -45,10 +45,4 @@ object PresetMatching {
             .firstOrNull { (_, token) -> name.contains(token) }
             ?.first
     }
-
-    /** Convenience: the matching preset, or the generic one. */
-    fun presetFor(
-        deviceName: String?,
-        repository: CalibrationPresetRepository,
-    ): CalibrationPreset? = presetIdFor(deviceName)?.let(repository::byId)
 }

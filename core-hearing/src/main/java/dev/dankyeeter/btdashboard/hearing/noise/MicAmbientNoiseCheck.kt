@@ -103,8 +103,3 @@ class MicAmbientNoiseCheck(context: Context) : AmbientNoiseCheck {
         }
     }
 }
-
-/** Stub used in previews and on devices where RECORD_AUDIO was denied. */
-class NoAmbientNoiseCheck : AmbientNoiseCheck {
-    override suspend fun measureDbA(durationMillis: Long): Double? = null
-}

@@ -141,9 +141,6 @@ object BundledCalibrationPresets : CalibrationPresetRepository {
 
     override fun byId(id: String): CalibrationPreset? = index[id]
 
-    /** Never-null lookup: unknown ids degrade to [generic] instead of crashing. */
-    fun byIdOrGeneric(id: String?): CalibrationPreset = id?.let { index[it] } ?: generic
-
     /**
      * All AirPods models are plain AAC A2DP devices on Android — no vendor
      * features, no readable onboard EQ. Only the acoustic shape differs, and

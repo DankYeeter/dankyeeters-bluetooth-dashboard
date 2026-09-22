@@ -171,10 +171,6 @@ object CodecDecoding {
         else -> ChannelMode.UNKNOWN
     }
 
-    /** Every sample rate advertised in a capability mask, ascending. */
-    fun supportedSampleRates(mask: Int): List<Int> =
-        sampleRates.filterKeys { it and mask != 0 }.values.sorted()
-
     private fun <T> singleBitValue(mask: Int, table: Map<Int, T>): T? {
         if (mask == 0 || mask.countOneBits() != 1) return null
         return table[mask]

@@ -21,7 +21,6 @@ import dev.dankyeeter.btdashboard.hearing.fit.FitBaseline
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
@@ -58,19 +57,6 @@ class AudiogramStore(context: Context) {
     val selectedRunIds: Flow<Set<String>> = appContext.hearingDataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs -> prefs[KEY_SELECTED] ?: emptySet() }
-
-    /**
-     * The runs that actually feed the compensation: at most three.
-     *
-     * Three because a single run carries one lapse in attention and the median
-     * of three is the smallest aggregate that can outvote it. More runs are
-     * kept - they are worth having, and worth comparing - but averaging a
-     * dozen sessions from different weeks would blur exactly the change one
-     * would want to see.
-     */
-    val selectedRuns: Flow<List<AudiogramRun>> = combine(runs, selectedRunIds) { all, chosen ->
-        selectionOf(all, chosen)
-    }
 
     /**
      * The clinical audiogram, or null while none has been entered.
@@ -145,10 +131,6 @@ class AudiogramStore(context: Context) {
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs -> DerivedCalibrationJson.parse(prefs[KEY_DERIVED]) }
 
-    /** The derivation for one headphone, or null — including for a null key. */
-    fun derivedCalibrationFor(deviceKey: String?): Flow<DerivedCalibration?> =
-        derivedCalibrations.map { all -> all.firstOrNull { it.deviceKey == deviceKey } }
-
     suspend fun currentDerivedCalibrations(): List<DerivedCalibration> = derivedCalibrations.first()
 
     /**
@@ -210,8 +192,6 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun currentRuns(): List<AudiogramRun> = runs.first()
-
-    suspend fun currentSelectedRuns(): List<AudiogramRun> = selectedRuns.first()
 
     suspend fun currentSelectedRunIds(): Set<String> = selectedRunIds.first()
 
@@ -444,7 +424,15 @@ class AudiogramStore(context: Context) {
     }
 
     companion object {
-        /** The most runs the compensation is ever built from. */
+        /**
+         * The most runs the compensation is ever built from.
+         *
+         * Three because a single run carries one lapse in attention and the median
+         * of three is the smallest aggregate that can outvote it. More runs are
+         * kept - they are worth having, and worth comparing - but averaging a
+         * dozen sessions from different weeks would blur exactly the change one
+         * would want to see.
+         */
         const val MAX_SELECTED = 3
 
         /**

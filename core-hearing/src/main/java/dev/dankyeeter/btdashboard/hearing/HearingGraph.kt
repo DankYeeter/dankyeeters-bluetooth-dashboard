@@ -48,7 +48,7 @@ object HearingGraph {
     val audiogramStore: AudiogramStore
         get() = synchronized(lock) { _store ?: AudiogramStore(ctx()).also { _store = it } }
 
-    val aggregator: AudiogramAggregator = MedianAudiogramAggregator()
+    val aggregator = MedianAudiogramAggregator()
 
     // --- Stage C (compensation) ---
 

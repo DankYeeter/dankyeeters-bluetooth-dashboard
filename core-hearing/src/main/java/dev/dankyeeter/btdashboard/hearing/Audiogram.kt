@@ -100,11 +100,6 @@ data class Audiogram(
     }
 }
 
-/** Aggregates several runs into the active audiogram. Implemented by Worker B. */
-interface AudiogramAggregator {
-    fun aggregate(runs: List<AudiogramRun>): Audiogram
-}
-
 /**
  * Rewrites a measured audiogram from the app's internal dBFS frame into the
  * loss frame NAL-R actually takes.
