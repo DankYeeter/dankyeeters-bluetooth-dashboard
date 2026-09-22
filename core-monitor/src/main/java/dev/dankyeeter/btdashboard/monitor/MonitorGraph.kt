@@ -56,7 +56,6 @@ object MonitorGraph {
     @Volatile private var appContext: Context? = null
     private val lock = Any()
 
-    private var _db: MonitorDatabase? = null
     private var _repository: MonitorRepository? = null
     private var _codecSource: CodecStatusSource? = null
     private var _a2dp: A2dpCodecStatusSource? = null
@@ -142,23 +141,16 @@ object MonitorGraph {
         }
 
     /**
-     * The one Room instance in the process.
+     * Builds the one Room instance in the process, behind the history repository.
      *
-     * Cached because two consumers now want it — the history repository and the
-     * calibration store — and building two `MonitorDatabase` handles onto the
-     * same file gives each its own connection pool and its own invalidation
-     * tracker for no benefit whatsoever.
-     *
-     * Null only when construction itself throws. Note that Room opens the file
-     * lazily, so an unopenable or un-migratable database does not fail here: it
-     * fails on the first DAO call, which is why every consumer wraps its own
-     * calls rather than trusting this.
+     * The in-memory fallback covers only a throwing constructor. Room opens the
+     * file lazily, so an unopenable or un-migratable database does not fail
+     * here: it fails on the first DAO call, which is why [RoomMonitorRepository]
+     * wraps its own calls rather than trusting this.
      */
-    private fun database(): MonitorDatabase? =
-        _db ?: runCatching { MonitorDatabase.create(ctx()) }.getOrNull()?.also { _db = it }
-
     private fun buildRepository(): MonitorRepository =
-        database()?.monitorDao()?.let { RoomMonitorRepository(it) }
+        runCatching { MonitorDatabase.create(ctx()) }.getOrNull()
+            ?.let { RoomMonitorRepository(it.monitorDao()) }
             // A broken database must never take the app down; history is expendable.
             ?: InMemoryMonitorRepository()
 
