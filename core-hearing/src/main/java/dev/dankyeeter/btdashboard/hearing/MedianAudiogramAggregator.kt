@@ -3,7 +3,7 @@ package dev.dankyeeter.btdashboard.hearing
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 
 /**
- * Per-frequency **median** across runs, as specified in PLAN.md. The median is
+ * Per-frequency **median** across runs, as specified in docs/archiv/PLAN.md. The median is
  * chosen over the mean on purpose: a single distracted or badly seated run
  * should not drag the active curve, and the user can still delete outliers by
  * hand.

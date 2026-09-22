@@ -46,7 +46,7 @@ sealed interface SamplingDecision {
 }
 
 /**
- * The battery contract from PLAN.md, in one testable function: events are
+ * The battery contract from docs/archiv/PLAN.md, in one testable function: events are
  * always on (they cost nothing), polling only happens while there is something
  * to measure, and deep capture is opt-in and time-boxed.
  */

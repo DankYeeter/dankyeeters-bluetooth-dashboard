@@ -6,18 +6,18 @@ import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 
 /**
  * Contract for the compensation math (Worker C, implemented strictly against
- * COMPENSATION.md — do not improvise the formula here).
+ * docs/archiv/COMPENSATION.md — do not improvise the formula here).
  *
  * The implemented rule is NAL-R (see [NalR] and [NalRCompensationCalculator]);
  * the "threshold minus reference times a factor" sketch in the Stage A comment
- * was superseded by COMPENSATION.md, which is authoritative.
+ * was superseded by docs/archiv/COMPENSATION.md, which is authoritative.
  */
 
-/** Default of the user-facing intensity slider, per COMPENSATION.md step 4. */
+/** Default of the user-facing intensity slider, per docs/archiv/COMPENSATION.md step 4. */
 const val DEFAULT_INTENSITY: Float = 0.6f
 
 /**
- * Protocol-level partial factor. COMPENSATION.md folds partial compensation
+ * Protocol-level partial factor. docs/archiv/COMPENSATION.md folds partial compensation
  * entirely into the intensity slider `s` (default 0.6 of full NAL-R), so the
  * extra factor kept by the Stage A interface stays at 1.0 by default; the
  * calculator multiplies the two.
@@ -77,7 +77,7 @@ object AdjustedReference {
      *
      * A single run is a measurement with no way to tell a threshold from a
      * lapse in attention; the median of three is the smallest aggregate that
-     * can outvote one bad run. Matches the protocol in PLAN.md.
+     * can outvote one bad run. Matches the protocol in docs/archiv/PLAN.md.
      */
     const val REQUIRED_RUNS: Int = 3
 
@@ -99,7 +99,7 @@ object AdjustedReference {
      * Half-octave centres at 3200 and 6400 Hz sit within 7 % of those
      * measurements, so they land. Thirty-one bands would work too but only buy
      * resolution below 250 Hz and above 8 kHz, where there is no measurement to
-     * be accurate about. Source: RESEARCH_COMPENSATION.md, R2 and section 7.
+     * be accurate about. Source: docs/archiv/RESEARCH_COMPENSATION.md, R2 and section 7.
      *
      * Only the *generated* profile is pinned. A curve the user dialled in by
      * hand keeps whichever layout they picked: there the band count really is a
@@ -124,7 +124,7 @@ data class CalibrationPreset(
     val targetCurve: String,     // e.g. "Harman OE 2018"
     /**
      * Threshold correction in dB per entry of [TEST_FREQUENCIES_HZ]: the value
-     * that COMPENSATION.md step 3.2 subtracts from the raw threshold to obtain
+     * that docs/archiv/COMPENSATION.md step 3.2 subtracts from the raw threshold to obtain
      * the device-corrected `H_T(f)`.
      *
      * Sign convention: this is the *negated* response deviation. If a headphone

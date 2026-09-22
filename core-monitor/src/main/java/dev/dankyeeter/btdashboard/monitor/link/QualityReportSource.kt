@@ -56,7 +56,7 @@ interface QualityReportSource {
  *  - if shell *does* reach it on a given build, the monitor silently upgrades
  *    to the best data source with no other code change.
  *
- * **Needs on-device verification** on Android 17 / Pixel 11 Pro — see PLAN.md.
+ * **Needs on-device verification** on Android 17 / Pixel 11 Pro — see docs/archiv/PLAN.md.
  */
 class ReflectiveQualityReportSource(
     private val context: Context,

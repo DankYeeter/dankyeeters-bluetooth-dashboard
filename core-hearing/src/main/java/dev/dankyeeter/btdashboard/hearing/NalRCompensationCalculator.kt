@@ -6,7 +6,7 @@ import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import kotlin.math.abs
 
 /**
- * The compensation pipeline of COMPENSATION.md section 3, implemented step for
+ * The compensation pipeline of docs/archiv/COMPENSATION.md section 3, implemented step for
  * step. Read that document before changing anything in here.
  *
  * Per ear, fully independently:
@@ -170,7 +170,7 @@ class NalRCompensationCalculator(
     }
 
     companion object {
-        /** Per-band cap from COMPENSATION.md step 5. */
+        /** Per-band cap from docs/archiv/COMPENSATION.md step 5. */
         const val MAX_BAND_GAIN_DB: Double = 12.0
 
         /** Scaling for bands outside the measured range (step 6). */
@@ -179,12 +179,12 @@ class NalRCompensationCalculator(
         /**
          * Inter-band slope ceiling.
          *
-         * **This is a house heuristic, not a clinical constant.** COMPENSATION.md
+         * **This is a house heuristic, not a clinical constant.** docs/archiv/COMPENSATION.md
          * lists it beside the +12 dB cap, which makes it read like a prescribed
          * limit; it is not. No published work validates any particular
          * inter-band gain-slope ceiling, so there is nothing to cite here and
          * the number cannot be defended by appeal to the literature
-         * (RESEARCH_COMPENSATION.md section 6).
+         * (docs/archiv/RESEARCH_COMPENSATION.md section 6).
          *
          * What can honestly be said is that two facts bracket it. NAL-R itself
          * only ever prescribes 0.31 x the audiogram's own slope, so even a
@@ -216,7 +216,7 @@ class NalRCompensationCalculator(
          * can produce, so this app can never report that a band *is* dead — and
          * just as importantly can never report that it is not. The flag exists
          * only to decide when the UI is obliged to say "cannot check"; see
-         * RESEARCH_COMPENSATION.md sections 5 and 8 for the wording that is and
+         * docs/archiv/RESEARCH_COMPENSATION.md sections 5 and 8 for the wording that is and
          * is not allowed.
          *
          * Below the line there is deliberately no logic at all: for a mild or
@@ -378,7 +378,7 @@ data class CompensationResult(
         }
 
     companion object {
-        /** PLAN/COMPENSATION.md: above this the app shows a "see a professional" notice. */
+        /** docs/archiv/PLAN.md / docs/archiv/COMPENSATION.md: above this the app shows a "see a professional" notice. */
         const val SEVERE_LOSS_PTA_DB: Double = 60.0
 
         /**
