@@ -12,6 +12,14 @@ melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 ## Hier geht es weiter
 
+**Autonomer Lauf (Nutzer 22.09. 23:51, Budget 6 h bis ca. 23.09. 05:50).**
+Branch `auto/2026-09-23`, endet pausiert mit PR, nie gemerged. Warteschlange,
+alle aus `GOAL.md` bzw. Nutzerentscheidung, kein Backlog vorhanden:
+(1) T-041 fertig, (2) T-042 Audit-Reste, (3) T-039 AK-17 bauen, dann
+**eine** Pruefphase (qa-engineer, security-reviewer, ui-ux Review) mit einem
+Fixauftrag und einem Retest. Ende: Warteschlange leer → `product-strategist`
+`discover` vorlegen, halten. Kein Release ohne Nutzer.
+
 **Laeuft (22.09.): T-041** (`docs/tasks/T-041.md`) — a F-001/F-002, b JSON
 (W-2..4), c Kalibrierung + Room 3→4 (W-5..6), d `security-reviewer`-Vorlauf,
 danach e Helfer-Protokoll (W-1). Dann **eine** Pruefphase am Quellstand.
