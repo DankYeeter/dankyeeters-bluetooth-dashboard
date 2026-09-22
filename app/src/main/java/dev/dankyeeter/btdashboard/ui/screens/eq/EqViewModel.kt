@@ -111,10 +111,6 @@ data class CompensationUiState(
     val preferenceActive: Boolean
         get() = PreferenceProfile.isPreferenceId(activeProfileId)
 
-    /** The id [preferenceForDevice] is selected under, or null when none is stored. */
-    val preferencePresetId: String?
-        get() = preferenceForDevice?.let { PreferenceProfile.presetIdFor(it.deviceKey) }
-
     val clinicalAvailable: Boolean get() = clinical?.isEmpty == false
 
     /**

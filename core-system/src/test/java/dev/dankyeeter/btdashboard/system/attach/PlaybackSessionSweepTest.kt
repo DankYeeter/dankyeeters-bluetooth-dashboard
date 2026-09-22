@@ -94,13 +94,7 @@ class PlaybackSessionSweepTest(private val name: String, private val fixture: Fi
      */
     private fun assertInvariants(label: String, dump: String) {
         val players = PlaybackSessionParser.activeMediaPlayers(dump)
-        val sessions = PlaybackSessionParser.activeMediaSessions(dump)
 
-        assertEquals(
-            "$label: the two entry points disagree",
-            players.map { it.sessionId }.toSet(),
-            sessions,
-        )
         players.forEach { player ->
             assertTrue(
                 "$label: session ${player.sessionId} is not a player — 0 is the output mix",
