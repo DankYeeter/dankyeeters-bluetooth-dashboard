@@ -293,3 +293,11 @@ Hypothese, keine Tatsache.
 **Entscheidung des Directors:** Der `sameAddress`-Zweig **bleibt**. Der Test
 belegt, dass er einen erreichbaren, korrekten Fall abdeckt — „ungetestet“ war
 kein Grund zum Entfernen, sondern einer zum Testen.
+
+## Ab 2026-09-22: Namensraum F (mit Pruefer-Spalte)
+
+| ID | Titel | Prio | Pruefer | Adressat | Status | Datum | Auftrag |
+|---|---|---|---|---|---|---|---|
+| F-001 | androidTest von `:app` kompiliert nicht: `AdbReachabilityTest.kt:35,38,58` ruft `AdbPortDiscovery.find(...)`, es gibt nur `findAll` — bestand schon auf `86e8a45` | P2 | developer (T-040a, T-040b unabhaengig) | developer | offen | 2026-09-22 | T-041 |
+| F-002 | K-2: nach Archivumzug zeigen 33 Zeilen in 17 Dateien unter `core-hearing`/`core-monitor` noch auf die alten Pfade (`PLAN.md`, `COMPENSATION.md`, `RESEARCH_COMPENSATION.md` …); Liste in `docs/berichte/T-040a-developer.md` | P3 | developer (T-040a) | developer | offen | 2026-09-22 | T-041 |
+| F-003 | Audit-Prämisse „doppelte AirPods-Preset-Logik“ hielt nicht: Beacon-Weg (`DashboardViewModel`) erkennt umbenannte AirPods, Namens-Weg nicht — bleibt | – | developer (T-040a) | – | kein Befund, geschlossen | 2026-09-22 | T-040a |

@@ -12,18 +12,16 @@ melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 ## Hier geht es weiter
 
-**Laeuft (22.09.): T-040 — Bereinigung nach Ponytail-Audit** (`docs/tasks/T-040.md`).
-a/b `developer` (Loeschungen, ohne Verhaltensaenderung), c `architect`
-(vier Umbauten: Oboe→AudioTrack, MiniJson, AIDL-Protokoll, Kalibrierung +
-Room 3→4). Danach: Vorlauf `security-reviewer` fuer den Helfer (AK-6), dann
-Umbau-Auftraege, dann **eine** Pruefphase am Quellstand. Release: sammeln.
-T-040c erledigt (22.09.): AD-025..AD-029 in `ARCHITECTURE.md`, Schrittfolge
-W-1..W-9 (AD-029), startet nach Merge von a/b. Director-Entscheid 22.09.:
-AD-028 darf die Kalibrierzeilen loeschen (unerreichbar, falsch gemessen);
-Robolectric als Testabhaengigkeit in `:core-hearing` freigegeben.
-**Beim Nutzer — offen:** `GOAL.md:169` nennt „Oboe NDK“ im Rahmen, AD-025
-ersetzt es durch AudioTrack — Zielaenderung, W-8 wartet darauf.
-Suite vor T-040: **2488 / 0 Failures** (Director, 22.09. 22:00, `5f62b15`).
+**Laeuft (22.09.): T-041** (`docs/tasks/T-041.md`) — a F-001/F-002, b JSON
+(W-2..4), c Kalibrierung + Room 3→4 (W-5..6), d `security-reviewer`-Vorlauf,
+danach e Helfer-Protokoll (W-1). Dann **eine** Pruefphase am Quellstand.
+Release: sammeln. T-040 gemergt (`6c2cde3`), netto −979 Zeilen Code; Suite
+**2484 / 0 Failures** (Director, 22.09. 23:33). AD-025..AD-029 in
+`ARCHITECTURE.md`; Director-Entscheid: AD-028 darf Kalibrierzeilen loeschen,
+Robolectric in `:core-hearing` frei.
+**Gerätesession 23.09. abends (Nutzer):** Ton-Umbau W-7..W-9 (AD-025,
+Oboe → AudioTrack) mit Geraetevergleich; danach `GOAL.md:169` „Oboe NDK“
+aendern (Nutzerfreigabe haengt am Geraetebeweis). Dazu T-036/T-037.
 Messbefunde und Tuning-Grundlagen (frueher hier):
 `docs/archiv/state-messbefunde-2026-09-03.md`.
 
@@ -53,10 +51,9 @@ Beantwortet die letzte Frage zu AK-7. Braucht Stoerung, deshalb nach der
 2,4-GHz-Zelle — und **getrennt**, damit der `dumpsys`-Aufruf T-036 nicht
 verfaelscht.
 
-**Ohne Geraet offen: nichts mehr.** QA-014 bis QA-018 sind behoben und
-gegengeprueft (03.09.) — Details in `qa/findings.md`.
+**Ohne Geraet:** T-041, danach T-039.
 
-## AK-17 / T-039 — Beobachtungslauf: Spec liegt, zwei Fragen offen
+## AK-17 / T-039 — Beobachtungslauf: Spec liegt, Fragen entschieden
 
 **AK-17 steht in `GOAL.md`** (Nutzer 03.09.): Bei ABR zeigt die Oberflaeche
 waehrend eines Beobachtungslaufs **Minimum**, **Zeitanteil ueber einer
@@ -101,13 +98,12 @@ schliesst die erste aus einem bereits moeglichen 30-min-ABR-Lauf; M-16
 beantwortet ist, darf der Wortlaut nicht zu „lowest rate“ werden.**
 
 **Bereit zur Umsetzung:** `developer` gegen AK-T039-1..16, danach
-`qa-engineer`. Kein Geraet noetig. Startet nach T-040.
+`qa-engineer`. Kein Geraet noetig. Startet nach T-041.
 
 ## Stand des Codes
 
-`gradlew test`: **2488 Tests, 0 Failures** (03.09. nach T-038, von `developer`
-und `qa-engineer` unabhaengig gezaehlt). Verlauf des Tages: 2470 vor T-034 →
-2482 → 2488. Die frueher notierten „2390“ passen zu dieser Zaehlweise nicht.
+`gradlew test`: **2484 Tests, 0 Failures** (Director, 22.09. 23:33, `6c2cde3`,
+nach T-040; vorher 2488 am 03.09.).
 
 **T-038 abgeschlossen** (`374be69`, `5218455`, `de2454b`, `5f605b1`): die fuenf
 Befunde QA-014..QA-018 sind behoben und gegengeprueft. **Zwei Lehren daraus
@@ -160,7 +156,7 @@ braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen
 |---|---|---|---|
 | T-036 | performance-tuner | Trennmessung 2,4 GHz bei 990 + Doppelaufnahme | **naechster Schritt**, braucht Geraet |
 | T-037 | performance-tuner | Callback-Probe, letzte AK-7-Frage | nach T-036 |
-| T-040 | developer ×2, architect | Bereinigung nach Ponytail-Audit | **laeuft** 22.09. |
+| T-041 | developer ×4, security-reviewer | Umbauten AD-026..028, F-001/F-002 | **laeuft** 22.09. |
 | T-039 | developer | AK-17 Beobachtungslauf | bereit, nach T-040 |
 | T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
