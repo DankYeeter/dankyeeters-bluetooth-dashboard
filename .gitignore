@@ -17,3 +17,6 @@ build/
 
 # Agent-Gedaechtnis (geraetelokal, gehoert nicht ins Repo)
 .claude/agent-memory/
+
+# Agent-Worktrees (lokale Arbeitskopien, gehoeren nicht ins Repo)
+.claude/worktrees/

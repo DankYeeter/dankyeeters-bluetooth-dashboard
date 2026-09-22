@@ -102,7 +102,7 @@ object LdacModeSignatures : CodecModeSignatures {
     val standard = CodecMode(CodecFamily.LDAC, 1001L, "Standard", null)
     val connectionPriority = CodecMode(CodecFamily.LDAC, 1002L, "Connection priority", null)
 
-    /** Every mode that can be pinned, best first. Drives calibration order. */
+    /** Every mode that can be pinned, best first. */
     val pinnableModes: List<CodecMode> = listOf(highQuality, standard, connectionPriority)
 
     override fun framesPerSecond(sampleRateHz: Int): Double? =

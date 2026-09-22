@@ -136,13 +136,12 @@ class AcceptanceCriteriaGrepTest {
      */
     @Test
     fun `every open parameter names the measurement it waits for`() {
-        val markers = hits(SourceTree.appAndLinkSources, Regex("""TODO\("""))
-        val unnamed = markers.filterNot { Regex("""TODO\(M-\d+\)""").containsMatchIn(it.text) }
-
-        assertTrue(
-            "AK-T009-31: a TODO marker here has to name one measurement, as TODO(M-x); " +
-                "the blanket TODO(T-001) is withdrawn.\n" + unnamed.joinToString("\n"),
-            unnamed.isEmpty(),
+        assertNone(
+            criterion = "AK-T009-31",
+            files = SourceTree.appAndLinkSources,
+            pattern = Regex("""TODO\((?!M-\d+\))"""),
+            why = "a TODO marker here has to name one measurement, as TODO(M-x); " +
+                "the blanket TODO(T-001) is withdrawn",
         )
     }
 

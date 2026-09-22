@@ -18,10 +18,6 @@ import kotlinx.coroutines.launch
 object HearingGraph {
 
     @Volatile private var appContext: Context? = null
-    private val lock = Any()
-    private var _store: AudiogramStore? = null
-    private var _profileStore: CompensationProfileStore? = null
-    private var _preferenceStore: PreferenceProfileStore? = null
 
     /**
      * App-lifetime scope for the one thing in this graph that has to keep
@@ -45,17 +41,13 @@ object HearingGraph {
     private fun ctx(): Context =
         requireNotNull(appContext) { "HearingGraph.init() must be called from Application.onCreate" }
 
-    val audiogramStore: AudiogramStore
-        get() = synchronized(lock) { _store ?: AudiogramStore(ctx()).also { _store = it } }
+    val audiogramStore: AudiogramStore by lazy { AudiogramStore(ctx()) }
 
     val aggregator = MedianAudiogramAggregator()
 
     // --- Stage C (compensation) ---
 
-    val profileStore: CompensationProfileStore
-        get() = synchronized(lock) {
-            _profileStore ?: CompensationProfileStore(ctx()).also { _profileStore = it }
-        }
+    val profileStore: CompensationProfileStore by lazy { CompensationProfileStore(ctx()) }
 
     /**
      * The listening-preference curves, one per headphone.
@@ -66,10 +58,7 @@ object HearingGraph {
      * the compensation math ever looks a preference profile up synchronously —
      * it is applied to the EQ as a curve, not consulted as a preset.
      */
-    val preferenceStore: PreferenceProfileStore
-        get() = synchronized(lock) {
-            _preferenceStore ?: PreferenceProfileStore(ctx()).also { _preferenceStore = it }
-        }
+    val preferenceStore: PreferenceProfileStore by lazy { PreferenceProfileStore(ctx()) }
 
     /**
      * The bundled table plus the user's own derivations. Kept eager and free of
