@@ -155,6 +155,13 @@ class MonitorViewModel : ViewModel() {
     private var lastRecordedPollMs = 0L
 
     /**
+     * The observation run (`UI_SPEC.md` T-039). Fed from [liveUpdates] and from
+     * nothing else — the close-up probe never reaches it — so it costs no poll
+     * of its own and ends with this ViewModel.
+     */
+    internal val observationRun = ObservationRunController(viewModelScope, SystemGraph.setupStore)
+
+    /**
      * One poll loop, at whichever rate the panel asked for.
      *
      * The default rate goes through the graph's *shared* loop so that a second
@@ -178,7 +185,10 @@ class MonitorViewModel : ViewModel() {
                 MonitorGraph.liveLink.updates(interval)
             }
         }
-        .onEach { update -> recordLiveEvents(update) }
+        .onEach { update ->
+            recordLiveEvents(update)
+            observationRun.onReading(update.snapshot, _liveIntervalMs.value)
+        }
         // Shared, not merely cold: the panel now reads this twice — once for the
         // numbers and once for the 60-second graph — and a second collector of
         // the cold branch above would start a second poll loop, i.e. double the

@@ -17,9 +17,8 @@ import java.io.IOException
 private val Context.setupDataStore: DataStore<Preferences> by preferencesDataStore(name = "setup_state")
 
 /**
- * Remembers the two things about setup that the OS cannot be asked about:
- * which optional steps the user waved away, and whether the local-connection
- * disclosure has been accepted.
+ * Remembers what the OS cannot be asked about: which optional setup steps the
+ * user waved away, and which one-time notices have been accepted.
  *
  * Everything else is read from the system on the spot. There used to be a
  * "wizard completed" flag here as well, and it was the wrong shape: it went on
@@ -56,6 +55,21 @@ class SetupStore(context: Context) {
         appContext.setupDataStore.edit { it[KEY_LOCAL_CONNECTION] = accepted }
     }
 
+    /**
+     * Whether the observation run's start notice — leaving the screen discards
+     * the run — has been confirmed with "Continue" (`UI_SPEC.md` T-039,
+     * decision 5).
+     *
+     * A confirmation, not a measurement: nothing of any run is kept here, which
+     * is what `GOAL.md` AK-17 rules out.
+     */
+    suspend fun isObservationRunNoticeAccepted(): Boolean =
+        prefs.map { it[KEY_OBSERVATION_RUN_NOTICE] ?: false }.first()
+
+    suspend fun setObservationRunNoticeAccepted(accepted: Boolean) {
+        appContext.setupDataStore.edit { it[KEY_OBSERVATION_RUN_NOTICE] = accepted }
+    }
+
     suspend fun setSkipped(stepId: String, skipped: Boolean) {
         appContext.setupDataStore.edit { store ->
             val current = store[KEY_SKIPPED] ?: emptySet()
@@ -70,6 +84,7 @@ class SetupStore(context: Context) {
 
     private companion object {
         val KEY_LOCAL_CONNECTION = booleanPreferencesKey("local_connection_accepted")
+        val KEY_OBSERVATION_RUN_NOTICE = booleanPreferencesKey("observation_run_notice_accepted")
         val KEY_SKIPPED = stringSetPreferencesKey("setup_skipped_steps")
     }
 }

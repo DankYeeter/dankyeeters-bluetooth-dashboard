@@ -90,6 +90,12 @@ fun LiveLinkPanel(
     closeUpTrace: LiveTrace = LiveTrace.closeUp(500L),
     closeUpEnabled: Boolean = false,
     onCloseUpEnabled: (Boolean) -> Unit = {},
+    observationRun: ObservationRunUi = ObservationRunUi(),
+    onStartRun: () -> Unit = {},
+    onStopRun: () -> Unit = {},
+    onRunThreshold: (Long) -> Unit = {},
+    onRunNoticeContinue: () -> Unit = {},
+    onRunNoticeDismiss: () -> Unit = {},
 ) {
     Panel(modifier) {
         ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
@@ -123,6 +129,15 @@ fun LiveLinkPanel(
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
                 TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
+                ObservationRunSection(
+                    snapshot,
+                    observationRun,
+                    onStart = onStartRun,
+                    onStop = onStopRun,
+                    onThreshold = onRunThreshold,
+                    onNoticeContinue = onRunNoticeContinue,
+                    onNoticeDismiss = onRunNoticeDismiss,
+                )
             }
         }
 
@@ -729,6 +744,6 @@ internal fun trimZero(seconds: Double): String =
         String.format(Locale.US, "%.1f", seconds)
     }
 
-/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". */
-private fun plural(count: Long, singular: String): String =
+/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". The run section counts with it too. */
+internal fun plural(count: Long, singular: String): String =
     if (count == 1L) "$count $singular" else "$count ${singular}s"

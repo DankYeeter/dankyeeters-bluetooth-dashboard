@@ -221,6 +221,77 @@ class AcceptanceCriteriaGrepTest {
         )
     }
 
+    /**
+     * AK-T039-5 — the run's lowest figure is "Lowest reading", never a word that
+     * claims more: a reading every 1 to 5 s cannot see how low the encoder went
+     * between two of them (`UI_SPEC.md` T-039, M-16).
+     */
+    @Test
+    fun `the run names its lowest figure a reading`() {
+        val pattern = Regex("""lowest rate|minimum bitrate|worst|floor""", RegexOption.IGNORE_CASE)
+        assertTrue(pattern.containsMatchIn("the floor of the link"))
+        assertNone(
+            criterion = "AK-T039-5",
+            files = SourceTree.observationRun,
+            pattern = pattern,
+            why = "the lowest figure is the lowest single reading and is called that",
+        )
+    }
+
+    /**
+     * AK-T039-6 — none of the verdict words appears anywhere in the run's path.
+     * The rendered half is in [ObservationRunSectionTest].
+     */
+    @Test
+    fun `the run path carries no verdict word`() {
+        val pattern = Regex(
+            """always|never below|never dropped|consistently|stable|steady enough|safe to pin|""" +
+                """you can pin|guaranteed|reliable""",
+            RegexOption.IGNORE_CASE,
+        )
+        assertTrue(pattern.containsMatchIn("a stable link"))
+        assertNone(
+            criterion = "AK-T039-6",
+            files = SourceTree.observationRun,
+            pattern = pattern,
+            why = "the run counts and does not judge (UI_SPEC.md T-039, R-E)",
+        )
+    }
+
+    /**
+     * AK-T039-10 — the run's arithmetic and its display have no time source, no
+     * scheduled work and no storage of their own (`GOAL.md` AK-4). The one stored
+     * value near the run, the start-notice flag, sits in the controller by
+     * decision 5 and carries no measurement; it is outside this scope on purpose.
+     */
+    @Test
+    fun `the run keeps no time and stores nothing`() {
+        val pattern = Regex(
+            """\b(timer|clock|delay|workmanager|room|datastore|savedstatehandle|file|""" +
+                """currenttimemillis|elapsedrealtime|nanotime|rememberSaveable)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        assertTrue(pattern.containsMatchIn("val now = System.currentTimeMillis()"))
+        assertNone(
+            criterion = "AK-T039-10",
+            files = SourceTree.observationRunCore,
+            pattern = pattern,
+            why = "timestamps come only from the readings, and nothing of a run is kept",
+        )
+    }
+
+    /** AK-T039-11 — the close-up probe feeds no part of the run; the rendered half is in [ObservationRunSectionTest]. */
+    @Test
+    fun `the close-up probe does not reach the run`() {
+        val pattern = Regex("""TxProbe|closeUp""", RegexOption.IGNORE_CASE)
+        assertNone(
+            criterion = "AK-T039-11",
+            files = SourceTree.observationRun,
+            pattern = pattern,
+            why = "the run is fed from the panel's own readings only",
+        )
+    }
+
     // ---- the scan ---------------------------------------------------------------
 
     /** One matching line, printed the way a grep would print it. */
@@ -291,6 +362,20 @@ private object SourceTree {
 
     /** The app and the module that measures the link — where a parameter can live. */
     val appAndLinkSources: List<File> by lazy { appSources + kotlinUnder("core-monitor/src/main") }
+
+    /** The observation run's arithmetic and display — the AK-T039-10 scope. */
+    val observationRunCore: List<File> by lazy {
+        listOf(
+            file("core-monitor/src/main/java/dev/dankyeeter/btdashboard/monitor/link/live/ObservationRun.kt"),
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ObservationRunSection.kt"),
+        )
+    }
+
+    /** Everything a run passes through, its controller included — the AK-T039-5/6/11 scope. */
+    val observationRun: List<File> by lazy {
+        observationRunCore +
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ObservationRunController.kt")
+    }
 
     val livePanel: File by lazy {
         file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/LiveLinkPanel.kt")

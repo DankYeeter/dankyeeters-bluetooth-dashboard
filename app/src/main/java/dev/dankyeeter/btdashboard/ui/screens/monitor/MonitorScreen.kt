@@ -60,6 +60,7 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val overviewTrace by viewModel.overviewTrace.collectAsStateWithLifecycle()
     val closeUpTrace by viewModel.closeUpTrace.collectAsStateWithLifecycle()
     val closeUpEnabled by viewModel.closeUpEnabled.collectAsStateWithLifecycle()
+    val observationRun by viewModel.observationRun.ui.collectAsStateWithLifecycle()
 
     // The sampler only polls on a lit screen while somebody is actually
     // looking at link data. The ViewModel covers screen-open/close; this
@@ -105,6 +106,12 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             closeUpTrace = closeUpTrace,
             closeUpEnabled = closeUpEnabled,
             onCloseUpEnabled = viewModel::setCloseUpEnabled,
+            observationRun = observationRun,
+            onStartRun = viewModel.observationRun::onStartTapped,
+            onStopRun = viewModel.observationRun::onStop,
+            onRunThreshold = viewModel.observationRun::onThreshold,
+            onRunNoticeContinue = viewModel.observationRun::onNoticeContinue,
+            onRunNoticeDismiss = viewModel.observationRun::onNoticeDismiss,
         )
 
         DataSourcePanel(
