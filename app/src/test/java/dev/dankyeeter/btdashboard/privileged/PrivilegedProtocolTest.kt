@@ -74,19 +74,16 @@ class PrivilegedProtocolTest {
         }
     }
 
+    // ---- the token compare --------------------------------------------------
+
+    @Test
+    fun `a blank token never matches, not even an identical blank one`() {
+        // MessageDigest.isEqual alone accepts two equal whitespace strings. The
+        // check in front of it has to refuse blank, not merely empty.
+        assertFalse(PrivilegedProtocol.tokensMatch(" ", " "))
+    }
+
     // ---- the wire format ----------------------------------------------------
-
-    @Test
-    fun `auth survives a round trip`() {
-        val token = "6f5c1e8a-0b3d-4a71-9e2f-1c4d5b6a7f80"
-        assertEquals(token, PrivilegedProtocol.decodeAuth(PrivilegedProtocol.encodeAuth(token)))
-    }
-
-    @Test
-    fun `a command survives a round trip`() {
-        val command = listOf("ps", "-A", "-o", "PID,NAME")
-        assertEquals(command, PrivilegedProtocol.decodeRun(PrivilegedProtocol.encodeRun(command)))
-    }
 
     @Test
     fun `output containing newlines survives, which is the point of the encoding`() {
@@ -120,22 +117,12 @@ class PrivilegedProtocolTest {
 
     @Test
     fun `garbage decodes to null instead of throwing`() {
-        // The helper reads from a socket anything on the device may connect to.
-        // Malformed input has to be a refusable value, not a crash of a
-        // privileged process.
-        listOf("", "RUN", "RUN !!!not base64!!!", "OK", "OK x y z", "NONSENSE").forEach {
-            assertNull("decodeRun($it)", PrivilegedProtocol.decodeRun(it))
-        }
-        assertNull(PrivilegedProtocol.decodeAuth("AUTH"))
+        // The decoders run in the app on replies from a shell-uid process that
+        // was only accepted after its uid and token were checked. That is still
+        // a process boundary, so malformed input has to be a refusable value,
+        // not a crash.
         assertNull(PrivilegedProtocol.decodeResult("OK notanumber a b"))
         assertNull(PrivilegedProtocol.decodeError("OK 0 a b"))
-    }
-
-    @Test
-    fun `a result line is not mistaken for a command line`() {
-        val result = PrivilegedProtocol.encodeResult(0, "x", "")
-        assertNull(PrivilegedProtocol.decodeRun(result))
-        assertNull(PrivilegedProtocol.decodeAuth(result))
     }
 
     // ---- codec replies ------------------------------------------------------
@@ -193,7 +180,6 @@ class PrivilegedProtocolTest {
     fun `a codec line is not mistaken for anything else, and vice versa`() {
         val codec = PrivilegedProtocol.encodeCodec(CodecObservation(family = "SBC"))
         assertNull(PrivilegedProtocol.decodeResult(codec))
-        assertNull(PrivilegedProtocol.decodeRun(codec))
         assertNull(PrivilegedProtocol.decodeError(codec))
 
         assertNull(PrivilegedProtocol.decodeCodec(PrivilegedProtocol.encodeError("nope")))
@@ -248,7 +234,6 @@ class PrivilegedProtocolTest {
         assertNull(PrivilegedProtocol.decodeResult(staged))
         assertNull(PrivilegedProtocol.decodeError(staged))
         assertNull(PrivilegedProtocol.decodeCodec(staged))
-        assertNull(PrivilegedProtocol.decodeRun(staged))
 
         assertNull(PrivilegedProtocol.decodeFileResult(PrivilegedProtocol.encodeResult(0, "a", "b")))
         assertNull(PrivilegedProtocol.decodeFileResult(PrivilegedProtocol.encodeError("nope")))
@@ -417,9 +402,10 @@ class PrivilegedProtocolTest {
 
     @Test
     fun `a malformed HD-audio line decodes to null rather than to a default`() {
-        // Same discipline as the codec decoder: the helper answers a socket
-        // anything on the device may reach, so garbage has to be refusable
-        // rather than silently readable as "off".
+        // Same discipline as the codec decoder: the reply crosses a process
+        // boundary from a shell-uid process, accepted only after its uid and
+        // token were checked, so garbage has to be refusable rather than
+        // silently readable as "off".
         listOf(
             "HDAUDIO 1 1",
             "HDAUDIO 1 1 ${b64("")} extra",
