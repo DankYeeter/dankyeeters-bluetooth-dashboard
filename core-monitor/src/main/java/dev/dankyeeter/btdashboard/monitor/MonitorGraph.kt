@@ -11,7 +11,6 @@ import dev.dankyeeter.btdashboard.monitor.codec.FallbackCodecStatusSource
 import dev.dankyeeter.btdashboard.monitor.data.InMemoryMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.MonitorRepository
-import dev.dankyeeter.btdashboard.monitor.data.RoomCodecModeSignatureStore
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
@@ -26,16 +25,10 @@ import dev.dankyeeter.btdashboard.monitor.link.BluetoothBroadcastSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 import dev.dankyeeter.btdashboard.monitor.link.ReflectiveQualityReportSource
-import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeCalibrator
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModePinner
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeSignatureStore
-import dev.dankyeeter.btdashboard.monitor.link.live.InMemoryCodecModeSignatureStore
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
-import dev.dankyeeter.btdashboard.monitor.link.live.NoOpCodecModePinner
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
@@ -63,7 +56,6 @@ object MonitorGraph {
     @Volatile private var appContext: Context? = null
     private val lock = Any()
 
-    private var _db: MonitorDatabase? = null
     private var _repository: MonitorRepository? = null
     private var _codecSource: CodecStatusSource? = null
     private var _a2dp: A2dpCodecStatusSource? = null
@@ -149,23 +141,16 @@ object MonitorGraph {
         }
 
     /**
-     * The one Room instance in the process.
+     * Builds the one Room instance in the process, behind the history repository.
      *
-     * Cached because two consumers now want it — the history repository and the
-     * calibration store — and building two `MonitorDatabase` handles onto the
-     * same file gives each its own connection pool and its own invalidation
-     * tracker for no benefit whatsoever.
-     *
-     * Null only when construction itself throws. Note that Room opens the file
-     * lazily, so an unopenable or un-migratable database does not fail here: it
-     * fails on the first DAO call, which is why every consumer wraps its own
-     * calls rather than trusting this.
+     * The in-memory fallback covers only a throwing constructor. Room opens the
+     * file lazily, so an unopenable or un-migratable database does not fail
+     * here: it fails on the first DAO call, which is why [RoomMonitorRepository]
+     * wraps its own calls rather than trusting this.
      */
-    private fun database(): MonitorDatabase? =
-        _db ?: runCatching { MonitorDatabase.create(ctx()) }.getOrNull()?.also { _db = it }
-
     private fun buildRepository(): MonitorRepository =
-        database()?.monitorDao()?.let { RoomMonitorRepository(it) }
+        runCatching { MonitorDatabase.create(ctx()) }.getOrNull()
+            ?.let { RoomMonitorRepository(it.monitorDao()) }
             // A broken database must never take the app down; history is expendable.
             ?: InMemoryMonitorRepository()
 
@@ -239,51 +224,13 @@ object MonitorGraph {
 
     private var _liveLink: LiveLinkSource? = null
     private var _liveLinkUpdates: SharedFlow<LinkLiveUpdate>? = null
-    private var _signatures: CodecModeSignatureStore? = null
-
-    @Volatile
-    private var installedPinner: CodecModePinner = NoOpCodecModePinner
-
-    /**
-     * Bitrate-mode signatures learned by [codecModeCalibrator].
-     *
-     * Persisted, so a calibration survives a restart and the UI may say it is
-     * saved. Reads stay in memory — the store hydrates itself from the table
-     * once, on [monitorScope], and writes through afterwards — because the live
-     * panel asks for these on every poll. See `RoomCodecModeSignatureStore`.
-     *
-     * Falls back to the volatile store when the database cannot be built, on
-     * the same principle as [buildRepository]: losing a calibration is a
-     * nuisance, refusing to run is not an option.
-     */
-    val codecModeSignatures: CodecModeSignatureStore
-        get() = synchronized(lock) {
-            _signatures ?: buildSignatureStore().also { _signatures = it }
-        }
-
-    private fun buildSignatureStore(): CodecModeSignatureStore =
-        database()?.codecModeSignatureDao()
-            ?.let { RoomCodecModeSignatureStore(it, monitorScope) }
-            ?: InMemoryCodecModeSignatureStore()
-
-    /**
-     * Installs the privileged path that can pin a codec's bitrate mode.
-     *
-     * Same shape and same reason as [installShellRunner]: this module cannot
-     * see `:app`'s helper Binder, and without it calibration must refuse rather
-     * than pretend. The default [NoOpCodecModePinner] does exactly that.
-     */
-    fun installCodecModePinner(pinner: CodecModePinner) {
-        installedPinner = pinner
-    }
-
     /** The poller itself. Screens normally want [liveLinkUpdates] instead. */
     val liveLink: LiveLinkSource
         get() = synchronized(lock) {
             // No signature store here any more: the live reading comes from the
             // stack's own bitrate field, and the learned bands it used to
             // consult were measured off a counter that turned out not to be a
-            // packet counter. See CodecModeCalibrator.
+            // packet counter.
             //
             // The starvation sink resolves `repository` per call rather than
             // capturing it, for the reason [shell] documents at length: this
@@ -294,27 +241,6 @@ object MonitorGraph {
                 onStarvationCaptured = { report -> repository.recordStarvation(report) },
             ).also { _liveLink = it }
         }
-
-    /**
-     * Learns what each bitrate mode looks like on the connected link.
-     *
-     * **Mutating.** Calling `calibrate` renegotiates the codec once per mode,
-     * each of which restarts the A2DP stream and is audible. It exists as a
-     * suspend function with no scheduling of its own so that the only thing
-     * that can start it is a user pressing a button.
-     */
-    val codecModeCalibrator: CodecModeCalibrator
-        get() = CodecModeCalibrator(
-            source = liveLink,
-            // Resolved per call, not captured: the helper is not running at app
-            // start, so a calibrator built once would hold the no-op forever.
-            // Same trap [shell] documents at length.
-            pinner = object : CodecModePinner {
-                override suspend fun pinMode(address: String, codec: CodecFamily, modeRawValue: Long) =
-                    installedPinner.pinMode(address, codec, modeRawValue)
-            },
-            store = codecModeSignatures,
-        )
 
     /**
      * One shared poll loop, started by the first collector and stopped shortly
