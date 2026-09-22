@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +34,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.dankyeeter.btdashboard.ui.icons.AppIcons
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidate
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidateScan
 import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqWarning
@@ -43,7 +42,6 @@ import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.filled.Headphones
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -51,8 +49,6 @@ import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
 import dev.dankyeeter.btdashboard.ui.theme.Readout
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
 
 /**
@@ -133,7 +129,7 @@ fun BluetoothCodecSection(
                     onWatchLive()
                 },
             ) {
-                Icon(Icons.Filled.GraphicEq, contentDescription = null)
+                Icon(AppIcons.GraphicEq, contentDescription = null)
                 Text("  Watch live")
             }
             if (state.rows.isEmpty()) {
@@ -190,7 +186,7 @@ private fun WaitingDeviceRow(note: String) {
                 Readout(value = "—")
             }
             Icon(
-                Icons.Filled.Headphones,
+                AppIcons.Headphones,
                 contentDescription = null,
                 modifier = Modifier.size(30.dp),
                 tint = MaterialTheme.colorScheme.outline,
@@ -225,7 +221,7 @@ private fun DeviceRow(row: DeviceCodecRow) {
                 Readout(value = row.codecName, caption = row.codecDetail)
             }
             Icon(
-                Icons.Filled.Headphones,
+                AppIcons.Headphones,
                 contentDescription = null,
                 modifier = Modifier.size(30.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -259,7 +255,7 @@ private fun DeviceRow(row: DeviceCodecRow) {
     }
 }
 
-/** Foreign-EQ warning surface with app attribution (PLAN.md, promoted to v1). */
+/** Foreign-EQ warning surface with app attribution (docs/archiv/PLAN.md, promoted to v1). */
 @Composable
 fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -297,7 +293,7 @@ fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
                     }
                     IconButton(onClick = { expanded = !expanded }) {
                         Icon(
-                            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            if (expanded) AppIcons.ExpandLess else AppIcons.ExpandMore,
                             contentDescription = if (expanded) "Collapse" else "Expand",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -557,7 +553,7 @@ private fun EqCandidateRow(candidate: EqCandidate, context: Context) {
 
 /**
  * Opens the app's own settings page so the user can go and look. We never
- * change another app's settings — see PLAN.md non-goals.
+ * change another app's settings — see docs/archiv/PLAN.md non-goals.
  */
 private fun openAppSettings(context: Context, packageName: String) {
     val intent = Intent(

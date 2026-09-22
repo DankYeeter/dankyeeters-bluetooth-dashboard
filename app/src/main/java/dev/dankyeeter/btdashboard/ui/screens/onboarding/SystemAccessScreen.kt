@@ -24,7 +24,6 @@ import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
-import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 import dev.dankyeeter.btdashboard.ui.common.describe
 import dev.dankyeeter.btdashboard.ui.common.pill
 import dev.dankyeeter.btdashboard.ui.common.tone
@@ -297,7 +296,7 @@ private fun CapabilityRow(
 private fun SecureSettingsPanel() {
     val context = LocalContext.current
     val gate = SystemGraph.secureSettings
-    val granted = gate.state() == SecureSettingsState.GRANTED
+    val granted = gate.isGranted()
 
     Panel {
         PanelHeader(

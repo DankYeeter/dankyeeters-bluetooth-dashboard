@@ -39,7 +39,7 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 
 /**
  * The link timeline, drawn by hand on a Compose Canvas — no chart library, per
- * PLAN.md. Several lanes share one time axis.
+ * docs/archiv/PLAN.md. Several lanes share one time axis.
  *
  * ## Why this is not an RSSI chart any more
  *

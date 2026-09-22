@@ -9,7 +9,6 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.setup.SetupEnvironment
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
-import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 
 /**
  * The real, live answer to "is this step done?".
@@ -66,7 +65,7 @@ class AndroidSetupEnvironment(context: Context) : SetupEnvironment {
      * close wireless debugging again by itself.
      */
     fun secureSettingsGranted(): Boolean =
-        SystemGraph.secureSettings.state() == SecureSettingsState.GRANTED
+        SystemGraph.secureSettings.isGranted()
 
 
     private fun granted(permission: String): Boolean =
