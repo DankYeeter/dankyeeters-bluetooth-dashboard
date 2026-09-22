@@ -34,7 +34,7 @@ import kotlin.math.log10
 
 /**
  * Audiogram chart drawn by hand on a Compose [Canvas] — no chart library, per
- * PLAN.md. Logarithmic frequency axis; the level axis shows **deviation from
+ * docs/archiv/PLAN.md. Logarithmic frequency axis; the level axis shows **deviation from
  * this person's own average sensitivity**, with zero in the middle.
  *
  * ## Why a relative axis

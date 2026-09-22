@@ -25,7 +25,7 @@ import kotlin.math.roundToInt
  * Two further honesty limits, both deliberate:
  *
  *  * The contours are the **average** ear. Between normal-hearing listeners the
- *    scatter is 5–6 dB standard deviation (REPORT-2026-08-26, 4.3) — real, but
+ *    scatter is 5–6 dB standard deviation (docs/archiv/REPORT-2026-08-26.md, 4.3) — real, but
  *    the same size as the measurement error of a consumer hearing test, which
  *    is why this is a level-dependent correction and not a personal one.
  *  * Nothing is ever cut. See [MAX_TILT_DB] and the clamp in [curveFor].

@@ -6,7 +6,7 @@ travel with any distribution of the app. The app's own source is under the
 MIT terms in `LICENSE`.
 
 For a Play Store release this list should be surfaced in-app (an
-"Open-source licenses" screen); see `PLAYSTORE_COMPLIANCE.md` (R4).
+"Open-source licenses" screen); see `docs/archiv/PLAYSTORE_COMPLIANCE.md` (R4).
 
 ## Apache License 2.0
 
@@ -31,4 +31,4 @@ notice in any binary distribution.
 No third-party code is copied into this repository; every entry above is a
 Gradle dependency resolved at build time. The AirPods BLE-beacon support is a
 clean re-implementation from public protocol descriptions, not derived from any
-GPL-licensed project (see PLAN.md).
+GPL-licensed project (see docs/archiv/PLAN.md).

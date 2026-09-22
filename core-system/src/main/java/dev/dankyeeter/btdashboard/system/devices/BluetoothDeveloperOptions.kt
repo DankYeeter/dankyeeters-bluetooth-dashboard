@@ -145,7 +145,7 @@ object BluetoothDeveloperOptions {
      * prevent, so they stay out.
      *
      * The A2DP-offload one is the painful omission: it is the switch that would
-     * answer whether the app's EQ is even in the signal path (see HANDOVER, the
+     * answer whether the app's EQ is even in the signal path (see docs/archiv/HANDOVER.md, the
      * acoustic test). A shell can set it — `setprop` is what ADB does — so the
      * privileged helper could in principle offer it. That would mean a second
      * *mutating* privileged operation and a whitelist entry for a write

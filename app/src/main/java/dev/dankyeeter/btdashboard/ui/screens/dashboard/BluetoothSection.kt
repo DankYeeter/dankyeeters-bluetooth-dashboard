@@ -259,7 +259,7 @@ private fun DeviceRow(row: DeviceCodecRow) {
     }
 }
 
-/** Foreign-EQ warning surface with app attribution (PLAN.md, promoted to v1). */
+/** Foreign-EQ warning surface with app attribution (docs/archiv/PLAN.md, promoted to v1). */
 @Composable
 fun ForeignEqSection(viewModel: BluetoothDashboardViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -557,7 +557,7 @@ private fun EqCandidateRow(candidate: EqCandidate, context: Context) {
 
 /**
  * Opens the app's own settings page so the user can go and look. We never
- * change another app's settings — see PLAN.md non-goals.
+ * change another app's settings — see docs/archiv/PLAN.md non-goals.
  */
 private fun openAppSettings(context: Context, packageName: String) {
     val intent = Intent(
