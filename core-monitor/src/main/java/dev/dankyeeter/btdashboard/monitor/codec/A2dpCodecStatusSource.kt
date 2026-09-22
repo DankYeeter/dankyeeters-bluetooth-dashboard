@@ -9,13 +9,10 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.content.ContextCompat
 import dev.dankyeeter.btdashboard.monitor.link.BroadcastConnectionTicks
-import dev.dankyeeter.btdashboard.monitor.link.ConnectionTicks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 
@@ -30,8 +27,9 @@ import kotlinx.coroutines.flow.merge
  */
 class A2dpCodecStatusSource(
     private val context: Context,
-    private val ticks: ConnectionTicks = BroadcastConnectionTicks(context),
 ) : CodecStatusSource {
+
+    private val ticks = BroadcastConnectionTicks(context)
 
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -78,7 +76,7 @@ class A2dpCodecStatusSource(
         get() = adapter != null && a2dp != null && hasConnectPermission()
 
     private fun hasConnectPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+        context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission") // guarded by hasConnectPermission()
@@ -221,13 +219,4 @@ class A2dpCodecStatusSource(
     private companion object {
         const val TAG = "A2dpCodecStatus"
     }
-}
-
-/** Used when Bluetooth itself is missing (emulator, disabled adapter). */
-object UnavailableCodecStatusSource : CodecStatusSource {
-    override suspend fun connectedDevices(): List<BtAudioDevice> = emptyList()
-    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> = flowOf(emptyList())
-    override suspend fun codecStatus(address: String): CodecReadResult =
-        CodecReadResult.Unsupported("Bluetooth unavailable")
-    override val isProfileAvailable: Boolean get() = false
 }

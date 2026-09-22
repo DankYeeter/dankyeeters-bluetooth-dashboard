@@ -223,10 +223,8 @@ class LiveLinkPropertyTest {
         val first = readings(*Array<Int?>(4) { 400 })
         val stepsBefore = drive(first, tracker)
         assertEquals(1, stepsBefore.size)
-        assertEquals(400, tracker.lastReportedKbps)
 
         tracker.reset()
-        assertNull("reset kept the baseline", tracker.lastReportedKbps)
 
         val stepsAfter = drive(first, tracker)
         assertEquals(1, stepsAfter.size)

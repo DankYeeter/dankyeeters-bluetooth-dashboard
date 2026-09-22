@@ -108,21 +108,6 @@ object AdjustedReference {
     val LAYOUT: EqBandLayout = EqBandLayout.HALF_OCTAVE_20
 }
 
-/** Turns an audiogram into per-ear band gains. */
-interface CompensationCalculator {
-    /**
-     * @param intensity 0.0..1.0 user slider
-     * @param partialFactor protocol partial compensation factor
-     * @return sanitized [EqSettings] including negative pre-gain headroom
-     */
-    fun compute(
-        audiogram: Audiogram,
-        calibrationPresetId: String,
-        intensity: Float,
-        partialFactor: Float,
-    ): EqSettings
-}
-
 /**
  * Device calibration preset: measured frequency-response offsets from public
  * measurement databases, used as a *shape* correction only.
@@ -160,19 +145,6 @@ data class CalibrationPreset(
         require(offsetsDb.size == TEST_FREQUENCIES_HZ.size) {
             "offsetsDb must align with TEST_FREQUENCIES_HZ"
         }
-    }
-
-    /** Mandatory fit check before a test run, per PLAN.md ("all IEMs"). */
-    val requiresFitCheck: Boolean get() = formFactor.fitCheckMandatory
-
-    /** One-line provenance summary for the UI. */
-    fun provenanceLine(): String = buildString {
-        append(dataSource)
-        append(" · ")
-        append(measurementRig)
-        append(" · target ")
-        append(targetCurve)
-        if (approximate) append(" · APPROXIMATE")
     }
 
     companion object {

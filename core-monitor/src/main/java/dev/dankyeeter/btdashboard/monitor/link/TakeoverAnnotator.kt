@@ -112,7 +112,6 @@ class TakeoverAnnotator(private val correlationWindowMs: Long = 3_000L) {
         detail = "Playback paused — $taker took the stream",
     )
 
-    val currentActiveAddress: String? get() = activeAddress
     fun isPlaying(address: String): Boolean = playing.containsKey(address)
     val anyPlaying: Boolean get() = playing.isNotEmpty()
 }

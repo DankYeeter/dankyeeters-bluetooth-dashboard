@@ -78,9 +78,6 @@ class VolumeGuard(context: Context) {
         return referenceVolume
     }
 
-    /** True once [latchReference] ran and the volume still matches it. */
-    val isIntact: Boolean get() = referenceVolume >= 0 && currentVolume == referenceVolume
-
     /**
      * Polls the media volume and invokes [onChanged] once if it moved away from
      * the latched reference. Polling (rather than the hidden
@@ -106,14 +103,6 @@ class VolumeGuard(context: Context) {
     fun stopWatchdog() {
         watchdog?.cancel()
         watchdog = null
-    }
-
-    /** Restores the latched volume, e.g. after a run that changed it by mistake. */
-    fun restoreReference() {
-        if (referenceVolume < 0) return
-        runCatching {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, referenceVolume, 0)
-        }.onFailure { Log.w(TAG, "could not restore media volume", it) }
     }
 
     fun release() {

@@ -11,9 +11,9 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
  * A frequency is only included if at least one run measured it. A point counts
  * as converged when the majority of contributing points converged.
  */
-class MedianAudiogramAggregator : AudiogramAggregator {
+class MedianAudiogramAggregator {
 
-    override fun aggregate(runs: List<AudiogramRun>): Audiogram = Audiogram(
+    fun aggregate(runs: List<AudiogramRun>): Audiogram = Audiogram(
         runIds = runs.map { it.id },
         left = aggregateEar(runs, Ear.LEFT),
         right = aggregateEar(runs, Ear.RIGHT),

@@ -38,8 +38,6 @@ data class PreferenceRun(
     val consistency: Double,
     val trials: List<PreferenceTrial> = emptyList(),
 ) {
-    val trialCount: Int get() = trials.size
-
     /**
      * The identity two runs are considered "the same song" by.
      *

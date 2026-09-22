@@ -194,10 +194,8 @@ class MeasuredBitrateTrackerTest {
     fun `a reset forgets the level so a new codec does not inherit it`() {
         val tracker = MeasuredBitrateTracker()
         repeat(3) { tracker.onReading(1_000L, 990, 96_000) }
-        assertEquals(990, tracker.lastReportedKbps)
 
         tracker.reset()
-        assertNull(tracker.lastReportedKbps)
 
         // And the next link announces itself rather than being compared to 990.
         val step = (1..3).mapNotNull { tracker.onReading(2_000L, 330, 96_000) }.single()

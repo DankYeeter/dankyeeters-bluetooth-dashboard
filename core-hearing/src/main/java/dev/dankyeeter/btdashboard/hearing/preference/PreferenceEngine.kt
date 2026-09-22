@@ -119,10 +119,6 @@ data class PreferenceTrial(
 data class PreferenceProtocol(
     val searchPlan: List<SearchStep> = DEFAULT_SEARCH_PLAN,
     val repeatTrials: Int = 2,
-    /** Below this, a run's answers are reported as mixed rather than steady. */
-    val consistencyThreshold: Double = 0.67,
-    /** Inside this, on both axes, a result is called neutral rather than a taste. */
-    val neutralDb: Float = 1.0f,
 ) {
     val trialsPerRun: Int get() = searchPlan.size + repeatTrials
 
@@ -217,9 +213,6 @@ class PreferenceEngine(
     private var pending: Step.Compare? = null
     private var repeatPlan: List<PreferenceRepeatPair>? = null
     private val agreements = mutableListOf<Double>()
-
-    /** The estimate as it stands right now. Useful to a driver; not the result. */
-    val currentEstimate: PreferenceCandidate get() = estimate
 
     /**
      * @return the next comparison, or [Step.Finished]. Calling this twice

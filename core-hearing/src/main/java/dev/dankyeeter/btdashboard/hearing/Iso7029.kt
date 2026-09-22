@@ -241,7 +241,7 @@ object Iso7029 {
     ): List<Pair<Int, Double>> {
         val expected = expectedMedianHl(ageYears, sex, frequenciesHz)
         if (expected.isEmpty()) return emptyList()
-        val median = ClinicalAudiogram.medianOf(expected.values.toList())
+        val median = MedianAudiogramAggregator.median(expected.values.toList())
         return frequenciesHz.map { hz -> hz to (median - expected.getValue(hz)) }
     }
 
@@ -281,7 +281,7 @@ object Iso7029 {
         val converged = points.filter { it.converged }
         if (converged.size < MIN_GAP_FREQUENCIES + 1) return null
         val frequencies = converged.map { it.frequencyHz }.sorted()
-        val measuredMedian = ClinicalAudiogram.medianOf(converged.map { it.thresholdDb })
+        val measuredMedian = MedianAudiogramAggregator.median(converged.map { it.thresholdDb })
         // Positive = more sensitive than this ear's own average, matching the
         // chart and the clinical overlay. Larger dBFS is a worse threshold, so
         // the subtraction runs this way round.

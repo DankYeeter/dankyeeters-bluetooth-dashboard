@@ -209,9 +209,6 @@ class EncoderStarvationTripwire(
     private var consecutive = 0
     private var lastCaptureMs: Long? = null
 
-    /** How many consecutive over-threshold polls have been seen. Diagnostic. */
-    val consecutiveOverThreshold: Int get() = consecutive
-
     /**
      * Feeds one poll in.
      *

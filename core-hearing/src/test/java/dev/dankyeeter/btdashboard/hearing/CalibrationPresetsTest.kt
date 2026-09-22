@@ -35,8 +35,6 @@ class CalibrationPresetsTest {
         assertEquals(ids.size, ids.toSet().size)
         ids.forEach { assertNotNull(it, repo.byId(it)) }
         assertNull(repo.byId("nope"))
-        assertEquals(repo.generic, repo.byIdOrGeneric("nope"))
-        assertEquals(repo.generic, repo.byIdOrGeneric(null))
     }
 
     @Test
@@ -61,7 +59,6 @@ class CalibrationPresetsTest {
             assertTrue("${it.id} needs a rig", it.measurementRig.isNotBlank())
             assertTrue("${it.id} needs a target curve", it.targetCurve.isNotBlank())
             assertTrue("${it.id} needs notes", it.notes.isNotBlank())
-            assertTrue("${it.id} must say APPROXIMATE", it.provenanceLine().contains("APPROXIMATE"))
         }
     }
 
@@ -74,7 +71,6 @@ class CalibrationPresetsTest {
         repo.all().forEach {
             val expectIem = it.id in iems
             assertEquals(it.id, expectIem, it.formFactor == DeviceFormFactor.IN_EAR)
-            assertEquals(it.id, expectIem, it.requiresFitCheck)
         }
         assertEquals(DeviceFormFactor.OVER_EAR, repo.focalBathys.formFactor)
         assertEquals(DeviceFormFactor.OVER_EAR, repo.sennheiserMomentum4.formFactor)

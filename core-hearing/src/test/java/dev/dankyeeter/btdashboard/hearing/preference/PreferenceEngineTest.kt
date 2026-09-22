@@ -325,21 +325,22 @@ class PreferenceEngineTest {
     @Test
     fun `repeats never move the estimate`() {
         val engine = PreferenceEngine(random = Random(23))
-        var beforeValidation: PreferenceCandidate? = null
+        var lastSearchChoice: PreferenceCandidate? = null
         var guard = 0
         while (true) {
             when (val step = engine.next()) {
-                is PreferenceEngine.Step.Finished -> break
+                is PreferenceEngine.Step.Finished -> {
+                    assertTrue("no repeats were asked", step.result.repeats > 0)
+                    assertEquals(lastSearchChoice?.clamped()?.quantised(), step.result.candidate)
+                    return
+                }
                 is PreferenceEngine.Step.Compare -> {
-                    if (step.repeat && beforeValidation == null) {
-                        beforeValidation = engine.currentEstimate
-                    }
+                    if (!step.repeat) lastSearchChoice = step.a
                     engine.record(PreferenceChoice.A)
                 }
             }
             check(guard++ < 100)
         }
-        assertEquals(beforeValidation, engine.currentEstimate)
     }
 
     // ---- carry-over ----------------------------------------------------------
