@@ -1,4 +1,4 @@
-# Stand — 2026-09-22
+# Stand — 2026-09-23
 
 Kurzfassung fuer die Agenten. Zielbild in `GOAL.md`, Historie in `docs/archiv/HANDOVER.md`,
 Entwurf in `ARCHITECTURE.md`, Oberflaeche in `UI_SPEC.md`, Befunde in
@@ -20,16 +20,38 @@ alle aus `GOAL.md` bzw. Nutzerentscheidung, kein Backlog vorhanden:
 Fixauftrag und einem Retest. Ende: Warteschlange leer → `product-strategist`
 `discover` vorlegen, halten. Kein Release ohne Nutzer.
 
-**Laeuft (22.09.): T-041** (`docs/tasks/T-041.md`) — a F-001/F-002, b JSON
-(W-2..4), c Kalibrierung + Room 3→4 (W-5..6), d `security-reviewer`-Vorlauf,
-danach e Helfer-Protokoll (W-1). Dann **eine** Pruefphase am Quellstand.
-Release: sammeln. T-040 gemergt (`6c2cde3`), netto −979 Zeilen Code; Suite
-**2484 / 0 Failures** (Director, 22.09. 23:33). AD-025..AD-029 in
-`ARCHITECTURE.md`; Director-Entscheid: AD-028 darf Kalibrierzeilen loeschen,
-Robolectric in `:core-hearing` frei.
-**Gerätesession 23.09. abends (Nutzer):** Ton-Umbau W-7..W-9 (AD-025,
-Oboe → AudioTrack) mit Geraetevergleich; danach `GOAL.md:169` „Oboe NDK“
-aendern (Nutzerfreigabe haengt am Geraetebeweis). Dazu T-036/T-037.
+**Stand 23.09. 01:20:** T-040..T-042 und T-039 (AK-17) gemergt auf dem
+Branch. Pruefphase T-043: QA CONCERNS (kein P1/P2), Security PASS, Design
+ship-ready. **Laeuft: T-044** (Fixe A/B/D + Ponytail + F-006), danach **ein**
+QA-Retest. Suite vor T-044: 2493/0 (Director 00:38/00:39, zweimal).
+Director-Entscheid: A, B, D und F-006 trotz P3/P4 jetzt (AK-3/AK-17/AK-5).
+**T-045 Bestandsaufnahme** (`docs/berichte/T-045-architect.md`): von AK-8..16
+nur AK-10 gebaut (leer), AK-8/9/15 teilweise, **AK-11..14 und AK-16 offen** —
+der gefuehrte Optimierprozess (Saeule 3) fehlt. Schnitt P-1..P-9 im Bericht,
+AD-030 ff. vorbereitet, warten auf Nutzerantworten.
+
+**Beim Nutzer — offen (am Laufende fragen):**
+1. Saeule 3, fuenf Fragen aus T-045 (Messgroesse 990 gepinnt, 2×15 min,
+   nur anleiten statt WLAN schalten, AK-16 „nicht bestimmbar“ bis T-037,
+   „Device test“ entfernen) — Empfehlungen im Bericht.
+2. T-039: soll eine lange Pause (`RUN_GAP_MAX`) den Lauf beenden?
+   (UI_SPEC T-039 Offene Frage 5). Sample-Rate-Wechsel im Lauf beenden?
+3. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
+
+**Geraetesession 23.09. abends:** W-7..W-9 (AD-025) mit Geraetevergleich;
+T-036/T-037 — **Monitor-Ansicht dabei geschlossen halten**, sie pollt
+`dumpsys bluetooth_manager` alle 0,5–5 s (`DumpsysLinkSource.kt:19`) und leert
+damit laut R-011 die BQR-Queue (T-045); Pruefliste aus
+`docs/berichte/T-043a-qa-engineer.md` („Nur mit Geraet“, 10 Punkte);
+Einstellungs-Inventur P-3 (T-045), dabei F-011 klaeren.
+
+**Beschlossen, nicht beauftragt:** F-004, F-005, F-009 (QA-C), SR-023,
+SR-024, F-011 (Nutzertext „only a rooted phone can change“ in
+`DeviceProfilesScreen.kt:316` und `BluetoothSystemControls.kt:105` — laut
+T-045 falsch und Root-Hinweis gegen AK-10; korrekte Stelle am Geraet klaeren),
+Whitelist-Kommentar „three“ bei vier Eintraegen (`PrivilegedProtocol.kt:18,20,79`).
+Director-Vorentscheid fuer Saeule 3: Rueckweg setzt automatisches Anwenden der
+Profile aus, bis der Nutzer es wieder einschaltet (T-045).
 Messbefunde und Tuning-Grundlagen (frueher hier):
 `docs/archiv/state-messbefunde-2026-09-03.md`.
 
@@ -59,59 +81,18 @@ Beantwortet die letzte Frage zu AK-7. Braucht Stoerung, deshalb nach der
 2,4-GHz-Zelle — und **getrennt**, damit der `dumpsys`-Aufruf T-036 nicht
 verfaelscht.
 
-**Ohne Geraet:** T-041, danach T-039.
 
-## AK-17 / T-039 — Beobachtungslauf: Spec liegt, Fragen entschieden
+## AK-17 / T-039 — Beobachtungslauf: gebaut (T-039b), Fixe in T-044
 
-**AK-17 steht in `GOAL.md`** (Nutzer 03.09.): Bei ABR zeigt die Oberflaeche
-waehrend eines Beobachtungslaufs **Minimum**, **Zeitanteil ueber einer
-waehlbaren Schwelle** und **Verweildauer je Stufe** — damit der Nutzer belegen
-kann, ob eine feste Stufe traegt, statt es zu vermuten. **Nur bei offener
-Oberflaeche, keine Persistenz** — AK-4 bleibt unangetastet.
-
-**Spec geliefert:** `UI_SPEC.md` ab Z. 2454, **AK-T039-1..16**. Ausserdem
-AK-T002-11 erweitert (`low` neben `peak`) und AK-T002-13 praezisiert.
-Neue Messanforderungen **M-15** und **M-16**.
-
-Tragende Festlegungen der Spec:
-- **Ausdruecklich gestarteter Lauf, kein gleitendes Fenster.** `{T}` ist die
-  **Summe der abgedeckten Intervalle**, nie `jetzt - Start` — so kann keine
-  unbeobachtete Sekunde mitgerechnet werden.
-- **Eigener Abschnitt** unter `TraceSection`, getrennt von der 60-s-Caption.
-  Ruhezustand: eine Zeile plus Chip.
-- **Rechnung ueber Intervalle statt ueber Lesungen** — immun gegen den
-  Kadenzwechsel 1/2/5 s, erzeugt keine Rate (R-F auch dem Geist nach gehalten).
-- **Peak bleibt in der Caption, bekommt `low` daneben**; im Lauf fuehrt das
-  Minimum, ein Hoechstwert erscheint dort gar nicht.
-- **Zahlen erst ab 120 s und 30 Lesungen**, davor „Collecting“. Pause,
-  ausgefallene Lesung, Hintergrund = Luecke. Trennung, Stufen-/Codecwechsel,
-  Luecke > 2 min = **Lauf endet mit genanntem Grund**. Screen verlassen
-  verwirft ihn.
-
-**Vom Nutzer entschieden (03.09.):**
-- Lauf wird **von Hand gestartet**, nicht automatisch beim Oeffnen.
-- **Einmaliger Hinweis** beim Start, dass Verlassen des Bildschirms den Lauf
-  verwirft.
-
-**Vom Nutzer entschieden (22.09.), beide wie von der Spec empfohlen:**
-1. Zeitbezug steht **bei jeder der drei Zahlen** („Niedrigster Wert: 606 kbps
-   · ueber 24 min beobachtet“).
-2. Schwelle waehlbar **nur aus den pinnbaren Stufen** (330/660/990 bzw.
-   303/606/909, Default die mittlere).
-
-**Vorbehalt der Spec, nicht ueberdehnen:** `RUN_MIN_OBSERVED_MS` = 120 s und
-`RUN_GAP_MAX_MS` = 120 s sind **begruendete Kanten, keine Messung**. M-15
-schliesst die erste aus einem bereits moeglichen 30-min-ABR-Lauf; M-16
-(500 ms gegen 5 s) sagt, wie stark „Lowest reading“ untertreibt. **Bis M-16
-beantwortet ist, darf der Wortlaut nicht zu „lowest rate“ werden.**
-
-**Bereit zur Umsetzung:** `developer` gegen AK-T039-1..16, danach
-`qa-engineer`. Kein Geraet noetig. Startet nach T-041.
+Spec `UI_SPEC.md` T-039-Abschnitt (AK-T039-1..17), Vorgaben wörtlich in
+`docs/tasks/T-039.md`. Nutzerentscheide 03.09./22.09. dort. Vorbehalt bleibt:
+`RUN_MIN_OBSERVED_MS`/`RUN_GAP_MAX_MS` = 120 s sind begruendete Kanten, keine
+Messung (M-15, M-16); bis M-16 kein Wortlaut „lowest rate“.
 
 ## Stand des Codes
 
-`gradlew test`: **2484 Tests, 0 Failures** (Director, 22.09. 23:33, `6c2cde3`,
-nach T-040; vorher 2488 am 03.09.).
+`gradlew test`: **2493 Tests, 0 Failures** (Director, 23.09. 00:38/00:39,
+`efbcf0f`, `clean test --no-build-cache`, zweimal; F-006 Flaky offen).
 
 **T-038 abgeschlossen** (`374be69`, `5218455`, `de2454b`, `5f605b1`): die fuenf
 Befunde QA-014..QA-018 sind behoben und gegengeprueft. **Zwei Lehren daraus

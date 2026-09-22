@@ -313,3 +313,4 @@ kein Grund zum Entfernen, sondern einer zum Testen.
 | F-006 | Statuswechsel: Ursache eingegrenzt (geteilter DataStore zwischen Robolectric-Tests, `SystemGraph.kt:68`, `EqSettingsStore.kt:20`), kein Produktfehler | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044b |
 | QA-012 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
 | QA-013 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
+| F-011 | Nutzertext „only a rooted phone can change“ (`DeviceProfilesScreen.kt:316`, `BluetoothSystemControls.kt:105`) laut T-045 falsch (Entwickleroptionen) und Root-Hinweis gegen AK-10; am Geraet klaeren | P3 | architect (T-045) | developer | beschlossen, nicht beauftragt | 2026-09-23 | – |
