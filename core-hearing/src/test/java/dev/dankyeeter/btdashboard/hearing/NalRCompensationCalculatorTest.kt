@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.audio.eq.Ear
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import org.junit.Assert.assertEquals
@@ -174,7 +175,7 @@ class NalRCompensationCalculatorTest {
         assertTrue(r.left.bandGainsDb[9] < r.left.bandGainsDb[8])
         assertTrue(r.left.bandGainsDb[0] < scaled.first() + 1e-9)
         assertTrue("extrapolated bands must stay below the measured ones",
-            EqBands.EXTRAPOLATED_INDICES.all { i -> r.left.bandGainsDb[i] <= scaled.max() + 1e-9 })
+            EqBandLayout.DEFAULT.extrapolatedIndices.all { i -> r.left.bandGainsDb[i] <= scaled.max() + 1e-9 })
     }
 
     @Test

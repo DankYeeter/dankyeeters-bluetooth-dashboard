@@ -139,9 +139,6 @@ data class LiveTrace(
     val unitLabel: String
         get() = if (points.any { it.bitrateKbps != null }) "kbps" else "packets/s"
 
-    /** True when the line is the measured bitrate rather than the liveness fallback. */
-    val isMeasuredBitrate: Boolean get() = points.any { it.bitrateKbps != null }
-
     /**
      * AK-T002-11's `k`: how many **marks** the graph drew.
      *
