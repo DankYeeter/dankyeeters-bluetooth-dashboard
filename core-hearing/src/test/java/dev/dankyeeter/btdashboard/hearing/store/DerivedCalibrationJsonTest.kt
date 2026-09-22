@@ -5,14 +5,18 @@ import dev.dankyeeter.btdashboard.hearing.TEST_FREQUENCIES_HZ
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * The stored form of a derivation, which is the one record in this module that
  * cannot be re-measured at home: it took an appointment at a practice. So the
  * round trip is pinned rather than assumed, including the awkward strings — the
  * warnings are English prose with em dashes and quotes in them, and prose is
- * where a hand-written encoder goes wrong.
+ * where an encoder goes wrong. Robolectric, because the codec is built on
+ * Android's own `org.json` and this is the implementation the phone runs.
  */
+@RunWith(RobolectricTestRunner::class)
 class DerivedCalibrationJsonTest {
 
     private fun calibration(
@@ -110,6 +114,20 @@ class DerivedCalibrationJsonTest {
         val ok = "[{\"deviceKey\":\"x\",\"responseDeviationDb\":[$full]," +
             "\"earSpreadDb\":0.0,\"warnings\":[],\"createdAtMillis\":0,\"sourceRunIds\":[]}]"
         assertEquals(1, DerivedCalibrationJson.parse(ok).size)
+    }
+
+    /** JSON cannot hold NaN or infinity; they are stored as 0.0, not as a lost record. */
+    @Test
+    fun `a value JSON cannot hold is stored as zero`() {
+        val odd = calibration().copy(
+            responseDeviationDb = listOf(Double.NaN, Double.POSITIVE_INFINITY, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            earSpreadDb = Double.NEGATIVE_INFINITY,
+        )
+
+        val parsed = DerivedCalibrationJson.parse(DerivedCalibrationJson.encode(listOf(odd))).single()
+
+        assertEquals(List(8) { 0.0 }, parsed.responseDeviationDb)
+        assertEquals(0.0, parsed.earSpreadDb, 0.0)
     }
 
     /** One broken entry must not cost the readable ones beside it. */
