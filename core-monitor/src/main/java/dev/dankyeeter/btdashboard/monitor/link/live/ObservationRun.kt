@@ -107,7 +107,8 @@ data class ObservationRun(
     private val levels: Set<Int> = emptySet(),
     private val link: RunLink? = null,
     private val lastSeenMs: Long? = null,
-    private val lastRate: RateReading? = null,
+    /** The last reading that carried a rate: its timestamp and kbps. */
+    private val lastRate: Pair<Long, Int>? = null,
 ) {
 
     /**
@@ -139,7 +140,7 @@ data class ObservationRun(
 
         val kbps = snapshot.ldac?.measuredKbps?.takeIf { device.isPlaying }
             ?: return copy(link = runLink, lastSeenMs = now)
-        val chained = lastRate != null && lastRate.timestampMs == previous
+        val chained = lastRate != null && lastRate.first == previous
         return copy(link = runLink, lastSeenMs = now).withRate(now, kbps, chained, expectedIntervalMs)
     }
 
@@ -184,14 +185,14 @@ data class ObservationRun(
             lowestKbps = min(lowestKbps ?: kbps, kbps),
             levels = if (kept) levels + kbps else levels,
             levelLimitReached = levelLimitReached || !kept,
-            lastRate = RateReading(now, kbps),
+            lastRate = now to kbps,
         )
-        val from = lastRate ?: return next
-        val span = now - from.timestampMs
+        val (fromMs, fromKbps) = lastRate ?: return next
+        val span = now - fromMs
         if (!chained || isReadingGap(span, expectedIntervalMs)) {
             return next.copy(gapMs = gapMs + span, gapCount = gapCount + 1)
         }
-        val pair = from.kbps to kbps
+        val pair = fromKbps to kbps
         return if (pair.first in next.levels && pair.second in next.levels) {
             next.copy(observedMs = observedMs + span, pairMs = pairMs + (pair to (pairMs[pair] ?: 0L) + span))
         } else {
@@ -256,9 +257,6 @@ data class ObservationRun(
         private const val PERCENT = 100L
     }
 }
-
-/** A reading that carried a rate. Public only because [ObservationRun]'s constructor is. */
-data class RateReading(val timestampMs: Long, val kbps: Int)
 
 /**
  * What a run belongs to: one pairing, one codec, one LDAC setting. Public only

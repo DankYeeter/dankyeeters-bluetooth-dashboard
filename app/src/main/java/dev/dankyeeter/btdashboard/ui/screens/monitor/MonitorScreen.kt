@@ -106,12 +106,18 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             closeUpTrace = closeUpTrace,
             closeUpEnabled = closeUpEnabled,
             onCloseUpEnabled = viewModel::setCloseUpEnabled,
-            observationRun = observationRun,
-            onStartRun = viewModel.observationRun::onStartTapped,
-            onStopRun = viewModel.observationRun::onStop,
-            onRunThreshold = viewModel.observationRun::onThreshold,
-            onRunNoticeContinue = viewModel.observationRun::onNoticeContinue,
-            onRunNoticeDismiss = viewModel.observationRun::onNoticeDismiss,
+            observationRun = { snapshot ->
+                val control = viewModel.observationRun
+                ObservationRunSection(
+                    snapshot,
+                    observationRun,
+                    onStart = control::onStartTapped,
+                    onStop = control::onStop,
+                    onThreshold = control::onThreshold,
+                    onNoticeContinue = control::onNoticeContinue,
+                    onNoticeDismiss = control::onNoticeDismiss,
+                )
+            },
         )
 
         DataSourcePanel(

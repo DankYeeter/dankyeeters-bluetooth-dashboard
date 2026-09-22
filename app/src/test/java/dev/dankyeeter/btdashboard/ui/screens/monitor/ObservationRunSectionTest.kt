@@ -270,7 +270,17 @@ class ObservationRunSectionTest {
                         LiveTrace.closeUp(500L)
                     },
                     closeUpEnabled = closeUp,
-                    observationRun = ObservationRunUi(run = counting),
+                    observationRun = { snapshot ->
+                        ObservationRunSection(
+                            snapshot,
+                            ObservationRunUi(run = counting),
+                            onStart = {},
+                            onStop = {},
+                            onThreshold = {},
+                            onNoticeContinue = {},
+                            onNoticeDismiss = {},
+                        )
+                    },
                 )
             }
         }
