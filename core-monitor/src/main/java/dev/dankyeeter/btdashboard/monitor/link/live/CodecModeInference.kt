@@ -6,9 +6,8 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
  * One selectable bitrate mode of one codec.
  *
  * [rawValue] is the number that goes into `codecSpecific1` to pin it, which is
- * also the key the calibration store uses — so a learned signature survives a
- * rename of [label] and stays wrong-proof across codecs that happen to share
- * mode names.
+ * also the key [CodecModeInference] looks the stack's quality-mode token up
+ * by — so the match survives a rename of [label].
  */
 data class CodecMode(
     val codec: CodecFamily,
@@ -23,9 +22,9 @@ data class CodecMode(
  *
  * [frameBytes] is real arithmetic on verified constants and is no longer read by
  * [CodecModeInference]: what it was for — identifying a mode from how many
- * frames fit in a packet — needed a packet counter this stack does not have. It
- * stays with the calibration seam, which is the only thing that could ever use a
- * per-mode signature again.
+ * frames fit in a packet — needed a packet counter this stack does not have.
+ * The type stays because [CodecModeSignatures.signatures] is still how a
+ * codec lists its pinnable modes.
  */
 data class CodecModeSignature(val mode: CodecMode, val frameBytes: Int)
 
