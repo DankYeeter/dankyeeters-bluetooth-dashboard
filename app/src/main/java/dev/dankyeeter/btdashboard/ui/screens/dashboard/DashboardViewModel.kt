@@ -4,8 +4,6 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import dev.dankyeeter.btdashboard.hearing.CalibrationPreset
-import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanState
 import dev.dankyeeter.btdashboard.transfer.BackupExportResult
@@ -14,14 +12,11 @@ import dev.dankyeeter.btdashboard.transfer.BackupRepository
 import dev.dankyeeter.btdashboard.system.setup.SetupStatus
 import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
 import dev.dankyeeter.btdashboard.ui.screens.wizard.AndroidSetupEnvironment
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -31,7 +26,6 @@ import kotlinx.coroutines.launch
  * An [AndroidViewModel] because the backup flow needs a context for the
  * Storage Access Framework URIs; everything else comes from the graphs.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     private val scanner = SystemGraph.airPodsScanner
@@ -71,10 +65,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
-
-    fun stopScan() = scanner.stop()
-
-    fun hasScanPermission(): Boolean = scanner.hasScanPermission()
 
     // ---- backup ---------------------------------------------------------------
 

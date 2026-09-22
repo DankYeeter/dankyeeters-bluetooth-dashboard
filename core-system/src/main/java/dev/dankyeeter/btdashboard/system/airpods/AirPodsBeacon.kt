@@ -28,13 +28,7 @@ data class AirPodsBeacon(
     /** Wraps at 255; only useful to detect *changes* (a lid event happened). */
     val lidOpenCounter: Int,
     val color: AirPodsColor,
-) {
-    /** True when at least one bud reports a battery level. */
-    val hasBudBattery: Boolean get() = leftBatteryPercent != null || rightBatteryPercent != null
-
-    /** Both buds sitting in the ear — the only reliable "being worn" signal. */
-    val bothInEar: Boolean get() = leftInEar && rightInEar
-}
+)
 
 /**
  * Recognised AirPods models.

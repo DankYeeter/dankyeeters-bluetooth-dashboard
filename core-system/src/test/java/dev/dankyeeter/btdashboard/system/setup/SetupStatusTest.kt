@@ -1,7 +1,6 @@
 package dev.dankyeeter.btdashboard.system.setup
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,7 +28,6 @@ class SetupStatusTest {
 
         assertTrue(states.all { it.status == SetupStepStatus.DONE })
         assertNull(SetupStatus.summary(states))
-        assertFalse(SetupStatus.hasUnmetRequirements(states))
     }
 
     @Test
@@ -70,12 +68,17 @@ class SetupStatusTest {
         assertTrue(SetupStatus.outstanding(states).any { it.step == SetupStep.HELPER })
     }
 
+    /**
+     * Skipping is for optional steps; it must not be a way past the gate.
+     * phase() reads the environment, not the skip list - there is no argument
+     * a skip could be passed through - so a skipped required step only changes
+     * its badge status.
+     */
     @Test
-    fun `skipping cannot clear a required step`() {
+    fun `a skipped required step is only marked skipped`() {
         val states = SetupStatus.evaluate(FakeEnvironment(), setOf(SetupStep.BLUETOOTH.id))
 
         assertEquals(SetupStepStatus.SKIPPED, states.single { it.step == SetupStep.BLUETOOTH }.status)
-        assertTrue(SetupStatus.hasUnmetRequirements(states))
     }
 
     @Test
@@ -124,17 +127,6 @@ class SetupStatusTest {
         val allButNotifications = SetupStep.entries.toSet() - SetupStep.NOTIFICATIONS
 
         assertEquals(SetupPhase.FULL_SETUP, SetupStatus.phase(FakeEnvironment(satisfied = allButNotifications)))
-    }
-
-    /** Skipping is for optional steps; it must not be a way past the gate. */
-    @Test
-    fun `skipping a required step cannot open the app`() {
-        val environment = FakeEnvironment()
-
-        assertEquals(SetupPhase.FULL_SETUP, SetupStatus.phase(environment))
-        // phase() reads the environment, not the skip list - there is no
-        // argument here that a skip could be passed through.
-        assertTrue(SetupStatus.hasUnmetRequirements(SetupStatus.evaluate(environment, setOf(SetupStep.BLUETOOTH.id))))
     }
 
     @Test

@@ -42,10 +42,6 @@ object Contrast {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
-    /** Whether [foreground] is readable as body text on [background]. */
-    fun isReadable(foreground: Color, background: Color): Boolean =
-        ratio(foreground, background) >= BODY_MIN
-
     /**
      * Flattens [foreground] onto [background] at its own alpha.
      *
