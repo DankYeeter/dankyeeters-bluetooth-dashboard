@@ -257,3 +257,5 @@ jede umask-Zusage schweigend umdreht.
 OPEN_/CLOSE_AUDIO_EFFECT_CONTROL_SESSION (vermutlich keine geschuetzten
 Broadcasts; Komponente per Default deaktiviert). Eigenes Review noetig,
 nicht Teil von T-005.
+
+- 2026-09-22 · T-041d, Vorlauf W-1 (AD-027): PASS, Auflagen V-1..V-11 in `docs/tasks/T-041.md`, keine neuen SR.

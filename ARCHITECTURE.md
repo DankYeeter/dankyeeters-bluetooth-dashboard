@@ -1661,8 +1661,12 @@ Konkret in W-1:
   liefert fuer zwei leere Arrays `true`), der Rumpf wird
   `MessageDigest.isEqual(offered.toByteArray(UTF_8), expected.toByteArray(UTF_8))`.
   Geprueft am AOSP-Quelltext `libcore/ojluni/.../MessageDigest.java`, Zweig
-  `main`, 22.09.: Laenge und Inhalt ohne fruehen Ausstieg verglichen. Nicht
-  einzeln am Tag fuer API 31 geprueft. Bindender Test existiert:
+  `main`, 22.09.: Laenge und Inhalt ohne fruehen Ausstieg verglichen.
+  **Praezisiert (T-041d, `security-reviewer`, 22.09.):** Zweig
+  `android12-release` (API 31) bricht bei ungleicher Laenge frueh ab, der
+  Inhalt wird konstantzeitig verglichen — harmlos, Token ist eine UUID fester,
+  oeffentlicher Laenge, beide Aufrufer pruefen vorher die uid. Pruefung bleibt
+  `isNullOrBlank` (nicht nur leer). Bindender Test existiert:
   `PrivilegedTokenTest.tokens match only when…` faellt, wenn die Leer-Pruefung
   wegfaellt (`tokensMatch("", "")`).
 - Nebenbefund, selbe Datei: die KDoc von `SHUTDOWN` (`:111-114`) haengt ueber
