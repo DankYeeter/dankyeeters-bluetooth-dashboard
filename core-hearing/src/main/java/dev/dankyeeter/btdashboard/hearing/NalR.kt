@@ -4,7 +4,7 @@ import kotlin.math.ln
 
 /**
  * The NAL-R prescription rule (Byrne & Dillon 1986), exactly as specified in
- * COMPENSATION.md section 2.
+ * docs/archiv/COMPENSATION.md section 2.
  *
  * ```
  * PTA   = (H500 + H1000 + H2000) / 3      (per ear)
@@ -19,7 +19,7 @@ import kotlin.math.ln
  */
 object NalR {
 
-    /** Frequencies of the C(f) correction table in COMPENSATION.md. */
+    /** Frequencies of the C(f) correction table in docs/archiv/COMPENSATION.md. */
     val CORRECTION_FREQUENCIES_HZ: List<Int> = listOf(250, 500, 1000, 2000, 3000, 4000, 6000)
 
     /** C(f) in dB, index-aligned with [CORRECTION_FREQUENCIES_HZ]. */
@@ -63,7 +63,7 @@ object NalR {
  * support the edge value is held (never extrapolated). [xs] must be sorted
  * ascending and positive.
  *
- * Kept for the C(f) table, which COMPENSATION.md specifies as linearly
+ * Kept for the C(f) table, which docs/archiv/COMPENSATION.md specifies as linearly
  * interpolated. Measured curves use [logInterpolateMonotone] instead — see
  * there for why the two differ on purpose.
  */
@@ -104,7 +104,7 @@ internal fun logInterpolate(xs: List<Double>, ys: List<Double>, x: Double): Doub
  * extremum.
  *
  * Deliberately *not* applied to NalR's C(f) table: that one is a published
- * constant of the prescription rule, and COMPENSATION.md specifies linear
+ * constant of the prescription rule, and docs/archiv/COMPENSATION.md specifies linear
  * interpolation for it. Smoothing a spec is not an improvement.
  */
 internal fun logInterpolateMonotone(xs: List<Double>, ys: List<Double>, x: Double): Double {

@@ -173,7 +173,7 @@ data class ClinicalAudiogram(
      * ## The unit mapping, which is the whole point of this function
      *
      * [NalR.insertionGainDb] implements `IG(f) = 0.15*PTA + 0.31*H_T(f) + C(f)`
-     * verbatim from COMPENSATION.md, and COMPENSATION.md step 3.2 names its
+     * verbatim from docs/archiv/COMPENSATION.md, and docs/archiv/COMPENSATION.md step 3.2 names its
      * argument: `H_T(f)` "in dB HL". So the rule's natural input is **absolute
      * dB HL, positive, 0 = no loss** — precisely what an ENT form prints. No
      * conversion is needed and none is applied: the numbers go in as they are
