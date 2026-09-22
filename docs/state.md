@@ -17,6 +17,12 @@ a/b `developer` (Loeschungen, ohne Verhaltensaenderung), c `architect`
 (vier Umbauten: Oboe→AudioTrack, MiniJson, AIDL-Protokoll, Kalibrierung +
 Room 3→4). Danach: Vorlauf `security-reviewer` fuer den Helfer (AK-6), dann
 Umbau-Auftraege, dann **eine** Pruefphase am Quellstand. Release: sammeln.
+T-040c erledigt (22.09.): AD-025..AD-029 in `ARCHITECTURE.md`, Schrittfolge
+W-1..W-9 (AD-029), startet nach Merge von a/b. Director-Entscheid 22.09.:
+AD-028 darf die Kalibrierzeilen loeschen (unerreichbar, falsch gemessen);
+Robolectric als Testabhaengigkeit in `:core-hearing` freigegeben.
+**Beim Nutzer — offen:** `GOAL.md:169` nennt „Oboe NDK“ im Rahmen, AD-025
+ersetzt es durch AudioTrack — Zielaenderung, W-8 wartet darauf.
 Suite vor T-040: **2488 / 0 Failures** (Director, 22.09. 22:00, `5f62b15`).
 Messbefunde und Tuning-Grundlagen (frueher hier):
 `docs/archiv/state-messbefunde-2026-09-03.md`.
