@@ -46,7 +46,6 @@ internal fun ObservationRunSection(
     onNoticeDismiss: () -> Unit,
 ) {
     val run = state.run
-    val sampleRateHz = snapshot.codec?.sampleRateHz
     val lowest = run?.lowestKbps?.takeUnless { run.isCollecting }
 
     ExplainedBlock(RUN_LABEL, runExplanation(run)) { toggle ->
@@ -60,13 +59,15 @@ internal fun ObservationRunSection(
             toggle()
         }
         if (run != null && lowest != null) {
-            RunFigures(run, lowest, state.thresholdQuality, sampleRateHz, onThreshold)
+            RunFigures(run, lowest, state.thresholdQuality, onThreshold)
         }
         when {
             run != null && run.end == null ->
                 FilterChip(selected = true, onClick = onStop, label = { Text("Stop") })
 
-            run != null || snapshot.hasReadableRate ->
+            // Ended run or none: a run started on an unreadable rate would end
+            // at its first reading, blaming a rate it never saw.
+            snapshot.hasReadableRate ->
                 FilterChip(selected = false, onClick = onStart, label = { Text("Start") })
         }
     }
@@ -92,9 +93,10 @@ private fun RunFigures(
     run: ObservationRun,
     lowest: Int,
     thresholdQuality: Long,
-    sampleRateHz: Int?,
     onThreshold: (Long) -> Unit,
 ) {
+    // The run's own ladder, not the link's now: an ended run stays as it was measured.
+    val sampleRateHz = run.sampleRateHz
     val observed = formatSpan(run.observedMs)
     val threshold = LdacState.nominalKbps(LdacState.modeOf(thresholdQuality), sampleRateHz) ?: return
     val quiet = MaterialTheme.typography.bodySmall
