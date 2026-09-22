@@ -20,7 +20,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.RunEnd
 import dev.dankyeeter.btdashboard.monitor.link.live.hasReadableRate
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * The observation run: "can I pin a step, and which one?" answered with
@@ -34,7 +34,6 @@ import java.util.concurrent.TimeUnit
  * Exactly one of five states is on screen: rate not readable, off, collecting,
  * counting with figures, ended with figures kept.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ObservationRunSection(
     snapshot: LinkLiveSnapshot,
@@ -46,7 +45,6 @@ internal fun ObservationRunSection(
     onNoticeDismiss: () -> Unit,
 ) {
     val run = state.run
-    val sampleRateHz = snapshot.codec?.sampleRateHz
     val lowest = run?.lowestKbps?.takeUnless { run.isCollecting }
 
     ExplainedBlock(RUN_LABEL, runExplanation(run)) { toggle ->
@@ -60,13 +58,15 @@ internal fun ObservationRunSection(
             toggle()
         }
         if (run != null && lowest != null) {
-            RunFigures(run, lowest, state.thresholdQuality, sampleRateHz, onThreshold)
+            RunFigures(run, lowest, state.thresholdQuality, onThreshold)
         }
         when {
             run != null && run.end == null ->
                 FilterChip(selected = true, onClick = onStop, label = { Text("Stop") })
 
-            run != null || snapshot.hasReadableRate ->
+            // Ended run or none: a run started on an unreadable rate would end
+            // at its first reading, blaming a rate it never saw.
+            snapshot.hasReadableRate ->
                 FilterChip(selected = false, onClick = onStart, label = { Text("Start") })
         }
     }
@@ -92,9 +92,10 @@ private fun RunFigures(
     run: ObservationRun,
     lowest: Int,
     thresholdQuality: Long,
-    sampleRateHz: Int?,
     onThreshold: (Long) -> Unit,
 ) {
+    // The run's own ladder, not the link's now: an ended run stays as it was measured.
+    val sampleRateHz = run.sampleRateHz
     val observed = formatSpan(run.observedMs)
     val threshold = LdacState.nominalKbps(LdacState.modeOf(thresholdQuality), sampleRateHz) ?: return
     val quiet = MaterialTheme.typography.bodySmall
@@ -179,12 +180,11 @@ internal fun endLine(end: RunEnd, observedMs: Long): String {
  * never stated longer than it was; and no span over 90 s carries seconds, a
  * precision a 1-to-5 s cadence does not have.
  */
-internal fun formatSpan(ms: Long): String {
-    val minutes = TimeUnit.MILLISECONDS.toMinutes(ms)
-    return when {
-        ms < SECONDS_SHOWN_BELOW_MS -> "${TimeUnit.MILLISECONDS.toSeconds(ms)} s"
-        minutes < TimeUnit.HOURS.toMinutes(1) -> "$minutes min"
-        else -> "${TimeUnit.MINUTES.toHours(minutes)} h ${minutes % TimeUnit.HOURS.toMinutes(1)} min"
+internal fun formatSpan(ms: Long): String = ms.milliseconds.toComponents { hours, minutes, _, _ ->
+    when {
+        ms < SECONDS_SHOWN_BELOW_MS -> "${ms.milliseconds.inWholeSeconds} s"
+        hours == 0L -> "$minutes min"
+        else -> "$hours h $minutes min"
     }
 }
 
@@ -212,7 +212,7 @@ private const val LEAVING_DISCARDS_THE_RUN =
  * The share's threshold chips: the pinnable steps only (decision 4). A share
  * over a rate nobody can pin answers no action; adaptive has no single rate.
  */
-private val THRESHOLD_QUALITIES = LdacQuality.pinnable.filter { it != LdacQuality.ADAPTIVE }
+private val THRESHOLD_QUALITIES = LdacQuality.pinnable - LdacQuality.ADAPTIVE
 
 /**
  * Step rows before the rest are summed into one: four, the number of ABR steps

@@ -90,12 +90,8 @@ fun LiveLinkPanel(
     closeUpTrace: LiveTrace = LiveTrace.closeUp(500L),
     closeUpEnabled: Boolean = false,
     onCloseUpEnabled: (Boolean) -> Unit = {},
-    observationRun: ObservationRunUi = ObservationRunUi(),
-    onStartRun: () -> Unit = {},
-    onStopRun: () -> Unit = {},
-    onRunThreshold: (Long) -> Unit = {},
-    onRunNoticeContinue: () -> Unit = {},
-    onRunNoticeDismiss: () -> Unit = {},
+    /** The observation-run section, drawn under the graphs for a link that reads. */
+    observationRun: @Composable (LinkLiveSnapshot) -> Unit = {},
 ) {
     Panel(modifier) {
         ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
@@ -129,15 +125,7 @@ fun LiveLinkPanel(
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
                 TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
-                ObservationRunSection(
-                    snapshot,
-                    observationRun,
-                    onStart = onStartRun,
-                    onStop = onStopRun,
-                    onThreshold = onRunThreshold,
-                    onNoticeContinue = onRunNoticeContinue,
-                    onNoticeDismiss = onRunNoticeDismiss,
-                )
+                observationRun(snapshot)
             }
         }
 

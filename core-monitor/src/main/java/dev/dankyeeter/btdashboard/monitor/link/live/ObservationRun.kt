@@ -107,8 +107,17 @@ data class ObservationRun(
     private val levels: Set<Int> = emptySet(),
     private val link: RunLink? = null,
     private val lastSeenMs: Long? = null,
-    private val lastRate: RateReading? = null,
+    /** The last reading that carried a rate: its timestamp and kbps. */
+    private val lastRate: Pair<Long, Int>? = null,
 ) {
+
+    /**
+     * The sample rate of the run's link at its first reading, or null before
+     * one. The threshold chips are figured from it, so an ended run keeps the
+     * ladder it was measured on, wherever the link has moved since.
+     */
+    val sampleRateHz: Int?
+        get() = link?.sampleRateHz
 
     /** True until both minimums are met; the figures stay hidden until then. */
     val isCollecting: Boolean
@@ -131,7 +140,7 @@ data class ObservationRun(
 
         val kbps = snapshot.ldac?.measuredKbps?.takeIf { device.isPlaying }
             ?: return copy(link = runLink, lastSeenMs = now)
-        val chained = lastRate != null && lastRate.timestampMs == previous
+        val chained = lastRate != null && lastRate.first == previous
         return copy(link = runLink, lastSeenMs = now).withRate(now, kbps, chained, expectedIntervalMs)
     }
 
@@ -176,14 +185,14 @@ data class ObservationRun(
             lowestKbps = min(lowestKbps ?: kbps, kbps),
             levels = if (kept) levels + kbps else levels,
             levelLimitReached = levelLimitReached || !kept,
-            lastRate = RateReading(now, kbps),
+            lastRate = now to kbps,
         )
-        val from = lastRate ?: return next
-        val span = now - from.timestampMs
+        val (fromMs, fromKbps) = lastRate ?: return next
+        val span = now - fromMs
         if (!chained || isReadingGap(span, expectedIntervalMs)) {
             return next.copy(gapMs = gapMs + span, gapCount = gapCount + 1)
         }
-        val pair = from.kbps to kbps
+        val pair = fromKbps to kbps
         return if (pair.first in next.levels && pair.second in next.levels) {
             next.copy(observedMs = observedMs + span, pairMs = pairMs + (pair to (pairMs[pair] ?: 0L) + span))
         } else {
@@ -249,21 +258,21 @@ data class ObservationRun(
     }
 }
 
-/** A reading that carried a rate. Public only because [ObservationRun]'s constructor is. */
-data class RateReading(val timestampMs: Long, val kbps: Int)
-
 /**
  * What a run belongs to: one pairing, one codec, one LDAC setting. Public only
- * because [ObservationRun]'s constructor is.
+ * because [ObservationRun]'s constructor is. [sampleRateHz] only names the
+ * ladder the run's thresholds come from; it ends no run.
  */
 data class RunLink(
     val address: String?,
     val codec: CodecFamily?,
     val mode: LdacQualityMode?,
     val adaptive: Boolean?,
+    val sampleRateHz: Int?,
 )
 
-private fun LinkLiveSnapshot.runLink() = RunLink(device?.address, codec?.family, ldac?.mode, ldac?.isAdaptive)
+private fun LinkLiveSnapshot.runLink() =
+    RunLink(device?.address, codec?.family, ldac?.mode, ldac?.isAdaptive, codec?.sampleRateHz)
 
 /**
  * Why this reading ends a run on [link], or null when it continues it.

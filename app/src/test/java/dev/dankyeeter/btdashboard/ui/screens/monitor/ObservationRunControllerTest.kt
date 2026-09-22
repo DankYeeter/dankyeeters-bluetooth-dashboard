@@ -11,6 +11,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.LiveDeviceSnapshot
 import dev.dankyeeter.btdashboard.system.setup.SetupStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -60,6 +61,8 @@ class ObservationRunControllerTest {
         assertNull("first tap: no run", first.ui.value.run)
 
         first.onNoticeDismiss()
+        // Whatever the controller launched — a store write included — has finished before the flag is read.
+        coroutineContext.job.children.forEach { it.join() }
         assertNull("Not now: no run", first.ui.value.run)
         assertFalse("Not now: flag unset", SetupStore(context).isObservationRunNoticeAccepted())
 
@@ -78,6 +81,14 @@ class ObservationRunControllerTest {
         fresh.settled()
         assertFalse("later taps: no notice", fresh.ui.value.startNoticeShown)
         assertNotNull("later taps: the run starts directly", fresh.ui.value.run)
+
+        // What this process saw — Continue above — must not stand in for the store:
+        // withdrawn there, the next ViewModel asks again, as a restart would.
+        SetupStore(context).setObservationRunNoticeAccepted(false)
+        val afterWithdrawal = controller()
+        afterWithdrawal.onStartTapped()
+        afterWithdrawal.settled()
+        assertTrue("the flag is read from the store", afterWithdrawal.ui.value.startNoticeShown)
     }
 
     /** AK-T039-1: readings never start a run, and a run counts only what follows the tap. */

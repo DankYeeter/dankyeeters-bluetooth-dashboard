@@ -126,6 +126,19 @@ class ObservationRunTest {
         }
     }
 
+    /** AK-T039-9: pinned to pinned is a quality change as well, not only leaving ABR. */
+    @Test
+    fun `a change from one pinned step to another ends the run`() {
+        // codecSpecific1 1000 is HIGH, 1001 is MID; both are pinned.
+        val pinnedHigh = (1..3).fold(started()) { run, s ->
+            run.plus(reading(s * 1_000L, 990, codecSpecific1 = 1000L), 1_000L)
+        }
+        assertNull(pinnedHigh.end)
+
+        val toMid = pinnedHigh.plus(reading(4_000L, 660, codecSpecific1 = 1001L), 1_000L)
+        assertEquals(RunEnd.QUALITY_CHANGED, toMid.end)
+    }
+
     /** A different headphone is a different pairing, and the run belongs to one. */
     @Test
     fun `another device becoming the link ends the run`() {

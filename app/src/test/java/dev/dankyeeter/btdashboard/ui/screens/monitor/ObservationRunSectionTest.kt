@@ -56,6 +56,16 @@ class ObservationRunSectionTest {
     /** 2 min 4 s covered: 660, a step to 990, a 6 s pause, then 492. */
     private val counting = runOf(List(60) { 660 } + List(61) { 990 } + List(5) { null } + List(5) { 492 })
 
+    /** The link after a switch to AAC at 44.1 kHz: no LDAC block, so no readable rate. */
+    private val aac = LinkLiveSnapshot(
+        timestampMs = 132_000L,
+        device = LiveDeviceSnapshot(address = "AC:DE:48:00:37:8F", isConnected = true, isPlaying = true),
+        codec = LiveCodecSnapshot(family = CodecFamily.AAC, sampleRateHz = 44_100, codecSpecific1 = 0L),
+    )
+
+    /** [counting], measured at 96 kHz, ended by the switch to [aac]. */
+    private val endedByCodecChange = counting.plus(aac, 1_000L).also { check(it.end == RunEnd.CODEC_CHANGED) }
+
     /** The five states of the table, in order. */
     private val states: List<Pair<String, Pair<LinkLiveSnapshot, ObservationRun?>>> = listOf(
         "RUN_UNAVAILABLE" to (snapshot(kbps = null) to null),
@@ -199,6 +209,27 @@ class ObservationRunSectionTest {
         assertEquals(before.filterNot { "At or above" in it }, after.filterNot { "At or above" in it })
     }
 
+    /** AK-T039-9, T-043a finding A: an ended run keeps the 96 kHz ladder it was measured on after a switch to 44.1 kHz. */
+    @Test
+    fun `an ended run keeps its own ladder when the link changes`() {
+        render(aac, endedByCodecChange)
+
+        val shown = texts()
+        assertTrue(shown.containsAll(listOf("990 kbps", "660 kbps", "330 kbps")))
+        assertTrue(shown.contains("At or above 660 kbps 96 % of the time, 2 min observed."))
+        assertFalse(shown.any { "909" in it || "606" in it || "303" in it })
+    }
+
+    /** T-043a finding B: no Start while the rate is unreadable, ended run or not; it returns with the rate. */
+    @Test
+    fun `an ended run offers Start only while the rate is readable`() {
+        render(aac, endedByCodecChange)
+        composeRule.onNode(hasText("Start") and hasClickAction()).assertDoesNotExist()
+
+        show(snapshot(), ObservationRunUi(run = endedByCodecChange))
+        composeRule.onNode(hasText("Start") and hasClickAction()).assertExists()
+    }
+
     /** AK-T039-8 (second-layer half): the share says it is a lower bound. */
     @Test
     fun `the second layer calls the share a lower bound`() {
@@ -239,7 +270,17 @@ class ObservationRunSectionTest {
                         LiveTrace.closeUp(500L)
                     },
                     closeUpEnabled = closeUp,
-                    observationRun = ObservationRunUi(run = counting),
+                    observationRun = { snapshot ->
+                        ObservationRunSection(
+                            snapshot,
+                            ObservationRunUi(run = counting),
+                            onStart = {},
+                            onStop = {},
+                            onThreshold = {},
+                            onNoticeContinue = {},
+                            onNoticeDismiss = {},
+                        )
+                    },
                 )
             }
         }
