@@ -13,12 +13,16 @@ import dev.dankyeeter.btdashboard.hearing.preference.TrialPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * The round trip this codec exists for. A preference pool is a dozen listening
- * sessions somebody sat through; a silent encoding bug would cost all of them,
- * and an `org.json` codec could not be tested here at all.
+ * sessions somebody sat through; a silent encoding bug would cost all of them.
+ * Robolectric, because the codec is built on Android's own `org.json` and this
+ * is the implementation the phone runs.
  */
+@RunWith(RobolectricTestRunner::class)
 class PreferenceProfileJsonTest {
 
     private val layout = EqBandLayout.HALF_OCTAVE_20
@@ -166,6 +170,20 @@ class PreferenceProfileJsonTest {
         val tampered = PreferenceProfileJson.encode(listOf(profile))
             .replace("\"consistency\":0.75", "\"consistency\":7.5")
         assertEquals(1.0, PreferenceProfileJson.parse(tampered).single().runs.first().consistency, 1e-9)
+    }
+
+    /** JSON cannot hold NaN or infinity; they are stored as 0.0, not as a lost record. */
+    @Test
+    fun `a value JSON cannot hold is stored as zero`() {
+        val odd = profile.copy(
+            baseLeftDb = List(layout.bandCount) { Float.NaN },
+            manualBassDb = Float.POSITIVE_INFINITY,
+        )
+
+        val back = PreferenceProfileJson.parse(PreferenceProfileJson.encode(listOf(odd))).single()
+
+        assertEquals(List(layout.bandCount) { 0f }, back.baseLeftDb)
+        assertEquals(0f, back.manualBassDb)
     }
 
     /**
