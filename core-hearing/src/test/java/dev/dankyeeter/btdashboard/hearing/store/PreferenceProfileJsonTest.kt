@@ -167,4 +167,86 @@ class PreferenceProfileJsonTest {
             .replace("\"consistency\":0.75", "\"consistency\":7.5")
         assertEquals(1.0, PreferenceProfileJson.parse(tampered).single().runs.first().consistency, 1e-9)
     }
+
+    /**
+     * What phones already hold. The literal was written by the MiniJson encoder
+     * (AD-026) from [legacyFixture] and is never regenerated: whatever the codec
+     * is built on, this string has to read back as exactly that fixture.
+     */
+    @Test
+    fun `a string written by the MiniJson encoder reads back exactly`() {
+        assertEquals(legacyFixture, PreferenceProfileJson.parse(LEGACY_PREFERENCE_PROFILES_WRITTEN_BY_MINIJSON))
+    }
+
+    private companion object {
+        val legacyFixture = listOf(
+            PreferenceProfile(
+                deviceKey = "legacy-awkward",
+                deviceName = null,
+                runs = listOf(
+                    PreferenceRun(
+                        id = "run-1",
+                        label = "He said \"hi\"\n\tand left \\ — then",
+                        labelSource = PreferenceLabelSource.TRACK,
+                        createdAtMillis = 1_756_000_000_123L,
+                        candidate = PreferenceCandidate(1.0E-4f, -2.5f),
+                        consistency = 1.0E-4,
+                        trials = listOf(
+                            PreferenceTrial(
+                                index = 12,
+                                phase = TrialPhase.VALIDATE,
+                                axis = PreferenceAxis.TILT,
+                                a = PreferenceCandidate(0.1f, -6f),
+                                b = PreferenceCandidate(9f, 1.0E-4f),
+                                choice = PreferenceChoice.NO_DIFFERENCE,
+                                repeat = true,
+                            ),
+                        ),
+                    ),
+                ),
+                layout = EqBandLayout.OCTAVE_10,
+                baseLeftDb = listOf(0f, 0.1f, -0.25f, 1.0E-4f, 3f, -6f, 12.5f, 0f, -1.0E-4f, 2f),
+                baseRightDb = List(EqBandLayout.OCTAVE_10.bandCount) { 0f },
+                manualBassDb = 1.0E-4f,
+                manualTrebleDb = null,
+                finalCheck = FinalCheck.YOURS_WON,
+                createdAtMillis = 1_699_999_999_999L,
+                updatedAtMillis = 1_756_000_000_123L,
+            ),
+            PreferenceProfile(
+                deviceKey = "legacy-empty",
+                deviceName = "Focal \"Bathys\"\n2",
+                runs = listOf(
+                    PreferenceRun(
+                        id = "run-2",
+                        label = "",
+                        labelSource = PreferenceLabelSource.NONE,
+                        createdAtMillis = 1_700_000_100_000L,
+                        candidate = PreferenceCandidate(0f, 0f),
+                        consistency = 0.0,
+                        trials = emptyList(),
+                    ),
+                ),
+                layout = EqBandLayout.OCTAVE_10,
+            ),
+        )
+
+        const val LEGACY_PREFERENCE_PROFILES_WRITTEN_BY_MINIJSON =
+            """[{"deviceKey":"legacy-awkward","deviceName":null,"layout":"octave_10",""" +
+                """"baseLeft":[0.0,0.10000000149011612,-0.25,9.999999747378752E-5,3.0,-6.0,12.5,0.0,-9.999999747378752E-5,2.0],""" +
+                """"baseRight":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],""" +
+                """"manualBassDb":9.999999747378752E-5,"manualTrebleDb":null,"finalCheck":"YOURS_WON",""" +
+                """"createdAtMillis":1699999999999,"updatedAtMillis":1756000000123,""" +
+                """"runs":[{"id":"run-1","label":"He said \"hi\"\n\tand left \\ — then","labelSource":"TRACK",""" +
+                """"createdAtMillis":1756000000123,"bassDb":9.999999747378752E-5,"trebleDb":-2.5,"consistency":1.0E-4,""" +
+                """"trials":[{"i":12,"p":"VALIDATE","x":"TILT","ab":0.10000000149011612,"at":-6.0,""" +
+                """"bb":9.0,"bt":9.999999747378752E-5,"c":"NO_DIFFERENCE","r":true}]}]},""" +
+                """{"deviceKey":"legacy-empty","deviceName":"Focal \"Bathys\"\n2","layout":"octave_10",""" +
+                """"baseLeft":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],""" +
+                """"baseRight":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],""" +
+                """"manualBassDb":null,"manualTrebleDb":null,"finalCheck":"NOT_RUN",""" +
+                """"createdAtMillis":0,"updatedAtMillis":0,""" +
+                """"runs":[{"id":"run-2","label":"","labelSource":"NONE","createdAtMillis":1700000100000,""" +
+                """"bassDb":0.0,"trebleDb":0.0,"consistency":0.0,"trials":[]}]}]"""
+    }
 }

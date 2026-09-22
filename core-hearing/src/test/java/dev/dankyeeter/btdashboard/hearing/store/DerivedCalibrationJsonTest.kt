@@ -122,4 +122,46 @@ class DerivedCalibrationJsonTest {
 
         assertEquals(listOf("keep"), parsed.map { it.deviceKey })
     }
+
+    /**
+     * What phones already hold. The literal was written by the MiniJson encoder
+     * (AD-026) from [legacyFixture] and is never regenerated: whatever the codec
+     * is built on, this string has to read back as exactly that fixture.
+     */
+    @Test
+    fun `a string written by the MiniJson encoder reads back exactly`() {
+        assertEquals(legacyFixture, DerivedCalibrationJson.parse(LEGACY_DERIVED_CALIBRATIONS_WRITTEN_BY_MINIJSON))
+    }
+
+    private companion object {
+        val legacyFixture = listOf(
+            DerivedCalibration(
+                deviceKey = "legacy-no-name",
+                deviceName = null,
+                responseDeviationDb = listOf(1.0E-4, -0.5, 0.0, 12.25, -3.0, 2.0, -1.0E-4, 0.1),
+                earSpreadDb = 1.0E-4,
+                warnings = emptyList(),
+                createdAtMillis = 1_756_000_000_123L,
+                sourceRunIds = emptyList(),
+            ),
+            DerivedCalibration(
+                deviceKey = "legacy-awkward",
+                deviceName = "Noble \"FoKus\"\nEncore",
+                responseDeviationDb = listOf(2.0, 1.0, 0.0, -1.5, -3.0, -1.0, 1.5, -2.0),
+                earSpreadDb = 6.5,
+                warnings = listOf("Seal \"loose\"\nre-seat — then \\ retry\tnow"),
+                createdAtMillis = 1_699_999_999_999L,
+                sourceRunIds = listOf("run-1", "run-2"),
+            ),
+        )
+
+        const val LEGACY_DERIVED_CALIBRATIONS_WRITTEN_BY_MINIJSON =
+            """[{"deviceKey":"legacy-no-name","deviceName":null,""" +
+                """"responseDeviationDb":[1.0E-4,-0.5,0.0,12.25,-3.0,2.0,-1.0E-4,0.1],"earSpreadDb":1.0E-4,""" +
+                """"warnings":[],"createdAtMillis":1756000000123,"sourceRunIds":[]},""" +
+                """{"deviceKey":"legacy-awkward","deviceName":"Noble \"FoKus\"\nEncore",""" +
+                """"responseDeviationDb":[2.0,1.0,0.0,-1.5,-3.0,-1.0,1.5,-2.0],"earSpreadDb":6.5,""" +
+                """"warnings":["Seal \"loose\"\nre-seat — then \\ retry\tnow"],""" +
+                """"createdAtMillis":1699999999999,"sourceRunIds":["run-1","run-2"]}]"""
+    }
 }
