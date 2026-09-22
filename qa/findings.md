@@ -306,3 +306,10 @@ kein Grund zum Entfernen, sondern einer zum Testen.
 | QA-012 | Statuswechsel: Guard wie die anderen fuenf Regeln, rot-vorher mit leerer Dateiliste belegt (developer) — **behoben**, QA-Nachpruefung in der Pruefphase | P3 | developer (T-042b) | – | behoben, ungeprueft durch QA | 2026-09-23 | T-042b |
 | QA-013 | Statuswechsel: 8-Zustands-Sweep mit Text+ContentDescription+Leer-Guard, Rueckbau-Mutation rot (developer) — **behoben**, QA-Nachpruefung in der Pruefphase | P3 | developer (T-042b) | – | behoben, ungeprueft durch QA | 2026-09-23 | T-042b |
 | F-006 | Verdacht Flaky: `EqScreenVolumeTiltTest` „the feature is off until it is switched on“ und `VolumeAwareTiltViewModelTest` „the volume is ignored while the feature is switched off“ fielen einmal im Volllauf (T-039b, 23.09. 00:30), gruen in zwei Director-Volllaeufen 00:38/00:39 | P3 | developer (T-039b), Director | qa-engineer (Ursache) | offen | 2026-09-23 | T-043a |
+| F-007 | QA-A: beendeter Lauf zeigt nach Codec-Wechsel Schwellen der neuen Leiter (`ObservationRunSection.kt:49,99,116`) | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044a |
+| F-008 | QA-B: Start bei unlesbarer Rate endet sofort mit falscher Grundzeile (AK-3) (`ObservationRunSection.kt:69-70`) | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044a |
+| F-009 | QA-C: leerer Snapshot blendet Laufabschnitt samt beendetem Lauf aus (`LiveLinkPanel.kt:112`) | P4 | qa-engineer (T-043a) | developer | beschlossen, nicht beauftragt | 2026-09-23 | – |
+| F-010 | QA-D: Testluecken M06/M08/M12 an tragenden AK-T039-Kriterien | P4 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044a |
+| F-006 | Statuswechsel: Ursache eingegrenzt (geteilter DataStore zwischen Robolectric-Tests, `SystemGraph.kt:68`, `EqSettingsStore.kt:20`), kein Produktfehler | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044b |
+| QA-012 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
+| QA-013 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |

@@ -2752,9 +2752,9 @@ zusaetzlich unveraendert.
 
 | Ereignis | Erkannt an | Folge |
 |---|---|---|
-| Wiedergabe pausiert | `device.isPlaying == false` oder `measuredKbps == null` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. Lauf laeuft weiter |
+| Wiedergabe pausiert | `device.isPlaying == false` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. Lauf laeuft weiter, unabhaengig davon, wie lange die Pause dauert — nur das Ausbleiben von **Abfragen** (naechste Zeile) ist durch `RUN_GAP_MAX_MS` begrenzt |
 | Eine Lesung faellt aus (dumpsys-Fehler, Warnung) | Abstand `> 2 x Kadenz` | **Luecke**, sonst nichts |
-| Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
+| Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand **zwischen zwei Abfragen** (nicht zwischen zwei Ratenlesungen) | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
 | Geraet trennt oder ein anderes wird aktiv | `device.address` wechselt, `isConnected == false` | **Lauf endet**, Grund genannt. Ein Lauf gehoert zu **einer** Paarung |
 | Stufe von Hand gewechselt | `LdacState.mode` wechselt oder `isAdaptive` kippt | **Lauf endet**, Grund genannt. Zwei Regime in einer Zahl waeren zwei Aussagen aus einem Beleg |
 | Codec wechselt | `codec.family` wechselt | **Lauf endet**, Grund genannt |
@@ -2763,6 +2763,32 @@ zusaetzlich unveraendert.
 | Monitor-Screen verlassen (Nav-Eintrag weg) | ViewModel stirbt | **Lauf ist weg**, ersatzlos. Das steht im Erklaertext, Satz 1 |
 | Kadenz gewechselt (1/2/5 s) | `intervalMs` wechselt | Lauf laeuft weiter; die Lueckenregel nutzt die jeweils gueltige Kadenz. Die Intervallrechnung ist dagegen immun |
 | "Watch closely" ein/aus | `closeUpEnabled` | **Ohne Wirkung auf den Lauf.** Der Lauf speist ausschliesslich aus `liveUpdates`, nie aus `A2dpTxProbe` |
+
+**Korrektur (T-043c, 2026-09-23):** Die Pausenzeile trug bis hierhin zusaetzlich
+"oder `measuredKbps == null`" — das kollidierte woertlich mit der Zeile "Rate
+nicht mehr lesbar" (`liveBitrateHonesty != MEASURED`): Beide Bedingungen sind
+bei laufender Wiedergabe (`isPlaying == true`) dieselbe Bedingung, weil
+`LdacState.from()` `measuredKbps` und `liveBitrateHonesty` aus derselben
+Ableseoperation baut — eine Rate ist nie null, waehrend die Lesbarkeit
+`MEASURED` bleibt, und umgekehrt. Der Fall "spielt, aber keine Rate" gehoert
+deshalb ausschliesslich in die Zeile "Rate nicht mehr lesbar" (Lauf endet); die
+Pausenzeile bezieht sich nur auf `isPlaying == false`. Umgesetzt genau so
+(`ObservationRun.kt`, `endAgainst()`), belegt durch
+`ObservationRunTest."each of the six ends is recognised and freezes the
+figures"` (Fall `RATE_UNREADABLE`). Kein Verhalten geaendert, nur der
+widerspruechliche Wortlaut. Ebenso praezisiert: `RUN_GAP_MAX_MS` zaehlt den
+Abstand zwischen zwei **Abfragen** (jeder Poll aktualisiert den Zeitstempel,
+auch ohne Rate), nicht zwischen zwei Ratenlesungen — das ist bereits die
+gebaute und getestete Bedeutung
+(`ObservationRunTest."a ten minute pause is a gap, not observed time"`: ein
+zehnminuetiger Ratenausfall bei fortlaufenden Abfragen beendet den Lauf
+**nicht**, er wird als eine einzige Luecke gezaehlt). Das ist konsistent mit
+der Zeile "App im Hintergrund": dort beendet erst der **Ausfall der Abfrage
+selbst** (Poller stoppt) den Lauf ueber `RUN_GAP_MAX_MS`, nicht das Fehlen
+einer Rate bei laufenden Abfragen. Wer eine Kappung von langen Pausen will,
+muesste das als neue, eigene Entscheidung treffen (offene Frage unten) — die
+bestehende Vorgabe verlangte sie nicht ausdruecklich, der alte Wortlaut hat sie
+nur unklar suggeriert.
 
 **Warum die Nahaufnahme nicht speist:** Sonst aendert ein Chip mitten im Lauf
 die Aufloesung, und das Minimum spraenge in dem Moment, in dem er gedrueckt
@@ -2984,3 +3010,17 @@ dieser Abschnitt sagt nichts ueber Verluste.
    Entscheidung 5 und AK-T039-17 (T-039a, 2026-09-22): Dialog beim allerersten
    Start ueberhaupt, `AlertDialog`-Muster wie `LocalConnectionDisclosure`,
    persistiertes Flag statt Text je Sitzung.
+5. **Soll eine Pause (`isPlaying == false`) beliebig lang sein duerfen, ohne den
+   Lauf zu beenden?** So ist es gebaut und getestet (siehe Korrektur oben,
+   T-043c, 2026-09-23): Solange die Oberflaeche offen bleibt und weiter abfragt,
+   ueberlebt der Lauf jede Pausenlaenge und zaehlt sie als eine Luecke;
+   `RUN_GAP_MAX_MS` greift nur, wenn die Abfragen selbst ausbleiben (Hintergrund,
+   dumpsys-Ausfall). Dafuer spricht: eine Pause zum Telefonat oder
+   Song-Wechsel soll nicht die halbe Beobachtung verwerfen, und die Luecke wird
+   ehrlich ausgewiesen. Dagegen spricht: eine sehr lange Pause (Stunden) fasst
+   zwei moeglicherweise ungleiche Nutzungsphasen in eine Zahl — nicht
+   unehrlich, aber vermischend. Ich empfehle **so lassen**, weil eine Grenze
+   hier ohne gemessenen Anlass eine weitere gesetzte Konstante waere, die
+   niemand angefordert hat, und weil das Verwerfen einer laufenden Beobachtung
+   nach einer langen, aber gewollten Pause den in T-039 selbst benannten
+   Nutzerwunsch (Entscheidung 1) unterlaeuft. Unentschieden.

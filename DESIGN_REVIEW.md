@@ -1,5 +1,148 @@
 # Design & UX Review
 
+## Review vom 2026-09-23 (T-043c)
+
+**Methode:** Code-Analyse (kein Geraet, Auftragsgrenze) — `ObservationRun.kt`,
+`ObservationRunSection.kt`, `ObservationRunController.kt`, `SetupStore.kt`,
+`AppIcons.kt`, `LiveLinkGraph.kt`, `LinkLiveModels.kt` gelesen, dazu
+`ObservationRunTest.kt`, `ObservationRunSectionTest.kt`,
+`AcceptanceCriteriaGrepTest.kt` gelesen (nicht ausgefuehrt — `build/` durfte
+laut Auftrag nicht angefasst werden, der `qa-engineer` lief parallel; die
+Testergebnisse selbst sind daher **unverifiziert (Code-Analyse)**, ihr Inhalt
+— welche Zeichenketten/Zustaende sie behaupten zu pruefen — ist gelesen und
+gegen `UI_SPEC.md` T-039 abgeglichen). Fuer die Icon-Frage zusaetzlich drei
+WebFetch-Abgleiche gegen `google/material-design-icons` (github, Originalpfade
+fuer `bluetooth`, `equalizer`, `help_outline`).
+**Geprueft gegen:** `UI_SPEC.md` T-039 (Beobachtungslauf), wortgleich aus
+`docs/tasks/T-039.md` uebernommen — AK-T039-1..17, Zustandstabelle, Wortlaut,
+Unterbrechungstabelle, Parameter.
+**Gesamturteil: ship-ready.** Die Umsetzung trifft den spezifizierten Wortlaut
+zeichengenau (Grundzeilen, Kennzahlsaetze, Starthinweis-Dialog, Zustandstabelle
+inkl. Chip-Spalte), haelt AK-T002-13 korrekt ein und loest die vom `developer`
+gemeldete scheinbare Widerspruechlichkeit der Spec korrekt auf. Ein
+Wortlaut-Widerspruch in der Spec selbst ist behoben (unten), ein
+Grenzfall-Verhalten ist als offene Produktfrage markiert statt entschieden.
+
+### Antwort auf die Frage des developer (T-039b)
+
+**Bestaetigt, mit Spec-Korrektur.** Die Umsetzung (isPlaying==false → Luecke;
+isPlaying==true ohne lesbare Rate → Lauf endet ueber "Rate nicht mehr lesbar")
+ist die einzig konsistente Aufloesung: `LdacState.from()`
+(`LinkLiveModels.kt:421-444`) baut `measuredKbps` und `liveBitrateHonesty` aus
+derselben Ableseoperation — bei laufender Wiedergabe ist `measuredKbps == null`
+niemals gleichzeitig mit `liveBitrateHonesty == MEASURED` moeglich. Die alte
+Spec-Zeile "Wiedergabe pausiert ... oder `measuredKbps == null`" konnte den
+Fall "spielt, aber Rate weg" also nie eigenstaendig treffen; er gehoerte immer
+schon in die Zeile "Rate nicht mehr lesbar". Ich habe `UI_SPEC.md` (T-039,
+Unterbrechungstabelle, Zeile 1+3) entsprechend korrigiert und die Begruendung
+dort dokumentiert, kein Verhalten geaendert.
+
+**Zusaetzlich gefunden, nicht Teil der Entwicklerfrage:** `RUN_GAP_MAX_MS`
+misst — wie der `developer` notierte — den Abstand zwischen zwei **Abfragen**,
+nicht zwischen zwei Ratenlesungen. Das bedeutet: eine beliebig lange Pause
+(`isPlaying == false`) bei fortlaufenden Abfragen beendet den Lauf **nie**,
+nur ein tatsaechlicher Ausfall der Abfragen selbst (Hintergrund, dumpsys-Fehler)
+tut es. Belegt durch `ObservationRunTest."a ten minute pause is a gap, not
+observed time"` — ein zehnminuetiger Ausfall bleibt `assertNull(run.end)`.
+Das ist kein Fehler gegen die alte Tabelle (die "Wiedergabe pausiert"-Zeile
+sagte nie, dass `RUN_GAP_MAX_MS` hier greift — nur die "Hintergrund"-Zeile tut
+das ausdruecklich), aber es war nicht klar genug ausgesprochen, um es beim
+Lesen der Tabelle zu erkennen. Als eigene, bewusste Produktfrage in
+`UI_SPEC.md` (T-039, "Offene Fragen", Punkt 5) nachgetragen — meine Empfehlung
+ist "so lassen", die Entscheidung selbst faellt der App Designer.
+
+### Kritisch
+
+Keine.
+
+### Wichtig
+
+Keine — dieser Durchlauf fand keine Abweichung von AK-T039-1..17, die die
+Nutzung beeintraechtigt. Ein verwandter Grenzfall (RUN_ENDED zeigt "Start" auch
+wenn die Rate gerade nicht lesbar ist, Neustart endet dann sofort wieder) ist
+bereits im Dispatch an den `qa-engineer` (T-043a, Punkt 4) zur Beurteilung
+gegeben; ich dupliziere ihn hier nicht, teile aber die Beobachtung: das ist
+eine Zustands-Prioritaetsfrage (RUN_ENDED vs. RUN_UNAVAILABLE bei
+ueberlappenden Bedingungen), die die T-039-Tabelle nicht ausdruecklich
+regelt, weil sie von einer Partition ausgeht, die die fuenf Zustaende in der
+Praxis nicht ganz bilden.
+
+### Nice-to-have
+
+- **DR-005 [`UI_SPEC.md` T-039, jetzt korrigiert]** Siehe oben — Wortlaut
+  bereinigt, keine Code-Aenderung noetig gewesen.
+
+### Zustaende, Wortlaut, Icons — im Detail gepruft
+
+- **Fuenf Zustaende (Tabelle):** Bedingungen und Chip-Spalte 1:1 in
+  `ObservationRunSection.kt:78-86` (Headline) und `:65-71` (Chip-`when`)
+  wiedergefunden. `RUN_UNAVAILABLE` zeigt korrekt **keinen** Chip (weder
+  `run != null && end == null` noch `run != null || hasReadableRate` trifft
+  zu), `RUN_ENDED` korrekt wieder "Start".
+- **Grundzeilen (sechs Enden):** `endLine()` (`ObservationRunSection.kt:163-174`)
+  zeichengenau wie in `UI_SPEC.md` Wortlaut-Abschnitt, inkl.
+  `formatSpan(RUN_GAP_MAX_MS)` in der Gap-Zeile.
+  `ObservationRunTest."each of the six ends is recognised and freezes the
+  figures"` deckt alle sechs mit eingefrorenen Kennzahlen danach ab.
+- **Starthinweis-Dialog:** Titel, Text, Button-Beschriftungen ("Continue"/"Not
+  now") zeichengenau wie in `UI_SPEC.md` Entscheidung 5.
+  `LEAVING_DISCARDS_THE_RUN`-Konstante wird fuer Dialog **und** Satz 1 der
+  zweiten Ebene verwendet (ein String, zwei Stellen) — genau die Vorgabe
+  "nicht zweimal formuliert". `SetupStore.isObservationRunNoticeAccepted()`
+  kopiert `isLocalConnectionAccepted()` 1:1 (DataStore-Boolean, nur bei
+  "Continue" gesetzt) — die geforderte kleinste Loesung.
+- **AK-T002-13 ("kein Text laenger als zwei Saetze"):** Alle Erstebenen-Texte
+  halten die Grenze (Grundzeilen und Kennzahlsaetze je ein Satz; die
+  `RUN_COLLECTING`-Zeile ist zwei Saetze — noch innerhalb der Grenze). Die
+  **zweite Ebene** (hinter dem Fragezeichen) hat vier Saetze — das ist **keine
+  Abweichung**: `UI_SPEC.md` T-039 legt genau das im Wortlaut-Abschnitt
+  ausdruecklich und begruendet fest ("vier Saetze, mehr nicht"), als bewusst
+  dokumentierte Praezisierung von AK-T002-13 ("zielt auf unaufgeforderten
+  Dauertext"). Ruhezustand bleibt bei einer Zeile (`ObservationRunSectionTest.
+  "the resting section is one line and a chip"`), also kein Wachstum des
+  unaufgeforderten Textes.
+- **Icons (`AppIcons.kt`):** Drei von acht Pfaden stichprobenartig gegen die
+  Originalquelle `google/material-design-icons` (GitHub, `materialicons`/
+  `materialiconsoutlined`, 24px) abgeglichen: `Bluetooth`, `Equalizer`,
+  `HelpOutline` — alle drei geometrisch identisch (gleiche Zahlenwerte;
+  lediglich `V`/`H`-Line-Befehle sind zu `L`-Befehlen mit demselben Endpunkt
+  aufgeloest, was am Rendering nichts aendert). Die restlichen fuenf
+  (`ExpandLess`, `ExpandMore`, `GraphicEq`, `Headphones`, `Hearing`,
+  `Insights`, `Settings`) wurden **nicht** einzeln gegengeprueft — bei
+  konsistenter Kommentierung ("Path data copied unchanged from
+  material-icons-extended 1.7.6") und durchgehendem Muster in den drei
+  geprueften Faellen halte ich das Risiko einer verdeckten Abweichung fuer
+  gering, es ist aber nicht belegt. **Optisch gleich, soweit gepruft.**
+
+### Backlog (geparkt)
+
+- RUN_ENDED zeigt "Start" unabhaengig von `hasReadableRate` (siehe oben,
+  T-043a Punkt 4 zustaendig).
+- Fuenf der acht `AppIcons`-Pfade sind ungeprueft (siehe oben).
+
+### Positiv / beibehalten
+
+- Die Wortlaut-Treue der gesamten Beobachtungslauf-Sektion ist aussergewoehnlich
+  hoch: jede der sechs Grundzeilen, der Starthinweis-Dialog, die
+  Kennzahlsaetze und die Chip-Beschriftungen stimmen zeichengenau mit
+  `UI_SPEC.md` ueberein. Beibehalten als Massstab fuer kuenftige Abschnitte.
+- Wiederverwendung statt Neuerfindung durchgehend: `ExplainedBlock`,
+  `FilterChip`, `LdacQuality.chipLabel`, das `SetupStore`-Flag-Muster von
+  `isLocalConnectionAccepted` — kein neues Token, keine neue Komponente, keine
+  neue Farbe, wie von der Spec verlangt.
+- Die grep-verankerten Akzeptanzkriterien (`AcceptanceCriteriaGrepTest.kt`)
+  sind ein Verfahren, das ein Review wie dieses strukturell ueberfluessig
+  macht, sobald es alle Kriterien abdeckt — aktuell deckt es AK-T039-5, -6,
+  -10, -11 ab. Empfehlung fuer kuenftige Auftraege: neue AK mit Grep-Potenzial
+  gleich dort ergaenzen, statt erneut manuell nachzuschlagen.
+
+### Offene Fragen an den App Designer
+
+- **UI_SPEC.md T-039, Punkt 5 (neu):** Soll eine Pause beliebig lang sein
+  duerfen, ohne den Beobachtungslauf zu beenden (aktuelles, getestetes
+  Verhalten), oder soll eine sehr lange Pause den Lauf ebenfalls beenden?
+  Empfehlung: so lassen. Voller Text mit Begruendung in `UI_SPEC.md`.
+
 ## Review vom 2026-09-02 (T-017)
 
 **Methode:** Code-Analyse + vorhandene Robolectric/Compose-Testbelege.
