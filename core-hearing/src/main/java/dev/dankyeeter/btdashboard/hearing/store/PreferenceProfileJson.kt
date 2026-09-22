@@ -10,13 +10,14 @@ import dev.dankyeeter.btdashboard.hearing.preference.PreferenceProfile
 import dev.dankyeeter.btdashboard.hearing.preference.PreferenceRun
 import dev.dankyeeter.btdashboard.hearing.preference.PreferenceTrial
 import dev.dankyeeter.btdashboard.hearing.preference.TrialPhase
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * Serialisation for [PreferenceProfile], written on [MiniJson] rather than
- * `org.json` for the reason [DerivedCalibrationJson] gives: a codec built on
- * `android.jar`'s JSON cannot be round-trip tested on the host JVM, and this
- * record is a dozen listening sessions somebody sat through. A silent encoding
- * bug would cost all of them.
+ * Serialisation for [PreferenceProfile], on `org.json` like the rest of the
+ * store package. This record is a dozen listening sessions somebody sat
+ * through, and a silent encoding bug would cost all of them, so its round trip
+ * is tested under Robolectric against Android's own `org.json` (AD-026).
  *
  * Trial keys are single letters. A pool of ten runs is a hundred trials, and
  * this string lives in a DataStore preference that is rewritten every time a
@@ -30,139 +31,118 @@ import dev.dankyeeter.btdashboard.hearing.preference.TrialPhase
  */
 internal object PreferenceProfileJson {
 
-    fun encode(profiles: List<PreferenceProfile>): String = buildString {
-        append('[')
-        profiles.forEachIndexed { index, profile ->
-            if (index > 0) append(',')
-            appendProfile(profile)
-        }
-        append(']')
-    }
+    fun encode(profiles: List<PreferenceProfile>): String =
+        JSONArray(profiles.map(::profileToJson)).toString()
 
     fun parse(raw: String?): List<PreferenceProfile> {
         if (raw.isNullOrBlank()) return emptyList()
-        val array = MiniJson.parse(raw) as? List<*> ?: return emptyList()
-        return array.mapNotNull { entry -> (entry as? Map<*, *>)?.let(::toProfile) }
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        return array.objects().mapNotNull(::toProfile)
     }
 
     // ---- writing -------------------------------------------------------------
 
-    private fun StringBuilder.appendProfile(profile: PreferenceProfile) {
-        append('{')
-        append("\"deviceKey\":").append(MiniJson.quote(profile.deviceKey))
-        append(",\"deviceName\":").append(profile.deviceName?.let(MiniJson::quote) ?: "null")
-        append(",\"layout\":").append(MiniJson.quote(profile.layout.id))
-        append(",\"baseLeft\":").appendFloats(profile.baseLeftDb)
-        append(",\"baseRight\":").appendFloats(profile.baseRightDb)
-        append(",\"manualBassDb\":").append(profile.manualBassDb?.let(MiniJson::number) ?: "null")
-        append(",\"manualTrebleDb\":").append(profile.manualTrebleDb?.let(MiniJson::number) ?: "null")
-        append(",\"finalCheck\":").append(MiniJson.quote(profile.finalCheck.name))
-        append(",\"createdAtMillis\":").append(profile.createdAtMillis.toString())
-        append(",\"updatedAtMillis\":").append(profile.updatedAtMillis.toString())
-        append(",\"runs\":[")
-        profile.runs.forEachIndexed { index, run ->
-            if (index > 0) append(',')
-            appendRun(run)
-        }
-        append("]}")
-    }
+    private fun profileToJson(profile: PreferenceProfile): JSONObject = JSONObject()
+        .put("deviceKey", profile.deviceKey)
+        .put("deviceName", profile.deviceName ?: JSONObject.NULL)
+        .put("layout", profile.layout.id)
+        .put("baseLeft", JSONArray(profile.baseLeftDb.map(::finiteOrZero)))
+        .put("baseRight", JSONArray(profile.baseRightDb.map(::finiteOrZero)))
+        .put("manualBassDb", profile.manualBassDb?.let(::finiteOrZero) ?: JSONObject.NULL)
+        .put("manualTrebleDb", profile.manualTrebleDb?.let(::finiteOrZero) ?: JSONObject.NULL)
+        .put("finalCheck", profile.finalCheck.name)
+        .put("createdAtMillis", profile.createdAtMillis)
+        .put("updatedAtMillis", profile.updatedAtMillis)
+        .put("runs", JSONArray(profile.runs.map(::runToJson)))
 
-    private fun StringBuilder.appendRun(run: PreferenceRun) {
-        append('{')
-        append("\"id\":").append(MiniJson.quote(run.id))
-        append(",\"label\":").append(MiniJson.quote(run.label))
-        append(",\"labelSource\":").append(MiniJson.quote(run.labelSource.name))
-        append(",\"createdAtMillis\":").append(run.createdAtMillis.toString())
-        append(",\"bassDb\":").append(MiniJson.number(run.candidate.bassDb))
-        append(",\"trebleDb\":").append(MiniJson.number(run.candidate.trebleDb))
-        append(",\"consistency\":").append(MiniJson.number(run.consistency))
-        append(",\"trials\":[")
-        run.trials.forEachIndexed { index, trial ->
-            if (index > 0) append(',')
-            appendTrial(trial)
-        }
-        append("]}")
-    }
+    private fun runToJson(run: PreferenceRun): JSONObject = JSONObject()
+        .put("id", run.id)
+        .put("label", run.label)
+        .put("labelSource", run.labelSource.name)
+        .put("createdAtMillis", run.createdAtMillis)
+        .put("bassDb", finiteOrZero(run.candidate.bassDb))
+        .put("trebleDb", finiteOrZero(run.candidate.trebleDb))
+        .put("consistency", finiteOrZero(run.consistency))
+        .put("trials", JSONArray(run.trials.map(::trialToJson)))
 
-    private fun StringBuilder.appendTrial(trial: PreferenceTrial) {
-        append('{')
-        append("\"i\":").append(trial.index.toString())
-        append(",\"p\":").append(MiniJson.quote(trial.phase.name))
-        append(",\"x\":").append(MiniJson.quote(trial.axis.name))
-        append(",\"ab\":").append(MiniJson.number(trial.a.bassDb))
-        append(",\"at\":").append(MiniJson.number(trial.a.trebleDb))
-        append(",\"bb\":").append(MiniJson.number(trial.b.bassDb))
-        append(",\"bt\":").append(MiniJson.number(trial.b.trebleDb))
-        append(",\"c\":").append(MiniJson.quote(trial.choice.name))
-        append(",\"r\":").append(if (trial.repeat) "true" else "false")
-        append('}')
-    }
+    private fun trialToJson(trial: PreferenceTrial): JSONObject = JSONObject()
+        .put("i", trial.index)
+        .put("p", trial.phase.name)
+        .put("x", trial.axis.name)
+        .put("ab", finiteOrZero(trial.a.bassDb))
+        .put("at", finiteOrZero(trial.a.trebleDb))
+        .put("bb", finiteOrZero(trial.b.bassDb))
+        .put("bt", finiteOrZero(trial.b.trebleDb))
+        .put("c", trial.choice.name)
+        .put("r", trial.repeat)
 
-    private fun StringBuilder.appendFloats(values: List<Float>) {
-        append('[')
-        values.forEachIndexed { index, value ->
-            if (index > 0) append(',')
-            append(MiniJson.number(value))
-        }
-        append(']')
-    }
+    /**
+     * JSON has no NaN and no infinity, and `org.json` throws on them. They
+     * become 0.0 rather than costing the whole record.
+     */
+    private fun finiteOrZero(value: Double): Double = if (value.isFinite()) value else 0.0
+
+    private fun finiteOrZero(value: Float): Double = finiteOrZero(value.toDouble())
 
     // ---- reading -------------------------------------------------------------
 
-    private fun toProfile(obj: Map<*, *>): PreferenceProfile? {
-        val deviceKey = (obj["deviceKey"] as? String)?.takeIf { it.isNotBlank() } ?: return null
-        val layout = EqBandLayout.fromId(obj["layout"] as? String)
+    private fun toProfile(obj: JSONObject): PreferenceProfile? {
+        val deviceKey = (obj.opt("deviceKey") as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val layout = EqBandLayout.fromId(obj.opt("layout") as? String)
         return PreferenceProfile(
             deviceKey = deviceKey,
-            deviceName = obj["deviceName"] as? String,
-            runs = (obj["runs"] as? List<*>).orEmpty()
-                .mapNotNull { (it as? Map<*, *>)?.let(::toRun) },
+            deviceName = obj.opt("deviceName") as? String,
+            runs = obj.optJSONArray("runs")?.objects().orEmpty().mapNotNull(::toRun),
             layout = layout,
-            baseLeftDb = (obj["baseLeft"] as? List<*>).toGains(layout),
-            baseRightDb = (obj["baseRight"] as? List<*>).toGains(layout),
-            manualBassDb = (obj["manualBassDb"] as? Double)?.toFloat(),
-            manualTrebleDb = (obj["manualTrebleDb"] as? Double)?.toFloat(),
-            finalCheck = enumOr(obj["finalCheck"], FinalCheck.NOT_RUN),
-            createdAtMillis = (obj["createdAtMillis"] as? Double)?.toLong() ?: 0L,
-            updatedAtMillis = (obj["updatedAtMillis"] as? Double)?.toLong() ?: 0L,
+            baseLeftDb = obj.optJSONArray("baseLeft").toGains(layout),
+            baseRightDb = obj.optJSONArray("baseRight").toGains(layout),
+            manualBassDb = obj.number("manualBassDb")?.toFloat(),
+            manualTrebleDb = obj.number("manualTrebleDb")?.toFloat(),
+            finalCheck = enumOr(obj.opt("finalCheck"), FinalCheck.NOT_RUN),
+            createdAtMillis = obj.number("createdAtMillis")?.toLong() ?: 0L,
+            updatedAtMillis = obj.number("updatedAtMillis")?.toLong() ?: 0L,
         )
     }
 
-    private fun toRun(obj: Map<*, *>): PreferenceRun? {
-        val id = (obj["id"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+    private fun toRun(obj: JSONObject): PreferenceRun? {
+        val id = (obj.opt("id") as? String)?.takeIf { it.isNotBlank() } ?: return null
         return PreferenceRun(
             id = id,
-            label = obj["label"] as? String ?: "",
-            labelSource = enumOr(obj["labelSource"], PreferenceLabelSource.NONE),
-            createdAtMillis = (obj["createdAtMillis"] as? Double)?.toLong() ?: 0L,
+            label = obj.opt("label") as? String ?: "",
+            labelSource = enumOr(obj.opt("labelSource"), PreferenceLabelSource.NONE),
+            createdAtMillis = obj.number("createdAtMillis")?.toLong() ?: 0L,
             candidate = PreferenceCandidate(
-                bassDb = (obj["bassDb"] as? Double)?.toFloat() ?: 0f,
-                trebleDb = (obj["trebleDb"] as? Double)?.toFloat() ?: 0f,
+                bassDb = obj.number("bassDb")?.toFloat() ?: 0f,
+                trebleDb = obj.number("trebleDb")?.toFloat() ?: 0f,
             ).clamped(),
-            consistency = (obj["consistency"] as? Double)?.coerceIn(0.0, 1.0) ?: 0.0,
-            trials = (obj["trials"] as? List<*>).orEmpty()
-                .mapNotNull { (it as? Map<*, *>)?.let(::toTrial) },
+            consistency = obj.number("consistency")?.toDouble()?.coerceIn(0.0, 1.0) ?: 0.0,
+            trials = obj.optJSONArray("trials")?.objects().orEmpty().mapNotNull(::toTrial),
         )
     }
 
-    private fun toTrial(obj: Map<*, *>): PreferenceTrial? {
-        val choice = enumOrNull<PreferenceChoice>(obj["c"]) ?: return null
+    private fun toTrial(obj: JSONObject): PreferenceTrial? {
+        val choice = enumOrNull<PreferenceChoice>(obj.opt("c")) ?: return null
         return PreferenceTrial(
-            index = (obj["i"] as? Double)?.toInt() ?: 0,
-            phase = enumOr(obj["p"], TrialPhase.LEAD_IN),
-            axis = enumOr(obj["x"], PreferenceAxis.BASS),
+            index = obj.number("i")?.toInt() ?: 0,
+            phase = enumOr(obj.opt("p"), TrialPhase.LEAD_IN),
+            axis = enumOr(obj.opt("x"), PreferenceAxis.BASS),
             a = PreferenceCandidate(
-                (obj["ab"] as? Double)?.toFloat() ?: 0f,
-                (obj["at"] as? Double)?.toFloat() ?: 0f,
+                obj.number("ab")?.toFloat() ?: 0f,
+                obj.number("at")?.toFloat() ?: 0f,
             ),
             b = PreferenceCandidate(
-                (obj["bb"] as? Double)?.toFloat() ?: 0f,
-                (obj["bt"] as? Double)?.toFloat() ?: 0f,
+                obj.number("bb")?.toFloat() ?: 0f,
+                obj.number("bt")?.toFloat() ?: 0f,
             ),
             choice = choice,
-            repeat = obj["r"] as? Boolean ?: false,
+            repeat = obj.opt("r") as? Boolean ?: false,
         )
     }
+
+    /** A number, or null for anything else — a numeric string included. */
+    private fun JSONObject.number(key: String): Number? = opt(key) as? Number
+
+    private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
 
     /**
      * A stored base curve at the resolution it was saved at.
@@ -172,8 +152,9 @@ internal object PreferenceProfileJson {
      * resampled; a length that matches no layout is not a curve and degrades to
      * flat, which is the only value that cannot invent a correction.
      */
-    private fun List<*>?.toGains(layout: EqBandLayout): List<Float> {
-        val parsed = this.orEmpty().mapNotNull { (it as? Double)?.toFloat() }
+    private fun JSONArray?.toGains(layout: EqBandLayout): List<Float> {
+        val array = this ?: JSONArray()
+        val parsed = (0 until array.length()).mapNotNull { (array.opt(it) as? Number)?.toFloat() }
         if (parsed.size == layout.bandCount) return parsed
         val source = EqBandLayout.entries.firstOrNull { it.bandCount == parsed.size }
             ?: return List(layout.bandCount) { 0f }
