@@ -12,23 +12,18 @@ melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 ## Hier geht es weiter
 
-**Autonomer Lauf (Nutzer 22.09. 23:51, Budget 6 h bis ca. 23.09. 05:50).**
-Branch `auto/2026-09-23`, endet pausiert mit PR, nie gemerged. Warteschlange,
-alle aus `GOAL.md` bzw. Nutzerentscheidung, kein Backlog vorhanden:
-(1) T-041 fertig, (2) T-042 Audit-Reste, (3) T-039 AK-17 bauen, dann
-**eine** Pruefphase (qa-engineer, security-reviewer, ui-ux Review) mit einem
-Fixauftrag und einem Retest. Ende: Warteschlange leer → `product-strategist`
-`discover` vorlegen, halten. Kein Release ohne Nutzer.
-
-**Stand 23.09. 01:20:** T-040..T-042 und T-039 (AK-17) gemergt auf dem
-Branch. Pruefphase T-043: QA CONCERNS (kein P1/P2), Security PASS, Design
-ship-ready. **Laeuft: T-044** (Fixe A/B/D + Ponytail + F-006), danach **ein**
-QA-Retest. Suite vor T-044: 2493/0 (Director 00:38/00:39, zweimal).
-Director-Entscheid: A, B, D und F-006 trotz P3/P4 jetzt (AK-3/AK-17/AK-5).
+**Autonomer Lauf 22.09. 23:51 – 23.09. 04:30 beendet**, Branch
+`auto/2026-09-23`, PR offen, **nicht gemerged** (Merge beim Nutzer).
+Gebaut und abgenommen: T-040..T-042 (Bereinigung, netto rund −1.000 Zeilen
+Code, 8 Abhaengigkeiten weniger), T-041 Umbauten AD-026..028, T-039 AK-17
+Beobachtungslauf, T-044 Fixe + D-001 (DataStore-Sperre). Pruefphase T-043:
+Security PASS, Design ship-ready; QA-Retest T-044e **PASS**. Suite **2498/0**
+(Director 23.09. 04:14, `4507182`, `clean test --no-build-cache`;
+QA 04:23/04:25 je 2498/0). Retrospektive: `docs/lessons.md` BD-L-004..006,
+drei Vorschlaege fuers Agenten-Repo beim Nutzer.
 **T-045 Bestandsaufnahme** (`docs/berichte/T-045-architect.md`): von AK-8..16
 nur AK-10 gebaut (leer), AK-8/9/15 teilweise, **AK-11..14 und AK-16 offen** —
-der gefuehrte Optimierprozess (Saeule 3) fehlt. Schnitt P-1..P-9 im Bericht,
-AD-030 ff. vorbereitet, warten auf Nutzerantworten.
+Saeule 3 fehlt. Schnitt P-1..P-9, AD-030 ff. vorbereitet, warten auf Nutzer.
 
 **Beim Nutzer — offen (am Laufende fragen):**
 1. Saeule 3, fuenf Fragen aus T-045 (Messgroesse 990 gepinnt, 2×15 min,
@@ -145,13 +140,10 @@ braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen
 |---|---|---|---|
 | T-036 | performance-tuner | Trennmessung 2,4 GHz bei 990 + Doppelaufnahme | **naechster Schritt**, braucht Geraet |
 | T-037 | performance-tuner | Callback-Probe, letzte AK-7-Frage | nach T-036 |
-| T-041 | developer ×4, security-reviewer | Umbauten AD-026..028, F-001/F-002 | **laeuft** 22.09. |
-| T-039 | developer | AK-17 Beobachtungslauf | bereit, nach T-040 |
 | T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
 | T-008 | performance-tuner | E-1/E-3 (Nearby-Scans, Spatializer aus) | offen, **kein Shell-Hebel**, nur von Hand |
 | SR-012 | performance-tuner | `umask 077` in `docs/perf/tools/*.sh` | zurueckgestellt bis Ende der Messreihe |
-| QA-012 / QA-013 | developer | vakuum-gruene Grep-Regel, schwacher Test | offen; QA-012 faellt in V-1 |
 | T-005 | architect | Scan-Entwurf S-1..S-7 | **ruht** (Nutzer 02.09.) |
 
 ## Zwei offene Fixture-Luecken

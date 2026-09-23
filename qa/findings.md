@@ -314,3 +314,9 @@ kein Grund zum Entfernen, sondern einer zum Testen.
 | QA-012 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
 | QA-013 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
 | F-011 | Nutzertext „only a rooted phone can change“ (`DeviceProfilesScreen.kt:316`, `BluetoothSystemControls.kt:105`) laut T-045 falsch (Entwickleroptionen) und Root-Hinweis gegen AK-10; am Geraet klaeren | P3 | architect (T-045) | developer | beschlossen, nicht beauftragt | 2026-09-23 | – |
+| F-001 | Statuswechsel: behoben (`97ffc41`), `assembleDebugAndroidTest` gruen (Director 22.09. 23:56 und 23.09. 04:14) | P2 | Director | – | geschlossen | 2026-09-23 | T-041a |
+| F-002 | Statuswechsel: behoben (`fc4a2ae`), K-2-Suche 29 Zeilen/14 Dateien = Director-Zahl | P3 | developer (T-041a) | – | geschlossen | 2026-09-23 | T-041a |
+| F-006 | Statuswechsel: T-044b + T-044d (D-001, Schreibsperre auf Dispatchers.IO) — EqLayerBypassTest 3x isoliert und im Paket gruen, Volllauf 2498/0 zweimal | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044b/T-044d |
+| F-007 | Statuswechsel: von QA bestaetigt behoben, Compose-Test deckt Repro | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
+| F-008 | Statuswechsel: von QA bestaetigt behoben, Start-Chip nur bei lesbarer Rate | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
+| F-010 | Statuswechsel: von QA bestaetigt behoben, M06/M08/M12 rot | P4 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
