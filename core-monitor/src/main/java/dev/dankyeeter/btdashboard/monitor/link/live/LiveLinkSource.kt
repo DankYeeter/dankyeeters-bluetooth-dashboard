@@ -191,6 +191,7 @@ class LiveLinkSource(
                 txDelta = delta,
                 inputs = inputs,
                 mixer = mixer,
+                pairing = link.pairing,
                 warnings = warnings,
             ),
             flingerDump = flingerDump,
