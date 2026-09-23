@@ -173,6 +173,7 @@ internal fun endLine(end: RunEnd, observedMs: Long): String {
         RunEnd.PAUSED ->
             "Run ended after ${formatSpan(ObservationRun.RUN_GAP_MAX_MS)} of paused playback. $observed"
         RunEnd.RATE_UNREADABLE -> "Run ended when the rate stopped being readable. $observed"
+        RunEnd.TARGET_REACHED -> "Run reached its set length. $observed"
     }
 }
 
