@@ -19,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -226,13 +227,7 @@ fun BtDashboardApp(
                     Destination.entries.forEach { dest ->
                         NavigationBarItem(
                             selected = currentRoute == dest.route,
-                            onClick = {
-                                navController.navigate(dest.route) {
-                                    popUpTo(Destination.BLUETOOTH.route) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { navController.navigateToTab(dest.route) },
                             icon = { Icon(dest.icon, contentDescription = dest.label) },
                             label = { Text(dest.label) },
                         )
@@ -269,6 +264,17 @@ fun BtDashboardApp(
             )
         }
     }
+}
+
+/**
+ * The bottom bar's move to a tab. Each tab's back stack is saved and restored,
+ * so its ViewModels outlive a switch — which is what keeps a comparison's
+ * arm A across one (AD-038 S3-6).
+ */
+internal fun NavController.navigateToTab(route: String) = navigate(route) {
+    popUpTo(Destination.BLUETOOTH.route) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
 }
 
 private fun NavGraphBuilder.appGraph(
