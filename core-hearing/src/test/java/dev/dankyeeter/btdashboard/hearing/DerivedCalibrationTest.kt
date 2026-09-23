@@ -145,7 +145,6 @@ class DerivedCalibrationTest {
         val preset = calibration().toPreset()
 
         assertFalse(preset.approximate)
-        assertFalse(preset.provenanceLine().contains("APPROXIMATE"))
         assertTrue(preset.displayName.contains("Focal Bathys"))
         assertTrue(preset.notes.contains("not the model in general"))
         // No coupler was involved, so no coupler class is claimed.

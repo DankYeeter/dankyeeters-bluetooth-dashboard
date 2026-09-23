@@ -23,12 +23,6 @@ object Contrast {
     const val BODY_MIN: Double = 4.5
 
     /**
-     * Minimum for large text (>= 18.66 sp bold or 24 sp) and for the
-     * non-text parts of a control — a border, a slider track, an icon.
-     */
-    const val LARGE_MIN: Double = 3.0
-
-    /**
      * Contrast ratio between two opaque colours, 1.0 (identical) to 21.0
      * (black on white).
      *
@@ -41,10 +35,6 @@ object Contrast {
         val lb = luminance(b)
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
-
-    /** Whether [foreground] is readable as body text on [background]. */
-    fun isReadable(foreground: Color, background: Color): Boolean =
-        ratio(foreground, background) >= BODY_MIN
 
     /**
      * Flattens [foreground] onto [background] at its own alpha.

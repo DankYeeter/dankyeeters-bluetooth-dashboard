@@ -89,9 +89,6 @@ class MeasuredBitrateTracker {
     private var candidateKbps: Int? = null
     private var candidateCount: Int = 0
 
-    /** What the timeline last reported, for callers that need the baseline. */
-    val lastReportedKbps: Int? get() = reportedKbps
-
     /**
      * Feeds one reading and returns a step when one is due.
      *

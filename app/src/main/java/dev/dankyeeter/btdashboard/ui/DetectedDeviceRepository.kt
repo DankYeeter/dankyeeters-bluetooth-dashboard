@@ -22,8 +22,4 @@ object DetectedDeviceRepository {
     fun suggest(presetId: String) {
         _suggestedPresetId.value = presetId
     }
-
-    fun clear() {
-        _suggestedPresetId.value = null
-    }
 }

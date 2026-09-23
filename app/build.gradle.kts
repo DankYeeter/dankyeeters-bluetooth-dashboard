@@ -99,7 +99,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
@@ -108,15 +107,10 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.extended)
-    debugImplementation(libs.androidx.compose.ui.tooling)
 
     androidTestImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
-    androidTestImplementation(libs.androidx.test.rules)
 
     // Reference arithmetic for the differential test only; never shipped.
     testImplementation(libs.eddsa)

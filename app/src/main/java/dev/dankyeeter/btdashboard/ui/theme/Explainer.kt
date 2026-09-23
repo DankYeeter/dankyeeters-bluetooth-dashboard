@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import dev.dankyeeter.btdashboard.ui.icons.AppIcons
 
 /**
  * A control label with an explanation the user can pull up.
@@ -68,7 +67,7 @@ fun ExplainedRow(
             )
             IconButton(onClick = { open = !open }) {
                 Icon(
-                    Icons.AutoMirrored.Outlined.HelpOutline,
+                    AppIcons.HelpOutline,
                     contentDescription = if (open) "Hide explanation" else "What is $label?",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -109,7 +108,7 @@ fun ExplainedBlock(
         content {
             IconButton(onClick = { open = !open }) {
                 Icon(
-                    Icons.AutoMirrored.Outlined.HelpOutline,
+                    AppIcons.HelpOutline,
                     contentDescription = if (open) "Hide explanation" else "What is $label?",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -141,7 +140,7 @@ fun ExplainedHeader(
             trailing = {
                 IconButton(onClick = { open = !open }) {
                     Icon(
-                        Icons.AutoMirrored.Outlined.HelpOutline,
+                        AppIcons.HelpOutline,
                         contentDescription = if (open) "Hide explanation" else "What is $label?",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,

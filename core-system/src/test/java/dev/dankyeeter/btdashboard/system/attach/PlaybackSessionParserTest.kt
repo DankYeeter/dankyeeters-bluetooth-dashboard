@@ -18,18 +18,22 @@ class PlaybackSessionParserTest {
         javaClass.classLoader?.getResourceAsStream("dumpsys_audio_players.txt"),
     ) { "fixture missing" }.bufferedReader().readText()
 
+    /** The session ids alone, the shape every test here actually asserts on. */
+    private fun sessionsOf(dumpsysAudio: String): Set<Int> =
+        PlaybackSessionParser.activeMediaPlayers(dumpsysAudio).map { it.sessionId }.toSet()
+
     @Test
     fun `finds the session of the app that is actually playing`() {
         // Captured while Tidal was playing (uid 10400, session 8009) and Spotify
         // sat paused in the background (session 8137).
-        assertEquals(setOf(8009), PlaybackSessionParser.activeMediaSessions(realDump))
+        assertEquals(setOf(8009), sessionsOf(realDump))
     }
 
     @Test
     fun `ignores a paused player`() {
         assertTrue(
             "a paused player must not be equalised - nobody is listening to it",
-            8137 !in PlaybackSessionParser.activeMediaSessions(realDump),
+            8137 !in sessionsOf(realDump),
         )
     }
 
@@ -39,13 +43,13 @@ class PlaybackSessionParserTest {
         // USAGE_ASSISTANCE_SONIFICATION. Equalising a notification chime with a
         // hearing-loss curve would be absurd, and they all report sessionId:0
         // anyway - which is the output mix, a different strategy's job entirely.
-        assertTrue(0 !in PlaybackSessionParser.activeMediaSessions(realDump))
+        assertTrue(0 !in sessionsOf(realDump))
     }
 
     @Test
     fun `returns nothing when the output cannot be read`() {
-        assertEquals(emptySet<Int>(), PlaybackSessionParser.activeMediaSessions(""))
-        assertEquals(emptySet<Int>(), PlaybackSessionParser.activeMediaSessions("permission denied"))
+        assertEquals(emptySet<Int>(), sessionsOf(""))
+        assertEquals(emptySet<Int>(), sessionsOf("permission denied"))
     }
 
     @Test
@@ -54,7 +58,7 @@ class PlaybackSessionParserTest {
             "  AudioPlaybackConfiguration piid:9001 type:android.media.AudioTrack " +
             "u/pid:10500/999 state:started attr:AudioAttributes: usage=USAGE_MEDIA " +
             "content=CONTENT_TYPE_MUSIC tags= bundle=null sessionId:9099 mutedState:none"
-        assertEquals(setOf(8009, 9099), PlaybackSessionParser.activeMediaSessions(two))
+        assertEquals(setOf(8009, 9099), sessionsOf(two))
     }
 
     /**

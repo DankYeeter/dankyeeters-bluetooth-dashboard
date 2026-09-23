@@ -257,3 +257,9 @@ jede umask-Zusage schweigend umdreht.
 OPEN_/CLOSE_AUDIO_EFFECT_CONTROL_SESSION (vermutlich keine geschuetzten
 Broadcasts; Komponente per Default deaktiviert). Eigenes Review noetig,
 nicht Teil von T-005.
+
+- 2026-09-22 · T-041d, Vorlauf W-1 (AD-027): PASS, Auflagen V-1..V-11 in `docs/tasks/T-041.md`, keine neuen SR.
+| SR-023 | `AudioEffectSessionReceiver`: gefaelschtes CLOSE loest Hoerkorrektur auch von Harvester-Sessions, kein Wiederanlegen | niedrig | offen, beschlossen nicht beauftragt | 2026-09-23 |
+| SR-024 | `AudioEffectSessionReceiver`: gefaelschtes OPEN legt unbegrenzt Effekte an, Hauptthread; erfundene IDs = Hypothese, Geraet | niedrig | offen, beschlossen nicht beauftragt | 2026-09-23 |
+
+- 2026-09-23 · T-043b: Review `AudioEffectSessionReceiver` erledigt (SR-023, SR-024), Export noetig und bleibt. W-1 am Stand afacd89 gegen V-1..V-11 PASS. F-005 ohne Angriffspfad. Bericht `docs/berichte/T-043b-security-reviewer.md`.

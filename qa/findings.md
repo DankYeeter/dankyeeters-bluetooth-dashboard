@@ -293,3 +293,30 @@ Hypothese, keine Tatsache.
 **Entscheidung des Directors:** Der `sameAddress`-Zweig **bleibt**. Der Test
 belegt, dass er einen erreichbaren, korrekten Fall abdeckt — „ungetestet“ war
 kein Grund zum Entfernen, sondern einer zum Testen.
+
+## Ab 2026-09-22: Namensraum F (mit Pruefer-Spalte)
+
+| ID | Titel | Prio | Pruefer | Adressat | Status | Datum | Auftrag |
+|---|---|---|---|---|---|---|---|
+| F-001 | androidTest von `:app` kompiliert nicht: `AdbReachabilityTest.kt:35,38,58` ruft `AdbPortDiscovery.find(...)`, es gibt nur `findAll` — bestand schon auf `86e8a45` | P2 | developer (T-040a, T-040b unabhaengig) | developer | offen | 2026-09-22 | T-041 |
+| F-002 | K-2: nach Archivumzug zeigen 33 Zeilen in 17 Dateien unter `core-hearing`/`core-monitor` noch auf die alten Pfade (`PLAN.md`, `COMPENSATION.md`, `RESEARCH_COMPENSATION.md` …); Liste in `docs/berichte/T-040a-developer.md` | P3 | developer (T-040a) | developer | offen | 2026-09-22 | T-041 |
+| F-003 | Audit-Prämisse „doppelte AirPods-Preset-Logik“ hielt nicht: Beacon-Weg (`DashboardViewModel`) erkennt umbenannte AirPods, Namens-Weg nicht — bleibt | – | developer (T-040a) | – | kein Befund, geschlossen | 2026-09-22 | T-040a |
+| F-004 | `org.json` schreibt -0.0 als `-0`, Rueckweg liefert 0.0 — Vorzeichen geht beim Neuschreiben verloren, Datenklassen-`equals` -0f≠0f (Wert gleich) | P4 | developer (T-041b) | developer | beschlossen, nicht beauftragt | 2026-09-22 | – |
+| F-005 | `JSONArray(String)` akzeptiert Zeichen hinter dem Array, MiniJson lehnte ab — betrifft nur fremd erzeugte Strings | P4 | developer (T-041b) | developer | beschlossen, nicht beauftragt | 2026-09-22 | – |
+| QA-012 | Statuswechsel: Guard wie die anderen fuenf Regeln, rot-vorher mit leerer Dateiliste belegt (developer) — **behoben**, QA-Nachpruefung in der Pruefphase | P3 | developer (T-042b) | – | behoben, ungeprueft durch QA | 2026-09-23 | T-042b |
+| QA-013 | Statuswechsel: 8-Zustands-Sweep mit Text+ContentDescription+Leer-Guard, Rueckbau-Mutation rot (developer) — **behoben**, QA-Nachpruefung in der Pruefphase | P3 | developer (T-042b) | – | behoben, ungeprueft durch QA | 2026-09-23 | T-042b |
+| F-006 | Verdacht Flaky: `EqScreenVolumeTiltTest` „the feature is off until it is switched on“ und `VolumeAwareTiltViewModelTest` „the volume is ignored while the feature is switched off“ fielen einmal im Volllauf (T-039b, 23.09. 00:30), gruen in zwei Director-Volllaeufen 00:38/00:39 | P3 | developer (T-039b), Director | qa-engineer (Ursache) | offen | 2026-09-23 | T-043a |
+| F-007 | QA-A: beendeter Lauf zeigt nach Codec-Wechsel Schwellen der neuen Leiter (`ObservationRunSection.kt:49,99,116`) | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044a |
+| F-008 | QA-B: Start bei unlesbarer Rate endet sofort mit falscher Grundzeile (AK-3) (`ObservationRunSection.kt:69-70`) | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044a |
+| F-009 | QA-C: leerer Snapshot blendet Laufabschnitt samt beendetem Lauf aus (`LiveLinkPanel.kt:112`) | P4 | qa-engineer (T-043a) | developer | beschlossen, nicht beauftragt | 2026-09-23 | – |
+| F-010 | QA-D: Testluecken M06/M08/M12 an tragenden AK-T039-Kriterien | P4 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044a |
+| F-006 | Statuswechsel: Ursache eingegrenzt (geteilter DataStore zwischen Robolectric-Tests, `SystemGraph.kt:68`, `EqSettingsStore.kt:20`), kein Produktfehler | P3 | qa-engineer (T-043a) | developer | offen | 2026-09-23 | T-044b |
+| QA-012 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
+| QA-013 | Statuswechsel: von QA bestaetigt behoben (Mutationen rot) | P3 | qa-engineer (T-043a) | – | geschlossen | 2026-09-23 | T-042b |
+| F-011 | Nutzertext „only a rooted phone can change“ (`DeviceProfilesScreen.kt:316`, `BluetoothSystemControls.kt:105`) laut T-045 falsch (Entwickleroptionen) und Root-Hinweis gegen AK-10; am Geraet klaeren | P3 | architect (T-045) | developer | beschlossen, nicht beauftragt | 2026-09-23 | – |
+| F-001 | Statuswechsel: behoben (`97ffc41`), `assembleDebugAndroidTest` gruen (Director 22.09. 23:56 und 23.09. 04:14) | P2 | Director | – | geschlossen | 2026-09-23 | T-041a |
+| F-002 | Statuswechsel: behoben (`fc4a2ae`), K-2-Suche 29 Zeilen/14 Dateien = Director-Zahl | P3 | developer (T-041a) | – | geschlossen | 2026-09-23 | T-041a |
+| F-006 | Statuswechsel: T-044b + T-044d (D-001, Schreibsperre auf Dispatchers.IO) — EqLayerBypassTest 3x isoliert und im Paket gruen, Volllauf 2498/0 zweimal | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044b/T-044d |
+| F-007 | Statuswechsel: von QA bestaetigt behoben, Compose-Test deckt Repro | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
+| F-008 | Statuswechsel: von QA bestaetigt behoben, Start-Chip nur bei lesbarer Rate | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
+| F-010 | Statuswechsel: von QA bestaetigt behoben, M06/M08/M12 rot | P4 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |

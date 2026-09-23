@@ -510,10 +510,7 @@ data class LiveCodecSnapshot(
      * them as "no dropouts" would be exactly wrong.
      */
     val isOffloaded: Boolean = false,
-) {
-    /** Host-side encoding is the case where the tx-queue counters are live. */
-    val isEncodedOnHost: Boolean get() = !isOffloaded
-}
+)
 
 /**
  * `btif_a2dp_source`'s own media statistics, from the `A2DP State:` block.

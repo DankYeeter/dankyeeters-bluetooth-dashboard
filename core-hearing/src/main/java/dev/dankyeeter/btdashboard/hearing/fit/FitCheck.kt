@@ -17,7 +17,7 @@ import kotlin.math.abs
  * which no third-party Android app can reach (Milestone 3, BLE reverse
  * engineering). The UI must say so.
  *
- * Per PLAN.md the step is mandatory for IEM device profiles and optional for
+ * Per docs/archiv/PLAN.md the step is mandatory for IEM device profiles and optional for
  * over-ears — see [DeviceFormFactor.fitCheckMandatory].
  */
 object FitCheck {

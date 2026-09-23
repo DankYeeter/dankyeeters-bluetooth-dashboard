@@ -35,7 +35,7 @@
 
       Play Store policy restricts this permission to a short list of app types.
       It is granted here because this app is explicitly never going to the Play
-      Store (see PLAN.md non-goals): local git and a sideloaded APK, no store
+      Store (see docs/archiv/PLAN.md non-goals): local git and a sideloaded APK, no store
       listing, no distribution. The package list is read, tiered, shown, and
       discarded when the process ends — it is never stored and never sent.
 

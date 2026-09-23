@@ -164,7 +164,6 @@ class MonitorTraceModelTest {
             trace = trace.plus(kbpsPoint(1_000L + i * 500L, kbps))
         }
 
-        assertTrue(trace.isMeasuredBitrate)
         assertEquals("kbps", trace.unitLabel)
         assertEquals(660.0, trace.peakValue!!, 0.001)
         assertEquals(660.0, trace.latestValue!!, 0.001)
@@ -180,7 +179,6 @@ class MonitorTraceModelTest {
         val trace = closeUp().plus(point(1_000L, rate = 50.0)).plus(point(1_500L, rate = 50.0))
 
         assertTrue(trace.hasRate)
-        assertFalse(trace.isMeasuredBitrate)
         assertEquals("packets/s", trace.unitLabel)
         assertEquals(50.0, trace.latestValue!!, 0.001)
     }
@@ -463,5 +461,19 @@ class MonitorTraceModelTest {
 
         assertFalse(slow.breakBefore(1))
         assertTrue(fast.breakBefore(1))
+    }
+
+    /**
+     * AK-T039-15: the caption names the line's low point between "now" and the
+     * peak, both off plotValue over the same window; the loss part is word for
+     * word AK-T002-11.
+     */
+    @Test
+    fun `the caption names the low point between now and the peak`() {
+        val trace = listOf(492.0, 330.0, 660.0, 492.0).foldIndexed(LiveTrace.overview(1_000L)) { i, t, kbps ->
+            t.plus(TracePoint(timestampMs = 1_000L + i * 1_000L, bitrateKbps = kbps, lossCount = if (i == 1) 3 else 0))
+        }
+
+        assertEquals("492 kbps now · low 330 · peak 660 · 1 of 4 windows lost something", trace.caption("quiet"))
     }
 }

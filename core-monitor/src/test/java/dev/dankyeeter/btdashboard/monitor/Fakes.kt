@@ -8,12 +8,18 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatusSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEventSource
+import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
+import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 
 /** Device-free stand-ins for everything the monitor talks to. */
@@ -94,4 +100,15 @@ class TestClock(var nowMs: Long = 0L) {
     fun advance(ms: Long) {
         nowMs += ms
     }
+}
+
+/** Explicit "we have no BQR" implementation for tests. */
+class UnavailableQualityReportSource(reason: String) : QualityReportSource {
+    private val state = MutableStateFlow<QualityReportAvailability>(
+        QualityReportAvailability.Unavailable(reason),
+    )
+    override val availability: StateFlow<QualityReportAvailability> = state
+    override suspend fun start() = state.value
+    override suspend fun stop() = Unit
+    override fun samples(): Flow<LinkQualitySample> = emptyFlow()
 }

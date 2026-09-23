@@ -90,6 +90,8 @@ fun LiveLinkPanel(
     closeUpTrace: LiveTrace = LiveTrace.closeUp(500L),
     closeUpEnabled: Boolean = false,
     onCloseUpEnabled: (Boolean) -> Unit = {},
+    /** The observation-run section, drawn under the graphs for a link that reads. */
+    observationRun: @Composable (LinkLiveSnapshot) -> Unit = {},
 ) {
     Panel(modifier) {
         ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
@@ -123,6 +125,7 @@ fun LiveLinkPanel(
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
                 TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
+                observationRun(snapshot)
             }
         }
 
@@ -729,6 +732,6 @@ internal fun trimZero(seconds: Double): String =
         String.format(Locale.US, "%.1f", seconds)
     }
 
-/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". */
-private fun plural(count: Long, singular: String): String =
+/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". The run section counts with it too. */
+internal fun plural(count: Long, singular: String): String =
     if (count == 1L) "$count $singular" else "$count ${singular}s"

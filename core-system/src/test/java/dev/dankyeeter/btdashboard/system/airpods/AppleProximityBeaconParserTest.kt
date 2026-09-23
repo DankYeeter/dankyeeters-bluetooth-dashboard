@@ -144,7 +144,6 @@ class AppleProximityBeaconParserTest {
         assertNull(parsed.leftBatteryPercent)
         assertNull(parsed.rightBatteryPercent)
         assertNull(parsed.caseBatteryPercent)
-        assertFalse(parsed.hasBudBattery)
     }
 
     @Test
@@ -162,7 +161,6 @@ class AppleProximityBeaconParserTest {
             beacon(status = 0x20, primaryBattery = 0x00),
         )!!
         assertEquals(0, parsed.leftBatteryPercent)
-        assertTrue(parsed.hasBudBattery)
     }
 
     // ---- primary/secondary side swap ------------------------------------------
@@ -227,13 +225,13 @@ class AppleProximityBeaconParserTest {
         )!!
         assertTrue(parsed.leftInEar)
         assertFalse(parsed.rightInEar)
-        assertFalse(parsed.bothInEar)
     }
 
     @Test
-    fun `both buds in ear sets bothInEar`() {
+    fun `both buds in ear are reported together`() {
         val parsed = AppleProximityBeaconParser.parse(beacon(status = 0x02 or 0x08))!!
-        assertTrue(parsed.bothInEar)
+        assertTrue(parsed.leftInEar)
+        assertTrue(parsed.rightInEar)
     }
 
     @Test
@@ -292,7 +290,8 @@ class AppleProximityBeaconParserTest {
         assertEquals(70, parsed.leftBatteryPercent)
         assertEquals(60, parsed.rightBatteryPercent)
         assertEquals(90, parsed.caseBatteryPercent)
-        assertTrue(parsed.bothInEar)
+        assertTrue(parsed.leftInEar)
+        assertTrue(parsed.rightInEar)
         assertTrue(parsed.caseCharging)
         assertFalse(parsed.leftCharging)
         assertFalse(parsed.lidOpen)

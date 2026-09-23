@@ -57,7 +57,7 @@ keinen fachlichen Zustand ausser seiner Identitaet.
 
 **Historie:** Die Entscheidungen vor AD-001 sind nicht rueckwirkend als AD
 gefasst worden. Sie stehen ausfuehrlich im KDoc der betroffenen Typen und in
-`HANDOVER.md`; sie dort zu suchen ist zuverlaessiger, als sie hier aus dem
+`docs/archiv/HANDOVER.md`; sie dort zu suchen ist zuverlaessiger, als sie hier aus dem
 Gedaechtnis zu rekonstruieren.
 
 ---
@@ -67,7 +67,7 @@ Gedaechtnis zu rekonstruieren.
 ### AD-001 — Diese Datei beginnt beim heutigen Stand, nicht bei Null (2026-08-31, Status: aktiv)
 
 **Kontext:** `ARCHITECTURE.md` existierte nicht. Die Struktur ist gewachsen und
-im KDoc ungewoehnlich gut begruendet; `HANDOVER.md` traegt 222 KB Verlauf.
+im KDoc ungewoehnlich gut begruendet; `HANDOVER.md` (seit T-040 `docs/archiv/HANDOVER.md`) traegt 222 KB Verlauf.
 T-005 verlangt neue Entscheidungen, die irgendwo hinmuessen.
 
 **Optionen:**
@@ -1505,6 +1505,264 @@ fest. Der Bitratengraph (G-1..G-8) ist ein eigener Schnitt und setzt auf
 
 ---
 
+### AD-025 — Der Pruefton kommt aus `AudioTrack`, Oboe und NDK fallen weg (2026-09-22, Status: aktiv — **Freigabe `director`; Geraetenachweis W-7 vor W-8**)
+
+**Kontext:** T-040c/1. Der einzige native Code des Projekts ist der Tongenerator
+des Hoertests (`core-audio/src/main/cpp/*`, 363 Zeilen, `wc -l` 22.09.) samt
+JNI-Bruecke, Oboe 1.9.3, CMake, gepinntem NDK (~2,5 GB), 16-KB-Seitenausrichtung,
+drei ABIs und einer ProGuard-Regel. Einziger Nutzer:
+`HearingTestViewModel.launchRun` (`NativeToneGenerator()`, Grep 22.09.).
+
+**Was der Hoertest verlangt** (aus `HughsonWestlakeTestController`, Stand
+`86e8a45`): drei Pulse zu 220 ms mit 200 ms Pause, Antwortfenster 900 ms nach dem
+letzten Puls, Abfrage alle 25 ms. Ein Druck zaehlt also bis 1960 ms nach dem
+Einschalten (aus den Konstanten gerechnet, nicht gemessen). Daraus:
+- **Latenz:** muss nur *konstant* und *klein gegen 1960 ms* sein — sie verschiebt
+  das hoerbare Fenster, nicht die Schwelle. Ueber Bluetooth dominiert ohnehin der
+  A2DP-Puffer, durch den beide Engines gleich laufen (Annahme, nicht gemessen —
+  deshalb Punkt 3 in W-7).
+- **Pegeltreue:** rein digital, `10^(dB/20)` auf Float-Samples; kein
+  Systemvolumen, kein `setVolume`. Das ist in Kotlin dieselbe Rechnung.
+- **Rampe:** Raised-Cosine ueber `rampMs`, bei jedem Zielwechsel neu gespannt,
+  Laenge unabhaengig vom Pegel; stummer Kanal exakt `0.0f`. Ein Knacken oder
+  Aussetzer waere ein hoerbarer Hinweis und verfaelscht die Schwelle — das ist
+  das eigentliche Risiko eines Wechsels (GC-Pause im Schreib-Thread).
+
+**Optionen:**
+A. **Im Bestand bleiben.** Konsequenz: funktioniert; Preis ist die ganze native
+Werkzeugkette fuer ~170 Zeilen Sinus, und die Synthese ist ohne Geraet nicht
+testbar.
+B. **`AudioTrack`, `ENCODING_PCM_FLOAT`, `MODE_STREAM`**, eigener Schreib-Thread,
+`ToneGenerator`-Schnittstelle unveraendert. Konsequenz: NDK, CMake, Oboe, JNI,
+ProGuard-Regel und `.cxx/` entfallen; die Synthese wird eine reine Klasse mit
+JVM-Test. Preis: Unterlaufrisiko im Kotlin-Thread, am Geraet zu belegen.
+C. **`AudioTrack` `MODE_STATIC`** mit vorberechnetem Pulszug je Darbietung.
+Konsequenz: sample-genaues Gating ohne Thread — aber der Controller bricht einen
+Puls bei Tastendruck ab und schaltet einzeln (`setToneActive`), das passt nicht
+zu einem fertigen Puffer. Aendert den `ToneGenerator`-Vertrag; verworfen.
+
+**Entscheidung:** B, als Portierung, nicht als Neuentwurf:
+
+```kotlin
+// core-audio/.../audio/tone/AudioTrackToneGenerator.kt — eine Datei
+internal class ToneRenderer(sampleRate: Int) {          // rein, JVM-testbar
+    fun render(out: FloatArray, frames: Int, p: ToneParams) // 1:1 aus onAudioReady
+}
+class AudioTrackToneGenerator : ToneGenerator, Closeable // Thread + AudioTrack
+```
+
+Rate `AudioTrack.getNativeOutputSampleRate(STREAM_MUSIC)`, Puffer 2x
+`getMinBufferSize`, `PERFORMANCE_MODE_LOW_LATENCY`, `USAGE_MEDIA`/`MUSIC` wie
+bisher, Thread mit `THREAD_PRIORITY_URGENT_AUDIO`, **keine Allokation in der
+Schleife**, Parameter als `@Volatile`. `write(...) < 0` setzt `isRunning` auf
+false — heute bleibt das Kotlin-Flag nach `onErrorAfterClose` faelschlich true
+(Nebenbefund, faellt mit weg).
+
+**Geraetenachweis (W-7), A/B beide Engines, gleiche Sitzung, Pixel 11 Pro:**
+1. Pegelschritt −10 dB per Goertzel: Differenz zwischen den Engines innerhalb
+   der Wiederholstreuung, die `AcousticEqTest.measuring_the_same_thing_twice…`
+   liefert.
+2. Pulsdauer 220 ms: zwischen den Engines gleich bis auf einen Schreibblock.
+3. Einsatzlatenz am BT-Weg ueber Leckschall (wie `…through_headphone_leakage`):
+   beide Zahlen werden **berichtet, nicht geschwellt**; reicht der Stoerabstand
+   nicht, meldet der Test „nicht messbar“ statt einer Zahl.
+4. `AudioTrack.underrunCount == 0` ueber 5 min Pulsmuster des Hoertests.
+Faellt 4 oder weicht 1/2 ab: W-8 wird nicht gebaut, Rueckgabe an `architect`.
+
+**Konsequenzen:** Leicht wird der Build (kein NDK auf neuen Rechnern) und der
+Test der Synthese. Dauerhaft schwer wird nichts. **Widerspricht dem Wortlaut von
+`GOAL.md`, Rahmen („Oboe NDK“)** — offene Frage an den Nutzer ueber den
+`director`; gebaut wird W-8 erst nach seiner Antwort.
+
+**Umkehrbarkeit:** leicht — ein Revert von W-8 stellt Oboe wieder her.
+
+---
+
+### AD-026 — Die zwei MiniJson-Codecs ziehen auf `org.json`, getestet unter Robolectric (2026-09-22, Status: aktiv)
+
+**Kontext:** T-040c/2. Im Persistenzpfad gibt es heute drei JSON-Muster:
+`org.json` in `AudiogramStore`, `CompensationProfileStore`, `DeviceProfileStore`;
+ein eigener Parser `MiniJson` (178 Zeilen) fuer `DerivedCalibrationJson` und
+`PreferenceProfileJson`; kotlinx.serialization nur im Backup (`:app`,
+`BackupCodec`) — Grep 22.09. `MiniJson` existiert nur, weil `org.json` auf dem
+Host-JVM „not mocked“ wirft (KDoc von `MiniJson`). Das Backup traegt eigene
+Typen, nicht die DataStore-Strings; es ist von hier nicht betroffen.
+
+**Optionen:**
+A. **Im Bestand bleiben.** Konsequenz: zweites Muster und ein handgeschriebener
+Parser bleiben; getestet und funktionsfaehig.
+B. **`org.json` + `testImplementation("org.json:json")`.** Konsequenz: neue
+Abhaengigkeit, und der Test laeuft gegen die Maven-Implementierung, nicht gegen
+die des Geraets (Zahlformat und Toleranzen weichen dort ab).
+C. **kotlinx.serialization.** Konsequenz: Compiler-Plugin in `:core-hearing`,
+ein drittes Muster im Store-Paket statt eines weniger.
+D. **`org.json` wie die Nachbarstores, Codec-Tests unter Robolectric.**
+Konsequenz: Robolectric fuehrt Androids eigenes `org.json` aus; es ist im
+Katalog und in `:core-monitor` aus genau diesem Grund schon Testabhaengigkeit.
+
+**Entscheidung:** D. Ein Muster im Paket, keine neue Abhaengigkeit, und der Test
+prueft die Implementierung, die auf dem Telefon laeuft (Bedingung: Robolectric
+SDK 35, das Geraet laeuft 37 — dass `org.json` dazwischen unveraendert ist, ist
+Annahme). Schluessel, Form und Ein-Buchstaben-Keys bleiben **wortgleich**.
+Zwei Stellen, an denen `org.json` anders reagiert als `MiniJson`, bleiben
+explizit: NaN/Unendlich wird vor `put` zu `0.0` (`put` wirft sonst), und eine
+unlesbare Zeile faellt einzeln weg, ein unlesbarer String ergibt `emptyList()`.
+
+**Der Test, der die gespeicherten Daten bindet (W-2, vor dem Umbau):** je Codec
+ein Literal `LEGACY_…_WRITTEN_BY_MINIJSON`, erzeugt vom **heutigen** Encoder aus
+einer Fixture mit Randwerten (Name `null`, Anfuehrungszeichen und Zeilenumbruch
+im Label, E-Notation wie `1.0E-4`, 13-stellige Millis, leere Listen), und
+`parse(LEGACY) == fixture`. Der Test wird gruen auf `MiniJson` committet und
+bleibt danach **unveraendert** gruen. Er faellt, sobald ein Schluessel, ein
+Zahlpfad oder die Escape-Behandlung beim Lesen abweicht.
+
+**Konsequenzen:** `MiniJson.kt` entfaellt, die Codecs werden kuerzer. Die
+Codec-Tests laufen langsamer (Robolectric-Start je Klasse). Ein Rueckweg auf
+eine aeltere App-Version liest das neue Format, weil die Form gleich bleibt —
+nicht eigens getestet.
+
+**Umkehrbarkeit:** leicht — das Format aendert sich nicht; das Literal bindet es.
+
+---
+
+### AD-027 — Das Helfer-Protokoll bleibt bei Strings; nur totes Socket-Erbe faellt (2026-09-22, Status: aktiv — **`security-reviewer` vor W-1**)
+
+**Kontext:** T-040c/3. Die AIDL-Methoden liefern Base64-Zeilen
+(`OK`/`FILE`/`ERR`/`CODEC`/`HDAUDIO`). Die **Anfragen** sind bereits typisiert
+(`int`, `String`, `List<String>`); der Helfer dekodiert keinen fremden String —
+die Decoder laufen in der App auf Antworten des eigenen Helfers
+(`PrivilegedServer` dekodiert nur seine eigene Antwort, `:626`). `PrivilegedServer`
+enthaelt kein `Socket` mehr (Grep 22.09.). `encodeAuth`/`decodeAuth`/`encodeRun`/
+`decodeRun` haben nur Aufrufer in `PrivilegedProtocolTest` (Grep 22.09.; Praemisse
+haelt). Die AIDL-KDoc haelt die Stringform als bewusste Entscheidung fest.
+
+**Optionen:**
+A. **Strings behalten**, totes Socket-Erbe loeschen, Vergleich auf Bibliothek.
+B. **`Bundle`-Antworten.** Konsequenz: die App entpackt Bundles aus einem
+Shell-Prozess — ein Bundle kann beliebige Parcelables tragen und laedt Klassen;
+das ist eine bekannte Fehlerklasse, die heute nicht existiert. Dazu
+Versionssprung.
+C. **Eigene Parcelables.** Konsequenz: je Antworttyp eine Klasse mit
+`writeToParcel`/`createFromParcel`, die im Gleichschritt bleiben muessen
+(Mismatch-Fehlerklasse), neue AIDL-`parcelable`-Deklarationen, Versionssprung,
+Sicherheitspruefung — fuer ~150 Zeilen Codec, die getestet sind.
+
+**Entscheidung:** A. Die Angriffsflaeche des Helfers aendert sich durch B/C
+nicht (er parst schon heute nichts Fremdes); B und C kosten jeweils einen
+Versionssprung, und AD-013 sagt, was der kostet: der Nutzer muss den ADB-Befehl
+neu ausfuehren. **Wenn** die Antwortform je geaendert wird, dann im Sprung von
+U-1 (AD-010), der die `exec`-Signatur ohnehin anfasst — nicht in einem eigenen.
+
+Konkret in W-1:
+- `encodeAuth`, `decodeAuth`, `encodeRun`, `decodeRun` und ihre Tests loeschen;
+  die KDoc von `decodeOrNull` und die Testkommentare (`PrivilegedProtocolTest`
+  :123, :420) sprechen noch von einem Socket — mitziehen.
+- `tokensMatch`: die Pruefung auf `null`/leer **bleibt** (`MessageDigest.isEqual`
+  liefert fuer zwei leere Arrays `true`), der Rumpf wird
+  `MessageDigest.isEqual(offered.toByteArray(UTF_8), expected.toByteArray(UTF_8))`.
+  Geprueft am AOSP-Quelltext `libcore/ojluni/.../MessageDigest.java`, Zweig
+  `main`, 22.09.: Laenge und Inhalt ohne fruehen Ausstieg verglichen.
+  **Praezisiert (T-041d, `security-reviewer`, 22.09.):** Zweig
+  `android12-release` (API 31) bricht bei ungleicher Laenge frueh ab, der
+  Inhalt wird konstantzeitig verglichen — harmlos, Token ist eine UUID fester,
+  oeffentlicher Laenge, beide Aufrufer pruefen vorher die uid. Pruefung bleibt
+  `isNullOrBlank` (nicht nur leer). Bindender Test existiert:
+  `PrivilegedTokenTest.tokens match only when…` faellt, wenn die Leer-Pruefung
+  wegfaellt (`tokensMatch("", "")`).
+- Nebenbefund, selbe Datei: die KDoc von `SHUTDOWN` (`:111-114`) haengt ueber
+  `GRANT_SECURE_SETTINGS`, `SHUTDOWN` selbst hat keine.
+
+**Konsequenzen:** Kein Versionssprung, kein neuer Typ auf der privilegierten
+Flaeche. Die Stringform bleibt Handarbeit — mit Tests, die es schon gibt.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-028 — Das Codec-Mode-Kalibrieren wird entfernt, die Tabelle per Hand-Migration 3→4 gedroppt (2026-09-22, Status: aktiv — **Freigabe `director`: loescht Nutzerdaten**)
+
+**Kontext:** T-040c/4. `codecModeCalibrator`, `codecModeSignatures`,
+`installCodecModePinner` haben ausserhalb ihrer Definition in `MonitorGraph.kt`
+**keinen** Aufrufer in main, test, androidTest, XML oder ProGuard (Grep 22.09.,
+Praemisse haelt). Die KDoc von `MonitorGraph.liveLink` sagt selbst, dass die
+gelernten Baender an einem Zaehler gemessen wurden, der kein Paketzaehler ist.
+Die gespeicherten Zeilen sind also unerreichbar **und** inhaltlich falsch (AK-3).
+`CodecModeSignature`/`LdacModeSignatures` (statische Rahmengroessen der
+Inferenz) sind etwas anderes und bleiben; `LiveLinkSource.readOnce` bleibt
+(`A2dpTxProbe`). Das Backup traegt keine Signaturen.
+
+**Optionen:**
+A. **Nur Code entfernen, Tabelle und Entity lassen.** Konsequenz: tote Tabelle
+mit falschen Daten auf dem Geraet, Entity ohne Nutzer.
+B. **`@DeleteTable`-AutoMigration.** Konsequenz: zweites Migrationsmuster; der
+Bestand schreibt Migrationen von Hand (`MIGRATION_1_2`, `MIGRATION_2_3`) und
+testet sie handgerollt ohne `MigrationTestHelper` (KDoc des Tests begruendet das).
+C. **Entity weg, Version 4, `MIGRATION_3_4` von Hand.**
+
+**Entscheidung:** C. Einzige Anweisung:
+
+```sql
+DROP TABLE IF EXISTS `codec_mode_signatures`
+```
+
+**Probe (L-033):** gegen eine frische Datenbank aus
+`core-monitor/schemas/…MonitorDatabase/3.json` (alle `createSql`, Indizes,
+`setupQueries`), je eine Zeile in `monitor_events` und `codec_mode_signatures`,
+dann die Anweisung zweimal. Befehl `python probe.py <3.json>` (Scratchpad
+T-040c), 22.09. 23:06, SQLite 3.49.1 (Host, nicht Android): Tabelle und ihr
+Autoindex weg, alle anderen Tabellen und Indizes unveraendert,
+`monitor_events` behaelt 1 Zeile, zweiter Lauf fehlerfrei. Unter Androids SQLite
+bindet es erst der Migrationstest aus W-6.
+
+Room prueft beim Oeffnen nur deklarierte Entities; eine liegengebliebene
+Tabelle faellt ihm **nicht** auf. Deshalb muss der Test die Abwesenheit selbst
+pruefen.
+
+**Migrationstest (W-6), in `MonitorDatabaseMigrationTest`, handgerollt wie der
+Bestand:** `writeVersion3Database()` mit Verlaufszeilen und einer
+Kalibrierzeile; Oeffnen mit allen Migrationen bei Version 4; (a) Verlauf
+zeilengleich, (b) `sqlite_master` kennt `codec_mode_signatures` nicht mehr,
+(c) Kette 1→4 ohne Verlust. Faellt, wenn der `DROP` fehlt (b), oder wenn
+`MIGRATION_3_4` nicht registriert ist (Room wirft, kein destruktiver
+Fallback). Die zwei Kalibriertests der Datei entfallen mit der Entity.
+
+**Konsequenzen:** Weg faellt ein mutierender Pfad (Codec-Neuverhandlung je
+Modus) ohne Nutzer. Die Klammer in AD-016 („`CodecModeCalibrator` verhandelt
+absichtlich neu“) wird damit Geschichte; stehen gelassen. `schemas/4.json`
+entsteht beim Build und wird eingecheckt.
+
+**Umkehrbarkeit:** Code leicht (Revert); **Daten schwer** — die Zeilen sind nach
+dem ersten Oeffnen unter Version 4 weg. Sie waren falsch gemessen; ein
+Rueckbau wuerde neu kalibrieren, nicht wiederherstellen.
+
+---
+
+### AD-029 — Diese Umbauten bekommen die Schrittfolge `W-1..W-9` (2026-09-22, Status: aktiv)
+
+**Kontext:** Regel aus AD-014. `B-` ist in `docs/release/ROLLOUT.md` belegt,
+`W-` nirgends (Grep ueber `*.md` 22.09.). Alle Schritte starten erst, wenn
+T-040a/b auf `master` sind — W-1, W-7, W-8 liegen in deren Dateien.
+
+| Schritt | AD | Dateien (≤5 geaendert; Loeschungen extra genannt) | Stufe | Test | Geraet | security-reviewer |
+|---|---|---|---|---|---|---|
+| **W-1** | 027 | `app/.../privileged/PrivilegedProtocol.kt`, `app/src/test/.../privileged/PrivilegedProtocolTest.kt` | normal | bestehender `PrivilegedTokenTest` bindet; K-2-Suche `socket` in `privileged/` | nein | **ja, vorher** (Auth-Vergleich im Helfer) |
+| **W-2** | 026 | `core-hearing/src/test/.../store/DerivedCalibrationJsonTest.kt`, `PreferenceProfileJsonTest.kt` | normal | Legacy-Literal, gruen auf `MiniJson` | nein | nein |
+| **W-3** | 026 | `core-hearing/build.gradle.kts` (`testImplementation(libs.robolectric)`), `core-hearing/src/test/resources/robolectric.properties` (`sdk=35`, wie `:app`), `DerivedCalibrationJson.kt`, `DerivedCalibrationJsonTest.kt` (`@RunWith`) | normal | W-2-Literal unveraendert gruen + bestehende | nein | nein |
+| **W-4** | 026 | `PreferenceProfileJson.kt`, `PreferenceProfileJsonTest.kt`; loeschen: `MiniJson.kt` | normal | wie W-3; K-2-Suche `MiniJson` | nein | nein |
+| **W-5** | 028 | `MonitorGraph.kt`, `link/live/CodecModeCalibration.kt` (nur `ModeSignatureSample` und das Interface `CodecModeSignatureStore` bleiben bis W-6 — `MonitorDatabase.kt:21` importiert es); loeschen: `data/RoomCodecModeSignatureStore.kt`, `CodecModeCalibrationTest.kt`, `CodecModeSignatureStoreTest.kt` | normal | Suite gruen; kein Schema-Eingriff | nein | nein |
+| **W-6** | 028 | `data/MonitorDatabase.kt` (Version 4, `MIGRATION_3_4`, Entity/DAO/Mapper weg), `MonitorDatabaseMigrationTest.kt`, `link/live/LiveLinkSource.kt` (KDoc :91); loeschen: `CodecModeCalibration.kt`; erzeugt: `schemas/.../4.json` | **hoch** (Daten) | Migrationstest oben | nein | nein |
+| **W-7** | 025 | neu `core-audio/.../tone/AudioTrackToneGenerator.kt`, neu `core-audio/src/test/.../tone/ToneRendererTest.kt`, neu `core-audio/src/androidTest/.../tone/ToneGeneratorAcousticTest.kt`, `AcousticEqTest.kt` (Aufnahme-/Goertzel-Helfer `internal` statt kopieren) | normal | JVM: Rampenlaenge pegelunabhaengig, Rampenenden steigungsfrei, stummer Kanal exakt 0, Pegel `10^(dB/20)` nach Einschwingen; Geraet: Punkte 1–4 aus AD-025 | **ja** | nein |
+| **W-8** | 025 | `HearingTestViewModel.kt`, `core-audio/build.gradle.kts` (NDK, CMake, `prefab`, `ndk{}`, Oboe raus), `gradle/libs.versions.toml` (`oboe`), `app/proguard-rules.pro`, `ToneGeneratorAcousticTest.kt` (Oboe-Arm raus); loeschen: `NativeToneGenerator.kt`, `src/main/cpp/` (4 Dateien) | normal | Suite + `assembleDebugAndroidTest`; ein Hoertestlauf am Geraet | **ja** (Smoke) | nein |
+| **W-9** | 025 | Texte: `README.md`, `THIRD_PARTY_LICENSES.md` (Oboe-Eintrag), `core-audio/.../eq/SystemEqualizer.kt` (Kommentar), `docs/release/ROLLOUT.md` | normal | K-2-Suche `oboe`/`NDK`/`JNI`/`cpp`, zweite Maske `native`; `docs/archiv/` bleibt | nein | nein |
+
+`GOAL.md` und `docs/state.md` (NDK-Zeile) zieht der `director` nach.
+Reihenfolge: W-1 und W-2 sofort parallel; W-3→W-4; W-5→W-6; W-7→(Nutzerantwort
+zu „Oboe NDK“)→W-8→W-9. Die vier Straenge beruehren keine gemeinsame Datei.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -1576,3 +1834,19 @@ fest. Der Bitratengraph (G-1..G-8) ist ein eigener Schnitt und setzt auf
   Prozess, der Dateien loescht, ueber die er nichts weiss, ist ein groesserer
   Fehler als die Reste, die er beseitigt (AD-011). Gilt insbesondere fuer
   `btperf` — das gehoert den Messwerkzeugen.
+- **Der Pruefton als `MODE_STATIC`-Puffer je Darbietung.** Braeuchte einen
+  anderen `ToneGenerator`-Vertrag, weil der Controller Pulse einzeln schaltet
+  und bei Tastendruck abbricht. Wieder interessant, wenn W-7 zeigt, dass der
+  Schreib-Thread unterlaeuft und kein Puffermass das behebt. (AD-025)
+- **`org.json:json` als Testabhaengigkeit** und **kotlinx.serialization in
+  `:core-hearing`.** Das erste testet eine andere Implementierung als die des
+  Geraets, das zweite fuehrt ein drittes Muster ins Store-Paket. Wieder
+  interessant, wenn alle Stores gemeinsam umziehen sollen — dann als eigene
+  Entscheidung ueber alle fuenf, nicht ueber zwei. (AD-026)
+- **`Bundle`/Parcelable-Antworten des Helfers.** Keine kleinere
+  Angriffsflaeche, aber ein Versionssprung und eine neue Fehlerklasse. Wieder
+  interessant nur zusammen mit U-1 (AD-010), wenn die `exec`-Antwort ohnehin
+  ihre Form aendert. (AD-027)
+- **`@DeleteTable`-AutoMigration.** Zweites Migrationsmuster neben den
+  handgeschriebenen. Wieder interessant, wenn der Bestand insgesamt auf
+  AutoMigrationen umzieht. (AD-028)

@@ -10,7 +10,7 @@ import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 
 /**
- * Builds one sample per connected device, walking PLAN.md's source hierarchy:
+ * Builds one sample per connected device, walking docs/archiv/PLAN.md's source hierarchy:
  * BQR first, then the codec-status API, then the dumpsys scrape. Each level
  * fills in what the level above could not, and the resulting sample records
  * which source it actually came from so the UI can be honest about it.

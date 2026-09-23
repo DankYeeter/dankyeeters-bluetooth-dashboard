@@ -108,8 +108,8 @@ class CodecModeInferenceTest {
     /**
      * The frame geometry itself, which is verified and still correct — it is the
      * *use* of it as a mode signature that was falsified, not the arithmetic.
-     * Kept because the calibration seam is built on it and a future codec would
-     * inherit the same rule: sizes are half in the 88.2/96 kHz family, because
+     * Kept because the arithmetic still ships and a future codec would inherit
+     * the same rule: sizes are half in the 88.2/96 kHz family, because
      * those rates emit twice as many frames per second for the same bitrate.
      */
     @Test

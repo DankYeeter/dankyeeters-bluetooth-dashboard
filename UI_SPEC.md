@@ -2607,6 +2607,45 @@ pinnbaren Stufen der ausgehandelten Sample-Rate-Familie** — 330/660/990
 - **Umschalten rechnet den Lauf neu, ohne ihn neu zu starten.** Die
   Paar-Zeitsummen tragen jede Schwelle nachtraeglich.
 
+### Entscheidung 5 — der Starthinweis: einmal ueberhaupt, nicht einmal je Sitzung — 2026-09-22 (T-039a)
+
+Offene Frage 4 unten ist am 03.09. mit **ja** entschieden: Der erste Tap auf
+den Start-Chip zeigt einen Hinweis, dass Verlassen des Bildschirms den Lauf
+verwirft, **bevor** der Lauf beginnt. Diese Entscheidung fehlte bislang im
+Wortlaut der Vorgabe — das wird hier nachgetragen.
+
+**Form: bestehendes Muster, kein neues.** Dieselbe `AlertDialog`-Bauart wie
+`LocalConnectionDisclosure` (`ActivateScreen.kt`): Titel, Fliesstext,
+`confirmButton` "Continue", `dismissButton` "Not now". Kein Snackbar (kommt im
+Projekt nirgends vor) und keine dritte Dialogform.
+
+**Bedeutung von "einmalig": einmal ueberhaupt, nicht einmal je
+Bildschirmbesuch.** Genau das bereits gebaute Muster:
+`SetupStore.isLocalConnectionAccepted()` gated `ActivateViewModel.activate()`
+so, dass das Flag **nur beim Bestaetigen** gesetzt wird, beim Ablehnen nicht.
+Uebertragen: ein Flag (Name/Ort durch den developer, analog `SetupStore`),
+gesetzt ausschliesslich durch "Continue". "Not now" schliesst den Dialog,
+startet **keinen** Lauf und setzt das Flag **nicht** — der naechste
+Start-Tap zeigt den Hinweis erneut. Das ist die kleinste Loesung, die den
+Nutzerwunsch erfuellt: sie kopiert ein vorhandenes, bereits abgenommenes
+Muster 1:1, statt ein zweites (In-Memory, je Bildschirmbesuch) einzufuehren,
+das im Projekt nirgends existiert.
+
+**Das ist keine Persistenz im Sinn von AK-17.** AK-17 verbietet, **Messdaten**
+des Laufs — Minimum, Anteil, Verweildauer, Zeitstempel — abzulegen, weil daraus
+eine Aussage ueber unbeobachtete Zeit entstuende. Ein Bestaetigungs-Flag traegt
+keine Messung und keinen Zeitbezug; es ist dieselbe Kategorie wie
+`isLocalConnectionAccepted` — eine gewoehnliche Einstellung, kein
+Beobachtungsergebnis. **AK-4 ist unberuehrt:** Lesen/Schreiben eines Booleans
+beim Tap auf einen Chip ist ein einmaliger, nutzerausgeloester Zugriff, keine
+wiederkehrende Arbeit, und beruehrt den Audiopfad nicht.
+
+**Wirkung auf AK-T039-1:** Beim allerersten Start ueberhaupt beginnt der Lauf
+erst mit "Continue", nicht mit dem Chip-Tap selbst. Bei jedem folgenden Start —
+in dieser wie in jeder spaeteren Sitzung — startet der Chip-Tap den Lauf
+direkt, ohne Dialog. Das Fenster gleitet weiterhin nicht: in beiden Faellen
+beginnt es mit der ersten Lesung nach dem tatsaechlichen Start.
+
 ---
 
 ### Aufbau, Ort, Token
@@ -2679,6 +2718,17 @@ steht nie "break(s)".)
 - `"Run ended after {RUN_GAP_MAX} without a reading. {T} observed."`
 - `"Run ended when the rate stopped being readable. {T} observed."`
 
+**Starthinweis (Dialog, `AlertDialog`-Muster wie `LocalConnectionDisclosure`,
+nur beim ersten Start-Tap ueberhaupt — T-039a):** Wortlaut identisch mit Satz 1
+der zweiten Ebene unten, derselbe String an beiden Stellen, nicht zweimal
+formuliert.
+Titel: `"This screen must stay open"`
+Text: `"A run counts only while this screen is open; leaving it discards the
+run, and nothing is recorded."`
+`confirmButton`: `"Continue"` — startet den Lauf, setzt das Flag.
+`dismissButton`: `"Not now"` — schliesst den Dialog, kein Lauf, Flag bleibt
+ungesetzt.
+
 **Zweite Ebene (hinter dem Fragezeichen), vier Saetze, mehr nicht:**
 1. "A run counts only while this screen is open; leaving it discards the run,
    and nothing is recorded."
@@ -2702,9 +2752,9 @@ zusaetzlich unveraendert.
 
 | Ereignis | Erkannt an | Folge |
 |---|---|---|
-| Wiedergabe pausiert | `device.isPlaying == false` oder `measuredKbps == null` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. Lauf laeuft weiter |
+| Wiedergabe pausiert | `device.isPlaying == false` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. Lauf laeuft weiter, unabhaengig davon, wie lange die Pause dauert — nur das Ausbleiben von **Abfragen** (naechste Zeile) ist durch `RUN_GAP_MAX_MS` begrenzt |
 | Eine Lesung faellt aus (dumpsys-Fehler, Warnung) | Abstand `> 2 x Kadenz` | **Luecke**, sonst nichts |
-| Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
+| Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand **zwischen zwei Abfragen** (nicht zwischen zwei Ratenlesungen) | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
 | Geraet trennt oder ein anderes wird aktiv | `device.address` wechselt, `isConnected == false` | **Lauf endet**, Grund genannt. Ein Lauf gehoert zu **einer** Paarung |
 | Stufe von Hand gewechselt | `LdacState.mode` wechselt oder `isAdaptive` kippt | **Lauf endet**, Grund genannt. Zwei Regime in einer Zahl waeren zwei Aussagen aus einem Beleg |
 | Codec wechselt | `codec.family` wechselt | **Lauf endet**, Grund genannt |
@@ -2713,6 +2763,32 @@ zusaetzlich unveraendert.
 | Monitor-Screen verlassen (Nav-Eintrag weg) | ViewModel stirbt | **Lauf ist weg**, ersatzlos. Das steht im Erklaertext, Satz 1 |
 | Kadenz gewechselt (1/2/5 s) | `intervalMs` wechselt | Lauf laeuft weiter; die Lueckenregel nutzt die jeweils gueltige Kadenz. Die Intervallrechnung ist dagegen immun |
 | "Watch closely" ein/aus | `closeUpEnabled` | **Ohne Wirkung auf den Lauf.** Der Lauf speist ausschliesslich aus `liveUpdates`, nie aus `A2dpTxProbe` |
+
+**Korrektur (T-043c, 2026-09-23):** Die Pausenzeile trug bis hierhin zusaetzlich
+"oder `measuredKbps == null`" — das kollidierte woertlich mit der Zeile "Rate
+nicht mehr lesbar" (`liveBitrateHonesty != MEASURED`): Beide Bedingungen sind
+bei laufender Wiedergabe (`isPlaying == true`) dieselbe Bedingung, weil
+`LdacState.from()` `measuredKbps` und `liveBitrateHonesty` aus derselben
+Ableseoperation baut — eine Rate ist nie null, waehrend die Lesbarkeit
+`MEASURED` bleibt, und umgekehrt. Der Fall "spielt, aber keine Rate" gehoert
+deshalb ausschliesslich in die Zeile "Rate nicht mehr lesbar" (Lauf endet); die
+Pausenzeile bezieht sich nur auf `isPlaying == false`. Umgesetzt genau so
+(`ObservationRun.kt`, `endAgainst()`), belegt durch
+`ObservationRunTest."each of the six ends is recognised and freezes the
+figures"` (Fall `RATE_UNREADABLE`). Kein Verhalten geaendert, nur der
+widerspruechliche Wortlaut. Ebenso praezisiert: `RUN_GAP_MAX_MS` zaehlt den
+Abstand zwischen zwei **Abfragen** (jeder Poll aktualisiert den Zeitstempel,
+auch ohne Rate), nicht zwischen zwei Ratenlesungen — das ist bereits die
+gebaute und getestete Bedeutung
+(`ObservationRunTest."a ten minute pause is a gap, not observed time"`: ein
+zehnminuetiger Ratenausfall bei fortlaufenden Abfragen beendet den Lauf
+**nicht**, er wird als eine einzige Luecke gezaehlt). Das ist konsistent mit
+der Zeile "App im Hintergrund": dort beendet erst der **Ausfall der Abfrage
+selbst** (Poller stoppt) den Lauf ueber `RUN_GAP_MAX_MS`, nicht das Fehlen
+einer Rate bei laufenden Abfragen. Wer eine Kappung von langen Pausen will,
+muesste das als neue, eigene Entscheidung treffen (offene Frage unten) — die
+bestehende Vorgabe verlangte sie nicht ausdruecklich, der alte Wortlaut hat sie
+nur unklar suggeriert.
 
 **Warum die Nahaufnahme nicht speist:** Sonst aendert ein Chip mitten im Lauf
 die Aufloesung, und das Minimum spraenge in dem Moment, in dem er gedrueckt
@@ -2833,6 +2909,14 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   Unit-Test, in dem dieselben Stufen und Zeiten einmal durchgehend mit 1 s und
   einmal gemischt 1 s/5 s abgetastet werden — Anteil und Verweildauer stimmen
   bis auf die Lueckenregel ueberein.
+- **AK-T039-17 (T-039a)** Der Starthinweis erscheint genau beim ersten Tap auf
+  den Start-Chip ueberhaupt (persistiertes Flag noch nicht gesetzt) und nie
+  wieder, auch nicht nach Neustart der App. "Continue" startet den Lauf und
+  setzt das Flag; "Not now" startet **keinen** Lauf und laesst das Flag
+  ungesetzt. Jeder weitere Start-Tap — in dieser wie in jeder spaeteren
+  Sitzung — startet den Lauf direkt, ohne Dialog. Unit-Test mit persistiertem
+  Store: erster Tap -> Dialog, kein Lauf; "Continue" -> Lauf laeuft, Flag
+  gesetzt; frisches ViewModel auf demselben Store, Tap -> Lauf startet direkt.
 
 **Geaendert an bestehenden Kriterien:**
 
@@ -2848,6 +2932,11 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   die Verweildauer des Laufs. Beide duerfen nebeneinander stehen, weil beide ihr
   Fenster nennen — sie duerfen aber **nie** denselben Namen tragen und nie in
   einem Satz erscheinen.
+- **AK-T039-1 praezisiert (T-039a):** "ausschliesslich durch Betaetigen des
+  Start-Chips" gilt mit einer Ausnahme, dem allerersten Start ueberhaupt: dort
+  beginnt der Lauf erst mit "Continue" im Starthinweis, der Chip-Tap allein
+  startet ihn nicht. Ab dem zweiten Start, in jeder Sitzung, startet der
+  Chip-Tap wieder direkt. Kein gleitendes Fenster in keinem der beiden Faelle.
 
 ### Messanforderungen
 
@@ -2897,6 +2986,7 @@ dieser Abschnitt sagt nichts ueber Verluste.
    das bei jedem Tabwechsel neu anfaengt, ohne dass es jemand merkt. **Beide
    Varianten sind gleich ehrlich; sie unterscheiden sich in Bequemlichkeit gegen
    Kontrolle ueber den Zeitraum.**
+   **Entschieden (Nutzer, 2026-09-03): von Hand, wie empfohlen.**
 2. **Darf das Fenster einmal statt dreimal genannt werden?** AK-17 verlangt die
    Nennung "an Ort und Stelle"; das ergibt drei ", 24 min observed."
    untereinander. Ich habe wortgetreu umgesetzt. Die ruhigere Variante waere das
@@ -2904,12 +2994,33 @@ dieser Abschnitt sagt nichts ueber Verluste.
    sobald jemand eine Zeile einzeln zitiert oder abfotografiert — genau der
    Fall, gegen den AK-17 geschrieben ist. **Meine Empfehlung: so lassen**; die
    Frage geht nur deshalb hoch, weil das Ergebnis den Nutzer taeglich ansieht.
+   **Entschieden (Nutzer, 2026-09-22): so lassen, dreimal — wie empfohlen.**
 3. **Sollen die gemessenen Zwischenstufen (396, 492) als Schwelle waehlbar
    sein?** Ich habe sie ausgeschlossen, weil sie nicht pinnbar sind — ein Anteil
    ueber 492 beantwortet keine Handlung. Wer sie als Schwelle will, will
    vermutlich etwas anderes: verstehen, wie der Regler arbeitet. Dafuer ist die
    Verweildauer-Liste da, in der sie ohnehin erscheinen.
+   **Entschieden (Nutzer, 2026-09-22): ausgeschlossen, nur pinnbare Stufen —
+   wie empfohlen.**
 4. **Soll beim Start einmalig darauf hingewiesen werden, dass das Verlassen des
    Bildschirms den Lauf verwirft?** Es steht im Erklaertext (Satz 1), also hinter
    dem Fragezeichen. Ein Hinweis beim Start waere sicherer und zugleich das, was
    dieses Panel bisher konsequent vermeidet: Text, den niemand angefordert hat.
+   **Entschieden (Nutzer, 2026-09-03): ja, einmalig beim Start.** Umgesetzt in
+   Entscheidung 5 und AK-T039-17 (T-039a, 2026-09-22): Dialog beim allerersten
+   Start ueberhaupt, `AlertDialog`-Muster wie `LocalConnectionDisclosure`,
+   persistiertes Flag statt Text je Sitzung.
+5. **Soll eine Pause (`isPlaying == false`) beliebig lang sein duerfen, ohne den
+   Lauf zu beenden?** So ist es gebaut und getestet (siehe Korrektur oben,
+   T-043c, 2026-09-23): Solange die Oberflaeche offen bleibt und weiter abfragt,
+   ueberlebt der Lauf jede Pausenlaenge und zaehlt sie als eine Luecke;
+   `RUN_GAP_MAX_MS` greift nur, wenn die Abfragen selbst ausbleiben (Hintergrund,
+   dumpsys-Ausfall). Dafuer spricht: eine Pause zum Telefonat oder
+   Song-Wechsel soll nicht die halbe Beobachtung verwerfen, und die Luecke wird
+   ehrlich ausgewiesen. Dagegen spricht: eine sehr lange Pause (Stunden) fasst
+   zwei moeglicherweise ungleiche Nutzungsphasen in eine Zahl — nicht
+   unehrlich, aber vermischend. Ich empfehle **so lassen**, weil eine Grenze
+   hier ohne gemessenen Anlass eine weitere gesetzte Konstante waere, die
+   niemand angefordert hat, und weil das Verwerfen einer laufenden Beobachtung
+   nach einer langen, aber gewollten Pause den in T-039 selbst benannten
+   Nutzerwunsch (Entscheidung 1) unterlaeuft. Unentschieden.

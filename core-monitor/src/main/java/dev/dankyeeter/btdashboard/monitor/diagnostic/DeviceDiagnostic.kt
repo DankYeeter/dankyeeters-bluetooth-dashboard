@@ -79,7 +79,7 @@ class DeviceDiagnosticRunner(
 
     /**
      * @param soakDurationMs total soak length; [soakIntervalMs] is the deep
-     *   capture resolution used during it (10 s per PLAN.md).
+     *   capture resolution used during it (10 s per docs/archiv/PLAN.md).
      */
     suspend fun run(
         address: String,

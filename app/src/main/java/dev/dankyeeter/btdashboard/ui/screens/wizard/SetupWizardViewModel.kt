@@ -66,10 +66,6 @@ class SetupWizardViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun unskip(step: SetupStep) {
-        viewModelScope.launch { store.setSkipped(step.id, skipped = false) }
-    }
-
     /**
      * "Done": hands back, and nothing else.
      *

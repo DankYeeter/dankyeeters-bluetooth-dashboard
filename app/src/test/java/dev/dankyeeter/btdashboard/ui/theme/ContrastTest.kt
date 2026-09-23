@@ -20,6 +20,9 @@ class ContrastTest {
 
     private val scheme = EdgyColorScheme
 
+    /** WCAG minimum for large text and for the non-text parts of a control. */
+    private val largeMin = 3.0
+
     private fun assertBody(name: String, foreground: Color, background: Color) {
         val ratio = Contrast.ratio(foreground, background)
         assertTrue(
@@ -31,11 +34,8 @@ class ContrastTest {
     private fun assertNonText(name: String, foreground: Color, background: Color) {
         val ratio = Contrast.ratio(foreground, background)
         assertTrue(
-            "$name is %.2f:1, needs %.1f:1 to be visible as a control".format(
-                ratio,
-                Contrast.LARGE_MIN,
-            ),
-            ratio >= Contrast.LARGE_MIN,
+            "$name is %.2f:1, needs %.1f:1 to be visible as a control".format(ratio, largeMin),
+            ratio >= largeMin,
         )
     }
 

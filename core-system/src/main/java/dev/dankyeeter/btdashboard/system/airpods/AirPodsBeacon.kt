@@ -28,13 +28,7 @@ data class AirPodsBeacon(
     /** Wraps at 255; only useful to detect *changes* (a lid event happened). */
     val lidOpenCounter: Int,
     val color: AirPodsColor,
-) {
-    /** True when at least one bud reports a battery level. */
-    val hasBudBattery: Boolean get() = leftBatteryPercent != null || rightBatteryPercent != null
-
-    /** Both buds sitting in the ear — the only reliable "being worn" signal. */
-    val bothInEar: Boolean get() = leftInEar && rightInEar
-}
+)
 
 /**
  * Recognised AirPods models.
@@ -58,7 +52,7 @@ enum class AirPodsModel(val displayName: String, val calibrationPresetId: String
     AIRPODS_PRO_2("AirPods Pro 2", "airpods_pro_2"),
     AIRPODS_PRO_2_USB_C("AirPods Pro 2 (USB-C)", "airpods_pro_2"),
     AIRPODS_PRO_3("AirPods Pro 3", "airpods_pro_3"),
-    /** Deliberately without a preset: PLAN.md excludes AirPods Max. */
+    /** Deliberately without a preset: docs/archiv/PLAN.md excludes AirPods Max. */
     AIRPODS_MAX("AirPods Max", null),
     UNKNOWN("Unknown Apple audio device", null),
     ;

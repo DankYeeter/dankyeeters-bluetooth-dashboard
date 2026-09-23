@@ -3,12 +3,6 @@ package dev.dankyeeter.btdashboard.ui
 import android.util.Log
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Equalizer
-import androidx.compose.material.icons.filled.Hearing
-import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -30,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.dankyeeter.btdashboard.ui.icons.AppIcons
 import dev.dankyeeter.btdashboard.system.setup.SetupPhase
 import dev.dankyeeter.btdashboard.system.setup.SetupSignals
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateRoute
@@ -45,13 +40,13 @@ import dev.dankyeeter.btdashboard.ui.screens.wizard.rememberSetupPhase
 
 enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     /** What the headphone is doing right now, plus its own settings. */
-    BLUETOOTH("bluetooth", "Bluetooth", Icons.Filled.Bluetooth),
-    EQ("eq", "EQ", Icons.Filled.Equalizer),
+    BLUETOOTH("bluetooth", "Bluetooth", AppIcons.Bluetooth),
+    EQ("eq", "EQ", AppIcons.Equalizer),
     /** The hearing test. Named for what it produces, not for what it measures. */
-    PROFILING("profiling", "Sound Profiling", Icons.Filled.Hearing),
-    MONITORING("monitoring", "Monitoring", Icons.Filled.Insights),
+    PROFILING("profiling", "Sound Profiling", AppIcons.Hearing),
+    MONITORING("monitoring", "Monitoring", AppIcons.Insights),
     /** App-level: setup, backup, how-tos, appearance. */
-    SETTINGS("settings", "Settings", Icons.Filled.Settings),
+    SETTINGS("settings", "Settings", AppIcons.Settings),
 }
 
 const val ROUTE_ONBOARDING = "onboarding"

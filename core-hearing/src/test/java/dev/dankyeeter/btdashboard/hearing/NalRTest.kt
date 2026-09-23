@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import kotlin.math.sqrt
 import org.junit.Test
 
-/** The pure NAL-R prescription, checked against COMPENSATION.md section 2. */
+/** The pure NAL-R prescription, checked against docs/archiv/COMPENSATION.md section 2. */
 class NalRTest {
 
     private val eps = 1e-9

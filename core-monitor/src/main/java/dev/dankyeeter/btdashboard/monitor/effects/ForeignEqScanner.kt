@@ -15,9 +15,7 @@ data class ForeignEqScanResult(
      * package, never by effect chain — there is no effect chain to find.
      */
     val vendorApps: List<VendorEqApp> = emptyList(),
-) {
-    val hasForeignEq: Boolean get() = warnings.isNotEmpty()
-}
+)
 
 /**
  * Runs `dumpsys media.audio_flinger`, parses the effect chains and attributes
@@ -27,7 +25,7 @@ data class ForeignEqScanResult(
  */
 class ForeignEqScanner(
     private val shell: ShellRunner,
-    private val processResolver: ProcessResolver,
+    private val processResolver: ShellProcessResolver,
     private val ownPid: Int = Process.myPid(),
     private val installedPackages: () -> Set<String> = { emptySet() },
 ) {
@@ -75,9 +73,9 @@ class ForeignEqScanner(
 class ShellProcessResolver(
     private val context: Context,
     private val shell: ShellRunner,
-) : ProcessResolver {
+) {
 
-    override suspend fun pidToPackage(): Map<Int, String> {
+    suspend fun pidToPackage(): Map<Int, String> {
         val fromShell = if (shell.isAvailable) {
             val result = shell.run(listOf("ps", "-A", "-o", "PID,NAME"))
             PsOutputParser.parse(result.stdout)

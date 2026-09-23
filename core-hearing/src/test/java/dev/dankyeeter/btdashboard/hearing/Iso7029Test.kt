@@ -145,7 +145,7 @@ class Iso7029Test {
     @Test
     fun `the overlay is centred on its own median, like every other curve on the chart`() {
         val curve = Iso7029.deviationCurve(70, Iso7029Sex.MALE)
-        val median = ClinicalAudiogram.medianOf(curve.map { it.second })
+        val median = MedianAudiogramAggregator.median(curve.map { it.second })
         assertEquals("a deviation curve has zero median by construction", 0.0, median, 1e-9)
         // Positive is "more sensitive", so the low frequencies — where the model
         // predicts almost no loss — must sit above the line and the top below it.

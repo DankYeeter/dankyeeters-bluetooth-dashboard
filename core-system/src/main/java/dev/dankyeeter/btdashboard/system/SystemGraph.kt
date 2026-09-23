@@ -49,19 +49,6 @@ object SystemGraph {
 
     @Volatile private var appContext: Context? = null
 
-    private val lock = Any()
-    private var _store: EqSettingsStore? = null
-    private var _controller: EqController? = null
-    private var _secureSettings: SecureSettingsGate? = null
-    private var _airPods: AirPodsScanner? = null
-    private var _deviceProfiles: DeviceProfileStore? = null
-    private var _absoluteVolume: AbsoluteVolumeGate? = null
-    private var _applier: DeviceProfileApplier? = null
-    private var _watcher: DeviceConnectionWatcher? = null
-    private var _setupStore: SetupStore? = null
-    private var _appearanceStore: AppearanceStore? = null
-    private var _mediaVolume: MediaVolumeMonitor? = null
-
     fun init(context: Context) {
         appContext = context.applicationContext
     }
@@ -69,21 +56,18 @@ object SystemGraph {
     private fun ctx(): Context =
         requireNotNull(appContext) { "SystemGraph.init() must be called from Application.onCreate" }
 
-    val secureSettings: SecureSettingsGate
-        get() = synchronized(lock) {
-            _secureSettings ?: SecureSettingsGate(ctx()).also { _secureSettings = it }
-        }
+    val secureSettings: SecureSettingsGate by lazy {
+        SecureSettingsGate(ctx())
+    }
 
     /** Read-only AirPods beacon listener; started/stopped by the Dashboard. */
-    val airPodsScanner: AirPodsScanner
-        get() = synchronized(lock) {
-            _airPods ?: AirPodsScanner(ctx()).also { _airPods = it }
-        }
+    val airPodsScanner: AirPodsScanner by lazy {
+        AirPodsScanner(ctx())
+    }
 
-    val settingsStore: EqSettingsStore
-        get() = synchronized(lock) {
-            _store ?: EqSettingsStore(ctx()).also { _store = it }
-        }
+    val settingsStore: EqSettingsStore by lazy {
+        EqSettingsStore(ctx())
+    }
 
     /**
      * The live media-volume fraction the ISO 226 tilt is derived from.
@@ -91,46 +75,40 @@ object SystemGraph {
      * One per process: it registers a settings observer, and two of them would
      * mean two observers reporting the same number.
      */
-    val mediaVolume: MediaVolumeMonitor
-        get() = synchronized(lock) {
-            _mediaVolume ?: MediaVolumeMonitor(ctx()).also { _mediaVolume = it }
-        }
+    val mediaVolume: MediaVolumeMonitor by lazy {
+        MediaVolumeMonitor(ctx())
+    }
 
-    val eqController: EqController
-        get() = synchronized(lock) {
-            _controller ?: run {
-                val factory = DynamicsProcessingEqualizerFactory()
-                EqController(
-                    global = GlobalAttachmentStrategy(factory),
-                    session = SessionAttachmentStrategy(factory),
-                    // A global attach reports success even where it is inaudible
-                    // (measured: Bluetooth). The controller has to ask first.
-                    globalAttachReachesOutput = OutputMixReachGate(ctx())::globalAttachReachesOutput,
-                    // Harvesting only makes sense while session mode is the
-                    // active strategy; the controller owns that transition.
-                    setSessionHarvestEnabled = { enabled ->
-                        if (enabled) sessionHarvester.start() else sessionHarvester.stop()
-                    },
-                    // The manifest session receiver only earns its wake-ups in
-                    // session mode; the controller flips it to match.
-                    setSessionReceiverEnabled = { enabled ->
-                        AudioEffectSessionReceiver.setComponentEnabled(ctx(), enabled)
-                    },
-                ).also { _controller = it }
-            }
-        }
+    val eqController: EqController by lazy {
+        val factory = DynamicsProcessingEqualizerFactory()
+        EqController(
+            global = GlobalAttachmentStrategy(factory),
+            session = SessionAttachmentStrategy(factory),
+            // A global attach reports success even where it is inaudible
+            // (measured: Bluetooth). The controller has to ask first.
+            globalAttachReachesOutput = OutputMixReachGate(ctx())::globalAttachReachesOutput,
+            // Harvesting only makes sense while session mode is the
+            // active strategy; the controller owns that transition.
+            setSessionHarvestEnabled = { enabled ->
+                if (enabled) sessionHarvester.start() else sessionHarvester.stop()
+            },
+            // The manifest session receiver only earns its wake-ups in
+            // session mode; the controller flips it to match.
+            setSessionReceiverEnabled = { enabled ->
+                AudioEffectSessionReceiver.setComponentEnabled(ctx(), enabled)
+            },
+        )
+    }
 
     // ---- Milestone 2: per-device profiles -----------------------------------
 
-    val deviceProfiles: DeviceProfileStore
-        get() = synchronized(lock) {
-            _deviceProfiles ?: DeviceProfileStore(ctx()).also { _deviceProfiles = it }
-        }
+    val deviceProfiles: DeviceProfileStore by lazy {
+        DeviceProfileStore(ctx())
+    }
 
-    val absoluteVolume: AbsoluteVolumeGate
-        get() = synchronized(lock) {
-            _absoluteVolume ?: AbsoluteVolumeGate(ctx(), secureSettings).also { _absoluteVolume = it }
-        }
+    val absoluteVolume: AbsoluteVolumeGate by lazy {
+        AbsoluteVolumeGate(ctx(), secureSettings)
+    }
 
     /**
      * Runs a command as the privileged helper, or returns null without one.
@@ -274,66 +252,56 @@ object SystemGraph {
     val bluetoothRestart: BluetoothRestartController
         get() = installedRestart ?: UnavailableBluetoothRestartController
 
+    /** Live values for the read-only rows. Answers "unset" until `:app` installs one. */
     @Volatile
-    private var installedProperties: SystemPropertyReader? = null
+    var systemProperties: SystemPropertyReader = NoSystemPropertyReader
+        private set
 
     fun installSystemPropertyReader(reader: SystemPropertyReader) {
-        installedProperties = reader
+        systemProperties = reader
     }
-
-    /** Live values for the read-only rows. Answers "unset" until `:app` installs one. */
-    val systemProperties: SystemPropertyReader
-        get() = installedProperties ?: NoSystemPropertyReader
-
-    private var _globalSettings: SecureSettingsController? = null
 
     /**
      * Also what the profile editor reads live values through. Cached like every
      * other field here — the getter used to build a fresh controller per call,
      * and the profile editor calls it once per developer option per refresh.
      */
-    val globalSettings: SecureSettingsController
-        get() = synchronized(lock) {
-            _globalSettings
-                ?: GlobalSettingsController(ctx(), secureSettings).also { _globalSettings = it }
-        }
+    val globalSettings: SecureSettingsController by lazy {
+        GlobalSettingsController(ctx(), secureSettings)
+    }
 
-    val deviceProfileApplier: DeviceProfileApplier
-        get() = synchronized(lock) {
-            _applier ?: DeviceProfileApplier(
-                profiles = deviceProfiles,
-                volume = SystemMediaVolumeController(ctx()),
-                compensation = EqCompensationApplier(
-                    profiles = HearingGraph.profileStore,
-                    settingsStore = settingsStore,
-                    controller = eqController,
-                ),
-                absoluteVolume = absoluteVolume,
-                secureSettings = globalSettings,
-                codec = codecPreferences,
-                hdAudio = hdAudioControl,
-            ).also { _applier = it }
-        }
+    val deviceProfileApplier: DeviceProfileApplier by lazy {
+        DeviceProfileApplier(
+            profiles = deviceProfiles,
+            volume = SystemMediaVolumeController(ctx()),
+            compensation = EqCompensationApplier(
+                profiles = HearingGraph.profileStore,
+                settingsStore = settingsStore,
+                controller = eqController,
+            ),
+            absoluteVolume = absoluteVolume,
+            secureSettings = globalSettings,
+            codec = codecPreferences,
+            hdAudio = hdAudioControl,
+        )
+    }
 
-    val deviceConnectionWatcher: DeviceConnectionWatcher
-        get() = synchronized(lock) {
-            _watcher ?: DeviceConnectionWatcher(
-                onConnected = { eqController.ensureAttached() },
-                context = ctx(),
-                store = deviceProfiles,
-                applier = deviceProfileApplier,
-            ).also { _watcher = it }
-        }
+    val deviceConnectionWatcher: DeviceConnectionWatcher by lazy {
+        DeviceConnectionWatcher(
+            onConnected = { eqController.ensureAttached() },
+            context = ctx(),
+            store = deviceProfiles,
+            applier = deviceProfileApplier,
+        )
+    }
 
-    val appearanceStore: AppearanceStore
-        get() = synchronized(lock) {
-            _appearanceStore ?: AppearanceStore(ctx()).also { _appearanceStore = it }
-        }
+    val appearanceStore: AppearanceStore by lazy {
+        AppearanceStore(ctx())
+    }
 
-    val setupStore: SetupStore
-        get() = synchronized(lock) {
-            _setupStore ?: SetupStore(ctx()).also { _setupStore = it }
-        }
+    val setupStore: SetupStore by lazy {
+        SetupStore(ctx())
+    }
 
     /** Starts the ACL-connect listener. Idempotent; called from Application. */
     fun startDeviceProfileAutoApply() {

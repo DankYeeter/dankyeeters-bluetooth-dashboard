@@ -25,8 +25,6 @@ object EqBands {
     val CENTER_FREQUENCIES_HZ: List<Float> get() = EqBandLayout.DEFAULT.centersHz
 
     val COUNT: Int get() = EqBandLayout.DEFAULT.bandCount
-
-    val EXTRAPOLATED_INDICES: Set<Int> get() = EqBandLayout.DEFAULT.extrapolatedIndices
 }
 
 /**

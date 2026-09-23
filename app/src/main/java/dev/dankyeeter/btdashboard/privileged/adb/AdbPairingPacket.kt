@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.privileged.adb
 import java.io.DataInputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.ByteBuffer
 
 /**
  * One message on the pairing connection.
@@ -29,15 +30,12 @@ internal data class AdbPairingPacket(
 ) {
 
     fun writeTo(out: OutputStream) {
-        val header = ByteArray(HEADER_SIZE)
-        header[0] = VERSION.toByte()
-        header[1] = type.toByte()
-        val length = payload.size
-        header[2] = (length ushr 24).toByte()
-        header[3] = (length ushr 16).toByte()
-        header[4] = (length ushr 8).toByte()
-        header[5] = length.toByte()
-        out.write(header)
+        // ByteBuffer is big-endian by default, which is what this length needs.
+        val header = ByteBuffer.allocate(HEADER_SIZE)
+            .put(VERSION.toByte())
+            .put(type.toByte())
+            .putInt(payload.size)
+        out.write(header.array())
         out.write(payload)
         out.flush()
     }
@@ -65,16 +63,13 @@ internal data class AdbPairingPacket(
 
         fun readFrom(input: InputStream): AdbPairingPacket {
             val data = DataInputStream(input)
-            val header = ByteArray(HEADER_SIZE).also(data::readFully)
+            val header = ByteBuffer.wrap(ByteArray(HEADER_SIZE).also(data::readFully))
 
-            val version = header[0].toInt() and 0xff
+            val version = header.get().toInt() and 0xff
             require(version == VERSION) { "unsupported pairing packet version $version" }
 
-            val type = header[1].toInt() and 0xff
-            val length = ((header[2].toInt() and 0xff) shl 24) or
-                ((header[3].toInt() and 0xff) shl 16) or
-                ((header[4].toInt() and 0xff) shl 8) or
-                (header[5].toInt() and 0xff)
+            val type = header.get().toInt() and 0xff
+            val length = header.getInt()
 
             // adb rejects both zero and oversize here, and so does this: a
             // length of zero means the peer sent nothing to read, and an
@@ -105,7 +100,6 @@ internal object AdbPeerInfo {
 
     const val SIZE = 8192
     const val TYPE_RSA_PUBLIC_KEY = 0
-    const val TYPE_DEVICE_GUID = 1
 
     /**
      * @param publicKey the key in adb's own format: base64 of the public key

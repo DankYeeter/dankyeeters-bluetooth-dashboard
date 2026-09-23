@@ -111,10 +111,6 @@ data class CompensationUiState(
     val preferenceActive: Boolean
         get() = PreferenceProfile.isPreferenceId(activeProfileId)
 
-    /** The id [preferenceForDevice] is selected under, or null when none is stored. */
-    val preferencePresetId: String?
-        get() = preferenceForDevice?.let { PreferenceProfile.presetIdFor(it.deviceKey) }
-
     val clinicalAvailable: Boolean get() = clinical?.isEmpty == false
 
     /**
@@ -237,7 +233,7 @@ class EqViewModel(
 
     /**
      * A/B toggle: when true the bands play flat while the edited curve is kept.
-     * The pre-gain stays applied in *both* states — COMPENSATION.md section 4
+     * The pre-gain stays applied in *both* states — docs/archiv/COMPENSATION.md section 4
      * requires matched loudness so that "louder" cannot be mistaken for
      * "better".
      */

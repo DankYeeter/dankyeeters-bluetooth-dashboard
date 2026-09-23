@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -64,18 +63,6 @@ fun GoldTitle(
     } else {
         Text(text, modifier = modifier, style = style)
     }
-}
-
-/** Hairline metal rule. Renders nothing outside the Edgy theme. */
-@Composable
-fun GoldRule(modifier: Modifier = Modifier) {
-    if (!LocalGoldAccents.current) return
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(LocalMetalPalette.current.horizontal),
-    )
 }
 
 /**

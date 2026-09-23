@@ -32,10 +32,10 @@ class AdbReachabilityTest {
     fun how_far_does_the_app_get_towards_adbd() = runBlocking {
         val discovery = AdbPortDiscovery(context)
 
-        val connect = discovery.find(AdbPortDiscovery.SERVICE_CONNECT)
+        val connect = discovery.findAll(AdbPortDiscovery.SERVICE_CONNECT).firstOrNull()
         println("ADBPROBE connect service: ${connect ?: "not advertised"}")
 
-        val pairing = discovery.find(AdbPortDiscovery.SERVICE_PAIRING, timeoutMs = 2_000)
+        val pairing = discovery.findAll(AdbPortDiscovery.SERVICE_PAIRING, timeoutMs = 2_000).firstOrNull()
         println("ADBPROBE pairing service: ${pairing ?: "not advertised (dialog closed)"}")
 
         if (connect == null) {

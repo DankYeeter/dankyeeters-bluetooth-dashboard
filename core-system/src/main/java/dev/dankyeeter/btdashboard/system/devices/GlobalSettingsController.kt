@@ -4,7 +4,6 @@ import android.content.Context
 import android.provider.Settings
 import android.util.Log
 import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
-import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 
 /**
  * [SecureSettingsController] on `Settings.Global`.
@@ -24,7 +23,7 @@ class GlobalSettingsController(
     private val resolver = context.applicationContext.contentResolver
 
     override fun isWritable(): Boolean =
-        secureSettings.state() == SecureSettingsState.GRANTED
+        secureSettings.isGranted()
 
     /**
      * Null means the key is unset, which is **not** the same as unsupported.

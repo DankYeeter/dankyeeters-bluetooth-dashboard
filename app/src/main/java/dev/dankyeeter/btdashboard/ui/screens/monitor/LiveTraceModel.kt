@@ -4,6 +4,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxDelta
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkObservability
 import dev.dankyeeter.btdashboard.monitor.link.live.TxProbeSample
+import dev.dankyeeter.btdashboard.monitor.link.live.isReadingGap
 
 /**
  * One reading on a live graph.
@@ -126,6 +127,10 @@ data class LiveTrace(
     val peakValue: Double?
         get() = points.mapNotNull { it.plotValue }.maxOrNull()
 
+    /** The line's lowest point over the same window as [peakValue] (AK-T039-15). */
+    val lowValue: Double?
+        get() = points.mapNotNull { it.plotValue }.minOrNull()
+
     val latestValue: Double?
         get() = points.lastOrNull { it.plotValue != null }?.plotValue
 
@@ -138,9 +143,6 @@ data class LiveTrace(
      */
     val unitLabel: String
         get() = if (points.any { it.bitrateKbps != null }) "kbps" else "packets/s"
-
-    /** True when the line is the measured bitrate rather than the liveness fallback. */
-    val isMeasuredBitrate: Boolean get() = points.any { it.bitrateKbps != null }
 
     /**
      * AK-T002-11's `k`: how many **marks** the graph drew.
@@ -189,7 +191,7 @@ data class LiveTrace(
         val previous = points[index - 1]
         val current = points[index]
         if (previous.plotValue == null || current.plotValue == null) return true
-        return current.timestampMs - previous.timestampMs > expectedIntervalMs * 2
+        return isReadingGap(current.timestampMs - previous.timestampMs, expectedIntervalMs)
     }
 
     companion object {

@@ -6,7 +6,6 @@ import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysDevice
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysSnapshot
-import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll

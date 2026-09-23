@@ -3,12 +3,14 @@ package dev.dankyeeter.btdashboard.ui.screens.eq
 import android.content.Context
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
+import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeSource
 import dev.dankyeeter.btdashboard.audio.eq.VolumeAwareTilt
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -57,6 +59,10 @@ class VolumeAwareTiltViewModelTest {
     @Before
     fun setUp() {
         SystemGraph.init(ApplicationProvider.getApplicationContext<Context>())
+        // SystemGraph.settingsStore is a process-wide DataStore singleton
+        // (F-006): it survives the Robolectric test boundary within one JVM,
+        // so a fresh install has to be reset explicitly rather than assumed.
+        runBlocking { SystemGraph.settingsStore.save(EqSettings.FLAT) }
     }
 
     private fun idle() {

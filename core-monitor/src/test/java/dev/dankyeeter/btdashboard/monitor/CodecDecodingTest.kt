@@ -164,11 +164,6 @@ class CodecDecodingTest {
     }
 
     @Test
-    fun `capability masks expand to a list`() {
-        assertEquals(listOf(44_100, 48_000, 96_000), CodecDecoding.supportedSampleRates(0xB))
-    }
-
-    @Test
     fun `ldac quality index maps to bitrate`() {
         assertEquals(909, CodecDecoding.ldacBitrateKbps(1000L))
         assertEquals(303, CodecDecoding.ldacBitrateKbps(1002L))

@@ -1,6 +1,6 @@
-# Stand — 2026-09-03, Part 5
+# Stand — 2026-09-23
 
-Kurzfassung fuer die Agenten. Zielbild in `GOAL.md`, Historie in `HANDOVER.md`,
+Kurzfassung fuer die Agenten. Zielbild in `GOAL.md`, Historie in `docs/archiv/HANDOVER.md`,
 Entwurf in `ARCHITECTURE.md`, Oberflaeche in `UI_SPEC.md`, Befunde in
 `qa/findings.md`. Details stehen dort, nicht hier.
 
@@ -12,7 +12,58 @@ melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 ## Hier geht es weiter
 
-**Naechster Schritt: T-036, die Trennmessung. Braucht das Geraet.**
+**Autonomer Lauf 22.09. 23:51 – 23.09. 04:30 beendet**, Branch
+`auto/2026-09-23`, PR offen, **nicht gemerged** (Merge beim Nutzer).
+Gebaut und abgenommen: T-040..T-042 (Bereinigung; Zyklus gesamt inkl. neuem
+Feature `git diff --shortstat 5f62b15..60e7a44` ohne Schemas: +2534/−3184 in
+Code/Build; 7 Abhaengigkeits-Deklarationen entfernt, 1 Testabhaengigkeit neu), T-041 Umbauten AD-026..028, T-039 AK-17
+Beobachtungslauf, T-044 Fixe + D-001 (DataStore-Sperre). Pruefphase T-043:
+Security PASS, Design ship-ready; QA-Retest T-044e **PASS**. Suite **2498/0**
+(Director 23.09. 04:14, `4507182`, `clean test --no-build-cache`;
+QA 04:23/04:25 je 2498/0). Retrospektive: `docs/lessons.md` BD-L-004..006,
+drei Vorschlaege fuers Agenten-Repo beim Nutzer.
+**T-045 Bestandsaufnahme** (`docs/berichte/T-045-architect.md`): von AK-8..16
+nur AK-10 gebaut (leer), AK-8/9/15 teilweise, **AK-11..14 und AK-16 offen** —
+Saeule 3 fehlt. Schnitt P-1..P-9, AD-030 ff. vorbereitet, warten auf Nutzer.
+
+**Vom Nutzer entschieden (23.09., alle nach Empfehlung) — naechster Zyklus:**
+- Saeule 3 misst **Aussetzer bei gepinnten 990** (T-045 F1).
+- Saeule 3 **leitet nur an** und liest den Ist-Wert zurueck, kein neues
+  Helfer-Kommando (T-045 F3).
+- **„Device test“ jetzt entfernen**, eigener kleiner Schritt (T-045 F5, AK-12).
+- Beobachtungslauf: **Luecke > `RUN_GAP_MAX` (2 min) beendet den Lauf** mit
+  genanntem Grund, wie die Spec-Tabelle (UI_SPEC T-039 Offene Frage 5).
+Noch offen: T-045 F2 (Armlaenge 15 min A/B) und F4 (AK-16 „nicht
+bestimmbar“ bis T-037); Sample-Rate-Wechsel im Lauf; drei
+Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
+
+**Beim Nutzer — offen (am Laufende fragen):**
+1. Saeule 3, fuenf Fragen aus T-045 (Messgroesse 990 gepinnt, 2×15 min,
+   nur anleiten statt WLAN schalten, AK-16 „nicht bestimmbar“ bis T-037,
+   „Device test“ entfernen) — Empfehlungen im Bericht.
+2. T-039: soll eine lange Pause (`RUN_GAP_MAX`) den Lauf beenden?
+   (UI_SPEC T-039 Offene Frage 5). Sample-Rate-Wechsel im Lauf beenden?
+3. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
+
+**Geraetesession 23.09. abends:** W-7..W-9 (AD-025) mit Geraetevergleich;
+T-036/T-037 — **Monitor-Ansicht dabei geschlossen halten**, sie pollt
+`dumpsys bluetooth_manager` alle 0,5–5 s (`DumpsysLinkSource.kt:19`) und leert
+damit laut R-011 die BQR-Queue (T-045); Pruefliste aus
+`docs/berichte/T-043a-qa-engineer.md` („Nur mit Geraet“, 10 Punkte);
+Einstellungs-Inventur P-3 (T-045), dabei F-011 klaeren.
+
+**Beschlossen, nicht beauftragt:** F-004, F-005, F-009 (QA-C), SR-023,
+SR-024, F-011 (Nutzertext „only a rooted phone can change“ in
+`DeviceProfilesScreen.kt:316` und `BluetoothSystemControls.kt:105` — laut
+T-045 falsch und Root-Hinweis gegen AK-10; korrekte Stelle am Geraet klaeren),
+Whitelist-Kommentar „three“ bei vier Eintraegen (`PrivilegedProtocol.kt:18,20,79`).
+Director-Vorentscheid fuer Saeule 3: Rueckweg setzt automatisches Anwenden der
+Profile aus, bis der Nutzer es wieder einschaltet (T-045).
+Messbefunde und Tuning-Grundlagen (frueher hier):
+`docs/archiv/state-messbefunde-2026-09-03.md`.
+
+**Mit Geraet:** 
+T-036, die Trennmessung.
 30 min bei gepinnten 990 **mit** 2,4-GHz-WLAN-Assoziation gegen 30 min **ohne**.
 Sie leistet drei Dinge auf einmal:
 
@@ -37,216 +88,18 @@ Beantwortet die letzte Frage zu AK-7. Braucht Stoerung, deshalb nach der
 2,4-GHz-Zelle — und **getrennt**, damit der `dumpsys`-Aufruf T-036 nicht
 verfaelscht.
 
-**Ohne Geraet offen: nichts mehr.** QA-014 bis QA-018 sind behoben und
-gegengeprueft (03.09.) — Details in `qa/findings.md`.
 
-## AK-17 / T-039 — Beobachtungslauf: Spec liegt, zwei Fragen offen
+## AK-17 / T-039 — Beobachtungslauf: gebaut (T-039b), Fixe in T-044
 
-**AK-17 steht in `GOAL.md`** (Nutzer 03.09.): Bei ABR zeigt die Oberflaeche
-waehrend eines Beobachtungslaufs **Minimum**, **Zeitanteil ueber einer
-waehlbaren Schwelle** und **Verweildauer je Stufe** — damit der Nutzer belegen
-kann, ob eine feste Stufe traegt, statt es zu vermuten. **Nur bei offener
-Oberflaeche, keine Persistenz** — AK-4 bleibt unangetastet.
-
-**Spec geliefert:** `UI_SPEC.md` ab Z. 2454, **AK-T039-1..16**. Ausserdem
-AK-T002-11 erweitert (`low` neben `peak`) und AK-T002-13 praezisiert.
-Neue Messanforderungen **M-15** und **M-16**.
-
-Tragende Festlegungen der Spec:
-- **Ausdruecklich gestarteter Lauf, kein gleitendes Fenster.** `{T}` ist die
-  **Summe der abgedeckten Intervalle**, nie `jetzt - Start` — so kann keine
-  unbeobachtete Sekunde mitgerechnet werden.
-- **Eigener Abschnitt** unter `TraceSection`, getrennt von der 60-s-Caption.
-  Ruhezustand: eine Zeile plus Chip.
-- **Rechnung ueber Intervalle statt ueber Lesungen** — immun gegen den
-  Kadenzwechsel 1/2/5 s, erzeugt keine Rate (R-F auch dem Geist nach gehalten).
-- **Peak bleibt in der Caption, bekommt `low` daneben**; im Lauf fuehrt das
-  Minimum, ein Hoechstwert erscheint dort gar nicht.
-- **Zahlen erst ab 120 s und 30 Lesungen**, davor „Collecting“. Pause,
-  ausgefallene Lesung, Hintergrund = Luecke. Trennung, Stufen-/Codecwechsel,
-  Luecke > 2 min = **Lauf endet mit genanntem Grund**. Screen verlassen
-  verwirft ihn.
-
-**Vom Nutzer entschieden (03.09.):**
-- Lauf wird **von Hand gestartet**, nicht automatisch beim Oeffnen.
-- **Einmaliger Hinweis** beim Start, dass Verlassen des Bildschirms den Lauf
-  verwirft.
-
-**OFFEN — zwei Wortlaut-/Umfangsfragen, der Nutzer hat die Entscheidung
-vertagt. Nicht selbst entscheiden, nicht ungefragt bauen:**
-1. Steht der Zeitbezug **bei jeder der drei Zahlen** („Niedrigster Wert:
-   606 kbps · ueber 24 min beobachtet“) oder **einmal als Abschnitts-
-   ueberschrift** („Beobachtungslauf · 24 min“)? Die Spec empfiehlt bei jeder
-   Zahl, wortgetreu zu AK-17.
-2. Sind als Schwelle **nur die pinnbaren Stufen** waehlbar (330/660/990 bzw.
-   303/606/909, Default die mittlere) oder **auch die Zwischenstufen 396/492**,
-   die ABR faehrt, aber die sich nicht fest einstellen lassen? Die Spec
-   empfiehlt nur die pinnbaren — jedes Ergebnis fuehrt dann zu einer Handlung.
-
-**Vorbehalt der Spec, nicht ueberdehnen:** `RUN_MIN_OBSERVED_MS` = 120 s und
-`RUN_GAP_MAX_MS` = 120 s sind **begruendete Kanten, keine Messung**. M-15
-schliesst die erste aus einem bereits moeglichen 30-min-ABR-Lauf; M-16
-(500 ms gegen 5 s) sagt, wie stark „Lowest reading“ untertreibt. **Bis M-16
-beantwortet ist, darf der Wortlaut nicht zu „lowest rate“ werden.**
-
-**Naechster Schritt nach den zwei Antworten:** `developer` gegen AK-T039-1..16,
-danach `qa-engineer`. Kein Geraet noetig.
-
-## Zielbild — neu gefasst und in Kraft (03.09.)
-
-`GOAL.md` ist vom Nutzer abgenommen. Drei Saeulen: **Anzeigen → Stellen →
-Optimieren**. AK-1..AK-6 unveraendert, **AK-8..AK-16 neu in Kraft**.
-
-- **AK-7 zurueckgestellt, Nummer reserviert** — erst nach Klaerung der letzten
-  BQR-Frage. **Bis dahin wird an diesem Kanal nichts gebaut.**
-- **AK-14** lautet „ohne kuenstliche Stoerung“, weil kein Stresshebel belegt
-  ist. Die Testsuite ist damit nicht blockiert.
-- **Umkehr gegenueber 02.09.:** Die App **stellt Einstellungen selbst**, wo es
-  ohne Root geht. Der Helfer darf wachsen. Gegengewicht: AK-10 (jedes Kommando
-  einzeln vom `security-reviewer`) und AK-11 (Rueckweg garantiert).
-
-## Die tragenden Befunde — belegt, nicht mehr zu diskutieren
-
-**Die Grenze bei 990 ist eine Luftzeit-Bilanz, nicht „Signalqualitaet“.**
-990 belegt auf einem 2-DH5-Link rund 70 % der Kapazitaet, 660 rund 47-59 %; die
-Sendewarteschlange fasst 28 Pakete, bei 990 nur ~150 ms Audio. Funkfehler werden
-per ARQ in Wiederholungen und damit ebenfalls in Luftzeit umgesetzt — „Latenz
-gegen Signalqualitaet“ ist **keine** Trennung. Die Prozentrechnung ist eigene
-Arithmetik auf belegten Konstanten, **kein Messwert**.
-
-**Die Paarung liegt in der 2-DH5-Klasse** (T-032, BQR direkt: 24/25 Ereignisse
-`2DH5`, eines `2DH3`). Nicht 2-DH3 — Massnahmen aus R-010 koennen also greifen.
-**Wiederholrate 23,5-33,2 % bei RSSI -43 bis -58 dBm**: starkes Signal, ein
-Viertel bis ein Drittel wiederholt. Der bisher staerkste Beleg der Luftzeit-These.
-
-**Der Ueberlauf entsteht auf der Abflussseite** (R-010, Quelltext):
-`tx_audio_queue` wird nur geleert, solange `l2c_bufs` unter der Schwelle bleibt.
-
-**Zaehler-Semantik** (R-005, Quelltext): `dropped` = verworfene
-Warteschlangeneintraege **variabler** Groesse, deshalb ohne Verdikt (Nutzer
-02.09.). `dropouts` = Ueberlauf-Episoden, **die einzige saubere
-Ereigniseinheit** und alleinige Leitgroesse. `underflow` = Encoder-Lesetakte mit
-PCM-Fehlbetrag, **mit Stille aufgefuellt**, ohne Verdikt. `accumulated_stats`
-werden bei Pause und Reconnect **nicht** genullt — nur bei Stack-Neustart.
-
-**`Packet counts (expected/dropped)` sagt NICHTS ueber die Funkstrecke**
-(R-010): der Zaehler zaehlt Encoder-Aufrufe und `ldacBT_encode()`-Fehler. Die
-fruehere Director-Lesart „auf Paketebene geht nichts verloren“ ist als Deutung
-dieses Zaehlers **widerlegt** — als Protokolleigenschaft bleibt sie richtig.
-
-**Der Encoder-Thread laeuft `SCHED_FIFO` Prio 1** (R-008): CPU-Last scheidet als
-Hebel endgueltig aus. **LDAC laeuft im Host-Pfad** (T-032, zwei Belege).
-
-**„990 gepinnt = Warteschlangenueberlauf = hoerbare Aussetzer“ ist belegt**
-(T-008): ABR 0/0, 990 gepinnt 525/21 durchgehend hoerbar, zurueck auf ABR 0/0.
-
-**Es gibt keine Literaturschwelle** (R-006). Fuer A2DP-Musik existiert **keine**
-belegte Hoerbarkeitsschwelle. Regel **R-E** ist dauerhaft: keine abstufenden
-Woerter, kein mehrstufiges Bildzeichen fuer Raten echt zwischen 0 und 12/min.
-Das Wort „audible“ kommt in der Oberflaeche nicht vor (Grep-Regel).
-
-## Der offene Widerspruch — was T-036 klaeren muss
-
-| Lauf | Bedingung | Ergebnis |
-|---|---|---|
-| T-029 (02.09.) | 990 gepinnt, WLAN **nie geprueft** | 10 Cluster in 25 min |
-| T-032 (03.09.) | 990 gepinnt, WLAN **nicht assoziiert** | **0 Verluste in 27,78 min**, 1143 Samples, Nachweisgrenze 0,1080/min |
-
-**Hypothese, nicht Erklaerung:** die WLAN-Assoziation macht den Unterschied.
-n=1 gegen n=1, keine kontrollierte Variable; T-029 nennt selbst Ruhephasen bis
-4,4 min. Das ist der erste ernsthafte Kandidat fuer einen belegten Hebel bei 990.
-
-## Die sechs Massnahmen (R-010, Teil 1) — Grundlage des Tuning-Prozesses
-
-Alle ohne Root, alle nur anleitbar bzw. stellbar, **keine unter 990 gemessen** —
-die Rangfolge ist Belegstaerke, nicht Wirkungsgroesse.
-
-1. **2,4-GHz-WLAN weg** (aus, oder Router-SSID auf 5 GHz) — eigene Messung
-   (n=1 bei 660) plus Koexistenz-Mechanismus
-2. **Keine Discovery/Scans** — Koppel-Bildschirm zu, Fast-Pair-Suche aus,
-   scannende Apps finden. AOSP-Javadoc woertlich
-3. **Kein zweites BT-Geraet, Multipoint am Sink aus** — Sony schaltet LDAC bei
-   Multipoint ganz ab
-4. **Koerper aus der Funkstrecke, Abstand klein** — Fachliteratur 10-21 dB
-5. **USB-3-Kabel ab** — Sekundaerquelle; **990 wurde nie ohne Kabel gemessen**
-6. **Sink-Modus, der LDAC zulaesst** — Herstellerdoku, nur Sony belegt
-
-**„Ausweichen“, sichtbar so zu benennen** (Nutzer 03.09.): Stufe senken, ABR,
-Codec-Wechsel, 44,1-kHz-Familie (909 statt 990). **990 existiert nur in der
-48/96-kHz-Familie**; 96 → 48 kHz spart **keine** Luftzeit, nur Resampling.
-
-**Widerlegt, erscheint nicht im Prozess:** Absolute Lautstaerke, AVRCP-Version,
-Bittiefe, Akku-/App-Optimierung, BT-Cache, Neukoppeln, Flugmodus-Zyklus,
-Schalter „Bluetooth-Scannen“, „max. Audiogeraete“, Neustart — und auf **diesem**
-Geraet der A2DP-Offload-Schalter (LDAC laeuft im Host-Pfad).
-
-## BQR — der staerkste Kanal, und seine Falle
-
-`dumpsys bluetooth_manager` enthaelt einen **Bluetooth-Quality-Report-Abschnitt**
-mit Pakettyp, RSSI, Sendeleistungsstufe, Wiederholrate, Nicht-Empfang und
-AFH-Kanalauslass — echte Firmware-Telemetrie, ohne Root lesbar.
-
-**Aber: Lesen leert die Queue** (R-011, Quelltext). `bqr::DebugDump()` dequeued
-und loescht in einer Schleife; **kein Leser-Cursor**, eine prozessweite Instanz.
-Wer liest, nimmt die Ereignisse **allen** weg. Zweiter, unabhaengiger
-Verlustweg: die Queue fasst **25** Eintraege und verdraengt den aeltesten.
-**`dumpsys bluetooth_manager` ist damit ein Eingriff, kein Read-back.**
-
-**Der Ausweg ist offen** (T-035): Der nicht-destruktive Callback
-`registerBluetoothQualityReportReadyCallback` verlangt `BLUETOOTH_PRIVILEGED` —
-**uid 2000 haelt sie**, deklariert, gewaehrt und laufzeitdurchsetzbar, belegt mit
-drei Verfahren inkl. echtem `checkPermission`-Aufruf. Methode existiert, `public`,
-kein Hidden-API-Fehler.
-
-**Die eine offene Frage:** Speist der Callback aus **derselben** Queue? R-011
-legt einen eigenen Weg nahe, hat ihn aber nur einfach belegt. **Speist er aus
-derselben, ist nichts gewonnen.** → T-037.
-
-## Zaehler-Inventar — mehr als bisher genutzt
-
-Sendeseite: `Counts (flushed/dropped/dropouts)`, `Counts (max dropped)`,
-`LDAC saved transmit queue length`. Quellseite: `Counts (underflow)`,
-`Bytes (underflow)`, `PCM read counts (expected/actual)`. Scheduling:
-`Enqueue/Dequeue deviation counts (overdue/premature)` samt Zeitsummen —
-**direkt messbarer Jitter, fuer Tuning die interessanteste Familie, bisher
-ungenutzt.**
-
-**Belegstand, nicht ueberdehnen:** Am Quelltext belegt sind nur `dropped`,
-`dropouts`, `underflow`. Die Bedeutung von `max dropped` und den
-Deviation-Zaehlern ist **Director-Lesart, unbelegt** — gehoert recherchiert,
-bevor ein Messapparat darauf gebaut wird.
-
-**`Frames per packet (ave)` taugt NICHT als Pakettyp-Indikator**, und meine
-frueher notierte Begruendung war ueberdehnt: T-032 las `115111 / 4 / 13` (dort
-ist `max` < `ave`, auffaellig), die 990er-Fixture liest `2763962 / 12 / 12`
-(voellig stimmig). Der Wert ist auch nicht „konstant 13“ — das galt innerhalb
-eines Laufs. **Was traegt:** weder 12 noch 13 passt zu den erwarteten ~2/~3.
-**Offene Frage:** Warum liest dasselbe Feld am selben Geraet einmal 4/13 und
-einmal 12/12? Verwendet wird der direkte BQR-Pakettyp.
-
-## „Gesetzt“ heisst NICHT „gebaut“
-
-Die T-009-Parameter stehen in `UI_SPEC.md` **festgelegt**; im Code existiert
-**keine** davon. Ebenso fehlen `SETTLING` und die Maschine
-CLEAN/OCCASIONAL/DISTURBED/CANNOT_TELL — von `developer` und `qa-engineer`
-unabhaengig per Grep bestaetigt (03.09.). Die heutige `LossRow` rechnet eine rohe
-Poll-zu-Poll-Differenz. **Rund 25 Akzeptanzkriterien sind dadurch nicht
-ungetestet, sondern gegenstandslos.** Das schliesst V-1..V-7.
-
-Entwurf dafuer liegt: `ARCHITECTURE.md` **AD-015..AD-024**. Kern: reine Logik in
-`:core-monitor`, **keine Uhr** (Zeitstempel reisen in den Lesungen), **ein**
-Fenster (`LossWindow`), `CANNOT_TELL` als versiegelter Zustand mit typisiertem
-Grund, Verlust und Stufe als **zwei getrennte Maschinen ohne gemeinsamen Typ**
-(R-E strukturell erzwungen). Buendelungskriterium in `UI_SPEC.md` ab Z. 1830
-(AK-T030-1..14): Ausbruch = **3 `dropouts`-Episoden in 30 s**. Regel **R-F**:
-keine Groesse je Minute/Sekunde in der Verlustanzeige. Regel **R-G**: das Wort
-„packet“ steht nicht mehr fuer die Raeumungsfamilie.
+Spec `UI_SPEC.md` T-039-Abschnitt (AK-T039-1..17), Vorgaben wörtlich in
+`docs/tasks/T-039.md`. Nutzerentscheide 03.09./22.09. dort. Vorbehalt bleibt:
+`RUN_MIN_OBSERVED_MS`/`RUN_GAP_MAX_MS` = 120 s sind begruendete Kanten, keine
+Messung (M-15, M-16); bis M-16 kein Wortlaut „lowest rate“.
 
 ## Stand des Codes
 
-`gradlew test`: **2488 Tests, 0 Failures** (03.09. nach T-038, von `developer`
-und `qa-engineer` unabhaengig gezaehlt). Verlauf des Tages: 2470 vor T-034 →
-2482 → 2488. Die frueher notierten „2390“ passen zu dieser Zaehlweise nicht.
+`gradlew test`: **2493 Tests, 0 Failures** (Director, 23.09. 00:38/00:39,
+`efbcf0f`, `clean test --no-build-cache`, zweimal; F-006 Flaky offen).
 
 **T-038 abgeschlossen** (`374be69`, `5218455`, `de2454b`, `5f605b1`): die fuenf
 Befunde QA-014..QA-018 sind behoben und gegengeprueft. **Zwei Lehren daraus
@@ -272,7 +125,7 @@ Verlust-Verdikt-Pfad.
   Prestige Encore, effektive MTU **883** gegen verhandelte 1005, `EDR: true`,
   `Support 3Mbps: true`. **Die MTU ist Eigenschaft der Paarung, nicht des
   Telefons** — nicht auf andere Geraete uebertragen (AK-15).
-- Toolchain: JDK 21 `~/tools/jdk/jdk-21.0.12.1+1`, NDK gepinnt
+- Toolchain: JDK 21 `C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot` (Rechner DESKTOP-P5UI1KI, 22.09.; der alte Pfad `~/tools/jdk/...` existiert hier nicht), NDK gepinnt
   `27.3.13750724`, build-tools 35.0.0, AGP 8.9.3. Branch heisst **`master`**.
 - **Risiko R-2:** zwei adb-Binaries (`C:\RSL\2.1HF5\adb\adb.exe` und
   `platform-tools\adb.exe`) killen sich den Server. Je Messung nur **eines**.
@@ -299,12 +152,10 @@ braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen
 |---|---|---|---|
 | T-036 | performance-tuner | Trennmessung 2,4 GHz bei 990 + Doppelaufnahme | **naechster Schritt**, braucht Geraet |
 | T-037 | performance-tuner | Callback-Probe, letzte AK-7-Frage | nach T-036 |
-| QA-014..018 | developer | Befunde aus dem T-034-Retest und den Nachtraegen | **erledigt**, gegengeprueft 03.09. |
 | T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
 | T-008 | performance-tuner | E-1/E-3 (Nearby-Scans, Spatializer aus) | offen, **kein Shell-Hebel**, nur von Hand |
 | SR-012 | performance-tuner | `umask 077` in `docs/perf/tools/*.sh` | zurueckgestellt bis Ende der Messreihe |
-| QA-012 / QA-013 | developer | vakuum-gruene Grep-Regel, schwacher Test | offen; QA-012 faellt in V-1 |
 | T-005 | architect | Scan-Entwurf S-1..S-7 | **ruht** (Nutzer 02.09.) |
 
 ## Zwei offene Fixture-Luecken

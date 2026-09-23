@@ -3,7 +3,7 @@ package dev.dankyeeter.btdashboard.hearing
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 
 /**
- * Per-frequency **median** across runs, as specified in PLAN.md. The median is
+ * Per-frequency **median** across runs, as specified in docs/archiv/PLAN.md. The median is
  * chosen over the mean on purpose: a single distracted or badly seated run
  * should not drag the active curve, and the user can still delete outliers by
  * hand.
@@ -11,9 +11,9 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
  * A frequency is only included if at least one run measured it. A point counts
  * as converged when the majority of contributing points converged.
  */
-class MedianAudiogramAggregator : AudiogramAggregator {
+class MedianAudiogramAggregator {
 
-    override fun aggregate(runs: List<AudiogramRun>): Audiogram = Audiogram(
+    fun aggregate(runs: List<AudiogramRun>): Audiogram = Audiogram(
         runIds = runs.map { it.id },
         left = aggregateEar(runs, Ear.LEFT),
         right = aggregateEar(runs, Ear.RIGHT),

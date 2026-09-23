@@ -14,6 +14,8 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,6 +56,10 @@ class EqLayerBypassTest {
     @Before
     fun setUp() {
         SystemGraph.init(ApplicationProvider.getApplicationContext<Context>())
+        // SystemGraph.settingsStore is a process-wide DataStore singleton
+        // (F-006): it survives the Robolectric test boundary within one JVM,
+        // so a fresh install has to be reset explicitly rather than assumed.
+        runBlocking { SystemGraph.settingsStore.save(EqSettings.FLAT) }
     }
 
     private fun idle() {
@@ -183,5 +189,22 @@ class EqLayerBypassTest {
         idle()
 
         assertEquals(EqLayer.QUIET_LISTENING_TILT, viewModel.heldLayer.value)
+    }
+
+    // ---- the write lock (D-001) ----------------------------------------------
+
+    @Test
+    fun `a save queued on the caller's dispatcher does not lock out the next save`() {
+        // DataStore runs `edit` in the caller's context while holding the
+        // store's write lock. Before the fix, a save triggered from the main
+        // looper left that block queued (nothing here idles the looper), and
+        // the lock stayed held forever - any later save, even from a plain
+        // runBlocking, hung instead of returning.
+        val viewModel = viewModel()
+        viewModel.setVolumeAwareTilt(true)
+
+        runBlocking {
+            withTimeout(5_000) { SystemGraph.settingsStore.save(EqSettings.FLAT) }
+        }
     }
 }
