@@ -224,12 +224,16 @@ object MonitorGraph {
      * three `dumpsys` execs, and nothing about it is worth running for a screen
      * nobody is looking at. `replay = 1` means a screen that rotates redraws
      * from the last reading instead of an empty panel for one interval.
+     *
+     * It stops the moment the last collector goes. The grace that carries a
+     * rotation belongs to the screen's own flows downstream, which outlive a
+     * configuration change; a second grace here was added to theirs and kept
+     * the poll running well past the screen (F-012).
      */
     val liveLinkUpdates: SharedFlow<LinkLiveUpdate> by lazy {
         liveLink.updates().shareIn(
             scope = monitorScope,
             started = SharingStarted.WhileSubscribed(
-                stopTimeoutMillis = LIVE_LINK_STOP_TIMEOUT_MS,
                 replayExpirationMillis = LIVE_LINK_REPLAY_EXPIRY_MS,
             ),
             replay = 1,
@@ -375,12 +379,6 @@ object MonitorGraph {
     fun setUiVisible(visible: Boolean) {
         _uiVisible.value = visible
     }
-
-    /**
-     * Long enough to survive a configuration change, short enough that leaving
-     * the screen stops the polling within one interval.
-     */
-    private const val LIVE_LINK_STOP_TIMEOUT_MS = 3_000L
 
     /**
      * The held reading is dropped a few seconds after the last collector goes.
