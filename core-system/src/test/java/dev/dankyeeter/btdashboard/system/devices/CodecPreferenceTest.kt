@@ -33,6 +33,7 @@ private class NoAbsoluteVolume : AbsoluteVolumeController {
 private class NoSettings : SecureSettingsController {
     override fun isWritable(): Boolean = true
     override fun read(key: String): String? = null
+    override fun readState(key: String): SettingRead = SettingRead.Unset
     override fun write(key: String, value: String): Boolean = true
     override fun clear(key: String): Boolean = true
 }

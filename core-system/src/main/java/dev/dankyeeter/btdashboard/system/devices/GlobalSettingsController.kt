@@ -6,6 +6,21 @@ import android.util.Log
 import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
 
 /**
+ * A `Settings.Global` read that keeps "not set" and "could not be read" apart.
+ *
+ * [SecureSettingsController.read] folds both into null, which is fine for a
+ * display but not for the settings ledger: a failed read recorded as "not set"
+ * would make the way back a delete of a value that was really there.
+ */
+sealed interface SettingRead {
+    data class Value(val value: String) : SettingRead
+
+    data object Unset : SettingRead
+
+    data object Unreadable : SettingRead
+}
+
+/**
  * [SecureSettingsController] on `Settings.Global`.
  *
  * The same mechanism [AbsoluteVolumeGate] uses, generalised to any key: these
@@ -31,9 +46,17 @@ class GlobalSettingsController(
      * perfectly well once written, so nothing may conclude "unsupported" from a
      * null here.
      */
-    override fun read(key: String): String? = runCatching {
+    override fun read(key: String): String? = (readState(key) as? SettingRead.Value)?.value
+
+    override fun readState(key: String): SettingRead = runCatching {
         Settings.Global.getString(resolver, key)
-    }.onFailure { Log.w(TAG, "reading $key failed", it) }.getOrNull()
+    }.fold(
+        onSuccess = { value -> value?.let(SettingRead::Value) ?: SettingRead.Unset },
+        onFailure = {
+            Log.w(TAG, "reading $key failed", it)
+            SettingRead.Unreadable
+        },
+    )
 
     /**
      * Writes, then reads back, and only reports success if the value is really
