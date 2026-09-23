@@ -319,8 +319,8 @@ class DeviceProfileApplier(
     private suspend fun <T : Any> ifRecorded(record: suspend () -> Boolean, write: suspend () -> T): T? =
         ledger.lock.withLock { if (record()) write() else null }
 
-    private companion object {
-        /** AD-033; wording from UI_SPEC S3-3 (AK-T047-1). */
+    companion object {
+        /** AD-033; wording from UI_SPEC S3-3 (AK-T047-1). Only ever shown through [ProfileAction.Skipped]. */
         const val PRIOR_NOT_RECORDED =
             "the value before could not be read, so it could not be restored — nothing was written"
     }

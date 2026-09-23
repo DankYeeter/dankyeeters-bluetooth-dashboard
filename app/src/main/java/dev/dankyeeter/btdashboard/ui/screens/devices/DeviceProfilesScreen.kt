@@ -59,6 +59,8 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.ui.icons.DeviceIcons
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
+import dev.dankyeeter.btdashboard.ui.tuning.RestoreBanner
+import dev.dankyeeter.btdashboard.ui.screens.monitor.plural
 import kotlin.math.roundToInt
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
@@ -1380,5 +1382,88 @@ internal fun CopyableCommand(context: Context, command: String) {
                 clipboard.setPrimaryClip(ClipData.newPlainText("ADB command", command))
             },
         ) { Text("Copy command") }
+    }
+}
+
+/**
+ * D2: settings the app changed and has not put back, shown unasked on the first
+ * screen after every start — the Bluetooth tab, and the activation screen when
+ * the helper is not there (M14). Follows the ledger alone, no helper call.
+ */
+@Composable
+fun SettingsRestoreBanner(viewModel: DeviceProfilesViewModel = viewModel()) {
+    val banner by viewModel.restoreBanner.collectAsStateWithLifecycle()
+    val report by viewModel.restoreReport.collectAsStateWithLifecycle()
+    val restoring by viewModel.restoring.collectAsStateWithLifecycle()
+    SettingsRestoreBannerContent(
+        banner = banner,
+        report = report,
+        restoring = restoring,
+        onConfirm = viewModel::restoreAll,
+        onReportRead = viewModel::dismissRestoreReport,
+    )
+}
+
+/** Wording from UI_SPEC D2 and S3-5, character for character. */
+@Composable
+internal fun SettingsRestoreBannerContent(
+    banner: RestoreBanner,
+    report: List<String>?,
+    restoring: Boolean,
+    onConfirm: () -> Unit,
+    onReportRead: () -> Unit,
+) {
+    var confirming by remember { mutableStateOf(false) }
+
+    if (banner != RestoreBanner.Hidden) {
+        Panel(modifier = Modifier.fillMaxWidth()) {
+            Text("Settings changed by the process are still active.", style = MaterialTheme.typography.titleMedium)
+            when (banner) {
+                is RestoreBanner.Open -> {
+                    Text("${plural(banner.count.toLong(), "setting")} not put back yet.")
+                    GoldButton(onClick = { confirming = true }, enabled = !restoring) {
+                        Text(if (banner.tryAgain) "Try again" else "Back to before")
+                    }
+                }
+
+                else -> Text("The list of changed settings could not be read, so they cannot be put back from here.")
+            }
+        }
+    }
+
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Put settings back to before?") },
+            text = {
+                Text(
+                    "This puts back every setting this app has changed and not restored " +
+                        "yet — global options, HD audio, and codec preference. Profiles that made any " +
+                        "of these changes stop applying automatically until you switch them back on.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirming = false; onConfirm() }) { Text("Back to before") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    report?.takeIf { it.isNotEmpty() }?.let { lines ->
+        AlertDialog(
+            onDismissRequest = onReportRead,
+            title = { Text("Back to before") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    lines.forEach { Text(it) }
+                }
+            },
+            confirmButton = { TextButton(onClick = onReportRead) { Text("OK") } },
+        )
     }
 }

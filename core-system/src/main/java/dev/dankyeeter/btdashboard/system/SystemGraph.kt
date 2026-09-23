@@ -291,8 +291,8 @@ object SystemGraph {
         )
     }
 
-    /** The only DataStore over the ledger file (AD-033 M6). */
-    private val settingsLedger: SettingsLedger by lazy {
+    /** The only DataStore over the ledger file (AD-033 M6); the way back and the chips use it too. */
+    val settingsLedger: SettingsLedger by lazy {
         SettingsLedgerStore(
             PreferenceDataStoreFactory.create {
                 ctx().preferencesDataStoreFile(SettingsLedgerStore.DATASTORE_NAME)

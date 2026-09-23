@@ -90,6 +90,6 @@ class AbsoluteVolumeGate(
          * `Settings.Global.BLUETOOTH_DISABLE_ABSOLUTE_VOLUME` is `@hide`, so the
          * string constant is inlined rather than referenced.
          */
-        internal const val KEY_DISABLE_ABSOLUTE_VOLUME = "bluetooth_disable_absolute_volume"
+        const val KEY_DISABLE_ABSOLUTE_VOLUME = "bluetooth_disable_absolute_volume"
     }
 }
