@@ -61,7 +61,10 @@ Einstellungs-Inventur P-3 (T-045), dabei F-011 klaeren.
 **Beschlossen, nicht beauftragt:** F-004, F-005, F-009 (QA-C), SR-023,
 SR-024, F-011 (Nutzertext „only a rooted phone can change“ in
 `DeviceProfilesScreen.kt:316` und `BluetoothSystemControls.kt:105` — laut
-T-045 falsch und Root-Hinweis gegen AK-10; faellt mit T-047 P-4).
+T-045 falsch und Root-Hinweis gegen AK-10; **T-049a (Geraet, 20:08) fand in
+den Entwickleroptionen keinen Menuepunkt fuer die drei Werte** — T-045 P-4
+war insoweit falsch, der Satz steht weiter im Code; Wortlaut gegen AK-10 neu
+bewerten, `docs/perf/T-049a-inventur.md`), F-013 (P3), neu-C am Geraet bestaetigt.
 Messbefunde und Tuning-Grundlagen (frueher hier):
 `docs/archiv/state-messbefunde-2026-09-03.md`.
 
