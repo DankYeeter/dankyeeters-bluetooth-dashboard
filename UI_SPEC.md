@@ -2716,6 +2716,7 @@ steht nie "break(s)".)
 - `"Run ended when the LDAC quality changed. {T} observed."`
 - `"Run ended when the codec changed. {T} observed."`
 - `"Run ended after {RUN_GAP_MAX} without a reading. {T} observed."`
+- `"Run ended after {RUN_GAP_MAX} of paused playback. {T} observed."` (T-046, Nutzer 23.09.)
 - `"Run ended when the rate stopped being readable. {T} observed."`
 
 **Starthinweis (Dialog, `AlertDialog`-Muster wie `LocalConnectionDisclosure`,
@@ -2752,7 +2753,7 @@ zusaetzlich unveraendert.
 
 | Ereignis | Erkannt an | Folge |
 |---|---|---|
-| Wiedergabe pausiert | `device.isPlaying == false` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. Lauf laeuft weiter, unabhaengig davon, wie lange die Pause dauert — nur das Ausbleiben von **Abfragen** (naechste Zeile) ist durch `RUN_GAP_MAX_MS` begrenzt |
+| Wiedergabe pausiert | `device.isPlaying == false` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. **Dauert die Pause laenger als `RUN_GAP_MAX_MS`, endet der Lauf**, Grundzeile "after {RUN_GAP_MAX} of paused playback" (Nutzer 23.09., T-046; ersetzt „unabhaengig davon, wie lange die Pause dauert") |
 | Eine Lesung faellt aus (dumpsys-Fehler, Warnung) | Abstand `> 2 x Kadenz` | **Luecke**, sonst nichts |
 | Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand **zwischen zwei Abfragen** (nicht zwischen zwei Ratenlesungen) | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
 | Geraet trennt oder ein anderes wird aktiv | `device.address` wechselt, `isConnected == false` | **Lauf endet**, Grund genannt. Ein Lauf gehoert zu **einer** Paarung |
@@ -2898,7 +2899,7 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   60 min "h min". An keiner Spanne ueber 90 s erscheint eine Sekundenangabe.
   Unit-Test mit 45 s, 89 s, 91 s, 24 min, 72 min.
 - **AK-T039-14** Herkunft je Groesse (`GOAL.md` AK-8), im KDoc nachvollziehbar:
-  Minimum und `{T}` **MEASURED**, Anteil und Verweildauer **DERIVED** mit
+  Minimum **MEASURED**, `{T}` (Summe nach der App-Uhr, T-045 P-1), Anteil und Verweildauer **DERIVED** mit
   benannten Eingangsgroessen, die Schwelle **Wahl des Nutzers** und nirgends als
   gemessen oder abgeleitet ausgezeichnet.
 - **AK-T039-15** Die Graph-Caption der 60-s-Uebersicht nennt "low {x}" zwischen
@@ -3023,4 +3024,6 @@ dieser Abschnitt sagt nichts ueber Verluste.
    hier ohne gemessenen Anlass eine weitere gesetzte Konstante waere, die
    niemand angefordert hat, und weil das Verwerfen einer laufenden Beobachtung
    nach einer langen, aber gewollten Pause den in T-039 selbst benannten
-   Nutzerwunsch (Entscheidung 1) unterlaeuft. Unentschieden.
+   Nutzerwunsch (Entscheidung 1) unterlaeuft.
+   **Entschieden (Nutzer, 2026-09-23): nein.** Eine Pause laenger als
+   `RUN_GAP_MAX_MS` beendet den Lauf mit eigenem Grund (Tabelle oben, T-046).
