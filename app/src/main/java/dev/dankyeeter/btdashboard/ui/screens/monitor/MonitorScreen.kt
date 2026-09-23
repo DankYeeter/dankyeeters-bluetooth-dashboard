@@ -25,6 +25,7 @@ import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
+import dev.dankyeeter.btdashboard.ui.screens.devices.SettingsRestoreBanner
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
@@ -53,6 +54,7 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val closeUpTrace by viewModel.closeUpTrace.collectAsStateWithLifecycle()
     val closeUpEnabled by viewModel.closeUpEnabled.collectAsStateWithLifecycle()
     val observationRun by viewModel.observationRun.ui.collectAsStateWithLifecycle()
+    val comparison by viewModel.comparison.ui.collectAsStateWithLifecycle()
 
     // The sampler only polls on a lit screen while somebody is actually
     // looking at link data. The ViewModel covers screen-open/close; this
@@ -108,6 +110,19 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
                     onThreshold = control::onThreshold,
                     onNoticeContinue = control::onNoticeContinue,
                     onNoticeDismiss = control::onNoticeDismiss,
+                )
+            },
+            comparison = { snapshot ->
+                val control = viewModel.comparison
+                ComparisonSection(
+                    snapshot,
+                    comparison,
+                    onMeasure = control::onMeasure,
+                    onCompare = control::onCompare,
+                    onCheck = control::onCheck,
+                    onReset = control::onReset,
+                    // D2's banner and its one flow, not a second way back (AK-T047-13).
+                    restoreButton = { SettingsRestoreBanner() },
                 )
             },
         )

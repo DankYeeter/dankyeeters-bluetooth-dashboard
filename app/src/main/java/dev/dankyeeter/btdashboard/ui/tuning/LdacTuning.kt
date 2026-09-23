@@ -218,17 +218,19 @@ object LdacTuning {
      * @param shownAddress the address a live panel is displaying, which on a
      *   user build is redacted. Resolved to the real one through the A2DP
      *   profile; see [rawAddressFor] for why falling back to it is not allowed.
+     * @return what the link did. A request that was never made — another one
+     *   in flight, or the value before not recordable — is
+     *   [CodecApplyOutcome.Unavailable], never [CodecApplyOutcome.Applied] (M16).
      */
-    suspend fun pin(quality: Long, deviceKey: String? = null, shownAddress: String? = null) {
-        if (_state.value.busy) return
-        if (!gate.tryLock()) return
+    suspend fun pin(quality: Long, deviceKey: String? = null, shownAddress: String? = null): CodecApplyOutcome {
+        if (_state.value.busy || !gate.tryLock()) return CodecApplyOutcome.Unavailable(BUSY)
         try {
             _state.value = LdacTuningState(busy = true)
             val connected = runCatching { MonitorGraph.codecSource.connectedDevices() }
                 .getOrDefault(emptyList())
             val device = resolveDevice(deviceKey, shownAddress, connected)
             val key = deviceKey ?: device?.address?.let(DeviceKey::fromAddress)
-            _state.value = recordThenPin(
+            val (state, outcome) = recordThenPin(
                 ledger = SystemGraph.settingsLedger,
                 profiles = SystemGraph.deviceProfiles,
                 deviceKey = key,
@@ -237,6 +239,8 @@ object LdacTuning {
                 quality = quality,
                 apply = ::apply,
             )
+            _state.value = state
+            return outcome
         } finally {
             gate.unlock()
         }
@@ -246,6 +250,8 @@ object LdacTuning {
      * Holds the value before in the ledger, then stores and asks the link —
      * all under the ledger's lock, so the way back never runs in between (M4).
      * Nothing is written when the ledger cannot hold the value before.
+     *
+     * @return the state to show, and what the link did.
      */
     internal suspend fun recordThenPin(
         ledger: SettingsLedger,
@@ -255,7 +261,7 @@ object LdacTuning {
         liveMode: LdacQualityMode?,
         quality: Long,
         apply: suspend (address: String?, quality: Long) -> CodecApplyOutcome,
-    ): LdacTuningState = ledger.lock.withLock {
+    ): Pair<LdacTuningState, CodecApplyOutcome> = ledger.lock.withLock {
         if (deviceKey != null) {
             val before = LedgerEntry.Ldac(
                 deviceKey = deviceKey,
@@ -263,7 +269,10 @@ object LdacTuning {
                 priorLive = LdacQuality.priorLiveOf(liveMode),
             )
             if (!ledger.recordIfAbsent(before)) {
-                return@withLock LdacTuningState(message = NOT_RECORDED, messageIsError = true)
+                return@withLock LdacTuningState(
+                    message = "LDAC quality was not changed — $NOT_RECORDED.",
+                    messageIsError = true,
+                ) to CodecApplyOutcome.Unavailable(NOT_RECORDED)
             }
         }
         val persisted = deviceKey != null && runCatching { store(profiles, deviceKey, device?.name, quality) }.isSuccess
@@ -275,7 +284,7 @@ object LdacTuning {
             // useful without putting a real MAC on screen.
             message = redactAddresses(tuningSentence(outcome, persisted)),
             messageIsError = outcome is CodecApplyOutcome.Unavailable && !persisted,
-        )
+        ) to outcome
     }
 
     /** The level the link runs now, from one live reading; null when it cannot be read. */
@@ -343,7 +352,9 @@ object LdacTuning {
     }
 
     private const val NOT_RECORDED =
-        "LDAC quality was not changed — the value before could not be recorded, so it could not be put back later."
+        "the value before could not be recorded, so it could not be put back later"
+
+    private const val BUSY = "another LDAC quality request is still running"
 }
 
 /**

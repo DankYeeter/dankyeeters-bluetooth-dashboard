@@ -1,5 +1,7 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -292,6 +294,80 @@ class AcceptanceCriteriaGrepTest {
         )
     }
 
+    /**
+     * AK-T047-7 — "fix"/"fixes"/"fixed" in the sense of "repaired" occurs in the
+     * comparison only negated, in the workarounds. "fixed step" is the F1
+     * sentence's "fest", outside the rule by the spec's own definition.
+     */
+    @Test
+    fun `the comparison calls nothing a fix`() {
+        val pattern = Regex("""\bfix(es|ed)?\b(?<!\bnot fixes)(?<!\bnot a fix)(?! step)""", RegexOption.IGNORE_CASE)
+        assertTrue(pattern.containsMatchIn("this fixes the link"))
+        assertFalse(pattern.containsMatchIn("not a fix, not fixes, a fixed step"))
+        assertNone(
+            criterion = "AK-T047-7",
+            files = SourceTree.comparison,
+            pattern = pattern,
+            why = "measures are never called fixes; workarounds only as \"not a fix\" (AK-12)",
+        )
+    }
+
+    /**
+     * AK-T047-14 — no "packet" but in the AD-036 boundary lines, no quantity per
+     * minute or second (R-F), and the T-039 word lists of AK-T039-5/6. The
+     * audible family is covered for the whole monitor directory by AK-T009-43.
+     */
+    @Test
+    fun `the comparison keeps the T-039 word rules`() {
+        val packet = Regex("""packets?(?! type)""", RegexOption.IGNORE_CASE)
+        assertTrue(packet.containsMatchIn("dropped packets"))
+        assertFalse(packet.containsMatchIn("Packet type and retransmission rate"))
+        assertNone("AK-T047-14", SourceTree.comparison, packet, "R-G: \"packet\" only in the AD-036 boundary lines")
+        assertNone(
+            criterion = "AK-T047-14",
+            files = SourceTree.comparison,
+            pattern = Regex("""/\s*(min|s)\b|per (minute|second)""", RegexOption.IGNORE_CASE),
+            why = "R-F: no quantity is normalised to a minute or a second",
+        )
+        assertNone(
+            criterion = "AK-T047-14",
+            files = SourceTree.comparison,
+            // Whole words: the identifier WIFI_SCAN_ALWAYS is a condition's name, not a claim.
+            pattern = Regex(
+                """\b(lowest rate|minimum bitrate|worst|floor|always|never below|never dropped|consistently|""" +
+                    """stable|steady enough|safe to pin|you can pin|guaranteed|reliable)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            why = "the T-039 word lists hold here too (AK-T039-5, AK-T039-6)",
+        )
+    }
+
+    /**
+     * AK-T047-13 — the comparison's way back is D2's banner and its flow:
+     * `SettingsRestore` is built in one place only, and the Monitor screen hands
+     * the section that banner rather than a button of its own.
+     */
+    @Test
+    fun `the comparison has no way back of its own`() {
+        val builds = hits(SourceTree.appSources, Regex("""\bSettingsRestore\("""))
+            .filterNot { it.text.contains("class SettingsRestore(") }
+        assertEquals(
+            "AK-T047-13: SettingsRestore is built once, in DeviceProfilesViewModel\n" + builds.joinToString("\n"),
+            listOf("DeviceProfilesViewModel.kt"),
+            builds.map { it.file.name },
+        )
+        assertTrue(
+            "AK-T047-13: the Monitor screen hands the comparison the D2 banner",
+            SourceTree.monitorScreenFile.readText().contains("restoreButton = { SettingsRestoreBanner() }"),
+        )
+        assertNone(
+            criterion = "AK-T047-13",
+            files = SourceTree.comparison,
+            pattern = Regex("""SettingsRestore|restoreAll|Back to before"""),
+            why = "the section draws no restore of its own; it shows the slot it is handed",
+        )
+    }
+
     // ---- the scan ---------------------------------------------------------------
 
     /** One matching line, printed the way a grep would print it. */
@@ -375,6 +451,18 @@ private object SourceTree {
     val observationRun: List<File> by lazy {
         observationRunCore +
             file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ObservationRunController.kt")
+    }
+
+    /** The comparison's controller and section — the AK-T047-7/13/14 scope. */
+    val comparison: List<File> by lazy {
+        listOf(
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ComparisonController.kt"),
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ComparisonSection.kt"),
+        )
+    }
+
+    val monitorScreenFile: File by lazy {
+        file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/MonitorScreen.kt")
     }
 
     val livePanel: File by lazy {
