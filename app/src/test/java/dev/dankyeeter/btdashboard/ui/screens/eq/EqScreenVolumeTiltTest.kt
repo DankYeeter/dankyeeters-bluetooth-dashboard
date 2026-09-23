@@ -3,8 +3,12 @@ package dev.dankyeeter.btdashboard.ui.screens.eq
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,6 +36,14 @@ class EqScreenVolumeTiltTest {
 
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Before
+    fun setUp() {
+        // SystemGraph.settingsStore is a process-wide DataStore singleton
+        // (F-006): it survives the Robolectric test boundary within one JVM,
+        // so a fresh install has to be reset explicitly rather than assumed.
+        runBlocking { SystemGraph.settingsStore.save(EqSettings.FLAT) }
+    }
 
     private fun showScreen() {
         composeRule.setContent { BtDashboardTheme { EqScreen() } }
