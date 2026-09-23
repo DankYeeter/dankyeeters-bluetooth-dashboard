@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.system.persist
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -11,13 +12,25 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 private val Context.eqDataStore: DataStore<Preferences> by preferencesDataStore(name = "eq_settings")
+
+/**
+ * DataStore runs `edit` in the caller's context while holding the write lock
+ * (D-001). A caller on `Dispatchers.Main` — e.g. Robolectric's main looper —
+ * can leave that lock held forever if the test ends before the queued block
+ * runs, so every write moves onto its own dispatcher first.
+ */
+private suspend fun DataStore<Preferences>.editOnIo(
+    transform: suspend (MutablePreferences) -> Unit,
+): Preferences = withContext(Dispatchers.IO) { edit(transform) }
 
 /**
  * Persists the EQ state locally with DataStore. Nothing leaves the device;
@@ -36,7 +49,7 @@ class EqSettingsStore(private val context: Context) {
 
     suspend fun save(value: EqSettings) {
         val clean = value.sanitized()
-        context.eqDataStore.edit { prefs ->
+        context.eqDataStore.editOnIo { prefs ->
             prefs[KEY_ENABLED] = clean.enabled
             prefs[KEY_LAYOUT] = clean.layout.id
             prefs[KEY_LEFT] = clean.leftGainsDb.joinToString(";")
@@ -61,7 +74,7 @@ class EqSettingsStore(private val context: Context) {
     suspend fun activeProfileIdOrNull(): String? = activeProfileId.first()
 
     suspend fun setActiveProfileId(id: String?) {
-        context.eqDataStore.edit { prefs ->
+        context.eqDataStore.editOnIo { prefs ->
             if (id == null) prefs.remove(KEY_PROFILE_ID) else prefs[KEY_PROFILE_ID] = id
         }
     }

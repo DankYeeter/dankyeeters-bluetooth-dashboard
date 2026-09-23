@@ -2,19 +2,32 @@ package dev.dankyeeter.btdashboard.system.setup
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 private val Context.setupDataStore: DataStore<Preferences> by preferencesDataStore(name = "setup_state")
+
+/**
+ * DataStore runs `edit` in the caller's context while holding the write lock
+ * (D-001). A caller on `Dispatchers.Main` — e.g. Robolectric's main looper —
+ * can leave that lock held forever if the test ends before the queued block
+ * runs, so every write moves onto its own dispatcher first.
+ */
+private suspend fun DataStore<Preferences>.editOnIo(
+    transform: suspend (MutablePreferences) -> Unit,
+): Preferences = withContext(Dispatchers.IO) { edit(transform) }
 
 /**
  * Remembers what the OS cannot be asked about: which optional setup steps the
@@ -52,7 +65,7 @@ class SetupStore(context: Context) {
     suspend fun isLocalConnectionAccepted(): Boolean = localConnectionAccepted.first()
 
     suspend fun setLocalConnectionAccepted(accepted: Boolean) {
-        appContext.setupDataStore.edit { it[KEY_LOCAL_CONNECTION] = accepted }
+        appContext.setupDataStore.editOnIo { it[KEY_LOCAL_CONNECTION] = accepted }
     }
 
     /**
@@ -67,11 +80,11 @@ class SetupStore(context: Context) {
         prefs.map { it[KEY_OBSERVATION_RUN_NOTICE] ?: false }.first()
 
     suspend fun setObservationRunNoticeAccepted(accepted: Boolean) {
-        appContext.setupDataStore.edit { it[KEY_OBSERVATION_RUN_NOTICE] = accepted }
+        appContext.setupDataStore.editOnIo { it[KEY_OBSERVATION_RUN_NOTICE] = accepted }
     }
 
     suspend fun setSkipped(stepId: String, skipped: Boolean) {
-        appContext.setupDataStore.edit { store ->
+        appContext.setupDataStore.editOnIo { store ->
             val current = store[KEY_SKIPPED] ?: emptySet()
             store[KEY_SKIPPED] = if (skipped) current + stepId else current - stepId
         }
@@ -79,7 +92,7 @@ class SetupStore(context: Context) {
 
     /** Used by "run the wizard again" so previously skipped steps are asked once more. */
     suspend fun clearSkips() {
-        appContext.setupDataStore.edit { it[KEY_SKIPPED] = emptySet() }
+        appContext.setupDataStore.editOnIo { it[KEY_SKIPPED] = emptySet() }
     }
 
     private companion object {

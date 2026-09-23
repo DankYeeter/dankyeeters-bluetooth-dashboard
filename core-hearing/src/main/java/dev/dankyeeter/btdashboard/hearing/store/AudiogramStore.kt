@@ -3,6 +3,7 @@ package dev.dankyeeter.btdashboard.hearing.store
 import android.content.Context
 import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -19,16 +20,28 @@ import dev.dankyeeter.btdashboard.hearing.DerivedCalibration
 import dev.dankyeeter.btdashboard.hearing.ThresholdPoint
 import dev.dankyeeter.btdashboard.hearing.fit.FitBaseline
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import kotlin.math.abs
 
 private val Context.hearingDataStore: DataStore<Preferences> by preferencesDataStore(name = "hearing_runs")
+
+/**
+ * DataStore runs `edit` in the caller's context while holding the write lock
+ * (D-001). A caller on `Dispatchers.Main` — e.g. Robolectric's main looper —
+ * can leave that lock held forever if the test ends before the queued block
+ * runs, so every write moves onto its own dispatcher first.
+ */
+private suspend fun DataStore<Preferences>.editOnIo(
+    transform: suspend (MutablePreferences) -> Unit,
+): Preferences = withContext(Dispatchers.IO) { edit(transform) }
 
 /**
  * Local persistence for audiogram runs and the fit-check baseline.
@@ -94,7 +107,7 @@ class AudiogramStore(context: Context) {
 
     /** Stores the age reference; there is one, so this replaces rather than adds. */
     suspend fun saveAgeReference(reference: AgeReference) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             prefs[KEY_AGE] = JSONObject().apply {
                 put("birthYear", reference.birthYear)
                 put("sex", reference.sex.name)
@@ -103,7 +116,7 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun clearAgeReference() {
-        appContext.hearingDataStore.edit { prefs -> prefs.remove(KEY_AGE) }
+        appContext.hearingDataStore.editOnIo { prefs -> prefs.remove(KEY_AGE) }
     }
 
     /**
@@ -141,7 +154,7 @@ class AudiogramStore(context: Context) {
      * two entries claiming the same id.
      */
     suspend fun saveDerivedCalibration(calibration: DerivedCalibration) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             val existing = DerivedCalibrationJson.parse(prefs[KEY_DERIVED])
                 .filterNot { it.deviceKey == calibration.deviceKey }
             prefs[KEY_DERIVED] = DerivedCalibrationJson.encode(existing + calibration)
@@ -149,7 +162,7 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun clearDerivedCalibration(deviceKey: String) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             val kept = DerivedCalibrationJson.parse(prefs[KEY_DERIVED])
                 .filterNot { it.deviceKey == deviceKey }
             prefs[KEY_DERIVED] = DerivedCalibrationJson.encode(kept)
@@ -167,13 +180,13 @@ class AudiogramStore(context: Context) {
      */
     suspend fun saveClinicalAudiogram(audiogram: ClinicalAudiogram) {
         if (audiogram.isEmpty) return clearClinicalAudiogram()
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             prefs[KEY_CLINICAL] = encodeClinical(audiogram)
         }
     }
 
     suspend fun clearClinicalAudiogram() {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             prefs.remove(KEY_CLINICAL)
             // The source goes with it: a compensation built from an audiogram
             // that no longer exists would silently fall back to the measured
@@ -188,7 +201,7 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun setCompensationSource(source: CompensationSource) {
-        appContext.hearingDataStore.edit { prefs -> prefs[KEY_SOURCE] = source.name }
+        appContext.hearingDataStore.editOnIo { prefs -> prefs[KEY_SOURCE] = source.name }
     }
 
     suspend fun currentRuns(): List<AudiogramRun> = runs.first()
@@ -214,7 +227,7 @@ class AudiogramStore(context: Context) {
      * function does not.
      */
     suspend fun setRunSelected(id: String, selected: Boolean) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             val current = prefs[KEY_SELECTED] ?: emptySet()
             prefs[KEY_SELECTED] = if (selected) current + id else current - id
         }
@@ -223,7 +236,7 @@ class AudiogramStore(context: Context) {
     suspend fun currentFitBaseline(): FitBaseline = fitBaseline.first()
 
     suspend fun addRun(run: AudiogramRun) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             val existing = parseRuns(prefs[KEY_RUNS]).filterNot { it.id == run.id }
             val merged = (existing + run).sortedBy { it.timestampMillis }.takeLast(MAX_RUNS)
             prefs[KEY_RUNS] = encodeRuns(merged)
@@ -237,7 +250,7 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun deleteRun(id: String) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             prefs[KEY_RUNS] = encodeRuns(parseRuns(prefs[KEY_RUNS]).filterNot { it.id == id })
             // The selection is pruned with the run, not left to be filtered out
             // later. [selectionOf] already ignores ids with no run behind them,
@@ -249,7 +262,7 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun deleteAllRuns() {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             prefs[KEY_RUNS] = "[]"
             // No runs left for any id to name.
             prefs[KEY_SELECTED] = emptySet()
@@ -257,7 +270,7 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun saveFitBaseline(baseline: FitBaseline) {
-        appContext.hearingDataStore.edit { prefs ->
+        appContext.hearingDataStore.editOnIo { prefs ->
             prefs[KEY_FIT_BASELINE] = encodeBaseline(baseline)
         }
     }
