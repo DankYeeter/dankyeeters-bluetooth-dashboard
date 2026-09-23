@@ -14,8 +14,9 @@ melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 **Autonomer Lauf 22.09. 23:51 – 23.09. 04:30 beendet**, Branch
 `auto/2026-09-23`, PR offen, **nicht gemerged** (Merge beim Nutzer).
-Gebaut und abgenommen: T-040..T-042 (Bereinigung, netto rund −1.000 Zeilen
-Code, 8 Abhaengigkeiten weniger), T-041 Umbauten AD-026..028, T-039 AK-17
+Gebaut und abgenommen: T-040..T-042 (Bereinigung; Zyklus gesamt inkl. neuem
+Feature `git diff --shortstat 5f62b15..60e7a44` ohne Schemas: +2534/−3184 in
+Code/Build; 7 Abhaengigkeits-Deklarationen entfernt, 1 Testabhaengigkeit neu), T-041 Umbauten AD-026..028, T-039 AK-17
 Beobachtungslauf, T-044 Fixe + D-001 (DataStore-Sperre). Pruefphase T-043:
 Security PASS, Design ship-ready; QA-Retest T-044e **PASS**. Suite **2498/0**
 (Director 23.09. 04:14, `4507182`, `clean test --no-build-cache`;
