@@ -296,3 +296,56 @@ T-027 nicht — M-5 hat nur die Ruherate unter ABR gemessen (Abschnitt oben).
 
 Volle Aufnahme inkl. Rohreihen-Pfad und Zustandsbuch:
 `docs/perf/T-027-messung.md` Abschnitt 7.
+
+---
+
+## Szenario: LDAC GEPINNT 990 kbps, Trennmessung WLAN 2,4 GHz mit/ohne
+## (App+Helfer vor jedem Fenster beendet) — Pixel 11 Pro
+
+**Neuer Abschnitt.** Loest T-029 gegen T-032 auf (dort ungeklaert, ob WLAN
+den Unterschied erklaert). Anders als alle Abschnitte oben: App **und**
+privilegierter Helfer sind vor jedem Fenster per `ps` belegt beendet (F-012),
+der Pin wird je Fenster ueber die App-UI neu gesetzt und unabhaengig per
+Einzel-Read-back verifiziert, dann wird die App wieder beendet.
+
+**Definition:**
+
+- Geraet: Pixel 11 Pro `67011FDKX004XG`, Android 17, am Kabel.
+- Kopfhoerer: Noble FoKus Prestige Encore, LDAC `HIGH`/990 kbps gepinnt
+  (`mCodecSpecific1: 1000`, `Priority: 1000000`), nicht ABR.
+- Musik: Tidal, durchgehend unveraendert (PID 11069 ueber die gesamte
+  Sitzung, auch ueber Sitzungs-/Auftragsgrenzen T-048→T-049 hinweg).
+- WLAN „mit" = 2,4-GHz-Assoziation (`SSID_A`, 2437 MHz); „ohne" = WLAN per
+  `svc wifi disable` abgeschaltet, keine Assoziation.
+- Sampler: `docs/perf/tools/t032_run.sh` (Kadenz ~1,4 s, einziger Leser von
+  `dumpsys bluetooth_manager` waehrend des Fensters, R-011).
+
+| Datum | Commit | Umgebung | Fenster | Dauer | dropped | dropouts | underflow | BQR-Ereignisse | Reconnects | Budget | Notiz |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-23 | 527ca3d | Pixel 11 Pro, WLAN **aus**, 990 gepinnt, App+Helfer vor Fenster beendet | 21:31:54–22:02:09 | 30,25 min | **0** | **0** | **0** | 0 | 0 | **ja** | T-036, ununterbrochen, Pin haelt bis zum Ende |
+| 2026-09-23 | 527ca3d | Pixel 11 Pro, WLAN **2,4 GHz assoziiert**, 990 gepinnt, App+Helfer vor Fenster beendet | 20:58:56–21:21:16 | 22,34 min | +475 | +19 | +890 | 1 (94 % ReTx vor Reconnect) | 1 | nein | T-036 Run 2, endet an A2DP-Reconnect (Pin faellt danach auf ABR) |
+| 2026-09-23 | 527ca3d | Pixel 11 Pro, WLAN **2,4 GHz assoziiert**, 990 gepinnt, App+Helfer vor Fenster beendet | 20:22:41–20:26:47 | 4,07 min | +44125 | +1765 | n. a. | 1 (87 % ReTx vor Reconnect) | 1 | nein | T-036 Run 1, traf in laufende Verlustphase, endet an Reconnect |
+
+**Befund:**
+
+1. **WLAN aus ist die Bodenbedingung** (0/0/0 ueber 30,25 min, kein einziger
+   BQR-Eintrag, kein Reconnect) — deckungsgleich mit T-032 (0 in 27,78 min,
+   ebenfalls ohne Assoziation). Nach der Untergrenzen-Regel: hier ist nichts
+   mehr zu gewinnen.
+2. **WLAN 2,4 GHz assoziiert zeigt in beiden Fenstern echte Verluste UND**
+   je einen BQR-belegten Fast-Verbindungsabbruch (87 % bzw. 94 %
+   Wiederholrate unmittelbar vor dem Reconnect) — deckungsgleich mit T-029
+   (10 Cluster in 25 min, WLAN dort nicht geprueft). **Damit ist der
+   T-029/T-032-Widerspruch aufgeloest:** beide Male war die WLAN-Assoziation
+   vermutlich die erklaerende Groesse.
+3. **Kein Fenster erreichte durchgehend die vollen 30 min bei 990 gepinnt UND
+   WLAN mit** — beide Versuche endeten an einem echten Reconnect, nicht an
+   einem Abbruch meinerseits. Der Pin ueberlebt einen A2DP-Reconnect nicht,
+   wenn App und Helfer (wie von F-012 gefordert) beendet sind — eigener Fund,
+   an den Director gemeldet, nicht hier behoben.
+4. n=2 je Zustand (heute) plus je 1 historischer Lauf — kein kontrolliertes
+   Interferenzexperiment (keine RSSI-/Kanal-Kontrolle), aber die bisher
+   staerkste Uebereinstimmung zwischen den beiden Bedingungen.
+
+Volle Aufnahme inkl. Zustandsbuch, BQR-Rohzeilen und Werkzeug-Fund (CRLF):
+`docs/perf/T-036-trennmessung.md`.
