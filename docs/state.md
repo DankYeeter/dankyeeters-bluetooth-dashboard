@@ -26,6 +26,17 @@ drei Vorschlaege fuers Agenten-Repo beim Nutzer.
 nur AK-10 gebaut (leer), AK-8/9/15 teilweise, **AK-11..14 und AK-16 offen** —
 Saeule 3 fehlt. Schnitt P-1..P-9, AD-030 ff. vorbereitet, warten auf Nutzer.
 
+**Vom Nutzer entschieden (23.09., alle nach Empfehlung) — naechster Zyklus:**
+- Saeule 3 misst **Aussetzer bei gepinnten 990** (T-045 F1).
+- Saeule 3 **leitet nur an** und liest den Ist-Wert zurueck, kein neues
+  Helfer-Kommando (T-045 F3).
+- **„Device test“ jetzt entfernen**, eigener kleiner Schritt (T-045 F5, AK-12).
+- Beobachtungslauf: **Luecke > `RUN_GAP_MAX` (2 min) beendet den Lauf** mit
+  genanntem Grund, wie die Spec-Tabelle (UI_SPEC T-039 Offene Frage 5).
+Noch offen: T-045 F2 (Armlaenge 15 min A/B) und F4 (AK-16 „nicht
+bestimmbar“ bis T-037); Sample-Rate-Wechsel im Lauf; drei
+Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
+
 **Beim Nutzer — offen (am Laufende fragen):**
 1. Saeule 3, fuenf Fragen aus T-045 (Messgroesse 990 gepinnt, 2×15 min,
    nur anleiten statt WLAN schalten, AK-16 „nicht bestimmbar“ bis T-037,
