@@ -11,6 +11,9 @@ import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.CodecPreferenceController
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
+import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
+import dev.dankyeeter.btdashboard.system.devices.LedgerEntry
+import dev.dankyeeter.btdashboard.system.devices.SettingsLedger
 import dev.dankyeeter.btdashboard.ui.screens.monitor.rawAddressFor
 import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,6 +104,15 @@ object LdacQuality {
         LdacQualityMode.CONNECTION_PRIORITY -> CONNECTION_PRIORITY
         LdacQualityMode.ADAPTIVE -> ADAPTIVE
         else -> NONE
+    }
+
+    /**
+     * The live level as the ledger holds it (M12): null when it could not be
+     * read, [NONE] only for a link nobody ever pinned.
+     */
+    fun priorLiveOf(mode: LdacQualityMode?): Long? = when (mode) {
+        null, LdacQualityMode.UNKNOWN -> null
+        else -> codeOf(mode)
     }
 
     /**
@@ -216,23 +228,61 @@ object LdacTuning {
                 .getOrDefault(emptyList())
             val device = resolveDevice(deviceKey, shownAddress, connected)
             val key = deviceKey ?: device?.address?.let(DeviceKey::fromAddress)
-
-            val persisted = key != null && runCatching { store(key, device?.name, quality) }.isSuccess
-            val outcome = apply(device?.address, quality)
-
-            _state.value = LdacTuningState(
-                busy = false,
-                // Everything below the UI works in raw addresses and some of it
-                // quotes them back — the helper's own rejection sentence names
-                // the address it was handed. Redacting on the way out keeps that
-                // useful without putting a real MAC on screen.
-                message = redactAddresses(tuningSentence(outcome, persisted)),
-                messageIsError = outcome is CodecApplyOutcome.Unavailable && !persisted,
+            _state.value = recordThenPin(
+                ledger = SystemGraph.settingsLedger,
+                profiles = SystemGraph.deviceProfiles,
+                deviceKey = key,
+                device = device,
+                liveMode = device?.let { liveModeOf(it, connected) },
+                quality = quality,
+                apply = ::apply,
             )
         } finally {
             gate.unlock()
         }
     }
+
+    /**
+     * Holds the value before in the ledger, then stores and asks the link —
+     * all under the ledger's lock, so the way back never runs in between (M4).
+     * Nothing is written when the ledger cannot hold the value before.
+     */
+    internal suspend fun recordThenPin(
+        ledger: SettingsLedger,
+        profiles: DeviceProfileStore,
+        deviceKey: String?,
+        device: BtAudioDevice?,
+        liveMode: LdacQualityMode?,
+        quality: Long,
+        apply: suspend (address: String?, quality: Long) -> CodecApplyOutcome,
+    ): LdacTuningState = ledger.lock.withLock {
+        if (deviceKey != null) {
+            val before = LedgerEntry.Ldac(
+                deviceKey = deviceKey,
+                priorWish = profiles.profileFor(deviceKey)?.codecPreference,
+                priorLive = LdacQuality.priorLiveOf(liveMode),
+            )
+            if (!ledger.recordIfAbsent(before)) {
+                return@withLock LdacTuningState(message = NOT_RECORDED, messageIsError = true)
+            }
+        }
+        val persisted = deviceKey != null && runCatching { store(profiles, deviceKey, device?.name, quality) }.isSuccess
+        val outcome = apply(device?.address, quality)
+        LdacTuningState(
+            // Everything below the UI works in raw addresses and some of it
+            // quotes them back — the helper's own rejection sentence names
+            // the address it was handed. Redacting on the way out keeps that
+            // useful without putting a real MAC on screen.
+            message = redactAddresses(tuningSentence(outcome, persisted)),
+            messageIsError = outcome is CodecApplyOutcome.Unavailable && !persisted,
+        )
+    }
+
+    /** The level the link runs now, from one live reading; null when it cannot be read. */
+    private suspend fun liveModeOf(device: BtAudioDevice, connected: List<BtAudioDevice>): LdacQualityMode? =
+        runCatching { MonitorGraph.liveLink.readOnce() }.getOrNull()
+            ?.takeIf { rawAddressFor(it.device?.address, connected) == device.address }
+            ?.ldac?.mode
 
     fun dismissMessage() {
         _state.value = _state.value.copy(message = null)
@@ -257,8 +307,7 @@ object LdacTuning {
     }
 
     /** Writes the wish into the device's profile, creating a stub if it has none. */
-    private suspend fun store(deviceKey: String, name: String?, quality: Long) {
-        val profiles = SystemGraph.deviceProfiles
+    private suspend fun store(profiles: DeviceProfileStore, deviceKey: String, name: String?, quality: Long) {
         val existing = profiles.profileFor(deviceKey)
             ?: DeviceProfile(
                 deviceKey = deviceKey,
@@ -275,7 +324,7 @@ object LdacTuning {
      * when it is not, the stand-in cannot take preferences and the user is told
      * that rather than shown a control that silently did nothing.
      */
-    private suspend fun apply(address: String?, quality: Long): CodecApplyOutcome {
+    internal suspend fun apply(address: String?, quality: Long): CodecApplyOutcome {
         val controller = PrivilegedCodec.controller() as? CodecPreferenceController
         return when {
             address == null -> CodecApplyOutcome.Unavailable(
@@ -292,6 +341,9 @@ object LdacTuning {
             }.getOrElse { CodecApplyOutcome.Unavailable(it.message ?: "the request threw") }
         }
     }
+
+    private const val NOT_RECORDED =
+        "LDAC quality was not changed — the value before could not be recorded, so it could not be put back later."
 }
 
 /**

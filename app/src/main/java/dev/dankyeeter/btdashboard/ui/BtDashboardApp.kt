@@ -30,6 +30,8 @@ import dev.dankyeeter.btdashboard.system.setup.SetupSignals
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateRoute
 import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesScreen
+import dev.dankyeeter.btdashboard.ui.screens.devices.SettingsRestoreBanner
+import androidx.compose.foundation.layout.Column
 import dev.dankyeeter.btdashboard.ui.screens.eq.EqScreen
 import dev.dankyeeter.btdashboard.ui.screens.hearing.HearingTestScreen
 import dev.dankyeeter.btdashboard.ui.screens.monitor.MonitorScreen
@@ -165,7 +167,14 @@ fun BtDashboardApp(
         // able to ask for that recount. Without it, a gate that opened over a
         // stale "Helper running." had no way to shut again, which is exactly the
         // black screen this fixes.
-        GateSurface { ActivateRoute(onDone = { SetupSignals.refresh() }) }
+        // D2/M14: changed settings are announced even when the helper is not
+        // there — this is then the first screen after a start.
+        GateSurface {
+            Column {
+                SettingsRestoreBanner()
+                ActivateRoute(onDone = { SetupSignals.refresh() })
+            }
+        }
         return
     }
 

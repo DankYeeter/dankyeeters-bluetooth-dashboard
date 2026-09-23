@@ -5,7 +5,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import org.json.JSONArray
 import org.json.JSONException
@@ -62,6 +66,9 @@ interface SettingsLedger {
 
     /** A failure means the ledger could not be read — never an empty list in disguise. */
     suspend fun entries(): Result<List<LedgerEntry>>
+
+    /** [entries] as it changes. The default answers once, for ledgers that cannot be watched. */
+    val changes: Flow<Result<List<LedgerEntry>>> get() = flow { emit(entries()) }
 
     /** Only after the way back is confirmed by read-back. Throws if the ledger cannot be read. */
     suspend fun remove(entry: LedgerEntry)
@@ -133,13 +140,17 @@ class SettingsLedgerStore(private val dataStore: DataStore<Preferences>) : Setti
         false
     }
 
-    override suspend fun entries(): Result<List<LedgerEntry>> = try {
-        Result.success(decode(dataStore.data.first()[KEY_ENTRIES]))
-    } catch (e: IOException) {
-        Result.failure(e)
-    } catch (e: JSONException) {
-        Result.failure(e)
-    }
+    override val changes: Flow<Result<List<LedgerEntry>>> = dataStore.data
+        .map { prefs ->
+            try {
+                Result.success(decode(prefs[KEY_ENTRIES]))
+            } catch (e: JSONException) {
+                Result.failure(e)
+            }
+        }
+        .catch { e -> if (e is IOException) emit(Result.failure(e)) else throw e }
+
+    override suspend fun entries(): Result<List<LedgerEntry>> = changes.first()
 
     override suspend fun remove(entry: LedgerEntry) {
         dataStore.edit { prefs ->
