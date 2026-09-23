@@ -41,22 +41,37 @@ Pin-Satz, „Start Arm B", „device discovery") → ui-ux-designer Review;
 Pruefphase mit QA am Quellstand; Geraeteabnahme zusammen mit T-036.
 Nicht gebaut: Schutz, falls ein Arm nach Stufen-/Codecwechsel ungepinnt
 neu startet (T-047i an Director) — Beschlossen, nicht beauftragt.
-**Geraet:** T-048 (QA-Pruefliste) pausiert seit 18:11, Telefon gesperrt,
-wartet auf Entsperren; T-049a..c (Inventur, T-036, T-037) danach.
+Nutzer 19:16: „Workarounds" und zweiter Rueckweg-Knopf bleiben.
+**Geraetesession 23.09. 18:00–22:57 (ohne Nutzerhandgriffe):**
+- T-048 QA-Pruefliste (APK `bb8fbe2`): 9 PASS, FAIL durch F-012 (P2);
+  4/5b aus Zeit, 3c ohne Nutzer nicht geprueft. F-012 behoben (T-050,
+  `b4d39e3`), Retest T-050r am Geraet PASS (Arm-A-Teil nicht pruefbar).
+- T-049a Inventur `docs/perf/T-049a-inventur.md` (F-011 siehe unten).
+- **T-036 Trennmessung** `docs/perf/T-036-trennmessung.md`: 990 gepinnt,
+  **mit** 2,4-GHz-WLAN 26,4 min: 19 `dropouts` in einem Cluster plus
+  Reconnect (Lauf 1 verworfen, lief in Verlustphase); **ohne** 30,25 min:
+  0 Verluste, 0 BQR, 0 Reconnects. Loest T-029/T-032 zugunsten WLAN-2,4-GHz
+  als Ausloeser (je Arm ein Lauf). **Doppelaufnahme AK-T009-24 nicht
+  hergestellt** (Episode zu kurz).
+- **T-037** `docs/perf/T-037-callback-probe.md`: strukturell blockiert —
+  `BluetoothAdapter` ist unter rohem `app_process` `null`; braucht echten
+  App-Bootstrap oder AIDL (Bau-, kein Messschritt) → architect.
+- Suite nach T-050: 2610/0 (developer-Angabe, nicht nachgemessen).
 
 **Beim Nutzer — offen (am Laufende fragen):**
-0. UI_SPEC.md:3512 — Kategoriename „Workarounds" und zweiter Rueckweg-Knopf
-   im Vergleichsergebnis (gebaut nach Empfehlung der Spec).
+0. **F-014 (P2, AK-4):** Hintergrund-Sampler fragt bei geschlossenem Monitor
+   und spielender Musik alle 30 s `dumpsys bluetooth_manager` ab
+   (`SamplingPolicy.kt:33`, gemessen T-050r) — AK-4-Wortlaut aendern oder
+   Sampler abschalten/an Monitor binden?
 1. Sample-Rate-Wechsel im Beobachtungslauf beenden?
 2. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
 3. Drei Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
 
-**Geraetesession 23.09. abends:** W-7..W-9 (AD-025) mit Geraetevergleich;
-T-036/T-037 — **Monitor-Ansicht dabei geschlossen halten**, sie pollt
-`dumpsys bluetooth_manager` alle 0,5–5 s (`DumpsysLinkSource.kt:19`) und leert
-damit laut R-011 die BQR-Queue (T-045); Pruefliste aus
-`docs/berichte/T-043a-qa-engineer.md` („Nur mit Geraet“, 10 Punkte);
-Einstellungs-Inventur P-3 (T-045), dabei F-011 klaeren.
+**Naechste Geraetesession:** W-7..W-9 (AD-025); T-048 Punkte 3c, 4, 5b;
+Saeule-3-Abnahme (Vergleich verlangt USB ab → Wireless-Debugging oder
+Nutzer); AK-4 Bildschirm-aus-Messung. **Kein `dumpsys bluetooth_manager`
+zur Zwischenkontrolle — leert die BQR-Queue (R-011); App und Helfer vor
+jeder Messung beenden (F-014).**
 
 **Beschlossen, nicht beauftragt:** F-004, F-005, F-009 (QA-C), SR-023,
 SR-024, F-011 (Nutzertext „only a rooted phone can change“ in
@@ -67,32 +82,6 @@ war insoweit falsch, der Satz steht weiter im Code; Wortlaut gegen AK-10 neu
 bewerten, `docs/perf/T-049a-inventur.md`), F-013 (P3), neu-C am Geraet bestaetigt.
 Messbefunde und Tuning-Grundlagen (frueher hier):
 `docs/archiv/state-messbefunde-2026-09-03.md`.
-
-**Mit Geraet:** 
-T-036, die Trennmessung.
-30 min bei gepinnten 990 **mit** 2,4-GHz-WLAN-Assoziation gegen 30 min **ohne**.
-Sie leistet drei Dinge auf einmal:
-
-1. Klaert den Widerspruch **T-029 gegen T-032** (siehe unten).
-2. Testet **Massnahme 1** aus R-010 — die einzige mit eigener Messung.
-3. Liefert die **Doppelaufnahme**, die AK-T009-24 am Geraetedump belegbar macht.
-
-**Bedingungen an den Lauf:**
-- Kein `dumpsys bluetooth_manager` zur Zwischenkontrolle — **das leert die
-  BQR-Queue** (R-011). Das gilt ab jetzt fuer jeden Auftrag.
-- Fuer die Doppelaufnahme: zwei Dumps im Abstand von ~4 min aus **einem
-  Intervall, in dem `underflow` sich nicht bewegt, waehrend `dropouts`
-  zaehlen**. Grund: `UI_SPEC.md:2361` formuliert AK-T009-24 als Snapshot ueber
-  ein **Fenster** (`underflows` = 0, `dropouts` = 21 **in 97 s**), also
-  Fensterwerte statt absoluter Zaehlerstaende. Genau so trat es in T-022 auf
-  (`underflow` 623 → 623 bei steigenden `dropouts`).
-- Zustandsbuch **je Abschnitt** pruefen, nicht nur am Anfang.
-
-**Danach T-037, eigener kurzer Lauf:** Callback registrieren, echtes
-BQR-Ereignis abwarten, dann **einmalig** pruefen, ob es im Dump noch steht.
-Beantwortet die letzte Frage zu AK-7. Braucht Stoerung, deshalb nach der
-2,4-GHz-Zelle — und **getrennt**, damit der `dumpsys`-Aufruf T-036 nicht
-verfaelscht.
 
 
 ## AK-17 / T-039 — Beobachtungslauf: gebaut (T-039b), Fixe in T-044
@@ -156,8 +145,9 @@ braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen
 
 | ID | Rolle | Thema | Status |
 |---|---|---|---|
-| T-036 | performance-tuner | Trennmessung 2,4 GHz bei 990 + Doppelaufnahme | **naechster Schritt**, braucht Geraet |
-| T-037 | performance-tuner | Callback-Probe, letzte AK-7-Frage | nach T-036 |
+| T-036 | performance-tuner | Doppelaufnahme AK-T009-24 (Trennmessung selbst erledigt 23.09.) | offen, braucht Verlustphase am Geraet |
+| T-037 | architect | Callback-Probe braucht App-Bootstrap/AIDL (`docs/perf/T-037-callback-probe.md`) | offen, Entwurf noetig |
+| Pruefphase Z4 | ui-ux-designer (Review), qa-engineer | Saeule 3 + T-050 am Quellstand | naechster Zyklus |
 | T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
 | T-008 | performance-tuner | E-1/E-3 (Nearby-Scans, Spatializer aus) | offen, **kein Shell-Hebel**, nur von Hand |
