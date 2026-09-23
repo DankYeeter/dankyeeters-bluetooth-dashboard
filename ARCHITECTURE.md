@@ -26,13 +26,17 @@ Datenfluss: Helper → Rohtext → reiner Parser → Momentaufnahme + Ereignisse
 Repository/Ansicht. Aenderungen laufen den umgekehrten Weg und **immer mit
 Read-back**: eine angenommene Schreibung ist kein Beleg.
 
+Seit AD-030 ff. (23.09.) kommt Saeule 3 dazu: ein gefuehrter Vorher/Nachher-
+Vergleich aus zwei Beobachtungslaeufen und einer reinen Vergleichsfunktion,
+und ein Ledger, das vor jedem ersten Schreiben den Ausgangszustand festhaelt.
+
 ## Struktur
 
 | Modul | Verantwortung |
 |---|---|
 | `:core-audio` | DSP- und EQ-Grundtypen |
 | `:core-hearing` | Hoertest und Kompensationskurven |
-| `:core-monitor` | Beobachtung der Strecke: Parser, Live-Quelle, Ereignisse, Room-Historie, gefuehrte Laeufe (`diagnostic/`) |
+| `:core-monitor` | Beobachtung der Strecke: Parser, Live-Quelle, Ereignisse, Room-Historie, reine Logik des gefuehrten Vorher/Nachher-Prozesses (`optimize/`, AD-037; `diagnostic/` faellt mit T-046) |
 | `:core-system` | Zustand des Telefons: Geraeteprofile, `Settings.Global`, Systemeigenschaften, EQ-Anbindung, Dienste |
 | `:app` | Oberflaeche, privilegierter Helper und Transport, Verdrahtung |
 
@@ -119,9 +123,14 @@ wird; Ports und reine Logik machen es machbar, aber es waere ein Umzug.
 
 **Umkehrbarkeit:** mittel — ein Paketumzug plus Gradle-Modul, kein Datenmodell.
 
+**Nachtrag 2026-09-23 (T-047a):** Das Vorbild `DeviceDiagnosticRunner` ist
+**abgeloest durch T-046** (entfernt, AK-12). Die Entscheidung selbst stuetzt
+sich nicht darauf und bleibt; die reine Logik des Vorher/Nachher-Prozesses liegt
+nach demselben Muster in `:core-monitor` (`optimize/`, AD-037).
+
 ---
 
-### AD-003 — Zwei Phasen: Bestandsaufnahme immer, Belege einzeln freigegeben (2026-08-31, Status: aktiv)
+### AD-003 — Zwei Phasen: Bestandsaufnahme immer, Belege einzeln freigegeben (2026-08-31, Status: teilweise abgeloest durch AD-037 — Phase 2)
 
 **Kontext:** Ein Scan, der alles misst, dauert Minuten und braucht laufende
 Musik. Ein Scan, der nur liest, ist in zwei Sekunden fertig und beantwortet
@@ -147,6 +156,13 @@ Lieferung. Dauerhaft schwer wird ein Scan, der ueber Stunden mitlaeuft — das i
 Absicht.
 
 **Umkehrbarkeit:** leicht.
+
+**Nachtrag 2026-09-23 (T-047a):** Phase 2 (einzeln freigegebene Wirkungsbelege)
+ist fuer Umgebungsmassnahmen **abgeloest durch AD-037**: der gefuehrte Prozess
+misst dieselbe Frage, mit dem Nutzer als Ausfuehrendem statt der App. Die
+Bauform "Lauf lebt im Scope des Bildschirms, kein Service" bleibt und gilt fuer
+den Prozess (AD-030). Der Verweis auf `DeviceDiagnosticRunner` ist Geschichte
+(T-046).
 
 ---
 
@@ -177,7 +193,7 @@ knappe, marketing-taugliche Zeile — auch das ist Absicht.
 
 ---
 
-### AD-005 — WLAN-Fakten als typisierte, lesende Helper-Operation, nicht als Whitelist-Exec (2026-08-31, Status: aktiv — **braucht Freigabe durch `security-reviewer` und `director`**)
+### AD-005 — WLAN-Fakten als typisierte, lesende Helper-Operation, nicht als Whitelist-Exec (2026-08-31, Status: ruht — nicht gebaut; Saeule 3 kommt ohne neues Helfer-Kommando aus, AD-035)
 
 **Kontext:** Das Band des aktiven WLAN-Links und die affiliierten MLO-Links sind
 die einzige Katalog-Position, die mit den vorhandenen Zugriffen gar nicht
@@ -216,7 +232,7 @@ Ein Rueckbau kostet dasselbe noch einmal.
 
 ---
 
-### AD-006 — Zwei Scan-Schalter duerfen geliehen werden; das loest eine dokumentierte Gegenposition ab (2026-08-31, Status: aktiv — **braucht Antwort des App Designers, offene Frage 1**)
+### AD-006 — Zwei Scan-Schalter duerfen geliehen werden; das loest eine dokumentierte Gegenposition ab (2026-08-31, Status: ruht — Nutzer 23.09. F3: kein Leihen der Scan-Schalter im Prozess, AD-035; offene Frage 1 bleibt unbeantwortet)
 
 **Kontext:** `wifi_scan_always_enabled` und `ble_scan_always_enabled` sind die
 zwei plausibelsten periodischen 2,4-GHz-Verbraucher. Ohne sie zu veraendern
@@ -247,7 +263,7 @@ Vertrauen, wenn eine Rueckgabe je fehlschlaegt.
 
 ---
 
-### AD-007 — Geliehene Einstellungen haben ein persistiertes Ledger in `:core-system` (2026-08-31, Status: aktiv)
+### AD-007 — Geliehene Einstellungen haben ein persistiertes Ledger in `:core-system` (2026-08-31, Status: teilweise abgeloest durch AD-033 — Ort und "vor der Aenderung schreiben" bleiben; automatische Rueckgabe beim App-Start ruht, weil nichts mehr geliehen wird)
 
 **Kontext:** Ein Experiment, das eine Einstellung aendert und dann abstuerzt,
 laesst das Telefon veraendert zurueck — ohne dass irgendwer weiss, was.
@@ -274,7 +290,7 @@ gelingt.
 
 ---
 
-### AD-008 — Der Treppen-Optimierer wird Maschine des Scans, nicht eigenes Feature (2026-08-31, Status: aktiv)
+### AD-008 — Der Treppen-Optimierer wird Maschine des Scans, nicht eigenes Feature (2026-08-31, Status: ruht mit T-005; der Prozess aus AD-037 hat keine Treppe)
 
 **Kontext:** T-005 stellt den Optimierer aus T-003 zurueck, aber der Scan
 braucht selbst eine Treppe, um die geforderte Rate zu variieren.
@@ -302,7 +318,7 @@ etwas grundlegend anderes tut als messen, aendern, zurueckgeben.
 
 ---
 
-### AD-009 — Der Diskriminator laeuft vor der Umgebungserfassung (2026-08-31, Status: aktiv)
+### AD-009 — Der Diskriminator laeuft vor der Umgebungserfassung (2026-08-31, Status: teilweise abgeloest durch AD-032 — fuer den Vorher/Nachher-Vergleich gelten A/B und der Binomialtest statt A/B/A und 2sd; E-0 selbst ruht mit T-005)
 
 **Kontext:** Der belegte Befund ist ein Stocken im ~3-s-Takt bei gepinnt 990.
 `docs/state.md` nennt zwei Deutungen: einen periodischen Stoerer und einen
@@ -730,7 +746,8 @@ sagt, ob dort noch etwas liegt. Ein "erledigt" ohne beobachteten Binder-Tod und
 ohne ENOENT gibt es nicht.
 
 **Bauform:** eine Coroutine im Scope des Bildschirms, der sie ausgeloest hat —
-dieselbe Gattung wie `DeviceDiagnosticRunner` und wie AD-003 es fuer den Scan
+dieselbe Gattung wie `DeviceDiagnosticRunner` (Verweis abgeloest durch T-046,
+Klasse entfernt; die Bauform bleibt) und wie AD-003 es fuer den Scan
 festgelegt hat. Kein Service, kein WorkManager, kein Timer. `btperf` fasst sie
 nicht an (SR-012, fremdes Eigentum).
 
@@ -1763,6 +1780,599 @@ zu „Oboe NDK“)→W-8→W-9. Die vier Straenge beruehren keine gemeinsame Dat
 
 ---
 
+<!-- Saeule 3 — T-047a, 2026-09-23. Grundlage: docs/berichte/T-045-architect.md §2-4,
+     Nutzerentscheide F1-F5 und Directorentscheid F-D1 vom 23.09. (docs/tasks/T-047.md). -->
+
+### AD-030 — Der Vergleich besteht aus zwei `ObservationRun`s und einer reinen Funktion (2026-09-23, Status: aktiv)
+
+**Kontext:** AK-13 verlangt Vorher und Nachher „mit denselben Groessen und
+derselben Dauer". `ObservationRun` (AK-17, `link/live/ObservationRun.kt`) zaehlt
+bereits abgedeckte Intervalle mit der **einen** Lueckenregel `isReadingGap`,
+deren KDoc ausdruecklich sagt, dass es genau eine geben soll (`:6-13`). Es fehlen
+ihm fuer den Vergleich vier Dinge: die Aussetzer-Zaehlung, ein Ende bei
+Zieldauer, die Kadenz und ein lesbarer Link.
+
+**Optionen:**
+A. **Eigener `ComparisonRun`** mit Armen, Phasen und Zaehlung. Konsequenz: eine
+zweite Zaehl- und Lueckenlogik neben `ObservationRun`; genau das Muster, das
+`isReadingGap` verhindern soll.
+B. **Zwei `ObservationRun`s plus `compare(before, after)`** als reine Funktion;
+die Phasen (waehlen, Arm A, anleiten, Arm B, Ergebnis) haelt ein Controller in
+`:app` nach dem Vorbild `ObservationRunController`.
+C. **Im Bestand bleiben:** der Nutzer startet zwei Beobachtungslaeufe von Hand
+und vergleicht selbst. Konsequenz: keine Nachweisgrenze, keine Gleichheit der
+Dauer — AK-13 unerfuellt.
+
+**Entscheidung:** B. `ObservationRun` bekommt genau diese Ergaenzungen:
+
+```kotlin
+// core-monitor/.../link/live/ObservationRun.kt
+enum class RunEnd { /* bestehende + T-046 */ TARGET_REACHED }   // Zieldauer erreicht
+data class ObservationRun(
+    // ... bestehende Felder ...
+    /** MEASURED (vom System gemeldet): Summe der `dropouts`-Zuwaechse ueber abgedeckte Intervalle. */
+    val dropouts: Long = 0L,
+    /** Abgedeckte Zeit, in der der Zaehler an einem Ende fehlte oder rueckwaerts lief. */
+    val dropoutsUncountedMs: Long = 0L,
+    /** Die erwarteten Poll-Intervalle, die abgedeckte Intervalle trugen. */
+    val cadencesMs: Set<Long> = emptySet(),
+    val targetMs: Long? = null,
+    val link: RunLink? = null,              // bisher private, jetzt lesbar
+    private val lastDropoutTotal: Long? = null,   // tx.dropoutCount der letzten Raten-Lesung
+)
+companion object { fun startedAfter(afterMs: Long?, targetMs: Long? = null): ObservationRun }
+```
+
+- Gezaehlt wird aus dem **absoluten** Zaehler `snapshot.tx?.dropoutCount`, nicht
+  aus `txDelta.dropouts`: `LiveLinkSource.txDelta` macht aus einem fehlenden
+  Zaehler `?: 0` (`LiveLinkSource.kt:381`), und eine erfundene Null waere der
+  Freispruch aus AK-3. Fehlt der Wert an einem Ende oder faellt er, landet das
+  Intervall in `dropoutsUncountedMs`, nicht in `dropouts`.
+- `TARGET_REACHED` setzt `withRate`, sobald `observedMs >= targetMs`. Die
+  Ueberschreitung ist hoechstens ein Intervall; AD-032 rechnet sie exakt ein.
+- Ein AK-17-Lauf (`targetMs == null`) verhaelt sich wie heute.
+
+**Konsequenzen:** Eine Zaehlregel, eine Lueckenregel, ein Test-Satz. Der
+Vergleich erbt T-046s Pausengrenze ohne eigenen Code. Dauerhaft schwer wird ein
+Vergleich ueber etwas anderes als abgedeckte Intervalle — das ist Absicht.
+
+**Umkehrbarkeit:** leicht (nichts persistiert).
+
+---
+
+### AD-031 — Die Messgroesse ist die `dropouts`-Zaehlung bei gepinnten 990 (2026-09-23, Status: aktiv — Nutzer 23.09. F1)
+
+**Kontext:** Nur bei gepinnten 990 treten auf diesem Geraet Verluste auf; unter
+ABR wurde 990 nie gehalten (`LiveLinkPanel.kt:576`), vorher und nachher stuenden
+dort beide auf null. Im gepinnten Modus fehlen nur die ABR-Zeilen, nicht Rate
+und Verlustzaehler (AD-022, Randbedingung dort: drei 990er-Dumps des Pixel 11 Pro).
+
+**Optionen:** A. `dropouts` bei 990 gepinnt. B. Anteil ≥ 990 unter ABR —
+signallos (s. o.). C. `dropped` statt `dropouts` — zaehlt je Raeumung viele
+Eintraege (Beispiel „one window with 525 dropped packets", KDoc `lossCount`,
+`LinkLiveModels.kt:671`); ein Binomialtest ueber abhaengige Einzelereignisse
+waere falsch.
+
+**Entscheidung:** A. Der Kanal ist `TxLossChannel.STACK_DROPOUTS`; eine Episode
+zaehlt einmal. Preis, vom Nutzer angenommen: waehrend der Arme sind Aussetzer
+hoerbar.
+
+**Konsequenzen:** Der Prozess pinnt 990 vor Arm A (AD-033 haelt den Zustand
+davor). `compare` verlangt denselben `RunLink` in beiden Armen, also dieselbe
+Stufe, Familie und Abtastrate. Laeuft der Link in der 44,1-kHz-Familie, ist die
+Stufe 909, nicht 990 — der Messrahmen nennt die gemessene Stufe, nicht die
+gewuenschte.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-032 — A/B mit je 15 min, exakter bedingter Binomialtest, α als Konvention (2026-09-23, Status: aktiv — Nutzer 23.09. F2)
+
+**Kontext:** AK-13 verlangt, dass eine Wirkung innerhalb der Nachweisgrenze als
+solche benannt wird. R-F (`UI_SPEC.md:2226`) verbietet Raten je Minute in der
+Verlustanzeige. Aussetzer kommen in Clustern mit Ruhephasen bis 4,4 min (R-010 C4).
+
+**Optionen:**
+A. **A/B, 15 min je Arm, exakter bedingter Binomialtest** auf zwei Zaehlungen.
+Konsequenz: 30 min; Drift steckt ungetrennt in der Differenz und wird im
+Messrahmen benannt.
+B. **A/B/A nach AD-009.** Robust gegen Drift, 45 min — vom Nutzer nicht gewaehlt.
+C. **2sd-Regel aus AD-009.** Braucht eine Streuung aus Wiederholungen, die es
+bei 990 nicht gibt; jede Zahl waere erfunden.
+
+**Entscheidung:** A.
+
+```kotlin
+// core-monitor/.../optimize/Comparison.kt
+const val ARM_TARGET_MS = 15 * 60_000L       // F2
+/** Konvention, keine Messung. Je Richtung einseitig; die Chance auf einen falschen
+ *  Befund in *irgendeine* Richtung ist damit bis 2α — so im KDoc benannt. */
+const val DETECTION_ALPHA = 0.05
+
+data class Arm(val run: ObservationRun, val start: ConditionBook, val end: ConditionBook)
+
+enum class Verdict { FEWER_DETECTED, MORE_DETECTED, WITHIN_DETECTION_LIMIT, NO_BASELINE_EVENTS }
+
+sealed interface NotComparable {
+    data object ArmAIncomplete : NotComparable      // before.run.end != TARGET_REACHED
+    data object ArmBIncomplete : NotComparable      // after.run.end != TARGET_REACHED
+    data object LinkDiffers : NotComparable         // before.run.link != after.run.link
+    data object CadenceDiffers : NotComparable      // cadencesMs nicht beide dieselbe Einermenge
+    data object DropoutsUncounted : NotComparable   // dropoutsUncountedMs > 0 in einem Arm
+    data class ConditionChanged(val condition: Condition, val where: Where) : NotComparable
+    data class MeasureNotInEffect(val condition: Condition) : NotComparable
+    enum class Where { IN_ARM_A, IN_ARM_B, BETWEEN_ARMS }
+}
+
+sealed interface ComparisonResult {
+    data class NotComparableResult(val reasons: List<NotComparable>) : ComparisonResult
+    data class Compared(
+        val before: Arm, val after: Arm, val measure: Measure,
+        val verdict: Verdict, val pValue: Double,
+        val verification: Verification,            // Rueckgelesen? (AD-035)
+        val notChecked: List<Condition>,           // nicht lesbare Bedingungen, im Rahmen genannt
+    ) : ComparisonResult
+}
+
+fun compare(before: Arm, after: Arm, measure: Measure): ComparisonResult
+/** Kleinste Vorher-Zaehlung, bei der "0 nachher" nachweisbar ist (gleiche Dauer). */
+fun smallestDetectableBaseline(alpha: Double = DETECTION_ALPHA): Int
+```
+
+Rechnung: a = `before.run.dropouts`, b = `after.run.dropouts`, n = a + b,
+p0 = tB / (tA + tB) mit t = `observedMs`. Unter H0 gilt b ~ Bin(n, p0).
+`FEWER_DETECTED`, wenn P(X ≤ b) ≤ α; `MORE_DETECTED`, wenn P(X ≥ b) ≤ α; sonst
+`WITHIN_DETECTION_LIMIT`. Ist a = 0 und nicht `MORE_DETECTED`, lautet das
+Urteil `NO_BASELINE_EVENTS` (F2: „keine Wirkung nachweisbar"). Die Summe laeuft
+im Log-Raum, weil 0,5^n fuer n > 1074 in `Double` auf null faellt. Verglichen
+werden Zaehlungen mit ihrem Fenster, keine Rate — R-F bleibt.
+
+**Warum p0 aus den Dauern statt 1/2:** Arm B endet erst nach dem Intervall, das
+tA ueberschreitet (AD-030). Die Gewichtung macht den Test fuer diese Ueberschreitung
+exakt; bei gleicher Dauer ist p0 = 1/2 und die Literale unten gelten wortgleich.
+
+**Konsequenzen:** Die Nachweisgrenze ist ein Satz, den die App ausrechnet, nicht
+ein Wert, den jemand eintraegt: bei α = 0,05 sind **5 gegen 0** nachweisbar
+(p = 1/32), **4 gegen 0 nicht** (p = 1/16). Bei der T-029-Rate (10 Cluster in
+25 min) reichen 15 min im Mittel dafuer; bei der T-032-Lage (0 in 27,78 min)
+sagt die App `NO_BASELINE_EVENTS`. Dauerhaft schwer: ein Urteil ueber
+Wirkungs*groesse* — der Test sagt nur, ob ein Unterschied nachweisbar ist.
+
+**Umkehrbarkeit:** leicht — α und Armlaenge sind Konstanten.
+
+---
+
+### AD-033 — Das Ledger haelt den Ausgangszustand vor dem ersten Schreiben; „geliehen" entfaellt im ersten Schnitt (2026-09-23, Status: aktiv — **Freigabe `director`**: Persistenz, kehrt einen Teil von AD-007 und das HD-Audio-Verhalten aus `HdAudioTest.kt:201` um)
+
+**Kontext:** AK-11 verlangt: vor dem ersten Setzen den Ausgangszustand
+festhalten, jeden selbst gesetzten Wert wiederherstellen koennen, mit **einer**
+Handlung zurueck. Heute gibt es kein Ledger (`ledger|priorValue|valueBefore`: 0
+Treffer im Hauptcode, T-045). T-045 schlug zwei Arten vor: „geliehen" (App setzt
+fuer ein Experiment, geht automatisch zurueck) und „gewaehlt" (Nutzer setzt,
+geht nur auf Wunsch zurueck).
+
+**Wer schreibt heute Audiopfad-Einstellungen** (Grep `write(key|setEnabled|
+clear|hdAudio.apply|LdacTuning.pin` in `app/src/main` und `core-system/src/main`,
+23.09., Arbeitsbaum `d5b262c`): `DeviceProfileApplier` (Globals :189,
+Absolute Volume :117/:132, HD-Audio :245, Codec), `DeviceProfilesViewModel`
+(`setGlobalNow` :310, `setAbsoluteVolumeNow` :478), `LdacTuning.pin` (aus
+`DeviceProfilesViewModel.kt:502` und `MonitorViewModel.kt:405`).
+
+**Optionen:**
+A. **Zwei Arten nach T-045.** Konsequenz: Mit F3 leiht der Prozess nichts mehr
+aus — die einzige App-eigene Schreibung ist das 990-Pinnen, und 990 ist das
+Ziel des Nutzers. Eine automatische Rueckgabe nach dem Vergleich oder beim
+naechsten Start machte genau den Zustand rueckgaengig, den der Prozess
+herstellen soll. Die Art „geliehen" haette keinen einzigen Nutzer.
+B. **Eine Art: Ausgangszustand je Einstellung vor dem ersten Schreiben der App**,
+ein Rueckweg fuer alles. Das 990-Pinnen des Prozesses ist eine Wahl des Nutzers,
+der den Prozess mit dem Satz „pinnt 990" startet.
+C. **Nur `finally` im Prozess.** Deckt keinen getoeteten Prozess und keine
+Schreibung ausserhalb des Prozesses — AK-11 unerfuellt.
+
+**Entscheidung:** B. **Benannter Widerspruch zu AD-007:** dort geht Geliehenes
+beim App-Start automatisch zurueck; hier geht nichts automatisch zurueck, alles
+mit der einen Handlung. Ort bleibt `:core-system`, Schreiben **vor** der
+Aenderung bleibt. Die Art „geliehen" kommt zurueck, sobald AD-006 beantwortet und
+eine Leihgabe beschlossen ist.
+
+```kotlin
+// core-system/.../devices/SettingsLedger.kt
+sealed interface LedgerEntry {
+    /** Settings.Global: die vier Entwickleroptionen und `bluetooth_disable_absolute_volume`.
+     *  prior == null heisst "Schluessel war nicht gesetzt" -> Rueckweg ist `clear`. */
+    data class Global(val key: String, val prior: String?) : LedgerEntry
+    /** Vom Stack je Geraet persistiert (R-010 C4: a2dpOptionalCodecsEnabled). */
+    data class HdAudio(val deviceKey: String, val prior: HdAudioPreference) : LedgerEntry
+    /** Profilwunsch und Live-Stufe; priorLive == null: vorher nicht lesbar/nicht verbunden. */
+    data class Ldac(val deviceKey: String, val priorWish: CodecPreference?, val priorLive: Long?) : LedgerEntry
+}
+/** Gleiche Einstellung = gleicher Typ und gleicher key/deviceKey. */
+fun List<LedgerEntry>.withBaseline(entry: LedgerEntry): List<LedgerEntry>   // rein; vorhandene gewinnt
+
+interface SettingsLedger {
+    /** Persistiert [entry], falls fuer diese Einstellung noch keins liegt. false = nicht
+     *  persistiert -> der Aufrufer schreibt NICHT. */
+    suspend fun recordIfAbsent(entry: LedgerEntry): Boolean
+    suspend fun entries(): List<LedgerEntry>
+    suspend fun remove(entry: LedgerEntry)
+}
+object NoSettingsLedger : SettingsLedger        // Default fuer Bestandstests, wie UnavailableHdAudioController
+class SettingsLedgerStore(context: Context) : SettingsLedger   // DataStore "settings_ledger", ein JSON-Schluessel, org.json
+
+/** Liest den Vorwert und haelt ihn fest. false: Aufrufer ueberspringt die Schreibung. */
+suspend fun SettingsLedger.recordGlobal(settings: SecureSettingsController, key: String): Boolean
+/** Unreadable -> false, ausser es liegt schon ein Eintrag fuer das Geraet. */
+suspend fun SettingsLedger.recordHdAudio(deviceKey: String, before: HdAudioState): Boolean
+```
+
+Regeln:
+- **Keine erste Schreibung ohne festgehaltenen Vorwert.** Ist der Vorwert nicht
+  lesbar und liegt noch kein Eintrag, wird nicht geschrieben; der Grund steht als
+  `ProfileAction.Skipped` bzw. im Satz des Bildschirms. Das kehrt die dokumentierte
+  Haltung „an unreadable state does not stop the write" (`HdAudioTest.kt:201-209`)
+  um — AK-11 geht vor. Liegt der Eintrag schon, wird geschrieben wie bisher.
+- **Randbedingung Globals:** `GlobalSettingsController.read` macht aus einem
+  Lesefehler `null` (`GlobalSettingsController.kt:34-36`). Ein Fehler wuerde also als
+  „nicht gesetzt" festgehalten, der Rueckweg waere `clear`. Geprueft ist nur, dass
+  diese Schluessel weltlesbar sind (KDoc `AbsoluteVolumeGate.kt:14`); ein Werfen
+  von `getString` ist nicht beobachtet.
+- **Codec-Familie aus Profilen** wird nicht festgehalten: der Stack haelt sie je
+  Verbindung, nicht dauerhaft (KDoc `LdacTuning`, „survive the reconnect"). Nach dem
+  Rueckweg setzt AD-034 das Autoapply aus; die Familie faellt beim naechsten
+  Verbinden auf den Stack-Standard. Der Rueckweg-Bericht sagt das.
+- **Nicht im Ledger:** Medienlautstaerke und EQ-Kompensation. Sie sind die
+  Hoerfunktion der App, keine Audiopfad-Einstellung im Sinn von AK-9 (offene Frage).
+- **Nicht sichern, nicht mitnehmen:** `backup_rules.xml` und
+  `data_extraction_rules.xml` schliessen heute `datastore/` ganz ein. Ein Ledger
+  auf einem neuen Telefon stellte Werte eines anderen Geraets her (AK-15-Geist).
+  Beide Dateien bekommen ein `<exclude domain="file"
+  path="datastore/settings_ledger.preferences_pb"/>` (drei Stellen).
+- **Eintraege verschwinden nur**, wenn ihr Rueckweg per Read-back bestaetigt ist.
+  Was nicht zurueckging, zeigt die App, bis es gelingt (AD-007, bleibt).
+- **D-001 beachten:** Ledger-Schreibungen nicht aus `viewModelScope` auf Main
+  ohne Abwarten im Test ausloesen (`docs/debug/D-001.md`).
+
+**Konsequenzen:** Jede Schreibung haengt an einem `suspend`-Aufruf davor; die
+drei Schreiber in `DeviceProfilesViewModel` werden dafuer `launch`-Bloecke. Eine
+kuenftige Schreibstelle muss `recordGlobal`/`recordHdAudio`/`recordIfAbsent`
+rufen — der Applier-Test prueft die Reihenfolge, fuer neue Schreiber gibt es
+keinen Waechter (Risiko unten).
+
+**Umkehrbarkeit:** mittel — eine neue DataStore-Datei. Loeschen verliert die
+Vorwerte; das Format ist ein JSON-String wie bei `DeviceProfileStore` und
+wiederverwendet dessen `CodecPreference`-Kodierung (internal machen, kein zweites
+Format).
+
+---
+
+### AD-034 — Der Rueckweg setzt das Autoapply der beruehrten Profile aus (2026-09-23, Status: aktiv — Director 23.09. F-D1)
+
+**Kontext:** Nach „zurueck auf vorher" schriebe das naechste Verbinden eines
+Profilgeraets die Profilwuensche sofort wieder (`DeviceProfileApplier.onDeviceConnected`,
+`if (!profile.autoApply)`).
+
+**Optionen:** A. Autoapply aller Profile aus. Konsequenz: auch reine EQ-/Lautstaerke-
+Profile verstummen. B. Autoapply nur der Profile aus, deren Wuensche eine
+Audiopfad-Einstellung beruehren. C. Profile unangetastet lassen — der Rueckweg
+haelt nur bis zum naechsten Verbinden.
+
+**Entscheidung:** B. Beruehrt heisst: `codecPreference != null ||
+developerOptions.isNotEmpty() || absoluteVolumeEnabled != null ||
+absoluteVolumeSystemDefault || hdAudio != null` (Felder aus `DeviceProfile.kt:28-77`).
+Das Aussetzen geschieht **zuerst**, vor den Rueckschreibungen, damit ein Verbinden
+waehrend des Rueckwegs nichts wieder anwendet. Es bleibt aus, bis der Nutzer den
+vorhandenen Schalter im Profil wieder einschaltet — kein neuer Zustand, kein Ledger-Eintrag.
+
+**Konsequenzen:** Ein beruehrtes Profil verliert auch seine EQ- und Lautstaerke-
+Wuensche, bis es wieder eingeschaltet ist; der Bericht nennt die Profile beim Namen.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-035 — Der Prozess leitet an und liest zurueck; die Lesbarkeit stellt die Laufzeit fest (2026-09-23, Status: aktiv — Nutzer 23.09. F3; loest die Abhaengigkeit von P-3)
+
+**Kontext:** F3: kein neues Helfer-Kommando, kein WLAN-Schalten, kein Leihen der
+Scan-Schalter. P-3 (Geraeteinventur) faellt in die Geraetesession; der Code darf
+nicht auf sie warten. AK-14 verlangt den Umgebungszustand am Ergebnis.
+
+**Optionen:**
+A. **Zustandsbuch aus vorhandenen Quellen**, Lesbarkeit zur Laufzeit: `Settings.Global`
+(`wifi_on`, `wifi_scan_always_enabled`), Battery-Sticky-Intent (`EXTRA_PLUGGED`) und
+der ohnehin gepollte Dump (zweite ACL-Verbindung, `Discovering:`). Nicht lesbar
+heisst `Unreadable(grund)` auf dem Schirm.
+B. **`WifiManager`** fuer Band und Assoziation. Braucht `ACCESS_WIFI_STATE`, fuer
+das Band je nach Feld Standortrechte (AD-005, Option A verworfen).
+C. **Erst P-3 abwarten**, dann die Kategorien fest einbauen. Blockiert den Bau.
+
+**Entscheidung:** A.
+
+```kotlin
+// core-monitor/.../optimize/Measures.kt
+enum class Condition(val stable: Boolean) {
+    WIFI_RADIO(true), WIFI_SCAN_ALWAYS(true), USB_POWER(true), OTHER_ACL_LINKS(true),
+    DISCOVERY_SEEN(false),   // Ereignis, kein Zustand: nur im Rahmen, blockiert nie
+}
+sealed interface ConditionValue {
+    data class Read(val value: String) : ConditionValue   // "on"/"off", "usb"/"other"/"none", "0".."n", "yes"/"no"
+    data class Unreadable(val reason: String) : ConditionValue
+}
+typealias ConditionBook = Map<Condition, ConditionValue>
+enum class Verification { VERIFIED, CONTRADICTED, NOT_VERIFIABLE }
+
+// app/.../ui/tuning/EnvironmentConditions.kt
+fun readConditions(context: Context, snapshot: LinkLiveSnapshot, discoverySeen: Boolean?): ConditionBook
+internal fun settingValue(raw: String?, error: Throwable?): ConditionValue   // "1"/"0" -> on/off, null -> Unreadable("not set on this phone"), Wurf -> Unreadable(message)
+internal fun usbValue(plugged: Int?): ConditionValue                         // USB -> "usb", AC/WIRELESS/DOCK -> "other", 0 -> "none", null -> Unreadable
+```
+
+- **Vergleichbarkeit (in `compare`):** Fuer jede `stable`-Bedingung gilt: beide
+  Enden eines Arms `Read` und verschieden → `ConditionChanged(IN_ARM_A|IN_ARM_B)`;
+  Ende A und Anfang B `Read` und verschieden → `ConditionChanged(BETWEEN_ARMS)`,
+  **ausser** es ist die Bedingung der gewaehlten Massnahme. `Unreadable` blockiert
+  nie, sondern landet in `notChecked` und im Rahmen.
+- **Rueckgelesen:** Die Massnahme nennt ihre Bedingung und was als umgesetzt gilt
+  (AD-037). Vor Arm B wird gelesen: `CONTRADICTED` startet Arm B nicht, `VERIFIED`
+  und `NOT_VERIFIABLE` schon; der Rahmen sagt, welches von beiden.
+- **Nur Kabel, nie „USB 3":** `EXTRA_PLUGGED` sagt, ob eine USB-Quelle speist, nicht
+  welche Signalisierung laeuft.
+- **Kein Band:** `wifi_on` sagt „Funk an", nicht „2,4 GHz". Bei A2 gilt deshalb
+  „off" als `VERIFIED`, „on" als `NOT_VERIFIABLE` (ein 5-GHz-Netz ist moeglich) —
+  nie als Widerspruch.
+- **`ble_scan_always_enabled` kommt nicht ins Zustandsbuch:** laut R-010 C7 wirkt
+  „Bluetooth-Scannen" nur bei ausgeschaltetem Bluetooth, im Prozess laeuft es
+  immer. Nach AK-12 erscheint Widerlegtes gar nicht. P-3 inventarisiert den
+  Schluessel trotzdem (AK-9).
+- **Discovery** liest jede Lesung eines Arms aus dem Dump; `DISCOVERY_SEEN` ist
+  „yes", wenn eine sie sah. Zwischen den Lesungen bleibt sie ungesehen, der Rahmen
+  sagt das.
+
+**Konsequenzen:** Kein neues Kommando, keine neue Permission, AK-10 bleibt leer
+erfuellt. P-3 bestaetigt spaeter nur, was die Laufzeit schon ehrlich meldet;
+aendert sich dabei eine Kategorie, ist das ein Text- und kein Strukturwechsel.
+Dauerhaft schwer: eine Aussage ueber das WLAN-Band. Sie kaeme erst mit AD-005.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-036 — AK-16 sagt „strukturell nicht bestimmbar", bis T-037 den Pakettyp klaert (2026-09-23, Status: aktiv — Nutzer 23.09. F4)
+
+**Kontext:** Ob eine Paarung 990 strukturell tragen kann, haengt am Pakettyp
+(R-010 Teil 0). Der ist nur ueber BQR lesbar, und dort wird nach AK-7 nichts
+gebaut. Die Luftzeitrechnung ist laut `GOAL.md` eigene Arithmetik. Auf dieser
+Paarung (MTU 883, `Support 3Mbps: true`) schlaege eine MTU-Regel ohnehin nie an.
+
+**Optionen:** A. Fester Satz „strukturell nicht bestimmbar" plus die lesbaren
+Paarungsfakten (P-2). B. MTU-Regel (≤ 351 → 990 unmoeglich) als Urteil. Konsequenz:
+ein Urteil aus einer Sekundaertabelle (Habr), ohne Messung — gegen AK-3.
+C. „Alle Massnahmen ohne nachweisbare Wirkung" als strukturelles Urteil. Konsequenz:
+ein empirischer Befund ueber getestete Bedingungen wird zur Aussage ueber die Paarung.
+
+**Entscheidung:** A. Kein Typ, keine Schnittstelle: ein Satz im Prozess, daneben
+die Fakten aus P-2 („3 Mbps: ja, MTU 883 — gelesen an dieser Paarung"), und
+ausdruecklich „Pakettyp und Wiederholrate: ohne BQR nicht lesbar". C wird nie
+als strukturell formuliert; da Vergleiche nicht persistiert werden (AD-037), gibt
+es im ersten Schnitt auch keinen Sammelsatz darueber.
+
+**Konsequenzen:** AK-16 ist erfuellt, indem die App ihre Grenze nennt. Ein echtes
+Urteil kommt erst mit T-037; dann ist es eine Erweiterung dieser Entscheidung.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-037 — Der Prozess gilt, wo er dasselbe tut wie Scan-Entwurf und Geraetetest; der Katalog ist Daten (2026-09-23, Status: aktiv — T-045 vorgesehen; F5)
+
+**Kontext:** Der ruhende Scan (T-005, AD-003/AD-008/AD-009) und der
+„Device test" (`DeviceDiagnostic`, entfernt in T-046, F5) ueberschneiden sich mit
+Saeule 3. AK-12 verlangt genau sechs belegte Massnahmen (R-010 A1–A5, A7), die
+Bitratensenker nur als „Ausweichen", Widerlegtes gar nicht.
+
+**Optionen:**
+A. **Der Prozess ist die eine Form des Vorher/Nachher**; Scan-Phase 2 und AD-009
+sind dafuer abgeloest (Statuszeilen oben), der Katalog ist eine Aufzaehlung in
+`:core-monitor/optimize/`.
+B. **Prozess neben dem Scan-Entwurf**, beide mit eigener Versuchslogik.
+Konsequenz: zwei Muster fuer dasselbe Problem, sobald T-005 erwacht.
+C. **Katalog als Texte in der UI.** Konsequenz: AK-12 haengt an Textbausteinen und
+ist nicht als Literal pruefbar (AD-004, Option A, derselbe Fehler).
+
+**Entscheidung:** A.
+
+```kotlin
+// core-monitor/.../optimize/Measures.kt
+/** R-010 Teil 1, in der Rangfolge dort. A6 fehlt: Eigenschaft, keine Einstellung. */
+enum class Measure(val r010: String, val condition: Condition?) {
+    NO_2_4_GHZ_WIFI("A2", Condition.WIFI_RADIO),
+    NO_DISCOVERY("A1", null),               // Ereignis, per Lesung nicht als abwesend belegbar
+    NO_SECOND_DEVICE("A3", Condition.OTHER_ACL_LINKS),
+    BODY_OUT_OF_PATH("A4", null),
+    USB_CABLE_OFF("A5", Condition.USB_POWER),
+    SINK_ALLOWS_LDAC("A7", null);
+    fun verify(value: ConditionValue?): Verification
+}
+/** R-010 Teil 2: senken die Bitrate. Nie als Behebung, nur unter "Ausweichen". */
+enum class Fallback { LOWER_STEP, ADAPTIVE_BITRATE, CODEC_CHANGE, FAMILY_44_1_KHZ }
+```
+
+`verify`: `condition == null` → `NOT_VERIFIABLE`; A2 siehe AD-035; A3 „0" →
+`VERIFIED`, sonst `CONTRADICTED`; A5 „none" → `VERIFIED`, sonst `CONTRADICTED`;
+`Unreadable` → `NOT_VERIFIABLE`. `Fallback` hat keinen Vergleich und kein
+Pinnen — es ist Wissen, keine Aktion. Die Texte liefert `UI_SPEC.md`; der Code
+kennt nur Kennungen.
+
+- **Keine Persistenz von Vergleichen.** Arm A liegt als Wert im
+  `MonitorViewModel` (wie der AK-17-Lauf) und uebersteht das Verlassen der App,
+  nicht den Prozesstod. Der Ablauf sagt das.
+- **Kein Ersatz fuer den Geraetetest** (F5): P-8 steht allein.
+
+**Konsequenzen:** AK-12 ist ein Literaltest. Wacht T-005 auf, baut der Scan auf
+`compare` und `Measure` auf, statt eine zweite Versuchslogik zu schreiben.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-038 — Bauschnitt fuer Saeule 3: sechs Laeufe aus P-2, P-4..P-9 (2026-09-23, Status: aktiv)
+
+**Kontext:** Schnitt P-1..P-9 aus T-045 §2. P-1 laeuft in T-046, P-3 in der
+Geraetesession. Regel: hoechstens fuenf Dateien mit eigener Logik je Lauf,
+Verdrahtung und Tests zaehlen nicht. **Alle Laeufe starten erst, wenn T-046 auf
+dem Branch liegt:** T-046 aendert `ObservationRun.kt`, `LinkLiveModels.kt`,
+`MonitorScreen.kt`, `MonitorViewModel.kt`, die hier wieder beruehrt werden.
+Keine Datenbank-Anweisung in diesem Schnitt (L-033 nicht beruehrt).
+
+| Lauf | P | Dateien mit Logik (Verdrahtung) | schreibt Einstellungen → Security-Vorlauf | UI-Spec liefert |
+|---|---|---|---|---|
+| **S3-1** | P-2 | `A2dpLinkDumpParser.kt`, `LinkLiveModels.kt` (`LiveLinkSource.kt`: Feld durchreichen) | nein | nichts (Anzeige in S3-6) |
+| **S3-2** | P-6, P-7 | `ObservationRun.kt`, neu `optimize/Comparison.kt`, neu `optimize/Measures.kt` | nein | nichts |
+| **S3-3** | P-5 (Kern) | neu `devices/SettingsLedger.kt`, `DeviceProfileApplier.kt`, `DeviceProfileStore.kt` (`CodecPreference`-JSON internal) (`SystemGraph.kt`, `backup_rules.xml`, `data_extraction_rules.xml`) | **ja** — Schreibpfad des Appliers, neue persistierte Vorwerte, Backup-Ausschluss | Skip-Grund „Wert vorher nicht lesbar, deshalb nicht umkehrbar — nicht geschrieben" |
+| **S3-4** | P-4 | neu `app/.../ui/tuning/EnvironmentConditions.kt` | nein (liest nur) | nichts (Anzeige in S3-6) |
+| **S3-5** | P-5 (Rueckweg) | `LdacTuning.kt`, neu `app/.../ui/tuning/SettingsRestore.kt`, `DeviceProfilesViewModel.kt`, `DeviceProfilesScreen.kt` (Instanz in der App-Verdrahtung) | **ja** — schreibt Globals, HD-Audio, Codec zurueck; setzt Autoapply aus | Knopf „zurueck auf vorher" (Bluetooth-Tab), Bestaetigung, Bericht: zurueckgestellt / nicht zurueck mit Grund / Autoapply ausgesetzt fuer {Profil} / Codec-Familie erst beim naechsten Verbinden; Dauerhinweis fuer offene Eintraege mit „erneut versuchen" |
+| **S3-6** | P-8, P-9, Anzeige P-2 | neu `ComparisonController.kt`, neu `ComparisonSection.kt`, `LiveLinkPanel.kt` (Paarungsfakten) (`MonitorViewModel.kt`, `MonitorScreen.kt`) | **ja** — pinnt 990 ueber den vorhandenen `LdacTuning.pin`-Pfad | Einstieg und Hinweis (F1: Aussetzer hoerbar); Massnahmenliste (6) und eigene Sektion „Ausweichen" (4) mit Begruendung, warum keine Behebung — Kategoriename muss als „Ausweichen" erkennbar sein; Anleitung je Massnahme; Rueckleseworte (bestaetigt / widerspricht / nicht pruefbar); Armfortschritt „{T} von 15 min beobachtet"; Armende-Gruende (Bestand + `TARGET_REACHED`); vier Urteilssaetze + je `NotComparable` ein Satz; **Messrahmen am Ergebnis**: beide Dauern, Stufe, Codec, Kadenz, Zustandsbuch Anfang/Ende je Arm, `notChecked`, Drift-Satz (F2), „relative Aussage ueber genau diese Bedingungen, keine Aussage ueber Alltagsqualitaet", Nachweisgrenze aus `smallestDetectableBaseline()`; AK-16-Satz; Paarungsfakten-Zeilen; Satz zum Prozesstod; Rueckweg-Knopf. R-A, R-F, R-G gelten. |
+
+**Schnittstellen je Lauf** (Signaturen der Kernlogik stehen in AD-030..AD-037):
+
+- **S3-1:** `data class PairingFacts(val edr: Boolean?, val threeMbps: Boolean?,
+  val otherAclLinks: Int?, val discovering: Boolean?)`; `A2dpLinkDump.pairing` und
+  `LinkLiveSnapshot.pairing: PairingFacts? = null`. `edr`/`threeMbps` aus dem
+  Peer-Block unter `A2DP Source State` (`EDR:`, `Support 3Mbps:`); `otherAclLinks`
+  = Zeilen mit `[ACL BR/EDR:Y` minus eins, wenn ein A2DP-Peer verbunden ist, nie
+  unter 0; `discovering` aus der ersten `Discovering:`-Zeile. Die effektive MTU
+  liegt schon in `LdacStackState.effectiveMtu`. Randbedingung der Zaehlregel:
+  in allen drei Pixel-11-Fixtures genau eine `Y`-Zeile, und die ist die Gegenstelle
+  (Grep 23.09.); ob andere Builds die aktive Verbindung anders auflisten, ist
+  nicht geprueft.
+- **S3-3:** Applier bekommt `ledger: SettingsLedger = NoSettingsLedger` als
+  letzten Konstruktorparameter (Muster `codec`/`hdAudio`). Vor `secureSettings.write/
+  clear` → `ledger.recordGlobal(secureSettings, key)`; vor `absoluteVolume.setEnabled/
+  clear` → `ledger.recordGlobal(secureSettings, KEY_DISABLE_ABSOLUTE_VOLUME)`; vor
+  `hdAudio.apply` → `ledger.recordHdAudio(key, before)` mit dem schon gelesenen
+  `before`. `false` → `Skipped`, keine Schreibung. `SystemGraph` baut
+  `SettingsLedgerStore` einmal (lazy) und reicht ihn hinein.
+- **S3-5:** `LdacTuning.pin` haelt vor `store`/`apply` `LedgerEntry.Ldac(key,
+  profil?.codecPreference, LdacQuality.codeOf(live mode) oder null)` fest.
+  `setGlobalNow`/`setAbsoluteVolumeNow` rufen `recordGlobal` in einem `launch`.
+  ```kotlin
+  class SettingsRestore(
+      ledger: SettingsLedger, globals: SecureSettingsController, hdAudio: HdAudioController,
+      profiles: DeviceProfileStore, connected: suspend () -> List<BtAudioDevice>,
+      requestLdac: suspend (address: String, quality: Long) -> CodecApplyOutcome,
+  ) { suspend fun restoreAll(): RestoreReport }
+  data class RestoreReport(
+      val restored: List<LedgerEntry>,
+      val pending: List<Pair<LedgerEntry, String>>,   // Grund, woertlich
+      val autoApplyPausedFor: List<String>,           // Profilnamen
+  )
+  ```
+  Reihenfolge: Autoapply aussetzen (AD-034) → Globals (`prior == null` → `clear`) →
+  HD-Audio (nur verbundene Geraete, Zuordnung per `DeviceKey.fromAddress`) → LDAC
+  (Profil `codecPreference = priorWish`; live nur wenn verbunden und `priorLive != null`;
+  `NONE` wird als `ADAPTIVE` angefragt). Eintrag weg nur bei Read-back-Erfolg;
+  Nicht-Verbunden gilt beim Live-Teil als erledigt (die Stufe stirbt mit der Verbindung).
+- **S3-6:** `ComparisonController(scope)` nach dem Muster `ObservationRunController`:
+  `onReading(snapshot, expectedIntervalMs)` fuettert den laufenden Arm und merkt
+  `discovering`; Phasen `Choose → PinAndCheck → ArmA → Instruct → ArmB → Result`;
+  Pinnen ueber `LdacTuning.pin(HIGH_QUALITY, shownAddress = …)`, weiter nur bei
+  `CodecApplyOutcome.Applied`; Arm A `startedAfter(newest, ARM_TARGET_MS)`, Arm B
+  `startedAfter(newest, armA.run.observedMs)`; vor Arm A: steht die Massnahme schon
+  `VERIFIED`, sagt der Ablauf „bereits umgesetzt" und startet nicht; vor Arm B:
+  `CONTRADICTED` startet nicht. Endet ein Arm ohne `TARGET_REACHED`, wird nur dieser
+  Arm wiederholt; Arm A bleibt. Kein neuer persistierter Hinweis-Schalter.
+
+**Testfaelle als Literale** (je positiver und negativer Fall, Lehre QA-018):
+
+- **S3-1** (Fixture `bt_manager_pixel11_ldac_990_loss.txt`): `edr == true`,
+  `threeMbps == true`, `otherAclLinks == 0`, `discovering == false`,
+  `effectiveMtu == 883`. Text ohne `A2DP Source State` → `edr`/`threeMbps` null;
+  zweite Zeile mit `[ACL BR/EDR:Y` ergaenzt → `otherAclLinks == 1`; ohne
+  Geraeteliste → `otherAclLinks == null` (nie 0).
+- **S3-2 ObservationRun** (990 kbps, spielend, Kadenz 1000): Lesungen t = 0/1000/2000
+  mit `dropoutCount` 10/12/15 → `dropouts == 5`, `observedMs == 2000`,
+  `cadencesMs == {1000}`. Mittlere Lesung mit `dropoutCount = null` →
+  `dropouts == 0`, `dropoutsUncountedMs == 2000`. Zaehler 15 → 3 →
+  Intervall in `dropoutsUncountedMs`, `dropouts` unveraendert. `targetMs = 2000` →
+  nach t = 2000 `end == TARGET_REACHED`, Lesung t = 3000 aendert nichts;
+  `targetMs = 2001` → nach t = 2000 `end == null`. `targetMs = null` → Verhalten
+  wie Bestand (bestehende Tests unveraendert gruen).
+- **S3-2 compare** (tA = tB = 900 000, gleicher Link, Kadenz {1000}, Buecher gleich):
+  5/0 → `FEWER_DETECTED`, `pValue == 1.0/32`; 4/0 → `WITHIN_DETECTION_LIMIT`,
+  `pValue == 1.0/16`; 0/5 → `MORE_DETECTED`; 0/0 und 0/4 → `NO_BASELINE_EVENTS`;
+  10/10 → `WITHIN_DETECTION_LIMIT`; 1000/900 → `FEWER_DETECTED` (Log-Raum, kein
+  NaN); 5/0 mit tA = 900 000, tB = 905 000 → `FEWER_DETECTED`, `pValue` = (900/1805)^5
+≈ 0,030820 (Python `math`, 23.09.). 1000/900 bei gleicher Dauer: p ≈ 0,01155
+(ebenda, exakte Summe).
+  `smallestDetectableBaseline() == 5`, `smallestDetectableBaseline(0.1) == 4`.
+  `NotComparable`: Arm A endet `STOPPED` → `ArmAIncomplete`; Link `HIGH` gegen
+  `ADAPTIVE` → `LinkDiffers`; Kadenz {1000} gegen {2000} → `CadenceDiffers`;
+  `dropoutsUncountedMs = 1` → `DropoutsUncounted`; `WIFI_RADIO` on→off in Arm A →
+  `ConditionChanged(WIFI_RADIO, IN_ARM_A)`; `USB_POWER` wechselt zwischen den Armen
+  bei Massnahme A2 → `ConditionChanged(USB_POWER, BETWEEN_ARMS)`; `WIFI_RADIO`
+  wechselt zwischen den Armen bei A2 → vergleichbar; `WIFI_SCAN_ALWAYS` `Unreadable`
+  → vergleichbar, in `notChecked`; `DISCOVERY_SEEN` yes in Arm B → vergleichbar.
+- **S3-2 Katalog:** `Measure.entries.map { it.r010 } == listOf("A2","A1","A3","A4","A5","A7")`;
+  `Fallback.entries.size == 4`; kein Name aus `Measure` in `Fallback`; keine Kennung
+  `A6`, `C1`..`C10` in `Measure`. `verify`: A2 „off" → `VERIFIED`, „on" →
+  `NOT_VERIFIABLE`; A3 „0" → `VERIFIED`, „1" → `CONTRADICTED`; A5 „none" →
+  `VERIFIED`, „usb" → `CONTRADICTED`; A4 → `NOT_VERIFIABLE`; `Unreadable` → `NOT_VERIFIABLE`.
+- **S3-3:** `withBaseline`: zweiter `Global("k", "2")` nach `Global("k", null)` →
+  Liste unveraendert, Vorwert bleibt `null`. Applier mit Fake-Ledger: Globalwunsch →
+  Ledger-Eintrag **vor** der Schreibung (Reihenfolge-Log); zweites Anwenden → kein
+  zweiter Eintrag. HD-Audio `Unreadable` ohne Eintrag → keine Schreibung, `Skipped`
+  mit Grund (ersetzt `HdAudioTest.kt:201`); mit vorhandenem Eintrag → geschrieben.
+  Ledger meldet `false` → keine Schreibung. `SettingsLedgerStore` (Robolectric):
+  Rundreise aller drei Typen inkl. `prior = null` und `priorWish = null`.
+  Backup-Regeln: Test liest beide XML und findet den `exclude`.
+- **S3-4** (Robolectric): `wifi_on` = "1" → `Read("on")`, "0" → `Read("off")`,
+  nicht gesetzt → `Unreadable`; `usbValue(BATTERY_PLUGGED_USB) == Read("usb")`,
+  `usbValue(0) == Read("none")`, `usbValue(null)` → `Unreadable`;
+  `OTHER_ACL_LINKS` aus `pairing == null` → `Unreadable`, nie `Read("0")`.
+- **S3-5:** Ledger mit `Global("k", null)`, `Global("j","1")`, `HdAudio(d, DISABLE)`
+  (Geraet nicht verbunden), `Ldac(d, null, ADAPTIVE)`: → `clear("k")`, `write("j","1")`,
+  HD in `pending` mit Grund „nicht verbunden", Profil `codecPreference == null`,
+  live `ADAPTIVE` angefragt; Autoapply des beruehrten Profils `false`, eines reinen
+  EQ-Profils unveraendert `true`; Aussetzen vor der ersten Rueckschreibung
+  (Reihenfolge-Log). Schlaegt `write` fehl → Eintrag bleibt, `pending` nennt ihn.
+  `LdacTuning.pin`: Eintrag vor `store` (Reihenfolge-Log), zweiter Pin → kein
+  neuer Eintrag.
+- **S3-6** (Robolectric/Controller): Lesungsfolge ueber 15 min Arm A mit 5 Aussetzern,
+  Massnahme A5, Buch vor Arm B `USB_POWER = none`, Arm B ohne Aussetzer →
+  `Result` mit `FEWER_DETECTED`; `USB_POWER = usb` vor Arm B → Arm B startet nicht;
+  Pinnen `NotObserved` → Arm A startet nicht; Arm B endet `READING_GAP` → Arm A
+  bleibt, nur B wird neu gestartet. Oberflaeche: der Rahmen steht im selben
+  Composable wie das Urteil (kein Fussnoten-/Detail-Umweg, AK-14); K-2-Suche
+  der Wortfamilien aus R-G im neuen Text.
+
+**Reihenfolge und Parallelitaet** (Worktrees nur bei disjunkten Dateilisten):
+
+1. **Welle 1**, parallel: S3-1 ∥ S3-2 ∥ S3-3. Dateilisten disjunkt (Parser/Modelle ·
+   `ObservationRun` + `optimize/` · `:core-system` + zwei XML). Security-Vorlauf
+   vor S3-3 prueft AD-033/AD-034 zusammen und deckt S3-5 mit ab. Der
+   `ui-ux-designer` schreibt parallel die Texte fuer S3-3, S3-5, S3-6.
+2. **Welle 2**, parallel: S3-4 (braucht S3-1, S3-2) ∥ S3-5 (braucht S3-3 und UI-Spec).
+3. **Welle 3:** S3-6 (braucht S3-2, S3-4, S3-5, UI-Spec). Security-Vorlauf fuer den
+   Pin-Pfad, falls der erste Vorlauf ihn nicht abgedeckt hat.
+4. **Geraet:** Abnahme von S3-6 faellt mit T-036 zusammen (Massnahme A2 unter 990).
+   Monitor ist dabei offen — der Vergleich braucht die Lesungen; T-037 bleibt
+   getrennt (BQR-Queue, T-045 Nebenfund 1).
+
+**Risiken und Pruefpunkte:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Ein neuer Schreiber umgeht das Ledger | Grep der Schreibstellen (s. AD-033) findet einen Aufruf ohne `record…` davor | Schreibstelle nachziehen; bleibt es wiederholt, Ledger als Dekorator an die Ports (dafuer muessten `write`/`setEnabled` `suspend` werden — heute zu breit) |
+| Tabwechsel raeumt das `MonitorViewModel` und damit Arm A | S3-6-Test oder Geraet: Arm A fehlt nach Tabwechsel | Controller eine Ebene hoeher halten (Activity-Scope); keine Persistenz |
+| 15 min reichen bei ruhiger Strecke nie fuer 5 Aussetzer | T-036 zeigt Arm A regelmaessig < 5 | Das ist die ehrliche Aussage (`NO_BASELINE_EVENTS`/`WITHIN…`); Armlaenge ist eine Konstante, Aenderung beim Nutzer |
+| `wifi_on` ist aus der App-Uid nicht lesbar | P-3 oder Laufzeit zeigt `Unreadable` | Nichts zu bauen: der Schirm sagt es bereits (AD-035) |
+| D-001-Muster im neuen Store | Haengende Robolectric-Tests nach S3-3/S3-5 | Wie D-001: Abwarten im Test, keine Main-Schreibung ohne Join |
+
+**Umkehrbarkeit:** leicht — eine Schrittfolge ist ein Plan, kein Bauwerk.
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -1834,6 +2444,25 @@ zu „Oboe NDK“)→W-8→W-9. Die vier Straenge beruehren keine gemeinsame Dat
   Prozess, der Dateien loescht, ueber die er nichts weiss, ist ein groesserer
   Fehler als die Reste, die er beseitigt (AD-011). Gilt insbesondere fuer
   `btperf` — das gehoert den Messwerkzeugen.
+- **Ein eigener `ComparisonRun`.** Zweite Zaehl- und Lueckenregel neben
+  `isReadingGap`. Wieder interessant nur, wenn ein Vergleich etwas anderes als
+  abgedeckte Intervalle zaehlen muss. (AD-030)
+- **Die Ledger-Art „geliehen" und die automatische Rueckgabe beim App-Start.**
+  Ohne Leihgabe gibt es nichts zurueckzugeben, und das 990-Pinnen ist das Ziel
+  des Nutzers. Wieder interessant, sobald AD-006 beantwortet und eine Leihgabe
+  beschlossen ist. (AD-033)
+- **Vergleichsergebnisse persistieren.** Neue Datensammlung, und AK-17 hat die
+  Aufzeichnungsvariante ausdruecklich nicht gewaehlt. Wieder interessant, wenn
+  der Nutzer einen Verlauf ueber Sitzungen will — dann auch fuer AK-16s
+  empirischen Sammelsatz. (AD-036, AD-037)
+- **WLAN-Band ueber `WifiManager` oder ein Helfer-Kommando.** F3 und AD-005.
+  Wieder interessant, wenn der Nutzer A2 genauer als „Funk aus" belegen will.
+  (AD-035)
+- **Eine MTU-Regel als AK-16-Urteil.** Urteil aus einer Sekundaertabelle ohne
+  Messung. Wieder interessant, wenn T-037 den Pakettyp lesbar macht. (AD-036)
+- **Das Ledger als Dekorator an den Settings-Ports.** Der einzige Ort, der
+  jede Schreibung faengt, braeuchte `suspend` an `write`/`setEnabled` und an
+  allen Fakes. Wieder interessant, wenn ein Schreiber das Ledger umgeht. (AD-038)
 - **Der Pruefton als `MODE_STATIC`-Puffer je Darbietung.** Braeuchte einen
   anderen `ToneGenerator`-Vertrag, weil der Controller Pulse einzeln schaltet
   und bei Tastendruck abbricht. Wieder interessant, wenn W-7 zeigt, dass der

@@ -24,26 +24,19 @@ QA 04:23/04:25 je 2498/0). Retrospektive: `docs/lessons.md` BD-L-004..006,
 drei Vorschlaege fuers Agenten-Repo beim Nutzer.
 **T-045 Bestandsaufnahme** (`docs/berichte/T-045-architect.md`): von AK-8..16
 nur AK-10 gebaut (leer), AK-8/9/15 teilweise, **AK-11..14 und AK-16 offen** —
-Saeule 3 fehlt. Schnitt P-1..P-9, AD-030 ff. vorbereitet, warten auf Nutzer.
+Saeule 3 fehlt. Schnitt P-1..P-9.
 
-**Vom Nutzer entschieden (23.09., alle nach Empfehlung) — naechster Zyklus:**
-- Saeule 3 misst **Aussetzer bei gepinnten 990** (T-045 F1).
-- Saeule 3 **leitet nur an** und liest den Ist-Wert zurueck, kein neues
-  Helfer-Kommando (T-045 F3).
-- **„Device test“ jetzt entfernen**, eigener kleiner Schritt (T-045 F5, AK-12).
-- Beobachtungslauf: **Luecke > `RUN_GAP_MAX` (2 min) beendet den Lauf** mit
-  genanntem Grund, wie die Spec-Tabelle (UI_SPEC T-039 Offene Frage 5).
-Noch offen: T-045 F2 (Armlaenge 15 min A/B) und F4 (AK-16 „nicht
-bestimmbar“ bis T-037); Sample-Rate-Wechsel im Lauf; drei
-Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
+**Zyklus 4 (Session 23.09. 16:35, Branch `auto/2026-09-23-saeule3`, auf dem
+offenen PR-Branch aufgesetzt): Saeule 3 bauen, alles ohne Geraet, sammeln statt
+Release.** T-046 Kleinkram (Device test raus, Pause > `RUN_GAP_MAX` beendet
+den Lauf, P-1, Whitelist-KDoc) und T-047a (architect, AD-030 ff. + Bauschnitt)
+laufen. Nutzerentscheide 23.09. (F1..F5, alle nach Empfehlung) stehen in
+`docs/tasks/T-047.md`; Spec-Nachzug Pause/Herkunft in `d5b262c`.
 
 **Beim Nutzer — offen (am Laufende fragen):**
-1. Saeule 3, fuenf Fragen aus T-045 (Messgroesse 990 gepinnt, 2×15 min,
-   nur anleiten statt WLAN schalten, AK-16 „nicht bestimmbar“ bis T-037,
-   „Device test“ entfernen) — Empfehlungen im Bericht.
-2. T-039: soll eine lange Pause (`RUN_GAP_MAX`) den Lauf beenden?
-   (UI_SPEC T-039 Offene Frage 5). Sample-Rate-Wechsel im Lauf beenden?
-3. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
+1. Sample-Rate-Wechsel im Beobachtungslauf beenden?
+2. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
+3. Drei Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
 
 **Geraetesession 23.09. abends:** W-7..W-9 (AD-025) mit Geraetevergleich;
 T-036/T-037 — **Monitor-Ansicht dabei geschlossen halten**, sie pollt
@@ -55,10 +48,7 @@ Einstellungs-Inventur P-3 (T-045), dabei F-011 klaeren.
 **Beschlossen, nicht beauftragt:** F-004, F-005, F-009 (QA-C), SR-023,
 SR-024, F-011 (Nutzertext „only a rooted phone can change“ in
 `DeviceProfilesScreen.kt:316` und `BluetoothSystemControls.kt:105` — laut
-T-045 falsch und Root-Hinweis gegen AK-10; korrekte Stelle am Geraet klaeren),
-Whitelist-Kommentar „three“ bei vier Eintraegen (`PrivilegedProtocol.kt:18,20,79`).
-Director-Vorentscheid fuer Saeule 3: Rueckweg setzt automatisches Anwenden der
-Profile aus, bis der Nutzer es wieder einschaltet (T-045).
+T-045 falsch und Root-Hinweis gegen AK-10; faellt mit T-047 P-4).
 Messbefunde und Tuning-Grundlagen (frueher hier):
 `docs/archiv/state-messbefunde-2026-09-03.md`.
 
