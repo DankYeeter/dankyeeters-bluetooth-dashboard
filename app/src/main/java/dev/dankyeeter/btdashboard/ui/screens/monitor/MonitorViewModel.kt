@@ -1,7 +1,9 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.dankyeeter.btdashboard.ui.tuning.readConditions
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.sameDevice
@@ -93,7 +95,7 @@ internal fun redactAddresses(text: String): String =
 /** Six hex octets. Already-redacted addresses contain `X` and never match. */
 private val RAW_ADDRESS = Regex("""\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b""")
 
-class MonitorViewModel : ViewModel() {
+class MonitorViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Timeline window: the last two hours is what correlating a dropout needs. */
     private val windowMs = 2 * 60 * 60 * 1000L
@@ -137,6 +139,17 @@ class MonitorViewModel : ViewModel() {
     internal val observationRun = ObservationRunController(viewModelScope, SystemGraph.setupStore)
 
     /**
+     * The before/after comparison (`UI_SPEC.md` T-047 S3-6). Fed like the run,
+     * and it pins only through [LdacTuning.pin], which holds the ledger entry
+     * before it writes (M16). Arm A lives as long as this ViewModel.
+     */
+    internal val comparison = ComparisonController(
+        scope = viewModelScope,
+        pin = { shownAddress -> LdacTuning.pin(LdacQuality.HIGH_QUALITY, shownAddress = shownAddress) },
+        readBook = { snapshot, discoverySeen -> readConditions(application, snapshot, discoverySeen) },
+    )
+
+    /**
      * One poll loop, at whichever rate the panel asked for.
      *
      * The default rate goes through the graph's *shared* loop so that a second
@@ -163,6 +176,7 @@ class MonitorViewModel : ViewModel() {
         .onEach { update ->
             recordLiveEvents(update)
             observationRun.onReading(update.snapshot, _liveIntervalMs.value)
+            comparison.onReading(update.snapshot, _liveIntervalMs.value)
         }
         // Shared, not merely cold: the panel now reads this twice — once for the
         // numbers and once for the 60-second graph — and a second collector of
