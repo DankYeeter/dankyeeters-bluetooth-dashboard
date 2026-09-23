@@ -757,6 +757,30 @@ enum class LinkObservability(val label: String) {
     UNKNOWN("no negotiated codec — observability unknown"),
 }
 
+/**
+ * Radio-level facts about this pairing, not about what is playing on it —
+ * the ceiling a codec runs under (AK-15, AK-16).
+ *
+ * Every field is read at this device, for this peer, never borrowed from
+ * another device (AK-15): a value this build or this peer did not print
+ * stays null, and nothing here is derived from it.
+ */
+data class PairingFacts(
+    /** MEASURED: `EDR:` off the first peer in the `A2DP Source State:` block. */
+    val edr: Boolean? = null,
+    /** MEASURED: `Support 3Mbps:` off the same peer block. */
+    val threeMbps: Boolean? = null,
+    /**
+     * DERIVED: bonded devices with a live BR/EDR ACL link, not counting the
+     * A2DP peer itself. Null when the `BluetoothRemoteDevices` section — the
+     * only place this dump lists ACL state per device — was not found at
+     * all, so an unreadable list does not read as "zero other links".
+     */
+    val otherAclLinks: Int? = null,
+    /** MEASURED: the adapter's own `Discovering:` state. */
+    val discovering: Boolean? = null,
+)
+
 /** The device the link belongs to. */
 data class LiveDeviceSnapshot(
     val address: String,
@@ -802,6 +826,8 @@ data class LinkLiveSnapshot(
     val txDelta: A2dpTxDelta? = null,
     val inputs: List<InputStreamSnapshot> = emptyList(),
     val mixer: MixerOutputSnapshot? = null,
+    /** Radio-level facts about the pairing itself (AK-15, AK-16). See [PairingFacts]. */
+    val pairing: PairingFacts? = null,
     /** Why a section is missing. Shown, not swallowed. */
     val warnings: List<String> = emptyList(),
 ) {

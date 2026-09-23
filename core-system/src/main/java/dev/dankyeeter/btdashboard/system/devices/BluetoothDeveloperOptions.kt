@@ -372,6 +372,9 @@ interface SecureSettingsController {
     /** Current value, or null when the key is unset — which is not the same as unsupported. */
     fun read(key: String): String?
 
+    /** Like [read], but a failed read is [SettingRead.Unreadable] rather than null. */
+    fun readState(key: String): SettingRead
+
     /**
      * Writes [value] and confirms it by reading back.
      *

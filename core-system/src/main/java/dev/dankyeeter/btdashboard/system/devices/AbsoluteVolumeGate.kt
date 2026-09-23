@@ -83,8 +83,8 @@ class AbsoluteVolumeGate(
         Settings.Global.getString(resolver, KEY_DISABLE_ABSOLUTE_VOLUME) == null
     }.onFailure { Log.w(TAG, "absolute-volume reset refused", it) }.getOrDefault(false)
 
-    private companion object {
-        const val TAG = "AbsoluteVolumeGate"
+    companion object {
+        private const val TAG = "AbsoluteVolumeGate"
 
         /**
          * `Settings.Global.BLUETOOTH_DISABLE_ABSOLUTE_VOLUME` is `@hide`, so the

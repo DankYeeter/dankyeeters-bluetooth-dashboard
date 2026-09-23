@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.monitor
 
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
+import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxStats
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacStackState
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
@@ -26,6 +27,7 @@ class ObservationRunTest {
         address: String = "AC:DE:48:00:37:8F",
         family: CodecFamily = CodecFamily.LDAC,
         codecSpecific1: Long = 0L,
+        dropoutTotal: Long? = null,
     ) = LinkLiveSnapshot(
         timestampMs = timestampMs,
         device = LiveDeviceSnapshot(address = address, isConnected = connected, isPlaying = playing),
@@ -39,6 +41,7 @@ class ObservationRunTest {
         } else {
             null
         },
+        tx = A2dpTxStats(dropoutCount = dropoutTotal),
     )
 
     /** Feeds [rates] at a fixed [intervalMs] cadence starting at [fromMs]. */
@@ -147,6 +150,8 @@ class ObservationRunTest {
             RunEnd.READING_GAP to running.plus(reading(next + ObservationRun.RUN_GAP_MAX_MS, 660), 1_000L),
             RunEnd.PAUSED to running.paused(next, next + ObservationRun.RUN_GAP_MAX_MS + 1_000L),
             RunEnd.RATE_UNREADABLE to running.plus(reading(next, null), 1_000L),
+            RunEnd.TARGET_REACHED to ObservationRun.startedAfter(null, targetMs = running.observedMs)
+                .fed(List(150) { 660 }),
         )
         assertEquals(RunEnd.entries.toSet(), cases.keys)
         cases.forEach { (reason, ended) ->
@@ -224,5 +229,52 @@ class ObservationRunTest {
         assertEquals(run.observedMs, run.stepDwell.sumOf { it.ms } + run.movingMs + run.unseparatedMs)
         // 760 -> 780 and 780 -> 780: the two intervals touching the refused rate.
         assertEquals(2_000L, run.unseparatedMs)
+    }
+
+    /** Pinned 990 at a 1 s cadence, each reading carrying the stack's absolute dropout counter. */
+    private fun ObservationRun.withDropouts(vararg totals: Long?) =
+        totals.foldIndexed(this) { i, run, total ->
+            run.plus(reading(i * 1_000L, 990, codecSpecific1 = 1000L, dropoutTotal = total), 1_000L)
+        }
+
+    /** S3-2: dropouts are the increases of the absolute counter over covered intervals. */
+    @Test
+    fun `dropouts sum the counter's increases over covered intervals`() {
+        val run = started().withDropouts(10L, 12L, 15L)
+
+        assertEquals(5L, run.dropouts)
+        assertEquals(0L, run.dropoutsUncountedMs)
+        assertEquals(2_000L, run.observedMs)
+        assertEquals(setOf(1_000L), run.cadencesMs)
+    }
+
+    /** S3-2: a missing counter at either end is no zero; the interval is uncounted. */
+    @Test
+    fun `a missing counter leaves its intervals uncounted`() {
+        val run = started().withDropouts(10L, null, 15L)
+
+        assertEquals(0L, run.dropouts)
+        assertEquals(2_000L, run.dropoutsUncountedMs)
+    }
+
+    /** S3-2: a counter running backwards (stack restart) says nothing about the interval. */
+    @Test
+    fun `a falling counter leaves its interval uncounted`() {
+        val run = started().withDropouts(10L, 15L, 3L)
+
+        assertEquals(5L, run.dropouts)
+        assertEquals(1_000L, run.dropoutsUncountedMs)
+    }
+
+    /** S3-2: the run ends as soon as it has observed its target, and not a reading earlier. */
+    @Test
+    fun `a run ends on reaching its target`() {
+        val reached = ObservationRun.startedAfter(null, targetMs = 2_000L).withDropouts(10L, 12L, 15L)
+        assertEquals(RunEnd.TARGET_REACHED, reached.end)
+        val later = reached.plus(reading(3_000L, 990, codecSpecific1 = 1000L, dropoutTotal = 20L), 1_000L)
+        assertEquals(reached, later)
+
+        val short = ObservationRun.startedAfter(null, targetMs = 2_001L).withDropouts(10L, 12L, 15L)
+        assertNull(short.end)
     }
 }

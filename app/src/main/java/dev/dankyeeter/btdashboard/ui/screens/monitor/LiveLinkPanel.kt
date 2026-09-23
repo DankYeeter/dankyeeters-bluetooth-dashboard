@@ -92,6 +92,8 @@ fun LiveLinkPanel(
     onCloseUpEnabled: (Boolean) -> Unit = {},
     /** The observation-run section, drawn under the graphs for a link that reads. */
     observationRun: @Composable (LinkLiveSnapshot) -> Unit = {},
+    /** The before/after comparison, directly under the observation run. */
+    comparison: @Composable (LinkLiveSnapshot) -> Unit = {},
 ) {
     Panel(modifier) {
         ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
@@ -126,6 +128,7 @@ fun LiveLinkPanel(
                 TxRows(snapshot)
                 TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
                 observationRun(snapshot)
+                comparison(snapshot)
             }
         }
 

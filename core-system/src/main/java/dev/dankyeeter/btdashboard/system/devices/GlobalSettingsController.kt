@@ -6,6 +6,21 @@ import android.util.Log
 import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
 
 /**
+ * A `Settings.Global` read that keeps "not set" and "could not be read" apart.
+ *
+ * [SecureSettingsController.read] folds both into null, which is fine for a
+ * display but not for the settings ledger: a failed read recorded as "not set"
+ * would make the way back a delete of a value that was really there.
+ */
+sealed interface SettingRead {
+    data class Value(val value: String) : SettingRead
+
+    data object Unset : SettingRead
+
+    data object Unreadable : SettingRead
+}
+
+/**
  * [SecureSettingsController] on `Settings.Global`.
  *
  * The same mechanism [AbsoluteVolumeGate] uses, generalised to any key: these
@@ -31,9 +46,17 @@ class GlobalSettingsController(
      * perfectly well once written, so nothing may conclude "unsupported" from a
      * null here.
      */
-    override fun read(key: String): String? = runCatching {
+    override fun read(key: String): String? = (readState(key) as? SettingRead.Value)?.value
+
+    override fun readState(key: String): SettingRead = runCatching {
         Settings.Global.getString(resolver, key)
-    }.onFailure { Log.w(TAG, "reading $key failed", it) }.getOrNull()
+    }.fold(
+        onSuccess = { value -> value?.let(SettingRead::Value) ?: SettingRead.Unset },
+        onFailure = {
+            Log.w(TAG, "reading $key failed", it)
+            SettingRead.Unreadable
+        },
+    )
 
     /**
      * Writes, then reads back, and only reports success if the value is really
@@ -56,9 +79,9 @@ class GlobalSettingsController(
             .onFailure { Log.w(TAG, "writing $key was refused", it) }
             .getOrDefault(false)
         if (!accepted) return false
-        val readBack = read(key)
-        if (readBack != value) {
-            Log.w(TAG, "$key did not stick: wrote '$value', read back '$readBack'")
+        val readBack = readState(key)
+        if (!confirms(value, readBack)) {
+            Log.w(TAG, "$key did not stick: wrote '$value', read back $readBack")
             return false
         }
         return true
@@ -69,9 +92,9 @@ class GlobalSettingsController(
             .onFailure { Log.w(TAG, "clearing $key was refused", it) }
             .getOrDefault(false)
         if (!accepted) return false
-        val readBack = read(key)
-        if (readBack != null) {
-            Log.w(TAG, "$key did not clear: still reads '$readBack'")
+        val readBack = readState(key)
+        if (!confirms(null, readBack)) {
+            Log.w(TAG, "$key did not clear: still reads $readBack")
             return false
         }
         return true
@@ -81,3 +104,15 @@ class GlobalSettingsController(
         const val TAG = "GlobalSettings"
     }
 }
+
+/**
+ * Whether [actual] confirms that a key now holds [expected] (null means
+ * cleared).
+ *
+ * SR-025: confirming through [SecureSettingsController.read] folds a failed
+ * read ([SettingRead.Unreadable]) into null, the same value a real clear
+ * produces — so a provider that could not be read would pass as "cleared".
+ * [readState] keeps the two apart; this is the one line that tells them apart.
+ */
+internal fun confirms(expected: String?, actual: SettingRead): Boolean =
+    actual == (expected?.let(SettingRead::Value) ?: SettingRead.Unset)

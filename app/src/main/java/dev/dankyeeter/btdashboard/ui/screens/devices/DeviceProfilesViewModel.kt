@@ -19,17 +19,26 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
+import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate.Companion.KEY_DISABLE_ABSOLUTE_VOLUME
 import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeStatus
 import dev.dankyeeter.btdashboard.system.devices.ApplyResult
 import dev.dankyeeter.btdashboard.system.devices.BluetoothReadOnlySettings
 import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
+import dev.dankyeeter.btdashboard.system.devices.DeviceProfileApplier
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
 import dev.dankyeeter.btdashboard.system.devices.BluetoothDeveloperOptions
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.system.devices.ProfileAction
+import dev.dankyeeter.btdashboard.system.devices.recordGlobal
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuning
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
+import dev.dankyeeter.btdashboard.ui.tuning.RestoreBanner
+import dev.dankyeeter.btdashboard.ui.tuning.RestoreReport
+import dev.dankyeeter.btdashboard.ui.tuning.SettingsRestore
+import dev.dankyeeter.btdashboard.ui.tuning.hdAudioStateText
+import dev.dankyeeter.btdashboard.ui.tuning.lines
+import dev.dankyeeter.btdashboard.ui.tuning.restoreBannerFor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
@@ -41,6 +50,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /**
  * What the codec section knows about one device at one moment.
@@ -94,6 +104,31 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
     private val store = SystemGraph.deviceProfiles
     private val applier = SystemGraph.deviceProfileApplier
     private val absoluteVolume = SystemGraph.absoluteVolume
+    private val ledger = SystemGraph.settingsLedger
+    private val restore = SettingsRestore(
+        ledger = ledger,
+        globals = SystemGraph.globalSettings,
+        hdAudio = SystemGraph.hdAudio,
+        profiles = store,
+        currentProfiles = store::current,
+        saveProfile = store::save,
+        connected = { MonitorGraph.codecSource.connectedDevices() },
+        requestLdac = LdacTuning::apply,
+    )
+
+    /** The last way back, so the banner knows whether to offer "Try again". */
+    private val lastRestore = MutableStateFlow<RestoreReport?>(null)
+
+    /** D2: follows the ledger itself, so a write from any screen or a connect shows up. */
+    val restoreBanner: StateFlow<RestoreBanner> = combine(ledger.changes, lastRestore, ::restoreBannerFor)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RestoreBanner.Hidden)
+
+    private val _restoring = MutableStateFlow(false)
+    val restoring: StateFlow<Boolean> = _restoring.asStateFlow()
+
+    /** The report of the last way back, as sentences; null once read. */
+    private val _restoreReport = MutableStateFlow<List<String>?>(null)
+    val restoreReport: StateFlow<List<String>?> = _restoreReport.asStateFlow()
 
     val profiles: StateFlow<List<DeviceProfile>> =
         store.profiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -307,28 +342,41 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         }
 
         val systemDefault = value == BluetoothDeveloperOptions.USE_SYSTEM_DEFAULT
-        val ok = if (systemDefault) settings.clear(key) else settings.write(key, value)
-        refresh()
+        viewModelScope.launch {
+            // M15: the value before is held first, then written, in this one coroutine.
+            val ok = ledger.lock.withLock {
+                when {
+                    !ledger.recordGlobal(settings, key) -> null
+                    systemDefault -> settings.clear(key)
+                    else -> settings.write(key, value)
+                }
+            }
+            refresh()
 
-        post(
-            null,
-            when {
-                !ok && systemDefault ->
-                    "\"${option.label}\" could not be reset — the key still holds a value."
-                // The only evidence available that a build ignores a key, said
-                // plainly rather than reported as a success.
-                !ok ->
-                    "\"${option.label}\" did not stick — this Android build may not support it."
+            post(
+                null,
+                when {
+                    ok == null -> describe(
+                        listOf(ProfileAction.Skipped(option.label, DeviceProfileApplier.PRIOR_NOT_RECORDED)),
+                    )
 
-                systemDefault ->
-                    "\"${option.label}\" is back to Android's own default. " +
-                        "Restart Bluetooth for it to take effect."
+                    !ok && systemDefault ->
+                        "\"${option.label}\" could not be reset — the key still holds a value."
+                    // The only evidence available that a build ignores a key, said
+                    // plainly rather than reported as a success.
+                    !ok ->
+                        "\"${option.label}\" did not stick — this Android build may not support it."
 
-                else ->
-                    "\"${option.label}\" is now ${option.labelFor(value)} system-wide. " +
-                        "Restart Bluetooth for it to take effect."
-            },
-        )
+                    systemDefault ->
+                        "\"${option.label}\" is back to Android's own default. " +
+                            "Restart Bluetooth for it to take effect."
+
+                    else ->
+                        "\"${option.label}\" is now ${option.labelFor(value)} system-wide. " +
+                            "Restart Bluetooth for it to take effect."
+                },
+            )
+        }
     }
 
     /**
@@ -475,17 +523,31 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
      * back lands under that card rather than at the bottom of the screen.
      */
     fun setAbsoluteVolumeNow(deviceKey: String, enabled: Boolean) {
-        val written = absoluteVolume.setEnabled(enabled)
-        _absoluteVolumeStatus.value = absoluteVolume.status()
-        post(
-            deviceKey,
-            if (written) {
-                "Absolute volume is now ${if (enabled) "on" else "off"} system-wide. " +
-                    "Reconnect the headphone for it to take effect."
-            } else {
-                "The setting could not be written — WRITE_SECURE_SETTINGS is missing."
-            },
-        )
+        viewModelScope.launch {
+            // M15: the value before is held first, then written, in this one coroutine.
+            val written = ledger.lock.withLock {
+                if (ledger.recordGlobal(SystemGraph.globalSettings, KEY_DISABLE_ABSOLUTE_VOLUME)) {
+                    absoluteVolume.setEnabled(enabled)
+                } else {
+                    null
+                }
+            }
+            _absoluteVolumeStatus.value = absoluteVolume.status()
+            post(
+                deviceKey,
+                when (written) {
+                    null -> describe(
+                        listOf(ProfileAction.Skipped("absolute volume", DeviceProfileApplier.PRIOR_NOT_RECORDED)),
+                    )
+
+                    true ->
+                        "Absolute volume is now ${if (enabled) "on" else "off"} system-wide. " +
+                            "Reconnect the headphone for it to take effect."
+
+                    false -> "The setting could not be written — WRITE_SECURE_SETTINGS is missing."
+                },
+            )
+        }
     }
 
     /**
@@ -503,6 +565,27 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun dismissLdacMessage() = LdacTuning.dismissMessage()
+
+    /** "Back to before", after the user confirmed it. Never started any other way. */
+    fun restoreAll() {
+        if (_restoring.value) return
+        _restoring.value = true
+        viewModelScope.launch {
+            try {
+                val report = restore.restoreAll()
+                val names = store.current().associate { it.deviceKey to it.name }
+                lastRestore.value = report
+                _restoreReport.value = report.lines { key -> names[key] ?: key }
+                refresh()
+            } finally {
+                _restoring.value = false
+            }
+        }
+    }
+
+    fun dismissRestoreReport() {
+        _restoreReport.value = null
+    }
 
     fun dismissMessage() {
         _message.value = null
@@ -556,14 +639,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
                 is ProfileAction.CodecNotObserved ->
                     "Codec still reads ${action.observed}: ${action.detail}."
                 is ProfileAction.HdAudioSet -> {
-                    val state = when (action.enabled) {
-                        true -> "on"
-                        false -> "off — this device is now SBC only"
-                        // The stack's "nobody has chosen", which is what "Use
-                        // System Default" asks for. Named rather than rounded to
-                        // "on", because the two are undone differently.
-                        null -> "back to Android's own choice"
-                    }
+                    val state = hdAudioStateText(action.enabled)
                     if (action.alreadySet) {
                         "HD audio was already $state."
                     } else {

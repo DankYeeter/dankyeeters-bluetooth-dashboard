@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
+    <!-- The settings ledger holds prior values of this phone's settings (AD-033): never restored elsewhere. -->
     <cloud-backup>
         <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/settings_ledger.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/settings_ledger.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>

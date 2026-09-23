@@ -47,6 +47,9 @@ class LiveLinkParserTest {
      */
     private val ldacState by lazy { fixture("bt_manager_pixel11_ldac_state_abr.txt") }
 
+    /** The 990-loss capture: the fixture T-047d's pairing-facts tests are pinned to. */
+    private val loss990 by lazy { fixture("bt_manager_pixel11_ldac_990_loss.txt") }
+
     /**
      * Rewrites one `label : value` row, ignoring the device's own padding.
      *
@@ -681,5 +684,69 @@ class LiveLinkParserTest {
         val stream = PlayingStreamParser.playingStreams(line).single()
         assertNull(stream.sampleRateHz)
         assertNull(stream.channelCount)
+    }
+
+    // ---- the pairing itself (T-047d, AD-038 S3-1) -----------------------------
+
+    /**
+     * The fixture's one connected ACL link is the A2DP peer itself (Grep
+     * 23.09.: exactly one `[ACL BR/EDR:Y` line in all three Pixel 11
+     * fixtures), so it must not also count as an "other" link.
+     */
+    @Test
+    fun `reads the pairing facts off a real Pixel 11 dump`() {
+        val parsed = A2dpLinkDumpParser.parse(loss990)
+        val pairing = present(parsed.pairing, "pairing facts")
+        assertEquals(true, pairing.edr)
+        assertEquals(true, pairing.threeMbps)
+        assertEquals(0, pairing.otherAclLinks)
+        assertEquals(false, pairing.discovering)
+        // The effective MTU is already on LdacStackState; nothing duplicates it here.
+        assertEquals(883, present(parsed.ldacStack, "LDAC state").effectiveMtu)
+    }
+
+    /**
+     * Removing only the block header — the same technique [withoutLabels]
+     * uses — leaves the `EDR:`/`Support 3Mbps:` rows in the text but out of
+     * any block, so they must not be picked up by a whole-dump scan.
+     */
+    @Test
+    fun `without an A2DP Source State block, EDR and 3Mbps are unreadable`() {
+        val withoutSourceState = withoutLabels(loss990, "A2DP Source State:")
+        val pairing = present(A2dpLinkDumpParser.parse(withoutSourceState).pairing, "pairing facts")
+        assertNull(pairing.edr)
+        assertNull(pairing.threeMbps)
+    }
+
+    /**
+     * A second bonded device with a live ACL link is one more "other" link,
+     * on top of the A2DP peer's own row that is not counted.
+     */
+    @Test
+    fun `a second connected ACL link is counted as an other link`() {
+        val secondAclLink = loss990.replaceFirst(
+            "[ACL BR/EDR:N LE:N] [ Encryption status(BR/EDR): N/A LE: N/A] Soundcore Motion Boom",
+            "[ACL BR/EDR:Y LE:N] [ Encryption status(BR/EDR): N/A LE: N/A] Soundcore Motion Boom",
+        )
+        assertTrue("the fixture must still contain the line being flipped", loss990 != secondAclLink)
+        val pairing = present(A2dpLinkDumpParser.parse(secondAclLink).pairing, "pairing facts")
+        assertEquals(1, pairing.otherAclLinks)
+    }
+
+    /**
+     * Without the device list at all, "how many other links" cannot be
+     * answered — and null, not 0, is the honest answer (AK-15).
+     */
+    @Test
+    fun `without a device list, other ACL links is unreadable and not zero`() {
+        // Fixtures are CRLF, so this deliberately does not assume "\n" as the
+        // line terminator; only the two unique header strings are pinned.
+        val start = loss990.indexOf("BluetoothRemoteDevices")
+        val end = loss990.indexOf("BluetoothActiveDeviceManager", start)
+        check(start >= 0 && end > start) { "fixture no longer has the expected device list block" }
+        val withoutDeviceList = loss990.removeRange(start, end)
+
+        val pairing = present(A2dpLinkDumpParser.parse(withoutDeviceList).pairing, "pairing facts")
+        assertNull("an unreadable device list must not read as zero other links", pairing.otherAclLinks)
     }
 }

@@ -14,6 +14,8 @@ data class A2dpLinkDump(
      * the codec actually configured. Null is the honest "not reported here".
      */
     val ldacStack: LdacStackState? = null,
+    /** Radio-level pairing facts (AK-15, AK-16). See [PairingFacts]. */
+    val pairing: PairingFacts? = null,
     val warnings: List<String> = emptyList(),
 )
 
@@ -87,6 +89,7 @@ object A2dpLinkDumpParser {
         val device = readStateMachine(dump)
         val tx = readTxStats(dump)
         val ldacStack = readLdacStackState(dump)
+        val pairing = readPairingFacts(dump, a2dpPeerConnected = device?.device?.isConnected == true)
 
         if (device == null) warnings += "no A2dpStateMachine block in dump"
         if (tx == null) warnings += "no 'A2DP State:' section in dump"
@@ -107,6 +110,7 @@ object A2dpLinkDumpParser {
             codec = codec,
             tx = tx,
             ldacStack = ldacForThisLink,
+            pairing = pairing,
             warnings = warnings,
         )
     }
@@ -416,6 +420,99 @@ object A2dpLinkDumpParser {
             adaptiveBitrateAdjustments = abrAdjustments,
         ).takeUnless { it.isEmpty }
     }
+
+    // ---- the pairing itself (AD-038 S3-1) ------------------------------------
+
+    /**
+     * Radio-level pairing facts, read once per dump and never carried over
+     * from another device (AK-15). See [PairingFacts].
+     */
+    private fun readPairingFacts(dump: String, a2dpPeerConnected: Boolean): PairingFacts {
+        val (edr, threeMbps) = readA2dpSourcePeerFacts(dump)
+        return PairingFacts(
+            edr = edr,
+            threeMbps = threeMbps,
+            otherAclLinks = countOtherAclLinks(dump, a2dpPeerConnected),
+            discovering = dump.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith(DISCOVERING) }
+                ?.let { parseBoolean(it.substringAfter(':')) },
+        )
+    }
+
+    /**
+     * `EDR:`/`Support 3Mbps:` off the first peer in the `A2DP Source State:`
+     * block. Scoped exactly like [readTxStats]: the block is top-level and
+     * ends at the next unindented non-blank line, so a whole-dump scan could
+     * not pick up an idle profile's own row of the same name.
+     */
+    private fun readA2dpSourcePeerFacts(dump: String): Pair<Boolean?, Boolean?> {
+        var inBlock = false
+        var edr: Boolean? = null
+        var threeMbps: Boolean? = null
+        for (raw in dump.lineSequence()) {
+            val line = raw.trimEnd()
+            if (line.isBlank()) continue
+            val unindented = line.first() != ' ' && line.first() != '\t'
+            if (unindented) {
+                inBlock = line.trim().startsWith(A2DP_SOURCE_STATE_HEADER)
+                continue
+            }
+            if (!inBlock) continue
+            val body = line.trim()
+            when {
+                edr == null && body.startsWith(PAIRING_EDR) ->
+                    edr = parseBoolean(body.substringAfter(':'))
+                threeMbps == null && body.startsWith(PAIRING_SUPPORT_3MBPS) ->
+                    threeMbps = parseBoolean(body.substringAfter(':'))
+            }
+        }
+        return edr to threeMbps
+    }
+
+    /**
+     * Bonded devices with a live BR/EDR ACL link, minus the A2DP peer itself.
+     *
+     * Null when the `BluetoothRemoteDevices` section — the only place this
+     * dump lists ACL state per device — was not found at all, so a build
+     * that omits it does not read as "zero other links". Never negative: on
+     * this Pixel 11 Pro the connected A2DP peer's own row always counts
+     * itself (Grep 23.09.), and a build that ever printed it differently
+     * would otherwise read as a negative link count.
+     */
+    private fun countOtherAclLinks(dump: String, a2dpPeerConnected: Boolean): Int? {
+        var inBlock = false
+        var sawBlock = false
+        var count = 0
+        for (raw in dump.lineSequence()) {
+            val line = raw.trimEnd()
+            if (line.isBlank()) continue
+            val unindented = line.first() != ' ' && line.first() != '\t'
+            if (unindented) {
+                inBlock = line.trim() == BLUETOOTH_REMOTE_DEVICES_HEADER
+                if (inBlock) sawBlock = true
+                continue
+            }
+            if (!inBlock) continue
+            if (line.contains(ACL_CONNECTED_MARKER)) count++
+        }
+        if (!sawBlock) return null
+        val others = if (a2dpPeerConnected) count - 1 else count
+        return others.coerceAtLeast(0)
+    }
+
+    private fun parseBoolean(value: String): Boolean? = when (value.trim().lowercase()) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
+
+    private const val A2DP_SOURCE_STATE_HEADER = "A2DP Source State:"
+    private const val PAIRING_EDR = "EDR:"
+    private const val PAIRING_SUPPORT_3MBPS = "Support 3Mbps:"
+    private const val BLUETOOTH_REMOTE_DEVICES_HEADER = "BluetoothRemoteDevices"
+    private const val ACL_CONNECTED_MARKER = "[ACL BR/EDR:Y"
+    private const val DISCOVERING = "Discovering:"
 
     // Labels exactly as the stack prints them, same rule as the tx block below:
     // a silent rename upstream should fail one obvious test rather than quietly
