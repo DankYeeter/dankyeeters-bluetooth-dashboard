@@ -183,7 +183,12 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         // the cold branch above would start a second poll loop, i.e. double the
         // dumpsys cost for one screen. It also keeps [recordLiveEvents] running
         // exactly once per pass.
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(LIVE_STOP_TIMEOUT_MS), replay = 1)
+        //
+        // No grace of its own: the screen-facing flows below carry the one
+        // LIVE_STOP_TIMEOUT_MS, and a second one here would be added to theirs.
+        // Stacked graces add up, and kept the poll — and the run it feeds —
+        // going well after the screen left (F-012).
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /**
      * The newest reading, or null before the first poll returns.
@@ -216,7 +221,9 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
      * will happen on the next connect.
      *
      * All three inputs are already collected by this screen or are push-based,
-     * so nothing here starts a poll of its own.
+     * so nothing here starts a poll of its own. No grace either: [liveLink]
+     * already holds the poll for LIVE_STOP_TIMEOUT_MS, and holding [liveLink]
+     * longer would hold the poll longer (F-012).
      */
     val storedLdacQuality: StateFlow<Long> = combine(
         liveLink.map { it?.device?.address },
@@ -231,7 +238,7 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         // has to be derived from the real one the A2DP profile holds.
         val key = rawAddressFor(shownAddress, devices)?.let(DeviceKey::fromAddress)
         LdacQuality.storedQuality(profiles.firstOrNull { it.deviceKey == key })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LdacQuality.NONE)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), LdacQuality.NONE)
 
     // ---- the two graphs ------------------------------------------------------
     //
@@ -411,11 +418,12 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         super.onCleared()
     }
 
-    private companion object {
+    internal companion object {
         /**
          * Long enough that a rotation does not restart the poll loop, short
-         * enough that leaving the screen stops it within one interval. Mirrors
-         * the stop timeout the graph's shared loop uses.
+         * enough that leaving the screen stops it within one interval. The
+         * only grace on the way to the poll: it sits on the flows the screen
+         * collects, and everything upstream of them stops at once (F-012).
          */
         const val LIVE_STOP_TIMEOUT_MS = 3_000L
 
