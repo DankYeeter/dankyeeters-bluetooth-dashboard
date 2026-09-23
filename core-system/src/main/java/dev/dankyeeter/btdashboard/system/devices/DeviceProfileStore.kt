@@ -151,47 +151,12 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
         if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
     /**
-     * The codec wish as a nested object rather than five flat keys.
-     *
-     * Flat keys would have made "no codec preference at all" and "a preference
-     * whose fields all happen to be zero" indistinguishable on the way back in,
-     * and those mean different things: one leaves the stack alone, the other
-     * asks it to renegotiate.
-     */
-    private fun encodeCodec(preference: CodecPreference): JSONObject = JSONObject().apply {
-        put("codec", preference.codec)
-        put("sampleRateHz", preference.sampleRateHz)
-        put("bitsPerSample", preference.bitsPerSample)
-        put("channelMode", preference.channelMode)
-        put("ldacQuality", preference.ldacQuality)
-    }
-
-    /**
-     * Missing or unreadable degrades to "no preference", never to a guess.
-     *
-     * [DeviceProfile.sanitized] then drops anything the registry no longer
-     * recognises, so a value that survives parsing is still checked before it
-     * can reach the Bluetooth stack.
-     */
-    /**
      * A name this build no longer has degrades to "no wish", never to a crash
      * and never to a guessed value — the same rule `sanitized()` applies to a
      * developer option the registry has dropped.
      */
     private fun parseHdAudio(name: String?): HdAudioPreference? =
         name?.let { stored -> HdAudioPreference.entries.firstOrNull { it.name == stored } }
-
-    private fun parseCodec(o: JSONObject?): CodecPreference? {
-        if (o == null) return null
-        val codec = o.optString("codec").takeIf { it.isNotBlank() } ?: return null
-        return CodecPreference(
-            codec = codec,
-            sampleRateHz = o.optInt("sampleRateHz"),
-            bitsPerSample = o.optInt("bitsPerSample"),
-            channelMode = o.optInt("channelMode"),
-            ldacQuality = o.optLong("ldacQuality"),
-        )
-    }
 
     /** Missing or malformed developer options degrade to none, never to a crash. */
     private fun JSONObject?.toStringMap(): Map<String, String> {
@@ -206,4 +171,40 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
         const val MAX_PROFILES = 32
         val KEY_PROFILES = stringPreferencesKey("device_profiles_json")
     }
+}
+
+/**
+ * The codec wish as a nested object rather than five flat keys.
+ *
+ * Flat keys would have made "no codec preference at all" and "a preference
+ * whose fields all happen to be zero" indistinguishable on the way back in,
+ * and those mean different things: one leaves the stack alone, the other
+ * asks it to renegotiate. Shared with [SettingsLedgerStore] so a codec has one
+ * stored format.
+ */
+internal fun encodeCodec(preference: CodecPreference): JSONObject = JSONObject().apply {
+    put("codec", preference.codec)
+    put("sampleRateHz", preference.sampleRateHz)
+    put("bitsPerSample", preference.bitsPerSample)
+    put("channelMode", preference.channelMode)
+    put("ldacQuality", preference.ldacQuality)
+}
+
+/**
+ * Missing or unreadable degrades to "no preference", never to a guess.
+ *
+ * [DeviceProfile.sanitized] then drops anything the registry no longer
+ * recognises, so a value that survives parsing is still checked before it
+ * can reach the Bluetooth stack.
+ */
+internal fun parseCodec(o: JSONObject?): CodecPreference? {
+    if (o == null) return null
+    val codec = o.optString("codec").takeIf { it.isNotBlank() } ?: return null
+    return CodecPreference(
+        codec = codec,
+        sampleRateHz = o.optInt("sampleRateHz"),
+        bitsPerSample = o.optInt("bitsPerSample"),
+        channelMode = o.optInt("channelMode"),
+        ldacQuality = o.optLong("ldacQuality"),
+    )
 }

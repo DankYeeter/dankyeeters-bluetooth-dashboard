@@ -1,5 +1,8 @@
 package dev.dankyeeter.btdashboard.system.devices
 
+import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate.Companion.KEY_DISABLE_ABSOLUTE_VOLUME
+import kotlinx.coroutines.sync.withLock
+
 /** Media-stream volume, expressed in percent so the UI is device-independent. */
 interface MediaVolumeController {
     /** Null when the audio service is unreachable. */
@@ -66,6 +69,11 @@ class DeviceProfileApplier(
      * not be attempted rather than that it was left alone.
      */
     private val hdAudio: HdAudioController = UnavailableHdAudioController,
+    /**
+     * Holds the value before each first write (AD-033). Defaulted like [codec]
+     * so the callers and tests that predate the ledger keep compiling.
+     */
+    private val ledger: SettingsLedger = NoSettingsLedger,
 ) {
 
     suspend fun onDeviceConnected(address: String?): ApplyResult {
@@ -114,11 +122,15 @@ class DeviceProfileApplier(
                 !absoluteVolume.isWritable() ->
                     add(ProfileAction.Skipped("absolute volume", "WRITE_SECURE_SETTINGS is not granted"))
 
-                absoluteVolume.clear() ->
-                    add(ProfileAction.AbsoluteVolumeReset)
-
-                else ->
-                    add(ProfileAction.Skipped("absolute volume", "the setting could not be reset"))
+                else -> add(
+                    when (ifRecorded({ ledger.recordGlobal(secureSettings, KEY_DISABLE_ABSOLUTE_VOLUME) }) {
+                        absoluteVolume.clear()
+                    }) {
+                        null -> ProfileAction.Skipped("absolute volume", PRIOR_NOT_RECORDED)
+                        true -> ProfileAction.AbsoluteVolumeReset
+                        false -> ProfileAction.Skipped("absolute volume", "the setting could not be reset")
+                    },
+                )
             }
 
             else -> profile.absoluteVolumeEnabled?.let { enabled ->
@@ -129,11 +141,15 @@ class DeviceProfileApplier(
                     absoluteVolume.isEnabled() == enabled ->
                         add(ProfileAction.AbsoluteVolumeSet(enabled))
 
-                    absoluteVolume.setEnabled(enabled) ->
-                        add(ProfileAction.AbsoluteVolumeSet(enabled))
-
-                    else ->
-                        add(ProfileAction.Skipped("absolute volume", "the setting could not be written"))
+                    else -> add(
+                        when (ifRecorded({ ledger.recordGlobal(secureSettings, KEY_DISABLE_ABSOLUTE_VOLUME) }) {
+                            absoluteVolume.setEnabled(enabled)
+                        }) {
+                            null -> ProfileAction.Skipped("absolute volume", PRIOR_NOT_RECORDED)
+                            true -> ProfileAction.AbsoluteVolumeSet(enabled)
+                            false -> ProfileAction.Skipped("absolute volume", "the setting could not be written")
+                        },
+                    )
                 }
             }
         }
@@ -160,20 +176,20 @@ class DeviceProfileApplier(
                         ),
                     )
 
-                    secureSettings.clear(key) -> add(
-                        ProfileAction.DeveloperOptionSet(
-                            key = key,
-                            value = value,
-                            needsBluetoothRestart = option.needsBluetoothRestart,
-                            alreadySet = false,
-                        ),
-                    )
-
                     else -> add(
-                        ProfileAction.Skipped(
-                            option.label,
-                            "the key could not be cleared — it still holds a value",
-                        ),
+                        when (ifRecorded({ ledger.recordGlobal(secureSettings, key) }) { secureSettings.clear(key) }) {
+                            null -> ProfileAction.Skipped(option.label, PRIOR_NOT_RECORDED)
+                            true -> ProfileAction.DeveloperOptionSet(
+                                key = key,
+                                value = value,
+                                needsBluetoothRestart = option.needsBluetoothRestart,
+                                alreadySet = false,
+                            )
+                            false -> ProfileAction.Skipped(
+                                option.label,
+                                "the key could not be cleared — it still holds a value",
+                            )
+                        },
                     )
                 }
 
@@ -186,22 +202,22 @@ class DeviceProfileApplier(
                     ),
                 )
 
-                secureSettings.write(key, value) -> add(
-                    ProfileAction.DeveloperOptionSet(
-                        key = key,
-                        value = value,
-                        needsBluetoothRestart = option.needsBluetoothRestart,
-                        alreadySet = false,
-                    ),
-                )
-
-                // The only evidence available that a build ignores a key. Said
-                // plainly rather than reported as success.
                 else -> add(
-                    ProfileAction.Skipped(
-                        option.label,
-                        "the value did not stick \u2014 this Android build may not support it",
-                    ),
+                    when (ifRecorded({ ledger.recordGlobal(secureSettings, key) }) { secureSettings.write(key, value) }) {
+                        null -> ProfileAction.Skipped(option.label, PRIOR_NOT_RECORDED)
+                        true -> ProfileAction.DeveloperOptionSet(
+                            key = key,
+                            value = value,
+                            needsBluetoothRestart = option.needsBluetoothRestart,
+                            alreadySet = false,
+                        )
+                        // The only evidence available that a build ignores a key. Said
+                        // plainly rather than reported as success.
+                        false -> ProfileAction.Skipped(
+                            option.label,
+                            "the value did not stick — this Android build may not support it",
+                        )
+                    },
                 )
             }
         }
@@ -242,7 +258,12 @@ class DeviceProfileApplier(
                     if (alreadyRight) {
                         add(ProfileAction.HdAudioSet(wish.asEnabled(), alreadySet = true))
                     } else {
-                        when (val outcome = hdAudio.apply(address, wish)) {
+                        val outcome = ifRecorded({ ledger.recordHdAudio(profile.deviceKey, before) }) {
+                            hdAudio.apply(address, wish)
+                        }
+                        when (outcome) {
+                            null -> add(ProfileAction.Skipped("HD audio", PRIOR_NOT_RECORDED))
+
                             is HdAudioOutcome.Applied ->
                                 add(ProfileAction.HdAudioSet(outcome.enabled, alreadySet = false))
 
@@ -265,7 +286,7 @@ class DeviceProfileApplier(
                 address == null -> add(
                     ProfileAction.Skipped(
                         "codec",
-                        "the device address is not known here, so the codec cannot be set \u2014 " +
+                        "the device address is not known here, so the codec cannot be set — " +
                             "connect the device and try again",
                     ),
                 )
@@ -289,5 +310,18 @@ class DeviceProfileApplier(
                 }
             }
         }
+    }
+
+    /**
+     * Runs [write] only once [record] has secured the value before, both under
+     * the ledger's lock. Null: nothing was recorded, so nothing was written.
+     */
+    private suspend fun <T : Any> ifRecorded(record: suspend () -> Boolean, write: suspend () -> T): T? =
+        ledger.lock.withLock { if (record()) write() else null }
+
+    private companion object {
+        /** AD-033; wording from UI_SPEC S3-3 (AK-T047-1). */
+        const val PRIOR_NOT_RECORDED =
+            "the value before could not be read, so it could not be restored — nothing was written"
     }
 }
