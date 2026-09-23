@@ -51,6 +51,17 @@ Lesen der Tabelle zu erkennen. Als eigene, bewusste Produktfrage in
 `UI_SPEC.md` (T-039, "Offene Fragen", Punkt 5) nachgetragen — meine Empfehlung
 ist "so lassen", die Entscheidung selbst faellt der App Designer.
 
+**Korrektur (T-047c, 2026-09-23):** Der App Designer hat die oben verlinkte
+Frage 5 am 23.09. mit **nein** beantwortet — die Empfehlung dieses Durchlaufs
+wurde nicht uebernommen. Seit T-046 beendet eine Pause den Lauf, sobald sie
+`RUN_GAP_MAX_MS` (2 min) ueberschreitet (`RunEnd.PAUSED`); "beendet den Lauf
+nie" gilt nicht mehr. Der zitierte Test ist umbenannt:
+`ObservationRunTest."a pause of exactly the gap maximum is a gap, not
+observed time"` misst jetzt die Grenze (2 min), nicht zehn Minuten. Diese
+Zeilen bleiben als historischer Befund dieses Durchlaufs stehen; der
+aktuelle Wortlaut steht in `UI_SPEC.md` T-039 (dort ebenfalls mit
+Korrektur-Vermerk T-047c).
+
 ### Kritisch
 
 Keine.
@@ -84,6 +95,10 @@ Praxis nicht ganz bilden.
   `formatSpan(RUN_GAP_MAX_MS)` in der Gap-Zeile.
   `ObservationRunTest."each of the six ends is recognised and freezes the
   figures"` deckt alle sechs mit eingefrorenen Kennzahlen danach ab.
+  **Korrektur (T-047c, 2026-09-23):** Seit T-046 sind es **sieben** Enden
+  (`PAUSED` kam dazu) und der Test heisst jetzt `ObservationRunTest."each end
+  is recognised and freezes the figures"`. Diese Zeile ist der Stand dieses
+  Durchlaufs (23.09., vor T-046) und bleibt stehen; nicht erneut gepruft.
 - **Starthinweis-Dialog:** Titel, Text, Button-Beschriftungen ("Continue"/"Not
   now") zeichengenau wie in `UI_SPEC.md` Entscheidung 5.
   `LEAVING_DISCARDS_THE_RUN`-Konstante wird fuer Dialog **und** Satz 1 der

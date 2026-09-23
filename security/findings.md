@@ -263,3 +263,16 @@ nicht Teil von T-005.
 | SR-024 | `AudioEffectSessionReceiver`: gefaelschtes OPEN legt unbegrenzt Effekte an, Hauptthread; erfundene IDs = Hypothese, Geraet | niedrig | offen, beschlossen nicht beauftragt | 2026-09-23 |
 
 - 2026-09-23 · T-043b: Review `AudioEffectSessionReceiver` erledigt (SR-023, SR-024), Export noetig und bleibt. W-1 am Stand afacd89 gegen V-1..V-11 PASS. F-005 ohne Angriffspfad. Bericht `docs/berichte/T-043b-security-reviewer.md`.
+
+| SR-004 | (Bestand) | hoch | entfallen (F3, keine Leihe; lebt mit „geliehen" wieder auf) | 2026-09-23 |
+| SR-005 | (Bestand) | hoch | entfallen (F3 und D2; lebt mit „geliehen" wieder auf) | 2026-09-23 |
+| SR-006 | (Bestand) | mittel | in Arbeit (T-047 S3-3, M5) | 2026-09-23 |
+| SR-007 | (Bestand) | mittel | in Arbeit (erste Haelfte S3-3; zweite entfaellt, solange der Rueckweg nur auf Knopfdruck laeuft) | 2026-09-23 |
+| SR-025 | Globals: Lesefehler wird als „nicht gesetzt" festgehalten und bestaetigt (`GlobalSettingsController.kt:34-36`, `:72-73`) | mittel | offen (M1, M9) | 2026-09-23 |
+| SR-026 | LDAC: `codeOf(UNKNOWN/null)` = NONE statt null (`LdacTuning.kt:98-104`) | mittel | offen (M12) | 2026-09-23 |
+| SR-027 | Kaputtes Ledger wuerde als leer gelesen, Vorwerte gingen verloren (Muster `DeviceProfileStore.kt:40-41`) | mittel | offen (M3) | 2026-09-23 |
+| SR-028 | Wettlauf Rueckweg und Autoapply (`DeviceConnectionWatcher.kt:93-103`): Einstellung geaendert ohne Eintrag | mittel | offen (M4, M11) | 2026-09-23 |
+| SR-029 | Rueckweg schreibt Schluessel aus Datei, braucht feste Schluesselliste | niedrig | offen (M8) | 2026-09-23 |
+| SR-030 | Grundtexte des Helfers mit roher MAC (`HelperBluetooth.kt:564`) im Rueckweg-Bericht | niedrig | offen (M13) | 2026-09-23 |
+
+- 2026-09-23 · T-047b Vorlauf AD-033/AD-034: CONCERNS, Vorgaben M1–M18 in `docs/berichte/T-047b-security-reviewer.md`.
