@@ -14,6 +14,7 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,6 +55,10 @@ class EqLayerBypassTest {
     @Before
     fun setUp() {
         SystemGraph.init(ApplicationProvider.getApplicationContext<Context>())
+        // SystemGraph.settingsStore is a process-wide DataStore singleton
+        // (F-006): it survives the Robolectric test boundary within one JVM,
+        // so a fresh install has to be reset explicitly rather than assumed.
+        runBlocking { SystemGraph.settingsStore.save(EqSettings.FLAT) }
     }
 
     private fun idle() {
