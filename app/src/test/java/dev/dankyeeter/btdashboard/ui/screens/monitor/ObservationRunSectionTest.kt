@@ -148,13 +148,16 @@ class ObservationRunSectionTest {
         }
     }
 
-    /** AK-T039-3: ten minutes of pause are named as a break, and not observed. */
+    /**
+     * AK-T039-3: a pause is named as a break, and not observed. Two minutes, not
+     * ten: a pause longer than `RUN_GAP_MAX_MS` ends the run (T-046).
+     */
     @Test
-    fun `a ten minute pause shows as a break and not as observed time`() {
-        render(snapshot(), runOf(List(61) { 660 } + List(600) { null } + List(61) { 660 }))
+    fun `a two minute pause shows as a break and not as observed time`() {
+        render(snapshot(), runOf(List(61) { 660 } + List(120) { null } + List(61) { 660 }))
 
         composeRule.onNodeWithText("Lowest reading 660 kbps, 2 min observed.").assertExists()
-        composeRule.onNodeWithText("Not observed for 10 min in 1 break; that time is in no figure here.").assertExists()
+        composeRule.onNodeWithText("Not observed for 2 min in 1 break; that time is in no figure here.").assertExists()
     }
 
     /** AK-T039-4: before both minimums only the collecting line exists. */
@@ -238,12 +241,13 @@ class ObservationRunSectionTest {
         assertTrue(texts().any { "the share is a lower bound" in it })
     }
 
-    /** AK-T039-9 (wording half): six ends, six different first lines, figures kept below. */
+    /** AK-T039-9 (wording half): every end its own first line, figures kept below. */
     @Test
     fun `each end has its own line and keeps the figures`() {
         val lines = RunEnd.entries.map { endLine(it, 124_000L) }
-        assertEquals(6, lines.toSet().size)
+        assertEquals(RunEnd.entries.size, lines.toSet().size)
         assertEquals("Run ended after 2 min without a reading. 2 min observed.", endLine(RunEnd.READING_GAP, 124_000L))
+        assertEquals("Run ended after 2 min of paused playback. 2 min observed.", endLine(RunEnd.PAUSED, 124_000L))
 
         render(snapshot(), counting.stopped())
         composeRule.onNodeWithText("Run stopped. 2 min observed.").assertExists()

@@ -170,6 +170,8 @@ internal fun endLine(end: RunEnd, observedMs: Long): String {
         RunEnd.CODEC_CHANGED -> "Run ended when the codec changed. $observed"
         RunEnd.READING_GAP ->
             "Run ended after ${formatSpan(ObservationRun.RUN_GAP_MAX_MS)} without a reading. $observed"
+        RunEnd.PAUSED ->
+            "Run ended after ${formatSpan(ObservationRun.RUN_GAP_MAX_MS)} of paused playback. $observed"
         RunEnd.RATE_UNREADABLE -> "Run ended when the rate stopped being readable. $observed"
     }
 }

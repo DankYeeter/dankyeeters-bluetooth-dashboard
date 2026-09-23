@@ -34,6 +34,9 @@ enum class RunEnd {
     /** No reading arrived for longer than [ObservationRun.RUN_GAP_MAX_MS]. */
     READING_GAP,
 
+    /** Playback stayed paused for longer than [ObservationRun.RUN_GAP_MAX_MS]. */
+    PAUSED,
+
     /** Playback went on, but the stack stopped printing the rate. */
     RATE_UNREADABLE,
 }
@@ -109,6 +112,8 @@ data class ObservationRun(
     private val lastSeenMs: Long? = null,
     /** The last reading that carried a rate: its timestamp and kbps. */
     private val lastRate: Pair<Long, Int>? = null,
+    /** The first poll of the pause in progress, or null while playing. */
+    private val pausedSinceMs: Long? = null,
 ) {
 
     /**
@@ -138,10 +143,15 @@ data class ObservationRun(
         val runLink = link ?: snapshot.runLink()
         snapshot.endAgainst(runLink)?.let { return copy(end = it, link = runLink) }
 
-        val kbps = snapshot.ldac?.measuredKbps?.takeIf { device.isPlaying }
-            ?: return copy(link = runLink, lastSeenMs = now)
+        if (!device.isPlaying) {
+            val pausedSince = pausedSinceMs ?: now
+            if (now - pausedSince > RUN_GAP_MAX_MS) return copy(end = RunEnd.PAUSED, link = runLink)
+            return copy(link = runLink, lastSeenMs = now, pausedSinceMs = pausedSince)
+        }
+        val playing = copy(link = runLink, lastSeenMs = now, pausedSinceMs = null)
+        val kbps = snapshot.ldac?.measuredKbps ?: return playing
         val chained = lastRate != null && lastRate.first == previous
-        return copy(link = runLink, lastSeenMs = now).withRate(now, kbps, chained, expectedIntervalMs)
+        return playing.withRate(now, kbps, chained, expectedIntervalMs)
     }
 
     /** Ends a counting run by hand. An ended run stays as it ended. */
@@ -239,7 +249,9 @@ data class ObservationRun(
         const val RUN_MIN_READINGS = 30
 
         /**
-         * Longest span without any reading that a run survives: 2 min.
+         * Longest span without any reading, and longest pause, that a run
+         * survives: 2 min. A pause counts from its first paused poll to the
+         * current one; a playing poll ends it.
          *
          * A convention, not a measurement. A pause longer than a run needs before
          * it may say anything separates two observations rather than sitting
@@ -277,9 +289,10 @@ private fun LinkLiveSnapshot.runLink() =
 /**
  * Why this reading ends a run on [link], or null when it continues it.
  *
- * A paused stream continues it — that is a gap. A playing stream whose rate the
- * stack no longer prints ends it: the build stopped answering the question the
- * run asks.
+ * A paused stream continues it as a gap; [ObservationRun.plus] ends the run
+ * once the pause outlasts [ObservationRun.RUN_GAP_MAX_MS]. A playing stream
+ * whose rate the stack no longer prints ends it: the build stopped answering
+ * the question the run asks.
  */
 private fun LinkLiveSnapshot.endAgainst(link: RunLink): RunEnd? {
     val device = device

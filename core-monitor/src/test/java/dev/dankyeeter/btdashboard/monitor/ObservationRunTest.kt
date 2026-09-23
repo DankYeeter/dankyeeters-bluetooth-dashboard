@@ -59,18 +59,48 @@ class ObservationRunTest {
         assertEquals("ten minutes stay ten minutes: nothing slides out", 599_000L, run.observedMs)
     }
 
-    /** AK-T039-3: `{T}` is the covered time, never now minus start. */
+    /** Paused polls, one a second, from [fromMs] through [toMs]. */
+    private fun ObservationRun.paused(fromMs: Long, toMs: Long) =
+        (fromMs..toMs step 1_000L).fold(this) { run, ms -> run.plus(reading(ms, null, playing = false), 1_000L) }
+
+    /**
+     * AK-T039-3: `{T}` is the covered time, never now minus start. Also the
+     * boundary of the pause rule: a pause of exactly [ObservationRun.RUN_GAP_MAX_MS],
+     * first paused poll to last, does not end the run.
+     */
     @Test
-    fun `a ten minute pause is a gap, not observed time`() {
-        var run = started().fed(List(61) { 660 })
-        // Paused: readings keep arriving, but none carries a rate for ten minutes.
-        (1..600).forEach { s -> run = run.plus(reading(61_000L + s * 1_000L, null, playing = false), 1_000L) }
-        run = run.fed(List(61) { 660 }, fromMs = 662_000L)
+    fun `a pause of exactly the gap maximum is a gap, not observed time`() {
+        val run = started().fed(List(61) { 660 })
+            .paused(62_000L, 62_000L + ObservationRun.RUN_GAP_MAX_MS)
+            .fed(List(61) { 660 }, fromMs = 183_000L)
 
         assertNull(run.end)
         assertEquals(120_000L, run.observedMs)
         assertEquals(1, run.gapCount)
-        assertEquals(601_000L, run.gapMs)
+        assertEquals(122_000L, run.gapMs)
+    }
+
+    /** One paused poll past [ObservationRun.RUN_GAP_MAX_MS] ends the run, figures kept. */
+    @Test
+    fun `a pause one poll longer than the gap maximum ends the run`() {
+        val run = started().fed(List(61) { 660 })
+            .paused(62_000L, 62_000L + ObservationRun.RUN_GAP_MAX_MS + 1_000L)
+
+        assertEquals(RunEnd.PAUSED, run.end)
+        assertEquals(60_000L, run.observedMs)
+    }
+
+    /** A playing poll ends the pause; the next pause counts from zero. */
+    @Test
+    fun `a pause interrupted by a playing poll does not end the run`() {
+        val run = started().fed(List(61) { 660 })
+            .paused(62_000L, 161_000L)
+            .fed(listOf(660), fromMs = 162_000L)
+            .paused(163_000L, 262_000L)
+            .fed(List(10) { 660 }, fromMs = 263_000L)
+
+        assertNull("200 s paused in two pauses of 100 s", run.end)
+        assertEquals(69_000L, run.observedMs)
     }
 
     /** AK-T039-7: the threshold recomputes the share and moves nothing else. */
@@ -106,7 +136,7 @@ class ObservationRunTest {
 
     /** AK-T039-9: each end has its own trigger, and the figures stay as they were. */
     @Test
-    fun `each of the six ends is recognised and freezes the figures`() {
+    fun `each end is recognised and freezes the figures`() {
         val running = started().fed(List(150) { 660 })
         val next = 151_000L
         val cases = mapOf(
@@ -115,6 +145,7 @@ class ObservationRunTest {
             RunEnd.QUALITY_CHANGED to running.plus(reading(next, 660, codecSpecific1 = 1001L), 1_000L),
             RunEnd.CODEC_CHANGED to running.plus(reading(next, null, family = CodecFamily.AAC), 1_000L),
             RunEnd.READING_GAP to running.plus(reading(next + ObservationRun.RUN_GAP_MAX_MS, 660), 1_000L),
+            RunEnd.PAUSED to running.paused(next, next + ObservationRun.RUN_GAP_MAX_MS + 1_000L),
             RunEnd.RATE_UNREADABLE to running.plus(reading(next, null), 1_000L),
         )
         assertEquals(RunEnd.entries.toSet(), cases.keys)
