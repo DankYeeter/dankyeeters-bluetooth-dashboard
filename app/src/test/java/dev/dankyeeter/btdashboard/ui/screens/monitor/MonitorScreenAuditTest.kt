@@ -91,20 +91,4 @@ class MonitorScreenAuditTest {
         assertHides("0 events")
         assertShows("Nothing recorded yet")
     }
-
-    /** The device test explained its own button twice, one tap apart. */
-    @Test
-    fun `the device test does not restate its own explanation`() {
-        render {
-            DiagnosticCard(
-                state = DiagnosticUiState(),
-                onRun = {},
-                onCancel = {},
-                onDismissMessage = {},
-            )
-        }
-
-        assertHides("Runs a three-minute check")
-        assertShows("Run device test")
-    }
 }

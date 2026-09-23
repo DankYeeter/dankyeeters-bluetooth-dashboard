@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /**
- * Storage seam. Everything above (sampler, diagnostic, UI) depends only on this
+ * Storage seam. Everything above (sampler, UI) depends only on this
  * interface, so the whole monitor can be exercised on the JVM with
  * [InMemoryMonitorRepository].
  */

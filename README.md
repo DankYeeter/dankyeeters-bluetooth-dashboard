@@ -63,8 +63,6 @@ Kotlin · Jetpack Compose · Material 3 · Oboe/NDK · Shizuku · no network.
 - Link-quality monitor with a Canvas timeline; adaptive sampling that idles to
   nothing when nothing is playing, plus a "watch live" deep-capture mode.
 - Active-device takeover log — which device grabbed the audio stream and when.
-- Automated device diagnostic: connect check, codec negotiation, forced codec
-  cycling, stability soak, summary report.
 - AirPods BLE beacon decoding: per-bud and case battery, in-ear wear state,
   model identification (which selects the matching calibration preset).
 - Per-device profiles: when a known headphone connects, its compensation

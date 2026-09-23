@@ -18,14 +18,14 @@ data class MonitorConditions(
      * `MonitorGraph.setUiVisible()`.
      */
     val uiVisible: Boolean = false,
-    /** Set by the dashboard's "watch live" action and by diagnostic soaks. */
+    /** Set by the dashboard's "watch live" action. */
     val deepCaptureUntilMs: Long = 0L,
     /** Set by the anomaly detector after a bitrate/RSSI drop. */
     val burstUntilMs: Long = 0L,
 )
 
 enum class SamplingMode(val intervalMs: Long) {
-    /** "Watch live" / diagnostic soak: full resolution. */
+    /** "Watch live": full resolution. */
     DEEP(10_000L),
     /** Something looked wrong — tighten up until the window expires. */
     BURST(5_000L),

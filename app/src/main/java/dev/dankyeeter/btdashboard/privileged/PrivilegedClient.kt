@@ -457,16 +457,15 @@ class PrivilegedShellRunner internal constructor(
 /**
  * Where the rest of the app picks up codec control.
  *
- * `MonitorViewModel` is a plain `ViewModel` with no Context, and it should stay
- * that way — so the one controller the Application builds is registered here
- * and handed out on demand. Resolved per call, never cached by the caller: the
- * helper can connect or die at any moment, and a diagnostic started an hour
- * after the screen opened must ask again.
+ * The callers hold no Context and should not need one, so the one controller
+ * the Application builds is registered here and handed out on demand. Resolved
+ * per call, never cached by the caller: the helper can connect or die at any
+ * moment.
  *
  * [controller] deliberately falls back to [NoOpCodecController] rather than
- * returning a live controller that would answer "no codecs" — the diagnostic
- * words an empty list as "needs privileged access we do not have", which is the
- * truth when the helper is absent and a lie when it is present.
+ * returning a live controller that would answer "no codecs": from the stub an
+ * empty list means "needs privileged access we do not have", which is the truth
+ * when the helper is absent and a lie when it is present.
  */
 object PrivilegedCodec {
 
@@ -495,9 +494,9 @@ sealed interface CodecCallResult {
  *
  * ## Why one class implements two interfaces
  *
- * `CodecController` lives in `:core-monitor` (the diagnostic uses it) and
- * `CodecPreferenceController` lives in `:core-system` (the profile applier uses
- * it). `:core-system` does not depend on `:core-monitor` and should not start
+ * `CodecController` lives in `:core-monitor` (the Devices tab reads codec
+ * capabilities through it) and `CodecPreferenceController` lives in
+ * `:core-system` (the profile applier uses it). `:core-system` does not depend on `:core-monitor` and should not start
  * now — the two modules are deliberately unaware of each other. `:app` sees
  * both, so the one place that can satisfy both contracts is here, and doing it
  * with one object is what keeps a single codec request from having two
@@ -533,21 +532,6 @@ class PrivilegedCodecController(
                 Log.i(TAG, "codec capabilities unreadable: ${result.reason}")
                 emptyList()
             }
-        }
-
-    /**
-     * Asks for a codec family and nothing else.
-     *
-     * Returns the family only when the read-back agreed. A request that was
-     * accepted but not observed comes back null — the diagnostic's wording for
-     * that is "could not be applied", which is the truth.
-     */
-    override suspend fun selectCodec(address: String, codec: CodecFamily): CodecFamily? =
-        when (val result = request(address, CodecRequest(family = codec))) {
-            is CodecCallResult.Observed ->
-                result.observation.takeIf { it.matched == true }?.codecFamily
-
-            is CodecCallResult.Unavailable -> null
         }
 
     override suspend fun apply(

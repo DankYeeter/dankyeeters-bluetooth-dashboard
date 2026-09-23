@@ -1,8 +1,6 @@
 package dev.dankyeeter.btdashboard.monitor
 
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
-import dev.dankyeeter.btdashboard.monitor.codec.CodecController
-import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatusSource
@@ -80,21 +78,7 @@ class FakeEventSource(
     override fun events(): Flow<MonitorEvent> = flow
 }
 
-/** Accepts every codec it was constructed with, refuses the rest. */
-class FakeCodecController(
-    private val available: List<CodecFamily>,
-    private val refuse: Set<CodecFamily> = emptySet(),
-) : CodecController {
-    /** The last codec that was accepted — what the link would be left on. */
-    var lastSelected: CodecFamily? = null
-        private set
-
-    override suspend fun availableCodecs(address: String) = available
-    override suspend fun selectCodec(address: String, codec: CodecFamily): CodecFamily? =
-        if (codec in refuse) null else codec.also { lastSelected = it }
-}
-
-/** Deterministic clock for soak/window tests. */
+/** Deterministic clock for window tests. */
 class TestClock(var nowMs: Long = 0L) {
     fun now(): Long = nowMs
     fun advance(ms: Long) {

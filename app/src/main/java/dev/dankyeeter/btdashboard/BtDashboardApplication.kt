@@ -138,9 +138,9 @@ class BtDashboardApplication : Application() {
         // check", which is what every layer above it is built to display.
         //
         // One instance, registered in two places: the profile applier reaches
-        // it through SystemGraph, the diagnostic through PrivilegedCodec. Two
-        // instances would mean two objects deciding independently whether the
-        // helper is there.
+        // it through SystemGraph, the Devices tab and LDAC tuning through
+        // PrivilegedCodec. Two instances would mean two objects deciding
+        // independently whether the helper is there.
         val codecController = PrivilegedCodecController(this)
         SystemGraph.installCodecPreferenceController(codecController)
         PrivilegedCodec.install(codecController)

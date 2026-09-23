@@ -7,16 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
@@ -24,8 +20,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
-import dev.dankyeeter.btdashboard.monitor.diagnostic.StepOutcome
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
@@ -35,7 +29,6 @@ import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
-import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
 
@@ -45,7 +38,6 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val samples by viewModel.samples.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
     val bqr by viewModel.bqrAvailability.collectAsStateWithLifecycle()
-    val diagnostic by viewModel.diagnostic.collectAsStateWithLifecycle()
     // The live poller is started by this collection and stopped by it: the flow
     // is WhileSubscribed in the ViewModel, and collecting it with the lifecycle
     // means a backgrounded screen stops paying for three dumpsys calls a poll.
@@ -132,13 +124,6 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
         TimelinePanel(samples = samples, events = events)
 
         EventLogPanel(events)
-
-        DiagnosticCard(
-            diagnostic,
-            onRun = { viewModel.runDiagnostic() },
-            onCancel = viewModel::cancelDiagnostic,
-            onDismissMessage = viewModel::dismissDiagnosticMessage,
-        )
     }
 }
 
@@ -218,107 +203,6 @@ internal fun TimelinePanel(
     }
 }
 
-/** The guided device test and its report. */
-@Composable
-internal fun DiagnosticCard(
-    state: DiagnosticUiState,
-    onRun: () -> Unit,
-    onCancel: () -> Unit,
-    onDismissMessage: () -> Unit,
-) {
-    val clipboard = LocalClipboardManager.current
-
-    Panel {
-        // One noun for the whole feature — "device test" in the header, in the
-        // buttons and in the messages. It was "test device", "diagnostic" and
-        // "run" in three different places, which reads as three features.
-        // The always-on sentence under this header said the same thing the
-        // header's own explanation says, one tap further out — "runs a
-        // three-minute check and reports what it found" against "checks the
-        // connection, watches the codec negotiate… then records for three
-        // minutes and summarises". The button says "Run device test"; a panel
-        // that explains its own button twice is explaining itself, not the link.
-        ExplainedHeader(
-            "Device test",
-            "It checks the connection, watches the codec negotiate, cycles through the " +
-                "codecs the headphone offers, then records for three minutes and summarises.",
-        )
-
-        if (state.running) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Pill("Running", tone = PillTone.ACCENT)
-                LinearProgressIndicator(Modifier.weight(1f))
-            }
-        }
-
-        // The outcome used to be a bracketed marker glued to the front of the
-        // sentence, which made "[FAIL]" and "[OK]" scan identically. As a pill
-        // it is a state again: same words, but colour and shape carry it.
-        state.steps.forEach { step ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val marker = when (step.outcome) {
-                    is StepOutcome.Passed -> "Passed"
-                    is StepOutcome.Warned -> "Warning"
-                    is StepOutcome.Failed -> "Failed"
-                    is StepOutcome.Skipped -> "Skipped"
-                }
-                val tone = when (step.outcome) {
-                    is StepOutcome.Passed -> PillTone.ACCENT
-                    is StepOutcome.Warned -> PillTone.WARN
-                    is StepOutcome.Failed -> PillTone.WARN
-                    is StepOutcome.Skipped -> PillTone.NEUTRAL
-                }
-                Pill(marker, tone = tone)
-                Text(
-                    // The detail is quoted from below: a codec read that failed
-                    // reports the reason it was given, and the layers under this
-                    // one work in real addresses. Same boundary rule as the LDAC
-                    // tuning message — see [redactAddresses].
-                    redactAddresses("${step.step.title}: ${step.outcome.detail}"),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-
-        state.report?.let { report ->
-            PanelDivider()
-            Text(report.verdict, style = MaterialTheme.typography.bodyMedium)
-            // A report is the one thing on this screen somebody wants to send
-            // to support or paste into a forum thread, and re-typing a verdict
-            // from a phone screen is not a plan.
-            TextButton(
-                onClick = { clipboard.setText(AnnotatedString(report.asPlainText())) },
-            ) { Text("Copy report") }
-        }
-
-        state.message?.let { message ->
-            Text(
-                message,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (state.messageIsError) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            TextButton(onClick = onDismissMessage) { Text("OK") }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GoldButton(onClick = onRun, enabled = !state.running) { Text("Run device test") }
-            if (state.running) {
-                GoldOutlinedButton(onClick = onCancel) { Text("Stop device test") }
-            }
-        }
-    }
-}
-
 /**
  * What the lanes mean, what the grey means, and how far back the screen looks.
  *
@@ -393,37 +277,3 @@ private fun SamplingMode.tone(): PillTone = when (this) {
     SamplingMode.DEEP, SamplingMode.BURST, SamplingMode.ACTIVE -> PillTone.ACCENT
     SamplingMode.BACKGROUND, SamplingMode.STOPPED -> PillTone.NEUTRAL
 }
-
-/**
- * The report as text somebody can paste somewhere else — the steps included,
- * because the verdict alone loses which check produced which finding.
- *
- * Redacted on the way out, and that is not belt-and-braces: [DiagnosticReport]
- * carries the **raw** address, because it is built from the A2DP profile rather
- * than from the redacted dump, and an unnamed headphone printed it verbatim into
- * the one string on this screen whose whole purpose is to be pasted into a
- * support ticket or a forum thread. Same rule as the live panel's header, which
- * masks for the same reason: the platform's own dumps only redact on a user
- * build, so the app cannot rely on its inputs being redacted for it.
- *
- * Internal rather than private so `MacRedactionInvariantTest` can walk it — the
- * leak was in this function, and a rule nothing checks is a rule that comes back.
- */
-internal fun DiagnosticReport.asPlainText(): String = redactAddresses(
-    buildString {
-        appendLine("Device test — ${deviceName ?: deviceAddress}")
-        appendLine("Duration: ${durationMs / 1000} s, $sampleCount samples")
-        appendLine()
-        steps.forEach { result ->
-            val marker = when (result.outcome) {
-                is StepOutcome.Passed -> "Passed"
-                is StepOutcome.Warned -> "Warning"
-                is StepOutcome.Failed -> "Failed"
-                is StepOutcome.Skipped -> "Skipped"
-            }
-            appendLine("$marker — ${result.step.title}: ${result.outcome.detail}")
-        }
-        appendLine()
-        append(verdict)
-    },
-)

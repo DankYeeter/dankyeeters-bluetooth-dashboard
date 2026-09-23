@@ -5,13 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.sameDevice
-import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuning
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DeviceDiagnosticRunner
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStepResult
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
@@ -22,7 +18,6 @@ import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
-import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.system.SystemGraph
@@ -31,7 +26,6 @@ import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -46,20 +40,6 @@ import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
-data class DiagnosticUiState(
-    val running: Boolean = false,
-    val steps: List<DiagnosticStepResult> = emptyList(),
-    val report: DiagnosticReport? = null,
-    /** Why the run did not start, or why it ended early. Null while healthy. */
-    val message: String? = null,
-    /**
-     * Whether [message] reports a fault. Stopping the run yourself is not one,
-     * and painting "Test stopped." in the error colour told the user something
-     * had gone wrong when they had simply pressed the button.
-     */
-    val messageIsError: Boolean = false,
-)
 
 /**
  * The raw Bluetooth address for a device the live panel is showing, or null.
@@ -131,11 +111,6 @@ class MonitorViewModel : ViewModel() {
         QualityReportAvailability.Unavailable("not checked"),
     )
     val bqrAvailability: StateFlow<QualityReportAvailability> = _bqr.asStateFlow()
-
-    private val _diagnostic = MutableStateFlow(DiagnosticUiState())
-    val diagnostic: StateFlow<DiagnosticUiState> = _diagnostic.asStateFlow()
-
-    private var diagnosticJob: Job? = null
 
     // ---- live link -----------------------------------------------------------
 
@@ -415,97 +390,10 @@ class MonitorViewModel : ViewModel() {
 
     fun stopDeepCapture() = MonitorGraph.engine.stopDeepCapture()
 
-    /**
-     * Runs the guided "test device" routine against the first connected device.
-     * The soak is deliberately short here; the runner itself takes any length.
-     */
-    fun runDiagnostic(soakMinutes: Int = 3) {
-        if (_diagnostic.value.running) return
-        diagnosticJob = viewModelScope.launch {
-            // The previous report deliberately survives the start of a new run.
-            // Clearing it emptied the only thing on the panel worth reading the
-            // moment the user asked for a fresh look, and left three minutes of
-            // nothing to compare the new run against.
-            _diagnostic.value = _diagnostic.value.copy(
-                running = true,
-                steps = emptyList(),
-                message = null,
-            )
-            val device = MonitorGraph.codecSource.connectedDevices().firstOrNull()
-            if (device == null) {
-                // Used to reset silently, which looked exactly like a frozen
-                // button: the run needs a connected A2DP sink to test against.
-                _diagnostic.value = _diagnostic.value.copy(
-                    running = false,
-                    message = "Connect a headphone first — the test needs a live link.",
-                    messageIsError = true,
-                )
-                return@launch
-            }
-            val runner = DeviceDiagnosticRunner(
-                codecSource = MonitorGraph.codecSource,
-                collector = LinkSampleCollector(
-                    codecSource = MonitorGraph.codecSource,
-                    // The shared, TTL-cached reader — never a fresh
-                    // ShellDumpsysLinkSource. A diagnostic soak samples on the
-                    // deep-capture interval, and each of those runs would
-                    // otherwise pay for its own exec-and-parse of the dump.
-                    dumpsysSource = MonitorGraph.dumpsysSource,
-                    qualityReportSource = MonitorGraph.qualityReportSource,
-                ),
-                // Real codec control when the privileged helper is answering,
-                // NoOpCodecController when it is not. The helper runs as
-                // com.android.shell, which holds BLUETOOTH_PRIVILEGED
-                // (granted=true, verified on the device), so
-                // setCodecConfigPreference is reachable from inside it.
-                //
-                // Resolved here rather than in init: the helper can connect or
-                // die between opening this screen and pressing the button.
-                codecController = PrivilegedCodec.controller(),
-            )
-            MonitorGraph.engine.startDeepCapture(soakMinutes * 60_000L)
-            val report = runner.run(
-                address = device.address,
-                soakDurationMs = soakMinutes * 60_000L,
-            ) { step ->
-                _diagnostic.value = _diagnostic.value.copy(
-                    steps = _diagnostic.value.steps + step,
-                )
-            }
-            _diagnostic.value = _diagnostic.value.copy(running = false, report = report)
-        }
-    }
-
-    /**
-     * Aborts a diagnostic in flight. The soak runs for minutes, so "wait it
-     * out" is not an acceptable only option — and the deep capture it started
-     * lives on the app-wide monitor scope, so it has to be stopped explicitly
-     * rather than dying with the job.
-     *
-     * The steps that already finished stay on screen: they were really measured
-     * and are still true after the stop, so throwing them away would discard the
-     * only result the aborted run produced.
-     */
-    fun cancelDiagnostic() {
-        diagnosticJob?.cancel()
-        diagnosticJob = null
-        MonitorGraph.engine.stopDeepCapture()
-        _diagnostic.value = _diagnostic.value.copy(
-            running = false,
-            message = "Test stopped.",
-            messageIsError = false,
-        )
-    }
-
-    fun dismissDiagnosticMessage() {
-        _diagnostic.value = _diagnostic.value.copy(message = null)
-    }
-
     override fun onCleared() {
-        // Leaving the screen must not leave deep capture burning battery —
-        // nor idle polling for a screen that is no longer there.
+        // Leaving the screen must not leave idle polling for a screen that is
+        // no longer there.
         MonitorGraph.setUiVisible(false)
-        if (_diagnostic.value.running) MonitorGraph.engine.stopDeepCapture()
         super.onCleared()
     }
 

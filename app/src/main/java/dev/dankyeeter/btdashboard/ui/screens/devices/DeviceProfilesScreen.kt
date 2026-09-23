@@ -971,7 +971,7 @@ private fun CodecEditor(
     // on every visit.
 
     // 0 means "Use System Default": the write sends the NONE mask, and the
-    // stack picks — proven by the diagnostic, which cycles codecs with
+    // stack picks — observed when codecs were cycled with
     // rate=0/bits=0/channels=0. When the value is 0 and the link is up, the
     // label also names what the stack currently resolved that default to.
     PickerMenu<Int>(
