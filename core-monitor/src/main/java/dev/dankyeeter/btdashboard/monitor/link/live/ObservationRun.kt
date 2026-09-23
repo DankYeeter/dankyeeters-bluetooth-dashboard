@@ -39,6 +39,9 @@ enum class RunEnd {
 
     /** Playback went on, but the stack stopped printing the rate. */
     RATE_UNREADABLE,
+
+    /** [ObservationRun.observedMs] reached [ObservationRun.targetMs]. */
+    TARGET_REACHED,
 }
 
 /** Time at one step of the ladder, as the run saw it. */
@@ -72,7 +75,9 @@ data class StepDwell(
  *  - [stepDwell] and [movingMs] — DERIVED from [pairMs] and
  *    [MeasuredBitrateTracker.LEVEL_TOLERANCE_KBPS];
  *  - the threshold handed to [atOrAbovePercent] is the user's choice. It is not
- *    a reading and nothing here labels it as one.
+ *    a reading and nothing here labels it as one;
+ *  - [dropouts] — MEASURED, the stack's own dropout counter, summed over the
+ *    covered intervals.
  *
  * ## No time source of its own
  *
@@ -107,13 +112,29 @@ data class ObservationRun(
     val gapCount: Int = 0,
     /** Why the run ended, or null while it is counting. */
     val end: RunEnd? = null,
+    /**
+     * MEASURED (reported by the system): the sum of the increases of the stack's
+     * absolute dropout counter over covered intervals. Taken from
+     * [A2dpTxStats.dropoutCount], not from [A2dpTxDelta.dropouts], which turns a
+     * missing counter into 0.
+     */
+    val dropouts: Long = 0L,
+    /** Covered time in which the counter was missing at an end or ran backwards. */
+    val dropoutsUncountedMs: Long = 0L,
+    /** The expected poll intervals that carried covered intervals. */
+    val cadencesMs: Set<Long> = emptySet(),
+    /** Observed time at which the run ends with [RunEnd.TARGET_REACHED], or null for no target. */
+    val targetMs: Long? = null,
+    /** What the run belongs to, fixed at its first reading. */
+    val link: RunLink? = null,
     private val levels: Set<Int> = emptySet(),
-    private val link: RunLink? = null,
     private val lastSeenMs: Long? = null,
     /** The last reading that carried a rate: its timestamp and kbps. */
     private val lastRate: Pair<Long, Int>? = null,
     /** The first poll of the pause in progress, or null while playing. */
     private val pausedSinceMs: Long? = null,
+    /** [A2dpTxStats.dropoutCount] of the last reading that carried a rate. */
+    private val lastDropoutTotal: Long? = null,
 ) {
 
     /**
@@ -151,7 +172,7 @@ data class ObservationRun(
         val playing = copy(link = runLink, lastSeenMs = now, pausedSinceMs = null)
         val kbps = snapshot.ldac?.measuredKbps ?: return playing
         val chained = lastRate != null && lastRate.first == previous
-        return playing.withRate(now, kbps, chained, expectedIntervalMs)
+        return playing.withRate(now, kbps, snapshot.tx?.dropoutCount, chained, expectedIntervalMs)
     }
 
     /** Ends a counting run by hand. An ended run stays as it ended. */
@@ -188,7 +209,13 @@ data class ObservationRun(
             return pairMs.filterKeys { (from, to) -> stepOf[from] != stepOf[to] }.values.sum()
         }
 
-    private fun withRate(now: Long, kbps: Int, chained: Boolean, expectedIntervalMs: Long): ObservationRun {
+    private fun withRate(
+        now: Long,
+        kbps: Int,
+        dropoutTotal: Long?,
+        chained: Boolean,
+        expectedIntervalMs: Long,
+    ): ObservationRun {
         val kept = kbps in levels || levels.size < RUN_MAX_LEVELS
         val next = copy(
             readings = readings + 1,
@@ -196,19 +223,32 @@ data class ObservationRun(
             levels = if (kept) levels + kbps else levels,
             levelLimitReached = levelLimitReached || !kept,
             lastRate = now to kbps,
+            lastDropoutTotal = dropoutTotal,
         )
         val (fromMs, fromKbps) = lastRate ?: return next
         val span = now - fromMs
         if (!chained || isReadingGap(span, expectedIntervalMs)) {
             return next.copy(gapMs = gapMs + span, gapCount = gapCount + 1)
         }
+        val counted = next.withDropouts(lastDropoutTotal, dropoutTotal, span)
+            .copy(cadencesMs = cadencesMs + expectedIntervalMs)
         val pair = fromKbps to kbps
-        return if (pair.first in next.levels && pair.second in next.levels) {
-            next.copy(observedMs = observedMs + span, pairMs = pairMs + (pair to (pairMs[pair] ?: 0L) + span))
+        val covered = if (pair.first in next.levels && pair.second in next.levels) {
+            counted.copy(observedMs = observedMs + span, pairMs = pairMs + (pair to (pairMs[pair] ?: 0L) + span))
         } else {
-            next.copy(observedMs = observedMs + span, unseparatedMs = unseparatedMs + span)
+            counted.copy(observedMs = observedMs + span, unseparatedMs = unseparatedMs + span)
         }
+        val reached = targetMs != null && covered.observedMs >= targetMs
+        return if (reached) covered.copy(end = RunEnd.TARGET_REACHED) else covered
     }
+
+    /** Counts a covered interval's dropouts, or its time as uncounted when the counter can not say. */
+    private fun withDropouts(fromTotal: Long?, toTotal: Long?, spanMs: Long): ObservationRun =
+        if (fromTotal != null && toTotal != null && toTotal >= fromTotal) {
+            copy(dropouts = dropouts + (toTotal - fromTotal))
+        } else {
+            copy(dropoutsUncountedMs = dropoutsUncountedMs + spanMs)
+        }
 
     /**
      * Each kept rate mapped to its step: rates are taken in ascending order, and
@@ -227,8 +267,12 @@ data class ObservationRun(
 
     companion object {
 
-        /** A run that counts only readings newer than [afterMs], the reading on screen at the tap. */
-        fun startedAfter(afterMs: Long?): ObservationRun = ObservationRun(lastSeenMs = afterMs)
+        /**
+         * A run that counts only readings newer than [afterMs], the reading on
+         * screen at the tap, and ends once it has observed [targetMs].
+         */
+        fun startedAfter(afterMs: Long?, targetMs: Long? = null): ObservationRun =
+            ObservationRun(targetMs = targetMs, lastSeenMs = afterMs)
 
         /**
          * Observed time before any figure is shown: 2 min.
@@ -271,9 +315,9 @@ data class ObservationRun(
 }
 
 /**
- * What a run belongs to: one pairing, one codec, one LDAC setting. Public only
- * because [ObservationRun]'s constructor is. [sampleRateHz] only names the
- * ladder the run's thresholds come from; it ends no run.
+ * What a run belongs to: one pairing, one codec, one LDAC setting. Two runs
+ * compare only on the same link. [sampleRateHz] only names the ladder the
+ * run's thresholds come from; it ends no run.
  */
 data class RunLink(
     val address: String?,
