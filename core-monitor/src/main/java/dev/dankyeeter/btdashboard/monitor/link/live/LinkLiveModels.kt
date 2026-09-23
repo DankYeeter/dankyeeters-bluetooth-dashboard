@@ -12,12 +12,24 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
  * is to print the codec's headline figure and let it look like a measurement.
  * That is the failure this app is supposed to be the opposite of, so every
  * value that reaches the UI carries what kind of value it is.
+ *
+ * ## The three words of `GOAL.md` AK-8
+ *
+ * AK-8 asks whether a figure is measured, reported by the system, or derived.
+ * The app has no sensor of its own, so the first two are one category here:
+ * [MEASURED] means the system reported it. Everything the app works out itself
+ * is [DERIVED], and that includes every duration taken from the app's clock —
+ * a span is the difference of two timestamps, and a total such as
+ * `ObservationRun.observedMs` is a sum of spans.
  */
 enum class Honesty(val label: String) {
-    /** Read from a counter or a field the system maintains. A fact. */
+    /** Reported by the system: a counter or a field it maintains. A fact. */
     MEASURED("measured"),
 
-    /** Arithmetic on measured values only (a delta, a rate). Still a fact. */
+    /**
+     * Arithmetic on measured values and reading timestamps only (a delta, a
+     * rate, a duration). Still a fact.
+     */
     DERIVED("derived"),
 
     /**

@@ -66,8 +66,8 @@ data class StepDwell(
  * ## Provenance of each figure (`GOAL.md` AK-8)
  *
  *  - [lowestKbps] — MEASURED, the lowest single reading;
- *  - [observedMs] — MEASURED, the sum of the covered intervals, not the time
- *    since the start;
+ *  - [observedMs] — DERIVED from the readings' timestamps: the sum of the
+ *    covered intervals, not the time since the start;
  *  - [atOrAbovePercent] — DERIVED from [pairMs] and [observedMs];
  *  - [stepDwell] and [movingMs] — DERIVED from [pairMs] and
  *    [MeasuredBitrateTracker.LEVEL_TOLERANCE_KBPS];
@@ -81,7 +81,7 @@ data class StepDwell(
  * holds it (`GOAL.md` AK-4).
  */
 data class ObservationRun(
-    /** MEASURED: the sum of all covered intervals — `{T}` on screen. */
+    /** DERIVED: the sum of all covered intervals — `{T}` on screen. */
     val observedMs: Long = 0L,
     /** Readings that carried a measured rate — `{n}` on screen. */
     val readings: Int = 0,
