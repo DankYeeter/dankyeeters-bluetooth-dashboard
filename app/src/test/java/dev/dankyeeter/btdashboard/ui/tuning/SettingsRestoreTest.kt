@@ -8,6 +8,7 @@ import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
+import dev.dankyeeter.btdashboard.system.devices.DeviceProfileSource
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
 import dev.dankyeeter.btdashboard.system.devices.HdAudioController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
@@ -21,6 +22,7 @@ import dev.dankyeeter.btdashboard.system.devices.withBaseline
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -92,6 +94,19 @@ private class FakeGlobals(val log: MutableList<String>) : SecureSettingsControll
     }
 }
 
+/**
+ * Returns [profile] on the first read, then null — standing in for a
+ * DataStore read that fails right after a successful save. [DeviceProfileStore]
+ * cannot be made to do this on the real disk (point 2, T-047j).
+ */
+private class FlakyProfileSource(private val profile: DeviceProfile) : DeviceProfileSource {
+    private var calls = 0
+    override suspend fun profileFor(deviceKey: String): DeviceProfile? {
+        calls++
+        return if (calls == 1) profile else null
+    }
+}
+
 private class FakeHdAudio(val log: MutableList<String>) : HdAudioController {
     override fun isAvailable() = true
     override suspend fun read(address: String): HdAudioState = HdAudioState.Known(supported = true, enabled = true)
@@ -115,11 +130,17 @@ class SettingsRestoreTest {
         profiles.current().forEach { profiles.delete(it.deviceKey) }
     }
 
-    private fun restore(ledger: SettingsLedger, connected: List<String> = listOf(ADDRESS_HERE)) = SettingsRestore(
+    private fun restore(
+        ledger: SettingsLedger,
+        connected: List<String> = listOf(ADDRESS_HERE),
+        saveProfile: suspend (DeviceProfile) -> Unit = profiles::save,
+    ) = SettingsRestore(
         ledger = ledger,
         globals = globals,
         hdAudio = FakeHdAudio(log),
         profiles = profiles,
+        currentProfiles = profiles::current,
+        saveProfile = saveProfile,
         connected = { connected.map { BtAudioDevice(it, "Bathys") } },
         requestLdac = { _, quality ->
             log += "ldac $quality"
@@ -157,6 +178,45 @@ class SettingsRestoreTest {
         assertEquals(listOf("Bathys"), report.autoApplyPausedFor)
         assertEquals(listOf(KEY_HERE), report.liveRestored)
         assertEquals("only the entry that did not go back is still held", listOf(hdAway), ledger.held)
+    }
+
+    @Test
+    fun `a save that fails while pausing Autoapply writes nothing (M10)`() = runTest {
+        profiles.save(DeviceProfile(deviceKey = KEY_HERE, name = "Bathys", codecPreference = LDAC_990))
+        val entry = LedgerEntry.Global(AVRCP, prior = "avrcp14")
+        val ledger = FakeLedger(listOf(entry))
+        val restoreWithFailingSave = restore(ledger, saveProfile = { throw IOException("disk full") })
+
+        val report = restoreWithFailingSave.restoreAll()
+
+        assertTrue("nothing was written once Autoapply could not be paused", log.isEmpty())
+        assertEquals(listOf(entry), ledger.held)
+        assertEquals(listOf(entry), report.pending.map { it.first })
+        assertTrue(report.autoApplyPausedFor.isEmpty())
+        assertTrue(report.pending.single().second.contains("Autoapply"))
+    }
+
+    @Test
+    fun `a confirm read that fails does not count as put back (point 2, T-047j)`() = runTest {
+        val profile = DeviceProfile(deviceKey = KEY_HERE, name = "Bathys", codecPreference = LDAC_990)
+        val entry = LedgerEntry.Ldac(KEY_HERE, priorWish = null, priorLive = null)
+        val ledger = FakeLedger(listOf(entry))
+        val flakyProfiles = FlakyProfileSource(profile)
+        val restoreFlaky = SettingsRestore(
+            ledger = ledger,
+            globals = globals,
+            hdAudio = FakeHdAudio(log),
+            profiles = flakyProfiles,
+            currentProfiles = { emptyList() },
+            saveProfile = {},
+            connected = { emptyList() },
+            requestLdac = { _, _ -> CodecApplyOutcome.Applied("LDAC") },
+        )
+
+        val report = restoreFlaky.restoreAll()
+
+        assertEquals(listOf(entry), report.pending.map { it.first })
+        assertEquals(listOf(entry), ledger.held)
     }
 
     @Test

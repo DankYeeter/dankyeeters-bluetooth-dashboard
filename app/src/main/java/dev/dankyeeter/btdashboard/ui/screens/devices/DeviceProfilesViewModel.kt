@@ -110,6 +110,8 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         globals = SystemGraph.globalSettings,
         hdAudio = SystemGraph.hdAudio,
         profiles = store,
+        currentProfiles = store::current,
+        saveProfile = store::save,
         connected = { MonitorGraph.codecSource.connectedDevices() },
         requestLdac = LdacTuning::apply,
     )

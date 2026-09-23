@@ -79,9 +79,9 @@ class GlobalSettingsController(
             .onFailure { Log.w(TAG, "writing $key was refused", it) }
             .getOrDefault(false)
         if (!accepted) return false
-        val readBack = read(key)
-        if (readBack != value) {
-            Log.w(TAG, "$key did not stick: wrote '$value', read back '$readBack'")
+        val readBack = readState(key)
+        if (!confirms(value, readBack)) {
+            Log.w(TAG, "$key did not stick: wrote '$value', read back $readBack")
             return false
         }
         return true
@@ -92,9 +92,9 @@ class GlobalSettingsController(
             .onFailure { Log.w(TAG, "clearing $key was refused", it) }
             .getOrDefault(false)
         if (!accepted) return false
-        val readBack = read(key)
-        if (readBack != null) {
-            Log.w(TAG, "$key did not clear: still reads '$readBack'")
+        val readBack = readState(key)
+        if (!confirms(null, readBack)) {
+            Log.w(TAG, "$key did not clear: still reads $readBack")
             return false
         }
         return true
@@ -104,3 +104,15 @@ class GlobalSettingsController(
         const val TAG = "GlobalSettings"
     }
 }
+
+/**
+ * Whether [actual] confirms that a key now holds [expected] (null means
+ * cleared).
+ *
+ * SR-025: confirming through [SecureSettingsController.read] folds a failed
+ * read ([SettingRead.Unreadable]) into null, the same value a real clear
+ * produces — so a provider that could not be read would pass as "cleared".
+ * [readState] keeps the two apart; this is the one line that tells them apart.
+ */
+internal fun confirms(expected: String?, actual: SettingRead): Boolean =
+    actual == (expected?.let(SettingRead::Value) ?: SettingRead.Unset)

@@ -8,7 +8,7 @@ import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
-import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
+import dev.dankyeeter.btdashboard.system.devices.DeviceProfileSource
 import dev.dankyeeter.btdashboard.system.devices.HdAudioController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.LedgerEntry
@@ -46,7 +46,10 @@ class SettingsRestore(
     private val ledger: SettingsLedger,
     private val globals: SecureSettingsController,
     private val hdAudio: HdAudioController,
-    private val profiles: DeviceProfileStore,
+    private val profiles: DeviceProfileSource,
+    /** Read and write the profile store apart from [profiles], so a save failure (M10) can be tested without a real DataStore. */
+    private val currentProfiles: suspend () -> List<DeviceProfile>,
+    private val saveProfile: suspend (DeviceProfile) -> Unit,
     private val connected: suspend () -> List<BtAudioDevice>,
     private val requestLdac: suspend (address: String, quality: Long) -> CodecApplyOutcome,
 ) {
@@ -93,9 +96,9 @@ class SettingsRestore(
 
     /** AD-034: only profiles whose wishes touch the audio path. */
     private suspend fun pauseAutoApply(): List<String> =
-        profiles.current()
+        currentProfiles()
             .filter { it.autoApply && it.touchesAudioPath() }
-            .onEach { profiles.save(it.copy(autoApply = false)) }
+            .onEach { saveProfile(it.copy(autoApply = false)) }
             .map { it.name }
 
     /** Null: put back and confirmed by read-back. Otherwise the reason it was not. */
@@ -128,11 +131,16 @@ class SettingsRestore(
         val profile = profiles.profileFor(entry.deviceKey)
         if (profile != null && profile.codecPreference != entry.priorWish) {
             try {
-                profiles.save(profile.copy(codecPreference = entry.priorWish))
+                saveProfile(profile.copy(codecPreference = entry.priorWish))
             } catch (e: IOException) {
                 return PROFILE_NOT_SAVED
             }
-            if (profiles.profileFor(entry.deviceKey)?.codecPreference != entry.priorWish) return PROFILE_NOT_SAVED
+            // A failed re-read must not pass as confirmation: DeviceProfileStore
+            // degrades an unreadable store to an empty list, which would make a
+            // profile look deleted — and for priorWish == null that reads the
+            // same as "put back" (point 2, T-047j).
+            val confirmed = profiles.profileFor(entry.deviceKey)
+            if (confirmed == null || confirmed.codecPreference != entry.priorWish) return PROFILE_NOT_SAVED
         }
 
         // Not connected: the live level died with the connection.
