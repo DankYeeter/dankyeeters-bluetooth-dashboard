@@ -279,7 +279,7 @@ class SettingsRestoreTest {
 
     @Test
     fun `a ledger that cannot hold the value before stops the pin`() = runTest {
-        val state = LdacTuning.recordThenPin(
+        val (state, outcome) = LdacTuning.recordThenPin(
             ledger = FakeLedger(refuse = true),
             profiles = profiles,
             deviceKey = KEY_HERE,
@@ -295,6 +295,7 @@ class SettingsRestoreTest {
         assertTrue(log.isEmpty())
         assertNull(profiles.profileFor(KEY_HERE))
         assertTrue(state.messageIsError)
+        assertTrue("a request never made is never Applied (M16)", outcome is CodecApplyOutcome.Unavailable)
     }
 
     @Test
