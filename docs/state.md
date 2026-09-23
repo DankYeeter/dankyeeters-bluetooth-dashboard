@@ -28,12 +28,25 @@ Saeule 3 fehlt. Schnitt P-1..P-9.
 
 **Zyklus 4 (Session 23.09. 16:35, Branch `auto/2026-09-23-saeule3`, auf dem
 offenen PR-Branch aufgesetzt): Saeule 3 bauen, alles ohne Geraet, sammeln statt
-Release.** T-046 Kleinkram (Device test raus, Pause > `RUN_GAP_MAX` beendet
-den Lauf, P-1, Whitelist-KDoc) und T-047a (architect, AD-030 ff. + Bauschnitt)
-laufen. Nutzerentscheide 23.09. (F1..F5, alle nach Empfehlung) stehen in
-`docs/tasks/T-047.md`; Spec-Nachzug Pause/Herkunft in `d5b262c`.
+Release.** **Bau abgeschlossen (Gate):** T-046 (Device test raus, Pause >
+`RUN_GAP_MAX` beendet den Lauf, P-1, Whitelist-KDoc) und T-047 Saeule 3
+(AD-030..038; S3-1..S3-6 plus T-047j) auf `8d98a80`. Suite **2607/0**
+(Director 19:14, `6a92e20` = Code-Stand von `8d98a80`, `clean test
+--no-build-cache`). Code seit `deda17e`: 58 Dateien, +4380/−1144 (`*.kt`,
+`*.xml`). Security-Vorlauf CONCERNS, Auflagen M1–M18 eingebaut
+(`docs/berichte/T-047b-security-reviewer.md`). **Offen vor Pruefphase:**
+Wortlaute, die S3-5/S3-6 selbst gesetzt haben (`docs/berichte/T-047i-developer.md`,
+T-047h-Antwort: Dialog „Back to before", Banner bei unlesbarem Ledger,
+Pin-Satz, „Start Arm B", „device discovery") → ui-ux-designer Review;
+Pruefphase mit QA am Quellstand; Geraeteabnahme zusammen mit T-036.
+Nicht gebaut: Schutz, falls ein Arm nach Stufen-/Codecwechsel ungepinnt
+neu startet (T-047i an Director) — Beschlossen, nicht beauftragt.
+**Geraet:** T-048 (QA-Pruefliste) pausiert seit 18:11, Telefon gesperrt,
+wartet auf Entsperren; T-049a..c (Inventur, T-036, T-037) danach.
 
 **Beim Nutzer — offen (am Laufende fragen):**
+0. UI_SPEC.md:3512 — Kategoriename „Workarounds" und zweiter Rueckweg-Knopf
+   im Vergleichsergebnis (gebaut nach Empfehlung der Spec).
 1. Sample-Rate-Wechsel im Beobachtungslauf beenden?
 2. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
 3. Drei Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
@@ -88,8 +101,8 @@ Messung (M-15, M-16); bis M-16 kein Wortlaut „lowest rate“.
 
 ## Stand des Codes
 
-`gradlew test`: **2493 Tests, 0 Failures** (Director, 23.09. 00:38/00:39,
-`efbcf0f`, `clean test --no-build-cache`, zweimal; F-006 Flaky offen).
+`gradlew test`: **2607 Tests, 0 Failures** (Director, 23.09. 19:14, `6a92e20`,
+`clean test --no-build-cache`, einmal; F-006 Flaky offen).
 
 **T-038 abgeschlossen** (`374be69`, `5218455`, `de2454b`, `5f605b1`): die fuenf
 Befunde QA-014..QA-018 sind behoben und gegengeprueft. **Zwei Lehren daraus
