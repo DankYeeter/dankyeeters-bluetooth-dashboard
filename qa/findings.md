@@ -320,3 +320,5 @@ kein Grund zum Entfernen, sondern einer zum Testen.
 | F-007 | Statuswechsel: von QA bestaetigt behoben, Compose-Test deckt Repro | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
 | F-008 | Statuswechsel: von QA bestaetigt behoben, Start-Chip nur bei lesbarer Rate | P3 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
 | F-010 | Statuswechsel: von QA bestaetigt behoben, M06/M08/M12 rot | P4 | qa-engineer (T-044e) | – | behoben | 2026-09-23 | T-044a |
+| F-012 | Live-Abfrage laeuft nach Verlassen des Monitors weiter: 25 s HOME mit Lauf = 43 Helferaufrufe, Lauf ohne Luecke; ohne Lauf 34 Aufrufe/2,82 s CPU in 1 min — verletzt AK-4 und Spec-Tabelle (Stopp nach 3 s, Luecke) | P2 | qa-engineer (T-048, Geraet) | developer | offen | 2026-09-23 | T-048 |
+| F-013 | Bluetooth aus beendet den Lauf mit „rate stopped being readable" statt „headphone disconnected" (vermutet `endAgainst`, `ObservationRun.kt`), 1× reproduziert | P3 | qa-engineer (T-048, Geraet) | developer | offen | 2026-09-23 | T-048 |
