@@ -15,9 +15,9 @@ import java.util.Base64
  *
  * Shizuku hands an authorised app a general shell. That is the right trade for
  * a general-purpose tool; it is the wrong one here, because this app issues
- * exactly three commands and never will issue a fourth without someone editing
- * [ALLOWED]. A general shell behind a Binder is a much larger thing to get
- * wrong than a list of three fixed argument vectors.
+ * exactly the commands in [ALLOWED] and never will issue another without
+ * someone editing that list. A general shell behind a Binder is a much larger
+ * thing to get wrong than a short list of fixed argument vectors.
  *
  * Matching is by exact argument vector, not by prefix or by executable name.
  * `dumpsys` with a different service, or the same service with an extra flag,
@@ -76,7 +76,7 @@ object PrivilegedProtocol {
         /** Build number of the running helper. Reveals nothing, changes nothing. */
         VERSION("version", mutates = false),
 
-        /** Runs one of [ALLOWED]. All three only read. */
+        /** Runs one of [ALLOWED]. Every entry only reads. */
         EXEC("exec", mutates = false),
 
         /** Reads the negotiated A2DP codec through the privileged system API. */
