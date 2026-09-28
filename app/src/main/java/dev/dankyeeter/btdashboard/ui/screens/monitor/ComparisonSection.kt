@@ -24,7 +24,6 @@ import dev.dankyeeter.btdashboard.monitor.optimize.ARM_TARGET_MS
 import dev.dankyeeter.btdashboard.monitor.optimize.Arm
 import dev.dankyeeter.btdashboard.monitor.optimize.ComparisonResult
 import dev.dankyeeter.btdashboard.monitor.optimize.Condition
-import dev.dankyeeter.btdashboard.monitor.optimize.ConditionBook
 import dev.dankyeeter.btdashboard.monitor.optimize.ConditionValue
 import dev.dankyeeter.btdashboard.monitor.optimize.Fallback
 import dev.dankyeeter.btdashboard.monitor.optimize.Measure
@@ -342,26 +341,6 @@ internal fun notComparableSentence(reason: NotComparable): String = when (reason
             "so it was not actually tested."
 }
 
-/** The read-back words (AD-035): Wi-Fi "on" is never a contradiction, only not checkable. */
-internal fun readBackSentence(measure: Measure?, book: ConditionBook): String {
-    val condition = measure?.condition ?: return "Not checkable from this phone."
-    val value = book[condition]
-    if (value is ConditionValue.Unreadable) return "Not checkable: ${redactAddresses(value.reason)}."
-    return when (measure.verify(value) to condition) {
-        Verification.VERIFIED to Condition.WIFI_RADIO -> "Confirmed: Wi-Fi is off on this phone."
-        Verification.VERIFIED to Condition.OTHER_ACL_LINKS -> "Confirmed: no other Bluetooth device is connected."
-        Verification.VERIFIED to Condition.USB_POWER -> "Confirmed: the phone is running on battery."
-        Verification.CONTRADICTED to Condition.OTHER_ACL_LINKS ->
-            "Contradicts what this run needs: ${book.shown(condition)} other Bluetooth device(s) " +
-                "are still connected."
-        Verification.CONTRADICTED to Condition.USB_POWER ->
-            "Contradicts what this run needs: the phone is still receiving power."
-        Verification.NOT_VERIFIABLE to Condition.WIFI_RADIO ->
-            "Not checkable: Wi-Fi being on here does not say which band it used."
-        else -> "Not checkable from this phone."
-    }
-}
-
 /** An arm that ended early, with the observation run's own end line (T-039/T-046) inside it. */
 private fun restartLine(restart: ArmRestart): String =
     "Arm ${restart.armName} ended before $ARM_MINUTES minutes " +
@@ -370,9 +349,6 @@ private fun restartLine(restart: ArmRestart): String =
 /** The top LDAC step of the link's sample-rate family: 990 kbps, or 909 on 44.1/88.2 kHz. */
 private fun topStepKbps(sampleRateHz: Int?): Int =
     requireNotNull(LdacState.nominalKbps(LdacQualityMode.HIGH_QUALITY, sampleRateHz))
-
-private fun ConditionBook.shown(condition: Condition): String =
-    (this[condition] as? ConditionValue.Read)?.value ?: "not checkable"
 
 internal val Measure.displayName: String
     get() = when (this) {
@@ -428,15 +404,6 @@ private fun Fallback.sentence(): String {
                 "— still a lower rate, not a fix."
     }
 }
-
-internal val Condition.displayName: String
-    get() = when (this) {
-        Condition.WIFI_RADIO -> "Wi-Fi power"
-        Condition.WIFI_SCAN_ALWAYS -> "Wi-Fi scanning"
-        Condition.OTHER_ACL_LINKS -> "another Bluetooth device"
-        Condition.USB_POWER -> "USB power"
-        Condition.DISCOVERY_SEEN -> "device discovery"
-    }
 
 private val NotComparable.Where.words: String
     get() = when (this) {

@@ -27,6 +27,7 @@ import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The raw Bluetooth address for a device the live panel is showing, or null.
@@ -333,10 +335,17 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         comparison.onReading(update.snapshot, _liveIntervalMs.value)
     }
 
-    /** AD-044 point 1: the book comes with this reading, its dump facts off this snapshot — no dump of its own. */
+    /**
+     * AD-044 point 1: the book comes with this reading, its dump facts off this snapshot — no dump of its own.
+     * The settings and battery reads are binder calls and stay off the main thread. The screen may have
+     * left while they ran; then this reading books and records nothing (AK-19).
+     */
     private suspend fun bookAndRecord(update: LinkLiveUpdate) {
         val snapshot = update.snapshot
-        val book = readConditions(getApplication(), snapshot, snapshot.pairing?.discovering)
+        val book = withContext(Dispatchers.IO) {
+            readConditions(getApplication(), snapshot, snapshot.pairing?.discovering)
+        }
+        if (!MonitorGraph.uiVisible.value) return
         _conditionBook.value = ReadBook(book, snapshot.timestampMs)
         val hasLoss = update.events.any { it is LinkEvent.LossDetected }
         lossEpisode = nextEpisode(lossEpisode, snapshot.timestampMs, hasLoss, book, _liveIntervalMs.value)
