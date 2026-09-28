@@ -503,11 +503,12 @@ private object SourceTree {
             file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ObservationRunController.kt")
     }
 
-    /** The comparison's controller and section — the AK-T047-7/13/14 scope. */
+    /** The comparison's controller and section, and its read-back words — the AK-T047-7/13/14 scope. */
     val comparison: List<File> by lazy {
         listOf(
             file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ComparisonController.kt"),
             file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ComparisonSection.kt"),
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ConditionStatus.kt"),
         )
     }
 
