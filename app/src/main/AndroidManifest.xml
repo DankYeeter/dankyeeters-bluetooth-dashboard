@@ -121,5 +121,18 @@
             android:name=".privileged.adb.PairingCodeReceiver"
             android:exported="false" />
 
+        <!--
+            Keeps a comparison arm or a live capture the user started measuring
+            with the screen off, only for as long as it runs (AD-039). Not
+            exported: the only senders are this app's own taps and the Stop in
+            its notification. stopWithTask="true": swiping the app away ends the
+            measurement, unlike the EQ. No wake lock.
+        -->
+        <service
+            android:name=".ui.screens.monitor.MeasurementService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:stopWithTask="true" />
+
     </application>
 </manifest>

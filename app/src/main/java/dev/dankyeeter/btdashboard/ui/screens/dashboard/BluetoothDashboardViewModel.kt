@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.ui.screens.dashboard
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
@@ -11,6 +12,7 @@ import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqScanResult
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
+import dev.dankyeeter.btdashboard.ui.screens.monitor.MeasurementService
 import dev.dankyeeter.btdashboard.hearing.PresetMatching
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsBeacon
@@ -60,7 +62,7 @@ data class BluetoothDashboardState(
     val candidatesScanning: Boolean = false,
 )
 
-class BluetoothDashboardViewModel : ViewModel() {
+class BluetoothDashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     private val airPods = SystemGraph.airPodsScanner
 
@@ -217,9 +219,10 @@ class BluetoothDashboardViewModel : ViewModel() {
 
     fun stopPlaybackWatch() = MonitorGraph.playbackWatcher.stop()
 
-    /** "Watch live": jump the sampler straight into 10-second deep capture. */
+    /** "Watch live": jump the sampler straight into 10-second deep capture, kept off the screen (AD-039). */
     fun startWatchLive() {
         MonitorGraph.engine.startDeepCapture(SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)
         MonitorGraph.ensureRunning()
+        MeasurementService.start(getApplication())
     }
 }

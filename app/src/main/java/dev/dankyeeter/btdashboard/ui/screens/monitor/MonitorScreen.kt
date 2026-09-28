@@ -24,7 +24,9 @@ import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
+import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
+import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.ui.screens.devices.SettingsRestoreBanner
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
@@ -55,6 +57,7 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val closeUpEnabled by viewModel.closeUpEnabled.collectAsStateWithLifecycle()
     val observationRun by viewModel.observationRun.ui.collectAsStateWithLifecycle()
     val comparison by viewModel.comparison.ui.collectAsStateWithLifecycle()
+    val measurementKeptOffScreen by MeasurementService.foreground.collectAsStateWithLifecycle()
 
     // The sampler only polls on a lit screen while somebody is actually
     // looking at link data. The ViewModel covers screen-open/close; this
@@ -118,8 +121,9 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
                     snapshot,
                     comparison,
                     onMeasure = control::onMeasure,
-                    onCompare = control::onCompare,
-                    onCheck = control::onCheck,
+                    // Through the ViewModel: these two taps also start the measurement service (AD-039).
+                    onCompare = viewModel::onCompare,
+                    onCheck = viewModel::onCheck,
                     onReset = control::onReset,
                     // D2's banner and its one flow, not a second way back (AK-T047-13).
                     restoreButton = { SettingsRestoreBanner() },
@@ -132,6 +136,8 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
             source = viewModel.activeSource(),
             bqr = bqr,
             samplingReason = status.reason,
+            capturedMs = deepCapturedMs(status, samples),
+            keptOffScreen = measurementKeptOffScreen,
             onWatchLive = viewModel::startDeepCapture,
             onStopCapture = viewModel::stopDeepCapture,
         )
@@ -165,6 +171,10 @@ internal fun DataSourcePanel(
     source: LinkDataSource,
     bqr: QualityReportAvailability,
     samplingReason: String,
+    /** How much of the running deep capture is captured; null when none runs. */
+    capturedMs: Long?,
+    /** Whether the measurement service holds the capture off the screen (AD-039 point 5). */
+    keptOffScreen: Boolean,
     onWatchLive: () -> Unit,
     onStopCapture: () -> Unit,
 ) {
@@ -196,8 +206,35 @@ internal fun DataSourcePanel(
                 enabled = mode == SamplingMode.DEEP,
             ) { Text("Stop capture") }
         }
+        // UI_SPEC F-015: announced for as long as it runs, not only at the start.
+        capturedMs?.let { captured ->
+            Text("${formatSpan(captured)} of ${formatSpan(SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)} captured.")
+            Text(if (keptOffScreen) DEEP_KEEPS_CAPTURING else DEEP_NEEDS_THIS_SCREEN)
+        }
     }
 }
+
+/**
+ * How much of the running deep capture is captured: from its start to the
+ * newest sample written since, or null when no capture runs. Off the samples,
+ * not a clock, so the line moves when a capture reading lands.
+ */
+internal fun deepCapturedMs(status: MonitorStatus, samples: List<LinkQualitySample>): Long? {
+    if (status.mode != SamplingMode.DEEP || status.deepCaptureUntilMs == 0L) return null
+    val newest = samples.maxOfOrNull { it.timestampMs } ?: status.deepCaptureSinceMs
+    return (newest - status.deepCaptureSinceMs).coerceIn(0L, SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)
+}
+
+/** UI_SPEC F-015, verbatim (AK-T054-1). */
+internal const val DEEP_KEEPS_CAPTURING =
+    "Keeps capturing for up to 5 minutes even off this screen — stop it here or from the notification."
+
+/**
+ * When Android refused the foreground service, the screen says so instead of
+ * the announcement (AD-039 point 5, AK-3). UI_SPEC names no wording for it.
+ */
+internal const val DEEP_NEEDS_THIS_SCREEN =
+    "Android did not let this capture run in the background — keep this screen open until it ends."
 
 /**
  * The two-hour history.
