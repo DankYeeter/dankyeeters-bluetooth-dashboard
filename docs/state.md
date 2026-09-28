@@ -58,14 +58,47 @@ Nutzer 19:16: „Workarounds" und zweiter Rueckweg-Knopf bleiben.
   App-Bootstrap oder AIDL (Bau-, kein Messschritt) → architect.
 - Suite nach T-050: 2610/0 (developer-Angabe, nicht nachgemessen).
 
-**Beim Nutzer — offen (am Laufende fragen):**
-0. **F-014 (P2, AK-4):** Hintergrund-Sampler fragt bei geschlossenem Monitor
-   und spielender Musik alle 30 s `dumpsys bluetooth_manager` ab
-   (`SamplingPolicy.kt:33`, gemessen T-050r) — AK-4-Wortlaut aendern oder
-   Sampler abschalten/an Monitor binden?
-1. Sample-Rate-Wechsel im Beobachtungslauf beenden?
-2. Oboe → AudioTrack: `GOAL.md:169` nach Geraetebeweis aendern.
-3. Drei Retrospektive-Vorschlaege fuers Agenten-Repo (`docs/lessons.md`).
+**Nutzerentscheide 28.09. 22:2x (Zyklus 5):** Ablauf: erst Pruefphase + Fix
+ohne Nutzer, dann Geraetetermin mit Nutzer (Handgriffe 3c, ggf. T-008,
+Wireless-Debugging); sammeln, kein Release. **F-014:** Sampler an Monitor
+binden, AK-4 bleibt woertlich. **Sample-Rate-Wechsel beendet den
+Beobachtungslauf.** **Oboe → AudioTrack:** `GOAL.md:169` wird geaendert, wenn
+W-7 am Geraet besteht; W-8 erst danach. **F-011:** neutral umformulieren, ohne
+Root-Hinweis (AK-10).
+
+**Autonomer Lauf 28.09. (Nutzer 22:22):** Obergrenze 7 h (bis ca. 05:30),
+**kein Geraet**, endet pausiert auf `auto/2026-09-23-saeule3` mit PR, nie
+gemerged. Warteschlange: Pruefphase T-051 → ein Fixauftrag (Befunde + drei
+Nutzerentscheide) → ein Retest; bis zu drei vom Nutzer freigegebene
+Kandidaten aus T-053 (`docs/product/BACKLOG.md`); Recherche Play Store T-052
+(C-001, R-012, R-013). Ende: Warteschlange leer oder Budget erreicht.
+**T-051a Design-Review (22:24):** ship-ready; DR-006 („Back to before“ als
+Dialogtitel → „Settings put back“, `DeviceProfilesScreen.kt:1457`) und
+Ersatztext Ledger-Banner (`:1429`) gehen in den Fixauftrag.
+
+**Pruefphase T-051 zurueck (22:31):** QA FAIL (F-015, F-019, F-020 P2;
+F-016..018, F-021 P3; Suite 2610/0 QA 22:17), Security PASS (SR-031 P4),
+Design ship-ready. **Nutzerentscheide 22:3x:** F-015 Messphase laeuft bei
+Display aus weiter — **AK-4 um Ausnahme ergaenzt** (GOAL.md, freigegeben);
+F-019 LDAC-Stufe waehrend Messphase gesperrt, Rueckweg bleibt und beendet den
+Vergleich; F-020 Profileditor-Codec/Stufe kommt in den Rueckweg (AK-11); P3
+jetzt mitfixen. Naechst: architect (F-015/DEEP, F-020, F-021), dann
+Fixlaeufe developer, dann ein Retest. Recherche: R-012, R-013 fertig, C-001 laeuft.
+
+**Backlog 22:3x:** Nutzer gab P-001, P-004, P-002 frei (GOAL AK-18..20),
+P-003 als Nachruecker nur ohne Standortberechtigung (AK-21 bedingt);
+`adaptiveBitrateIndex` streichen angenommen. Bau erst nach dem Fixzyklus
+(P-002 und F-011 beruehren dieselben Dateien).
+**Play Store (C-001, R-012, R-013):** kein Gesetz verbietet es; ROT
+`QUERY_ALL_PACKAGES` (Alternative `<queries>` existiert), GRAU Helfer-Review und
+Hoerkompensation (MDR, anwaltlich), GELB Data Safety/Datenschutzerklaerung/
+Lizenzseite (Conscrypt fehlt in THIRD_PARTY_LICENSES.md); Auflagen A-001..A-020
+in `docs/legal/AUFLAGEN.md`. Nutzerentscheide dazu offen (unten).
+
+**Beim Nutzer — offen:** Play-Store-Vorlage C-001 (Monetarisierung, welche
+Fassung, EU-Beschraenkung, Helfer-Restrisiko, MDR-Klaerung); Drei Retrospektive-Vorschlaege fuers Agenten-Repo
+(`docs/lessons.md`); Merge des Draft-PR `auto/2026-09-23`; UI_SPEC T-047
+offene Frage 3 (Rueckweg-Banner voll oder nur Knopf, Empfehlung: lassen).
 
 **Naechste Geraetesession:** W-7..W-9 (AD-025); T-048 Punkte 3c, 4, 5b;
 Saeule-3-Abnahme (Vergleich verlangt USB ab → Wireless-Debugging oder

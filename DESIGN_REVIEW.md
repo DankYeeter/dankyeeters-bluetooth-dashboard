@@ -1,5 +1,126 @@
 # Design & UX Review
 
+## Review vom 2026-09-28 (T-051a)
+
+**Methode:** Code-Analyse (kein Geraet, kein Emulator laut Auftrag) —
+`ComparisonSection.kt`, `ComparisonController.kt`, `SettingsRestore.kt`,
+`LdacTuning.kt`, `EnvironmentConditions.kt`, `DeviceProfilesScreen.kt`
+(`SettingsRestoreBanner`/`SettingsRestoreBannerContent`),
+`DeviceProfilesViewModel.kt`, `MonitorScreen.kt` gelesen; Wortlaut gegen
+`docs/tasks/T-047.md` (woertliche AD-038/UI_SPEC-Vorgabe) und `UI_SPEC.md`
+T-047-Abschnitt abgeglichen (identisch). Bestehende Compose-/Unit-Tests
+(`SettingsRestoreBannerTest.kt`, `SettingsRestoreTest.kt`) gelesen, nicht
+ausgefuehrt (`build/` parallel bei `qa-engineer`, T-051b) — Testergebnisse
+selbst sind **unverifiziert (Code-Analyse)**, ihr Inhalt (welche
+Zeichenketten sie pruefen) ist gelesen und abgeglichen. Keine Screenshots
+moeglich (kein Geraet in diesem Lauf, kein Robolectric-Screenshot-Pfad im
+Projekt).
+**Geprueft gegen:** AK-12 (Ausweichen-Kategorie), AK-14 (Messrahmen am
+Ergebnis, keine Fussnote), AK-16 (Grenze des Rats), `UI_SPEC.md` T-047
+(S3-5/S3-6, AK-T047-1..17) sowie die fuenf im Auftrag genannten,
+selbst gesetzten Wortlaute aus S3-5/S3-6 (`docs/berichte/T-047i-developer.md`,
+T-047h-Antwort — nicht als Datei erhalten, daher direkt am Code verifiziert).
+**Gesamturteil: ship-ready, mit einer Praezisierung.** Alle spezifizierten
+Saetze (Katalog, Workarounds, Ruecklese-, Urteils- und Messrahmensaetze,
+AK-16-Grenzsatz) sind zeichengenau umgesetzt und liegen — bestaetigt durch
+`AcceptanceCriteriaGrepTest.kt` — im selben Composable ohne zweite Ebene. Von
+den fuenf zu pruefenden, selbst gesetzten Wortlauten sind vier unauffaellig
+und uebernehmen die etablierte Wortfamilie der App; einer (der Bericht-Dialog
+nach dem Rueckweg) verwendet denselben Text wie der Ausloeser-Knopf und sollte
+umbenannt werden.
+
+### Die fuenf gepruften, selbst gesetzten Wortlaute — Urteil je Wortlaut
+
+1. **"Start Arm B"** (`ComparisonSection.kt:171`, Knopf in Phase `Instruct`
+   nach `VERIFIED`/`NOT_VERIFIABLE`) — **behalten**. "Arm A"/"Arm B" sind in
+   `UI_SPEC.md` selbst Nutzertext (u. a. "Arm A ran for {tA}, Arm B for
+   {tB}.", "Arm B has not started..."), kein internes Kuerzel, das hier
+   erstmals nach aussen dringt. Parallelform zu "Check again" (Text-Button,
+   niedrigere Betonung) — sinnvolle Hierarchie: der bestaetigende Pfad ist
+   der `GoldButton`.
+2. **"device discovery"** (`ComparisonSection.kt:381`,
+   `Condition.DISCOVERY_SEEN.displayName`, erscheint im Zustandsbuch/
+   `notChecked`) — **behalten**. Deckt sich woertlich mit dem bereits
+   spezifizierten Massnahmennamen "No device discovery or scanning"
+   (`Measure.NO_DISCOVERY`), keine zweite Bezeichnung fuer dieselbe Sache.
+3. **Pin-Satz — Fehlgruende bei `LdacTuning.pin`** (`LdacTuning.kt:354-357`:
+   `BUSY` = "another LDAC quality request is still running", `NOT_RECORDED` =
+   "the value before could not be recorded, so it could not be put back
+   later") — **behalten**. Beide Saetze laufen durch die spezifizierte
+   Vorlage `"Could not pin to {S} kbps: {reason}. Nothing was measured."`
+   (`ComparisonSection.kt:132`) bzw. die bestehende Tuning-Meldung; `NOT_
+   RECORDED` benennt korrekt den AD-033-Grund (kein Schreiben ohne haltbaren
+   Vorwert) in derselben Wortfamilie ("put back") wie der Rueckweg-Bericht.
+4. **Banner bei unlesbarem Ledger** (`DeviceProfilesScreen.kt:1429`:
+   "The list of changed settings could not be read, so they cannot be put
+   back from here.") — **behalten, mit einer Wortkorrektur.** Der Zustand
+   selbst ist richtig gestaltet: `RestoreBanner.Unreadable` ist bewusst von
+   `Hidden` unterschieden (KDoc "not the same as 'nothing held'"), es wird
+   ehrlich nichts vorgetaeuscht und kein Knopf angeboten, der nichts leisten
+   koennte — das entspricht der AK-15/AK-3-Haltung der App (keine Ableitung
+   ohne lesbare Grundlage). Einzig "**...from here**" liest sich, als gebe es
+   einen Weg anderswo. **Ersatztext (woertlich):** `"The list of changed
+   settings could not be read, so nothing can be put back until it can be
+   read again."`
+5. **Dialog "Back to before"** (Titel des Bericht-Dialogs nach
+   `restoreAll()`, `DeviceProfilesScreen.kt:1457`) — **Ersatztext, siehe
+   DR-006.**
+
+### Kritisch
+
+Keine.
+
+### Wichtig
+
+- **DR-006 [`DeviceProfilesScreen.kt:1457`, `SettingsRestoreBannerContent`]**
+  Der Bericht-Dialog, der nach dem Rueckweg die Ergebniszeilen zeigt, tragt
+  denselben Titel "Back to before" wie der Knopf, der ihn ausgeloest hat
+  (Banner-Knopf `:1425`, Bestaetigungs-`confirmButton` `:1446`) — derselbe
+  Wortlaut erscheint in dieser Reihenfolge dreimal: Knopf (Handlungsaufruf) →
+  Bestaetigungsdialog-Knopf (Handlungsaufruf) → Bericht-Dialog-Titel
+  (Rueckschau auf eine bereits gelaufene Handlung). Ein Nutzer, der eben auf
+  "Back to before" getippt hat, sieht sofort danach wieder "Back to before"
+  als Ueberschrift — das liest sich wie ein erneuter Aufruf oder ein
+  Hängenbleiben, nicht wie eine Bestaetigung, dass etwas geschah. `UI_SPEC.md`
+  legt fuer diesen Dialog keinen Titel fest (nur die Zeilenfamilie), das ist
+  also ein eigener, unspezifizierter Zusatz des developers. **Ersatztext
+  (woertlich, uebernimmt die im Bericht selbst etablierte Vokabel "put
+  back"):** `"Settings put back"`. Kein Test bindet den aktuellen Titelstring
+  (`SettingsRestoreBannerTest.kt` prueft Kopf/Knopf/Bericht-Inhalt, nicht den
+  Dialogtitel) — Aenderung ist folgenlos fuer die Testsuite.
+
+### Nice-to-have
+
+- Siehe Punkt 4 oben (Ersatztext fuer den Unreadable-Banner) — Wortkorrektur,
+  kein Verhaltensfehler.
+- **DR-005** (siehe unten) bleibt unveraendert bestehen.
+
+### Positiv / beibehalten
+
+- Messrahmen, AK-16-Block, Urteils-/`NotComparable`-Satz und Prozesstod-Satz
+  liegen alle im selben `Result`-Composable, keine zweite Ebene — AK-14
+  wortgleich erfuellt.
+- Katalog (6 waehlbar) und "Workarounds" (4, nicht waehlbar, kein
+  Start-Knopf) sind strukturell getrennt; das Wort "fix"/"fixes"/"fixed" ist
+  im Katalog nicht vorhanden und in "Workarounds" nur negiert — durch
+  `AcceptanceCriteriaGrepTest.kt` bereits grep-gebunden (inkl. der
+  Ausnahmeregel fuer "a fixed step" im F1-Pflichtsatz).
+- Der Rueckweg-Bericht ist scrollbar (`Modifier.verticalScroll`) — bleibt
+  lesbar, auch wenn viele Eintraege (mehrere Geraete, alle vier Kategorien)
+  gleichzeitig zurueckgemeldet werden.
+- Ruecklese-, Urteils- und Messrahmensaetze sind zeichengenau wie in
+  `UI_SPEC.md`/`docs/tasks/T-047.md` — keine Abweichung gefunden.
+
+### Offene Fragen an den App Designer
+
+- Siehe `UI_SPEC.md`, Abschnitt T-047 "Offene Fragen an den App Designer",
+  Punkt 3 (neu, 28.09.2026): ob `restoreButton` in
+  `ArmProgress`/`Instruct`/`Result` der volle D2-Banner (Kopfzeile + Knopf)
+  bleiben soll oder auf einen blossen Knopf verkuerzt wird. Empfehlung dort:
+  so lassen.
+
+---
+
 ## Review vom 2026-09-23 (T-043c)
 
 **Methode:** Code-Analyse (kein Geraet, Auftragsgrenze) — `ObservationRun.kt`,

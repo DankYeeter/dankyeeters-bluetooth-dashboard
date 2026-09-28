@@ -3519,6 +3519,7 @@ keine zweite Implementierung.
    "Not a fix" als Kopfzeile selbst (sehr direkt, etwas ungewoehnlich als
    Ueberschrift). **Meine Empfehlung: "Workarounds" beibehalten** — es ist das
    kuerzeste Wort, das AK-12 traegt.
+   **Entschieden (Nutzer, 23.09.2026 19:16):** "Workarounds" bleibt.
 2. **Soll der Rueckweg-Knopf im `Result`-Zustand des Vergleichs ein
    sichtbarer zweiter Ort sein, oder soll `Result` stattdessen nur auf den
    Banner (D2) verweisen ("settings changed — see the Bluetooth tab")?** Ich
@@ -3526,3 +3527,356 @@ keine zweite Implementierung.
    Nutzer nach einem Vergleich direkt hier steht und ein Verweis einen
    zusaetzlichen Weg braeuchte. **Empfehlung: zweiter Knopf, wie
    spezifiziert.**
+   **Entschieden (Nutzer, 23.09.2026 19:16):** der zweite Rueckweg-Knopf
+   bleibt.
+3. **Soll `restoreButton` in `ArmProgress`/`Instruct`/`Result` der volle D2-
+   Banner sein (Kopfzeile "Settings changed by the process are still
+   active." + Zaehlsatz + Knopf, `MonitorScreen.kt:125`:
+   `restoreButton = { SettingsRestoreBanner() }`) oder nur der blosse Knopf?**
+   AD-038 verlangt nur einen "Rueckweg-Knopf", die Umsetzung rendert die ganze
+   Komponente samt Kopfzeile — inhaltlich korrekt (erinnert waehrend eines
+   laufenden Arms daran, dass die App gerade 990 kbps haelt) und spart eine
+   zweite Implementierung (AK-T047-13), macht das Fortschritts-/Anleitungs-
+   Composable aber dichter, gerade in `ArmProgress` waehrend der 15 Minuten.
+   **Meine Empfehlung: so lassen** — die Kopfzeile ist keine Wiederholung
+   ohne Nutzen, sie ist hier die einzige Stelle, die dem Nutzer *waehrend*
+   des Arms sagt, dass 990 kbps kein Alltagszustand ist, sondern gehalten wird
+   (Review T-051a, 28.09.2026).
+
+## Saeule 3 — Fixzyklus Wortlaute (T-054b) — 2026-09-28
+
+Wortlaute und Akzeptanzkriterien zum Fixauftrag T-054 (Nutzerentscheide 28.09.,
+`docs/tasks/T-054.md`). Ergaenzt/korrigiert den T-047-Abschnitt oben; dessen
+Saetze werden dort nicht geloescht, sondern hier ersetzt/erweitert, mit
+Verweis auf die alte Stelle. Mechanik (Vordergrunddienst,
+Benachrichtigungs-API, wo genau die LDAC-Sperre technisch sitzt) legt
+`ARCHITECTURE.md` (T-054a) fest — weicht die gebaute Mechanik von einer hier
+getroffenen Annahme ab (z. B. Name eines Endgrunds), passt sich der
+**Wortlaut** an, nicht die hier verlangte Bedeutung.
+
+### F-015 / DEEP — sichtbare Ankuendigung "misst weiter", korrigierter Prozesstod-Satz
+
+**Betrifft:** `ComparisonSection.kt` (`ArmProgress`, `PROCESS_END`,
+Z. 141-154, 393-396), `MonitorScreen.kt`/`DataSourcePanel` ("Watch live",
+Z. 130-198), neue Vordergrunddienst-Benachrichtigung aus T-054a.
+
+**Warum ein neuer Satz noetig ist:** Der bisherige `PROCESS_END`-Satz sagt
+die Ueberlebensregel nur rueckblickend, im `Result`-Zustand, nachdem beide
+Arme fertig sind. AK-4s Ausnahme verlangt "sichtbar angekuendigt" — das muss
+stehen, *bevor* und *waehrend* eine Messung ohne offenen Monitor weiterlaeuft,
+nicht erst im Ergebnis. Vor F-014/F-015 war der Satz zudem schlicht falsch
+fuer einen laufenden Arm (der brach bei Displayaus > 2 min neu ab); mit der
+Bindung des Samplers an den Vordergrunddienst (T-054a) gilt "weiterlaufen
+trotz Displayaus" jetzt tatsaechlich, und der Satz muss das sagen statt es
+nur zu suggerieren.
+
+**1. Start-Ankuendigung, sichtbar ohne zusaetzliches Tippen, immer solange
+die Messung laeuft (nicht nur beim ersten Mal):**
+
+- **Vergleichsarm** (`ArmProgress`, Phasen `ARM_A`/`ARM_B`), unter der
+  bestehenden Fortschrittszeile `"{T} of 15 min observed."`:
+  `"This keeps counting if you leave this screen, switch apps, or the
+  screen turns off — only stopping the app's process ends it early. Stop it
+  here or from the notification."`
+- **Tiefenaufnahme ("Watch live"/`SamplingMode.DEEP`)**, `DataSourcePanel`,
+  solange `mode == SamplingMode.DEEP`, unter der Knopfreihe (`"Watch
+  live"`/`"Stop capture"`):
+  `"Keeps capturing for up to 5 minutes even off this screen — stop it here
+  or from the notification."`
+  Dabei zusaetzlich eine Fortschrittszeile, in derselben Formel wie bei den
+  Vergleichsarmen: `"{T} of 5 min captured."` (`formatSpan`).
+
+**2. Benachrichtigung (Fortschritt), waehrend die Messung laeuft, sichtbar
+und wortgleich mit der In-App-Zeile.** R-013 verlangt fuer einen
+Vordergrunddienst "accurate and clear user notification" und "runs only for
+as long as necessary" — `EqForegroundService`s bewusst stille
+Benachrichtigung (`PRIORITY_MIN`, `VISIBILITY_SECRET`, kein Text) ist dafuer
+**kein** Vorbild; hier gilt das Gegenteil, weil die Policy-Lage eine andere
+ist (Dauerbetrieb "headset"-FGS vs. eine vom Nutzer ausgeloeste, zeitlich
+begrenzte Messung):
+
+| Kontext | Titel | Text | Aktion |
+|---|---|---|---|
+| Vergleichsarm | `"BT Dashboard — comparing"` | `"Arm {A/B}: {T} of 15 min. Ends on its own, or tap Stop."` | `"Stop"` — derselbe Abbruchpfad wie der In-App-Knopf `"Cancel"` in `ArmProgress`, keine zweite Implementierung |
+| Tiefenaufnahme | `"BT Dashboard — watching live"` | `"{T} of 5 min. Ends on its own, or tap Stop."` | `"Stop"` — derselbe Pfad wie der bestehende Knopf `"Stop capture"` (`MonitorScreen.kt:194-197`) |
+
+Eigener Benachrichtigungskanal (nicht `eq_running_quiet`),
+`IMPORTANCE_DEFAULT` oder hoeher, mit Icon im Status-Balken.
+
+**3. Ersetzter Prozesstod-Satz (`PROCESS_END`, ersetzt AK-T047-12
+zeichengenau; steht weiterhin "immer im `Result`"):**
+
+Alt (falsch/unvollstaendig fuer einen laufenden Arm, s. o.):
+`"A comparison does not survive the app's process ending — Arm A lives
+only in this app's memory. Leaving this screen or the app keeps it; being
+killed by Android between arms loses it, and the comparison starts over."`
+
+**Neu (woertlich):**
+`"A comparison does not survive the app's process ending — Arm A and Arm B
+live only in this app's memory. Once an arm has started, leaving this
+screen, switching apps, or the screen turning off does not pause or
+restart it; only the process ending does, and then the comparison starts
+over."`
+
+### F-019 — LDAC-Stufe gesperrt waehrend einer Messphase; Rueckweg/Codec-Wechsel beenden den Vergleich ohne Urteil
+
+**Betrifft:** `LiveLinkPanel.kt` (`LdacSection`, FilterChip-Zeile
+Z. 281-294), `ComparisonSection.kt` (`ArmProgress`/`Instruct`, Z. 140-175),
+`ComparisonController.kt`.
+
+**1. Sperre:** Waehrend `ComparisonPhase` in {`PIN_AND_CHECK`, `ARM_A`,
+`INSTRUCT`, `ARM_B`} sind die LDAC-Stufen-Chips (`LdacQuality.pinnable`)
+nicht bedienbar (`enabled = false`, zusaetzlich zur bestehenden
+`!tuning.busy`-Bedingung). In `CHOOSE` und `RESULT` bleiben sie wie heute
+bedienbar. Erklaertext, als letzter Satz an `LDAC_TUNING_EXPLANATION`
+angehaengt, nur sichtbar, waehrend gesperrt:
+`"Locked while a comparison is running below — changing it now would make
+the two arms not the same measurement."`
+
+**2. Rueckweg-Knopf bleibt, beendet aber den Vergleich statt eines
+Neustarts je Lesung:** Der D2-Rueckweg (`restoreButton`, bereits gerendert
+in `ArmProgress`/`Instruct`) bleibt bedienbar und fuehrt `restoreAll()`
+unveraendert aus (S3-5, kein zweiter Bestaetigungstext). Zusaetzlich, sobald
+`restoreAll()` waehrend `ARM_A`/`INSTRUCT`/`ARM_B` bestaetigt wurde: der
+Vergleich geht auf `CHOOSE` zurueck (wie der bestehende `"Cancel"`-Knopf,
+`onReset()` — die Messwahl bleibt erhalten), mit einer Zeile dort, die bis
+zum naechsten "Compare"-Tipp steht (gleicher Anzeigeplatz/gleiche
+Lebensdauer wie das bestehende `state.alreadyApplies`):
+`"Comparing {Anzeigename} was stopped when settings were put back — no
+result, and neither arm counts."`
+
+**3. Codec wechselt weg von LDAC waehrend einer Messphase beendet den
+Vergleich genauso, statt bei jeder Lesung neu zu starten** (ersetzt die
+heutige Neustart-Schleife ueber `armFrom()`; `RunEnd.CODEC_CHANGED`/
+`.QUALITY_CHANGED` **innerhalb** einer Messphase loest diese Zeile aus, nicht
+mehr einen Neustart):
+`"Comparing {Anzeigename} was stopped because the codec left LDAC — no
+result, and neither arm counts."`
+
+Beide Saetze teilen sich Anzeigeplatz und Lebensdauer (nur einer kann
+gleichzeitig stehen); kein neuer `Verdict`- oder `NotComparable`-Wert — diese
+zwei Faelle haben nie ein Ergebnis erreicht, im Unterschied zu allen
+bestehenden Faellen in diesen zwei Tabellen.
+
+### F-017 — Rueckleseergebnis im Ergebnis, wiederverwendeter Wortlaut
+
+**Betrifft:** `ComparisonSection.kt` (`frameLines`/`Result`, Z. 178-233),
+`Comparison.kt:46,83` (`result.verification`); `ARCHITECTURE.md:2118`
+(AD-035); ersetzt/ergaenzt die Messrahmen-Aufzaehlung in `UI_SPEC.md`
+3352-3372 oben.
+
+Eine zusaetzliche Zeile im Messrahmen, direkt nach `"Read every {Kadenz}."`,
+nur wenn `result` ein `Compared` ist (bei `NotComparableResult` gibt es
+keine `verification`): derselbe Satz, den die Instruct-Phase fuer dieselbe
+Massnahme/`Verification` schon zeigt (Tabelle "Rueckleseworte" oben),
+**keine neue Formulierung**. Da `CONTRADICTED` Arm B nie startet (AD-035),
+kommen an dieser Stelle nur die `VERIFIED`- und die zwei
+`NOT_VERIFIABLE`-Varianten vor. Quelle ist `result.verification` plus
+`result.measure.condition`, nicht ein zweites Ablesen des Zustandsbuchs.
+
+### F-018 — Messrahmen nennt Stufe und Codec je Arm getrennt, "pinned" nur wenn wirklich gepinnt
+
+**Betrifft:** `ComparisonSection.kt:202-210` (`frameLines`).
+
+Ersetzt die einzelne Zeile `"Both pinned to {S} kbps, {codec family}."`
+durch zwei Zeilen, je Arm aus dem **eigenen** `RunLink` (`armA.run.link`
+bzw. `armB.run.link`), nie aus Arm A fuer beide:
+
+`"Arm A: {S_A} kbps, {codec_A}."` bzw., wenn `armA.run.link?.mode ==
+LdacQualityMode.ADAPTIVE` (bzw. `isAdaptive == true`): `"Arm A: not pinned
+(ABR), {codec_A}."` Gleiches Muster fuer Arm B mit `armB.run.link`.
+
+Sind beide Zeilen inhaltlich identisch (gleiche Stufe, gleicher Codec, beide
+gepinnt), stehen sie trotzdem als zwei Zeilen da — keine Zusammenfassung, die
+im naechsten Fall (unterschiedliche Stufe oder ABR in nur einem Arm) wieder
+falsch waere. Diese Zeilen widersprechen dem `LinkDiffers`-Satz direkt
+darueber jetzt nie mehr, weil sie denselben Vergleich zeigen, den
+`LinkDiffers` bereits auswertet.
+
+### F-016 — Paarungsfakten nur zur gemessenen Paarung, sonst ehrlicher Fallback
+
+**Betrifft:** `ComparisonSection.kt:236-251` (`boundaryLines`); AK-15.
+
+Die zwei Zeilen `"3 Mbps EDR: ..."` und `"Effective MTU: ..."` werden nur
+gerendert, wenn die aktuell verbundene Adresse (`snapshot.device?.address`)
+gleich `armA.run.link?.address` ist — derselbe Vergleich, den `RunEnd.
+DISCONNECTED` schon fuer den Lauf selbst zieht, hier auf die Anzeige
+angewandt. Weichen sie ab (ein anderes Geraet ist inzwischen verbunden),
+ersetzt eine einzige Zeile beide:
+
+`"3 Mbps EDR and effective MTU are not shown — the connected pairing has
+changed since this comparison ran."`
+
+Stimmen sie ueberein, bleibt der bestehende Wortlaut unveraendert
+(`"3 Mbps EDR: {yes/no/not readable} — read on this pairing."` /
+`"Effective MTU: {mtu} — read on this pairing."`) — er war nie falsch,
+solange die Paarung dieselbe ist; falsch war nur das Fehlen der Pruefung.
+
+### F-021 — Ausweg aus einem dauerhaft unlesbaren Ledger, mit Warnung
+
+**Betrifft:** `DeviceProfilesScreen.kt:1429` (`SettingsRestoreBannerContent`,
+Zweig `RestoreBanner.Unreadable`); `SettingsLedger.kt:127-141`; M3 ("kaputtes
+Ledger nicht als leer lesen") bleibt unangetastet — keiner der beiden Wege
+unten behauptet, ein Eintrag sei zurueckgestellt oder das Ledger sei leer.
+Mechanismus (wie "erneut lesen" bzw. "vergessen" technisch greifen) legt
+T-054a fest; hier nur Wortlaut und Bedienreihenfolge.
+
+**1. Banner-Text, ersetzt den bisherigen (T-051a-Korrektur, woertlich):**
+Alt: `"The list of changed settings could not be read, so they cannot be put
+back from here."`
+**Neu:** `"The list of changed settings could not be read, so nothing can be
+put back until it can be read again."`
+
+**2. Nicht-destruktive Wiederholung, primaerer Knopf im `Unreadable`-Zustand**
+(`GoldOutlinedButton`, gleiche Komponente wie das bestehende "Try again" nach
+unvollstaendigem Rueckweg — **eigene Beschriftung**, weil es eine andere
+Handlung ist: dort wird ein Rueckweg mit `pending`-Resten wiederholt, hier
+wird nur die Datei neu gelesen):
+`"Read again"` — liest die Ledger-Datei erneut; gelingt es, geht der Banner
+in den passenden `Open`/`Hidden`-Zustand ueber, ohne weitere Bestaetigung;
+gelingt es nicht, bleibt genau dieselbe Zeile stehen.
+
+**3. Destruktiver Ausweg, wenn Wiederholen dauerhaft nichts bringt — mit
+Warnung**, zurueckhaltender platziert (`TextButton`, unterhalb von "Read
+again", nicht als `GoldButton`, damit er nicht mit dem eigentlichen Rueckweg
+verwechselt wird):
+Knopf: `"Forget this list"`
+Bestaetigungsdialog — Titel: `"Forget the list of changed settings?"` · Text:
+`"This does not put anything back — whatever this app changed stays as it is
+now. It only clears the record, so this banner goes away and future changes
+start a fresh list. Settings changed before this point can no longer be put
+back automatically."` · `confirmButton`: `"Forget the list"` ·
+`dismissButton`: `"Cancel"`
+
+### DR-006 / T-051a — Bericht-Dialog-Titel, erstmals spezifiziert
+
+**Betrifft:** `DeviceProfilesScreen.kt:1457` (Bericht-`AlertDialog` nach
+`restoreAll()`). S3-5 legte fuer diesen Dialog bisher keinen Titel fest (nur
+die Zeilenfamilie); der Titel `"Back to before"` war ein unspezifizierter
+Zusatz des developers und stand identisch dreimal auf demselben Weg
+(Banner-Knopf, Bestaetigungs-Knopf, Bericht-Titel — DR-006). **Titel, jetzt
+verbindlich:** `"Settings put back"`.
+
+### F-011 — Root-Satz neutral, ohne Hinweis auf Root
+
+**Betrifft:** `DeviceProfilesScreen.kt:318` (Kopftext "Shown but not
+changeable"), `BluetoothSystemControls.kt:105-106`
+(`a2dpHardwareOffload.whyReadOnly`) — beide erstmals hier in `UI_SPEC.md`
+festgehalten, vorher nur Code. Nutzerentscheid 28.09.: neutral, kein
+Root-Hinweis — unabhaengig davon, ob ein Entwickleroptionen-Pfad existiert
+(`docs/perf/T-049a-inventur.md`: am Geraet keiner gefunden); die App nennt
+Root so oder so nicht, auch nicht als Weg (GOAL.md, Nicht-Ziele).
+
+Alt (zwei Formulierungen fuer denselben Sachverhalt, beide "rooted phone"):
+`"Each is a system property, which only a rooted phone can change."`
+`"A system property, not a setting: only a rooted phone can change it."`
+
+**Neu, in derselben neutralen Form wie die bereits bestehende dritte Zeile
+(`maxConnectedAudioDevices.whyReadOnly`: "A system property again — the
+shell may not write it.") — keine der drei Zeilen benennt mehr, wer oder was
+es koennte:**
+Kopftext: `"Each is a system property outside the settings this app can
+write."`
+`a2dpHardwareOffload.whyReadOnly`: `"A system property, not a setting — this
+app cannot write it."`
+
+### Bestand statt Neuerfindung
+
+| Neu gebraucht fuer | Wiederverwendete Komponente/Wortlaut | Beleg |
+|---|---|---|
+| Sperre der LDAC-Chips | bestehende `enabled`-Bedingung erweitert, `ExplainedBlock` | `LiveLinkPanel.kt:270,283-294` |
+| "Comparison ended"-Zeilen | Anzeigeplatz/Lebensdauer von `state.alreadyApplies` | `ComparisonSection.kt:88-90` |
+| Benachrichtigungs-"Stop" | ruft dieselbe Funktion wie der jeweilige In-App-Abbrechen-Knopf | `MonitorScreen.kt:135-136,194-197`, `ArmProgress`-`onCancel` |
+| "Read again" | gleiche Komponente wie D2 (`Panel`+`GoldOutlinedButton`), neue Beschriftung | `DeviceProfilesScreen.kt:1409-1432` |
+| "Forget this list" | gleiches `AlertDialog`-Muster wie der Rueckweg-Bestaetigungsdialog | `DeviceProfilesScreen.kt:1434-1452` |
+
+Kein neues Token, keine neue Farbe, keine neue Dialogform.
+
+### Akzeptanzkriterien
+
+- **AK-T054-1** Waehrend `ARM_A`/`ARM_B` steht unter der Fortschrittszeile
+  zeichengenau `"This keeps counting if you leave this screen, switch apps,
+  or the screen turns off — only stopping the app's process ends it early.
+  Stop it here or from the notification."`; waehrend `SamplingMode.DEEP`
+  steht in `DataSourcePanel` zeichengenau `"Keeps capturing for up to 5
+  minutes even off this screen — stop it here or from the notification."`
+  plus `"{T} of 5 min captured."` Compose-Test je Zustand.
+- **AK-T054-2** Die Benachrichtigung waehrend eines laufenden Arms bzw. einer
+  Tiefenaufnahme zeigt Titel und Text aus der Tabelle oben, und ihr
+  `"Stop"` ruft dieselbe Funktion wie der jeweilige In-App-Abbrechen-Knopf
+  (Funktionsidentitaet, kein zweiter Pfad). Unit-Test auf die
+  Benachrichtigungs-Bauklasse; Compose-/Instrumentierungstest wo moeglich.
+- **AK-T054-3** `PROCESS_END` ist zeichengenau der neue Satz oben (ersetzt
+  AK-T047-12); der alte Satz kommt nirgends mehr vor. Grep-Test.
+- **AK-T054-4** Die LDAC-Stufen-Chips sind in `PIN_AND_CHECK`/`ARM_A`/
+  `INSTRUCT`/`ARM_B` `enabled == false`, in `CHOOSE`/`RESULT` unveraendert
+  bedienbar; der Sperr-Satz erscheint genau dann. Compose-Test ueber alle
+  sechs Phasen.
+- **AK-T054-5** Ein bestaetigter Rueckweg (`restoreAll()`) waehrend
+  `ARM_A`/`INSTRUCT`/`ARM_B` fuehrt zu `CHOOSE` mit der Zeile "...settings
+  were put back...", ein Codec-Wechsel weg von LDAC in derselben Phase zur
+  Zeile "...codec left LDAC...", beide mit erhaltener Messwahl und ohne
+  `Verdict`/`NotComparable`-Wert. Unit-Test auf `ComparisonController`.
+- **AK-T054-6** Bei `ComparisonResult.Compared` steht im Messrahmen nach
+  "Read every {Kadenz}." derselbe Satz wie in der Instruct-Rueckleseworte-
+  Tabelle fuer `result.verification`/`result.measure`; `CONTRADICTED` kommt
+  an dieser Stelle nie vor. Unit-Test ueber alle erreichbaren
+  `Verification`-Werte.
+- **AK-T054-7** `frameLines` liefert zwei Zeilen "Arm A: ..."/"Arm B: ...",
+  nie eine zusammengefasste "Both pinned"-Zeile; `ADAPTIVE`/`isAdaptive`
+  fuehrt zu "not pinned (ABR)" im jeweiligen Arm. Unit-Test mit gleichem und
+  mit unterschiedlichem `RunLink` je Arm.
+- **AK-T054-8** `boundaryLines` zeigt die zwei Paarungsfakten-Zeilen nur,
+  wenn `snapshot.device?.address == armA.run.link?.address`, sonst die
+  Fallback-Zeile "...pairing has changed since this comparison ran."; nie
+  beides gleichzeitig. Unit-Test mit gleicher und mit abweichender Adresse.
+- **AK-T054-9** Der `Unreadable`-Banner zeigt den neuen Text, einen
+  aktivierten `"Read again"`-Knopf und, erst nach mindestens einem
+  erfolglosen "Read again", den Knopf `"Forget this list"` mit dem
+  Bestaetigungsdialog oben; `"Cancel"` dort aendert nichts. Kein Pfad hier
+  behauptet, ein Eintrag sei zurueckgestellt oder das Ledger sei leer (M3).
+  Compose-Test.
+- **AK-T054-10** Der Bericht-Dialog nach `restoreAll()` hat zeichengenau den
+  Titel `"Settings put back"`. Compose-Test.
+- **AK-T054-11** Kein sichtbarer Nutzertext (String-Literal in einem
+  Compose-`Text`/`whyReadOnly`) in `DeviceProfilesScreen.kt` oder
+  `BluetoothSystemControls.kt` enthaelt "root"/"rooted"; KDoc-Kommentare
+  (Begruendung fuer Entwickler, z. B. `BluetoothSystemControls.kt:85`,
+  `PrivilegedServer.kt:505`) sind ausdruecklich ausgenommen. Grep-Test auf
+  String-Literale.
+
+### Ausdruecklich nicht Teil dieser Vorgabe
+
+- **F-020** (Profileditor-Autoapply ins Ledger) — reiner Architektur-/
+  Datenpfad, keine neue Nutzertextfamilie: die vorhandenen S3-5-Saetze
+  ("Codec preference for {device} put back...") gelten unveraendert, sobald
+  T-054a/developer den Schreibpfad ergaenzen.
+- **Sample-Rate-Wechsel beendet den Lauf** (T-054a) — kein neuer Satz
+  angefordert; die bestehende Grundzeilen-Tabelle (T-039/T-046) deckt einen
+  neuen `RunEnd`-Grund bereits ab, sobald T-054a ihn benennt.
+- **Wie genau der Vordergrunddienst technisch an den Sampler bindet**
+  (F-014) — unsichtbar fuer den Nutzer, keine Textfrage.
+
+### Offene Fragen an den App Designer
+
+1. **Soll "Forget this list" (F-021) ueberhaupt ausgeliefert werden, oder
+   bleibt der einzige Ausweg aus einem dauerhaft unlesbaren Ledger das
+   Loeschen der App-Daten wie heute?** Ich habe eine zurueckhaltend
+   platzierte, mit Warnung versehene Variante spezifiziert, weil ein
+   dauerhaft haengender Banner ohne jeden Ausweg ausser App-Daten-Loeschen
+   selbst eine Art Sackgasse ist. Der Preis: es ist eine neue Handlung, die
+   zwar nichts Falsches behauptet, aber auch nichts reparieren kann — sie
+   macht nur die Buchfuehrung wieder sauber. **Empfehlung: ausliefern, wie
+   spezifiziert** — "Read again" allein fuehrt bei einer dauerhaft kaputten
+   Datei (z. B. Datentraegerfehler) nie zum Ziel, und der Banner bliebe sonst
+   fuer immer stehen.
+2. **Reicht eine reine In-App-Zeile fuer die Start-Ankuendigung, oder soll
+   das Starten eines Vergleichsarms/einer Tiefenaufnahme zusaetzlich einen
+   kurzen Bestaetigungsdialog zeigen** (wie T-039s "This screen must stay
+   open" beim Beobachtungslauf)? Ich habe bewusst **keinen** Dialog
+   vorgesehen: Der Nutzer loest die Handlung hier durch einen expliziten
+   Tipp ("Compare"/"Watch live") selbst aus, und der Dialog beim
+   Beobachtungslauf war genau umgekehrt begruendet — jener Lauf **brauchte**
+   den offenen Schirm; dieser hier **braucht ihn nicht mehr**, und genau das
+   ist die Nachricht. **Empfehlung: keinen Dialog, nur die In-App-Zeile plus
+   Benachrichtigung.**

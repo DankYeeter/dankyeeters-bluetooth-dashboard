@@ -43,6 +43,10 @@ stoert, ist schlechter als keine Anzeige.
 - **AK-4 (Hintergrund kostet nichts):** Ohne offene Monitor-Oberflaeche fuehrt
   die App keine wiederkehrende Arbeit aus, die den Audiopfad beruehrt. Jede
   periodische Arbeit im Prozess ist inventarisiert und begruendet.
+  **Ausnahme (2026-09-28):** Eine vom Nutzer gestartete, zeitlich begrenzte
+  Messung (Vergleichs-Messphase, Tiefenaufnahme) darf ohne offenen Monitor
+  bis zu ihrem Ende laufen; sie ist sichtbar angekuendigt und jederzeit
+  abbrechbar.
 - **AK-5 (Regressionsfrei):** Volle Testsuite gruen; A16-Bau-Regel eingehalten
   (neue Features auf der bewiesenen API-Flaeche, sonst versions-gegated mit
   ehrlicher Meldung).
@@ -146,6 +150,32 @@ stoert, ist schlechter als keine Anzeige.
   Oberflaeche**. AK-4 bleibt unangetastet — es gibt keine
   Hintergrundaufzeichnung und damit keine Aussage ueber unbeobachtete Zeit.
 
+### Neu — aus dem Backlog, freigegeben durch Nutzer am 2026-09-28
+
+- **AK-18 (P-001, Ist-Stand der Massnahmen):** Bei offenem Monitor zeigt die
+  App zu jeder der sechs Massnahmen aus `Measures.kt` den Pruefstand aus dem
+  zuletzt gelesenen Zustandsbuch; eine unlesbare Groesse erscheint als "nicht
+  pruefbar" mit ihrem Grund, nie als erfuellt; ohne offenen Monitor wird kein
+  Zustand gelesen, und es gibt keine zusammenfassende Bewertung.
+- **AK-19 (P-004, Umgebung am Verlustereignis):** Jeder Protokolleintrag eines
+  Verlustausbruchs nennt die Werte des Zustandsbuchs zum Zeitpunkt der ersten
+  Lesung der Episode, jeden mit "gelesen" oder "nicht lesbar: Grund"; kein
+  Eintrag enthaelt ein Wort, das eine Ursache behauptet; ohne offenen Monitor
+  entsteht kein Eintrag.
+- **AK-20 (P-002, Sprung zur Einstellung):** Fuer jede der zehn Eintraege aus
+  `Measures.kt` (`Measure`, `Fallback`) ist im Programm festgelegt, ob ein
+  Sprungziel existiert; jeder festgelegte Sprung ist per Test auf seine
+  Intent-Aktion geprueft, ein nicht aufloesbarer Sprung erzeugt einen
+  sichtbaren Satz, und nach der Rueckkehr in die App wird das Zustandsbuch neu
+  gelesen.
+- **AK-21 (P-003, WLAN-Band) — bedingt:** Ist das Telefon mit einem
+  2,4-GHz-WLAN verbunden, meldet der Pruefstand der Massnahme A2
+  "widerspricht"; bei 5 GHz, bei nicht lesbarem Band und bei fehlender
+  Berechtigung meldet er "nicht pruefbar" mit Grund; das Band wird nur bei
+  offenem Monitor oder an den Armgrenzen des Vergleichs gelesen.
+  **Bedingung des Nutzers:** nur ohne Standortberechtigung; SSID/BSSID werden
+  nicht gelesen. Geht das nicht, bleibt P-003 vorgemerkt und AK-21 ruht.
+
 ## Nicht-Ziele
 
 - Kein Klang-"Verbessern" jenseits der spezifizierten Hoerkompensation.
@@ -242,4 +272,10 @@ Groesse: Er sagt, wie hoch man war, gefragt ist, wie tief.
 Hintergrundaufzeichnung, keine Persistenz. Damit kollidiert AK-17 **nicht** mit
 AK-4. Die groessere Variante (Sitzungen aufzeichnen und spaeter auswerten) hat
 der Nutzer am 03.09. ausdruecklich **nicht** gewaehlt.
+
+**2026-09-28 — AK-4 Ausnahme fuer gestartete Messungen, freigegeben durch den
+Nutzer am 2026-09-28.** Anlass: F-015 (T-051b) — eine Vergleichs-Messphase
+begann bei Display aus nach 2 min neu. Der Nutzer will, dass sie weiterlaeuft.
+Der uebrige AK-4-Wortlaut bleibt; der Hintergrund-Sampler wird an den Monitor
+gebunden (F-014, Nutzer 28.09.).
 

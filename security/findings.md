@@ -276,3 +276,17 @@ nicht Teil von T-005.
 | SR-030 | Grundtexte des Helfers mit roher MAC (`HelperBluetooth.kt:564`) im Rueckweg-Bericht | niedrig | offen (M13) | 2026-09-23 |
 
 - 2026-09-23 · T-047b Vorlauf AD-033/AD-034: CONCERNS, Vorgaben M1–M18 in `docs/berichte/T-047b-security-reviewer.md`.
+
+| ID | Titel | Prioritaet | Status | Letzte Pruefung |
+|---|---|---|---|---|
+| SR-006 | (Bestand) | mittel | behoben am Quellstand (M5); Geraetepfad nicht gemessen | 2026-09-28 |
+| SR-007 | (Bestand) | mittel | behoben (M2) | 2026-09-28 |
+| SR-025 | (Bestand) | mittel | behoben (M1, M9) | 2026-09-28 |
+| SR-026 | (Bestand) | mittel | behoben (M12) | 2026-09-28 |
+| SR-027 | (Bestand) | mittel | behoben (M3) | 2026-09-28 |
+| SR-028 | (Bestand) | mittel | behoben (M4, M10, M11) | 2026-09-28 |
+| SR-029 | (Bestand) | niedrig | behoben (M8) | 2026-09-28 |
+| SR-030 | (Bestand) | niedrig | Rueckweg und Vergleich behoben (M13); Devices-Tab `Skipped codec: <reason>` ohne `redactAddresses` offen (`HelperBluetooth.kt:564`) | 2026-09-28 |
+| SR-031 | Banner zu offenen Einstellungen fehlt in FULL_SETUP (`BtDashboardApp.kt:160-163`), M14 teilweise | niedrig | offen | 2026-09-28 |
+
+- 2026-09-28 · T-051c am Stand c2a29f5: PASS; AK-6 erfuellt (Helfer nicht erweitert); M1–M18 bis auf M14 wirksam. Bericht `docs/berichte/T-051c-security-reviewer.md`.
