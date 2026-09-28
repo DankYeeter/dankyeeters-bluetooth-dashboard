@@ -29,6 +29,9 @@ Read-back**: eine angenommene Schreibung ist kein Beleg.
 Seit AD-030 ff. (23.09.) kommt Saeule 3 dazu: ein gefuehrter Vorher/Nachher-
 Vergleich aus zwei Beobachtungslaeufen und einer reinen Vergleichsfunktion,
 und ein Ledger, das vor jedem ersten Schreiben den Ausgangszustand festhaelt.
+Seit AD-039 (28.09.) darf eine vom Nutzer gestartete, zeitlich begrenzte
+Messung ohne offenen Monitor weiterlaufen (AK-4-Ausnahme); ein eigener,
+kurzlebiger Vordergrunddienst in `:app` haelt dafuer den Prozess.
 
 ## Struktur
 
@@ -1943,7 +1946,7 @@ Wirkungs*groesse* — der Test sagt nur, ob ein Unterschied nachweisbar ist.
 
 ---
 
-### AD-033 — Das Ledger haelt den Ausgangszustand vor dem ersten Schreiben; „geliehen" entfaellt im ersten Schnitt (2026-09-23, Status: aktiv — **Freigabe `director`**: Persistenz, kehrt einen Teil von AD-007 und das HD-Audio-Verhalten aus `HdAudioTest.kt:201` um)
+### AD-033 — Das Ledger haelt den Ausgangszustand vor dem ersten Schreiben; „geliehen" entfaellt im ersten Schnitt (2026-09-23, Status: aktiv — **Freigabe `director`**: Persistenz, kehrt einen Teil von AD-007 und das HD-Audio-Verhalten aus `HdAudioTest.kt:201` um; Regel „Codec-Familie aus Profilen wird nicht festgehalten" **abgeloest durch AD-041** am 2026-09-28)
 
 **Kontext:** AK-11 verlangt: vor dem ersten Setzen den Ausgangszustand
 festhalten, jeden selbst gesetzten Wert wiederherstellen koennen, mit **einer**
@@ -2133,6 +2136,21 @@ internal fun usbValue(plugged: Int?): ConditionValue                         // 
 erfuellt. P-3 bestaetigt spaeter nur, was die Laufzeit schon ehrlich meldet;
 aendert sich dabei eine Kategorie, ist das ein Text- und kein Strukturwechsel.
 Dauerhaft schwer: eine Aussage ueber das WLAN-Band. Sie kaeme erst mit AD-005.
+
+**Nachtrag 2026-09-28 (F-017, Director-Entscheid: die Zeile kommt ins Ergebnis;
+keine neue Entscheidung, nur die Quelle):** Die Rueckleseergebnis-Zeile liest
+`ComparisonResult.Compared.verification` (`Comparison.kt`, `compare`) =
+`measure.verify(after.start[condition])` — das Zustandsbuch am Beginn des
+**gezaehlten** Arms B. Nicht `ComparisonUi.readBack`: nach einem Neustart von
+Arm B liest `armFrom` das Buch neu, `readBack` bleibt das der Taste. Im Ergebnis
+kommen nur `VERIFIED` und `NOT_VERIFIABLE` vor; `CONTRADICTED` endet vorher als
+`NotComparable.MeasureNotInEffect`. Den Grund fuer `NOT_VERIFIABLE` trennt
+`measure.condition == null` (per Lesung nicht belegbar: A1, A4, A7) von
+`after.start[condition]` (`Unreadable` oder A2 „on"). Kein neuer Typ, kein neues
+Feld. **Beruehrt:** `ComparisonSection.kt`. **Test:** Ergebnis A4,
+`FEWER_DETECTED`, `NOT_VERIFIABLE` → die Zeile steht im selben Composable wie das
+Urteil (faellt heute, QA-Probe S4); A5 `VERIFIED` → die andere Zeile; nach einem
+Arm-B-Neustart mit anderem Buch gilt das Buch des gezaehlten Arms.
 
 **Umkehrbarkeit:** leicht.
 
@@ -2373,6 +2391,378 @@ Keine Datenbank-Anweisung in diesem Schnitt (L-033 nicht beruehrt).
 
 ---
 
+### AD-039 — Eine gestartete Messung laeuft ueber einen eigenen, kurzlebigen Vordergrunddienst in `:app` weiter (2026-09-28, Status: aktiv — Nutzer 28.09., AK-4-Ausnahme; **`security-reviewer` vor dem Bau**: neuer Dienst mit Stop-Aktion)
+
+**Kontext:** F-015. Mechanismus (gelesen 28.09., `c2a29f5`): der Vergleich wird aus
+`MonitorViewModel.liveUpdates` gefuettert, und der Poll ist `WhileSubscribed` am
+`collectAsStateWithLifecycle` des Schirms (`MonitorViewModel.kt:191,204`). Display
+aus ist ON_STOP → der Poll steht → nach > `RUN_GAP_MAX_MS` endet der Arm
+`READING_GAP` und startet neu (`ComparisonController.kt:159-164`). Zweites Problem:
+ohne Vordergrunddienst ist der Prozess nach ON_STOP ein Cache-Prozess, den Android
+einfrieren darf, und `EqForegroundService` laeuft nur bei eingeschaltetem EQ
+(`EqForegroundService.kt:105-109`). DEEP (`SamplingPolicy.DEEP`, 5 min, in
+`MonitorEngine`) hat dasselbe zweite Problem. AK-4-Ausnahme: sichtbar angekuendigt,
+jederzeit abbrechbar. R-013: Play verlangt „nur so lange wie noetig" und eine klare
+Benachrichtigung; Wakelocks zaehlen auch unter einem Vordergrunddienst.
+Kraefte: der vorhandene Dienst ist bewusst still (`IMPORTANCE_MIN`, `SECRET`) und
+traegt die Hoerkompensation, die nie stehen darf.
+
+**Optionen:**
+A. **`EqForegroundService` erweitern** (laeuft bei EQ an *oder* Messung; Benachrichtigung
+schaltet fuer die Messdauer um). Konsequenz: der Dienst liegt in `:core-system`,
+kennt weder DEEP (`:core-monitor`) noch den Vergleich (`:app`) — neuer Port noetig;
+Stopp-Logik und Benachrichtigung der Hoerfunktion aendern sich fuer eine Messfunktion.
+B. **Eigener `MeasurementService` in `:app`**, Typ `connectedDevice`, nur solange eine
+Messung laeuft, sichtbare Benachrichtigung mit Stop-Aktion. Konsequenz: zweiter
+Manifesteintrag, zweiter Kanal; die Play-Console-Erklaerung fuer `connectedDevice`
+muss die Messung mitnennen (R-013). Der EQ-Dienst bleibt unberuehrt.
+C. **Bildschirm wach halten** waehrend der Arme. Konsequenz: widerspricht Nutzerentscheid 4
+(Display aus), 30 min Display an.
+D. **Im Bestand bleiben**, Hinweis „Schirm offen lassen" wie T-039. Konsequenz:
+Nutzerentscheid 4 unerfuellt; Arm B von A5 auf Akku praktisch unerreichbar (T-051b).
+
+**Entscheidung:** B. Die Messung ist das Einzige, was den Dienst braucht; sie besitzt
+ihn fuer genau ihre Dauer.
+
+1. **Was „laeuft" heisst.** Vergleich: vom Tipp auf „Compare" (`PIN_AND_CHECK`) bis
+   `RESULT`, Ende oder Abbruch — `INSTRUCT` eingeschlossen, damit Arm A (15 min) keinen
+   Cache-Kill verliert; in `INSTRUCT` wird nicht gepollt. DEEP: von `startDeepCapture`
+   bis `deepCaptureUntilMs` oder `stopDeepCapture`.
+2. **Prozessweiter Griff auf den Vergleich.** Dienst, Chip-Sperre (AD-040) und Rueckweg
+   muessen ihn erreichen; der Controller bleibt im `MonitorViewModel` (AD-037).
+   ```kotlin
+   // app/.../ui/screens/monitor/ActiveComparison.kt
+   object ActiveComparison {
+       data class Held(val phase: ComparisonPhase, val phaseSinceMs: Long, val end: (ComparisonEnd) -> Unit)
+       val held: StateFlow<Held?>
+       internal fun set(held: Held?)      // nur ComparisonController, synchron mit dem eigenen Phasenwechsel
+       fun end(cause: ComparisonEnd)      // Rueckweg, Stop-Aktion; ohne Vergleich wirkungslos
+   }
+   ```
+   `null` in `CHOOSE`/`RESULT`, bei fehlgeschlagenem Pinnen und in `MonitorViewModel.onCleared`.
+3. **Poll bei Display aus.** `MonitorViewModel` haelt, solange `phase ∈ {ARM_A, ARM_B}`,
+   einen eigenen Sammler auf `liveUpdates` (`flatMapLatest` auf die Phase). Kein neuer
+   Poll, keine andere Kadenz. Der AK-17-Lauf bekommt Lesungen nur bei
+   `MonitorGraph.uiVisible` (neuer Lese-Accessor auf `_uiVisible`) — sonst profitierte
+   er still von der Ausnahme, und AK-17 sagt „nur bei offener Oberflaeche".
+4. **Der Dienst.**
+   ```kotlin
+   // app/.../ui/screens/monitor/MeasurementService.kt
+   // Manifest :app: exported=false, foregroundServiceType=connectedDevice, stopWithTask=true; START_NOT_STICKY
+   class MeasurementService : Service() {
+       companion object {
+           val foreground: StateFlow<Boolean>   // true erst nach erfolgreichem startForeground
+           fun start(context: Context)          // nur aus einem Tipp: "Compare", beide "Watch live"
+           const val ACTION_STOP = "dev.dankyeeter.btdashboard.action.STOP_MEASUREMENT"
+       }
+   }
+   /** Rein: was die Benachrichtigung sagt; null -> stopSelf. */
+   internal fun runningMeasurement(held: ActiveComparison.Held?, deepUntilMs: Long, nowMs: Long): RunningMeasurement?
+   ```
+   Er beobachtet `ActiveComparison.held` und `engine.status.deepCaptureUntilMs`
+   (`startDeepCapture`/`stopDeepCapture` setzen `_status` kuenftig sofort, heute erst in
+   der naechsten Schleifenrunde). Fuer das DEEP-Ende ein einmaliges `delay` bis zum
+   bekannten Ende, kein Takt. Neu gepostet wird nur bei Phasenwechsel; den Fortschritt
+   zeichnet das System (`setUsesChronometer` ab `phaseSinceMs`, DEEP
+   `setChronometerCountDown` bis zum Ende) — Wanduhr, nicht beobachtete Zeit; die steht
+   in der App. Eigener Kanal `IMPORTANCE_LOW` (sichtbar, lautlos, Symbol in der
+   Statusleiste — bewusst anders als der EQ-Kanal: eine laufende Messung ist eine
+   Nachricht), `VISIBILITY_PUBLIC`, keine Adresse im Text (M18). Tippen oeffnet die App.
+   **Abbruch von aussen:** Aktion „Stop" = `PendingIntent.getService(…, ACTION_STOP,
+   FLAG_IMMUTABLE)` an den nicht exportierten Dienst → `ActiveComparison.end(StoppedOutside)`
+   und `engine.stopDeepCapture()`, dann `stopSelf`. Sie schreibt keine Einstellung und
+   ist nicht der Rueckweg (T-047b: Rueckweg nie von aussen).
+5. **Scheitert `startForeground`** (Typ verweigert, `BLUETOOTH_CONNECT` fehlt), bleibt
+   `foreground == false`: der Vergleich laeuft wie heute nur bei offenem Schirm, und der
+   Schirm sagt das statt der Ankuendigung (AK-3). Sind Benachrichtigungen abgeschaltet,
+   laeuft der Dienst trotzdem; dann traegt die Ankuendigung im Schirm AK-4 allein.
+6. **Kein Wakelock.** Randbedingung: gemessen wird nur bei Wiedergabe, und dabei haelt der
+   Player einen Teil-Wakelock (T-007 Abschn. 5.6: `ExoPlayer:WakeLockManager` von TIDAL,
+   `bluetooth_timer`; Momentaufnahme bei Display an, eine Sitzung). Stoppt die
+   Wiedergabe, darf die CPU schlafen; der Arm endet dann nach der bestehenden Regel
+   (`PAUSED`/`READING_GAP`). Dass ein Arm bei Display aus auf Akku ohne Luecke durchlaeuft,
+   ist **nicht geprueft** — Geraeteprobe unten. Rueckweg, falls nicht: Teil-Wakelock nur
+   fuer die Armdauer mit Timeout (2 × 15 min liegen unter der 2-h-Schwelle aus R-013,
+   zaehlen aber).
+7. **F-014 in derselben Datei:** `SamplingPolicy.decide` prueft DEEP zuerst (die
+   Ausnahme), dann ohne `uiVisible` → `Stopped`; BURST, ACTIVE und „idle, monitor on
+   screen" nur mit `uiVisible`. Der Vergleich haengt nicht am Sampler, DEEP nicht am Monitor.
+
+**AK-13 „dieselbe Dauer":** bleibt, weil Zaehlregel und Kadenz unveraendert sind. Beide
+Arme zaehlen abgedeckte Intervalle nach `isReadingGap` bis zum Ziel (AD-030), Arm B mit
+Arm As `observedMs`. Die Kadenz ist `_liveIntervalMs` der Tafel, nicht der
+bildschirmabhaengige Takt des Samplers — Display an/aus aendert sie nicht; ein Wechsel
+faellt weiter als `CadenceDiffers`.
+
+**Texte, die T-054b liefert:** Kanalname und -beschreibung; Titel/Text je `ARM_A`,
+`INSTRUCT`, `ARM_B`, DEEP; Aktion „Stop"; Ankuendigung beim Start; Satz fuer
+`foreground == false`; was den Vergleich trotzdem beendet (Aufgabe weggewischt,
+Prozessende).
+
+**Konsequenzen:** Leicht: jede weitere zeitlich begrenzte Messung meldet sich ueber
+denselben Dienst. Schwer: ein zweiter Vordergrunddienst ist Policy-Flaeche. Der
+Vergleich uebersteht Display aus, Tab- und App-Wechsel (Tabs mit `saveState`,
+`BtDashboardApp.kt:275`), nicht das Wegwischen der Aufgabe (`stopWithTask`,
+ViewModel geraeumt) und nicht den Prozesstod (AD-037).
+
+**Umkehrbarkeit:** leicht — ein Dienst, ein Manifesteintrag, ein Objekt; nichts persistiert.
+
+**Beruehrt Dateien:** neu `ActiveComparison.kt` (entsteht in AD-040s Lauf), neu
+`MeasurementService.kt`, `MonitorViewModel.kt`, `SamplingPolicy.kt`, `MonitorEngine.kt`;
+Verdrahtung `MonitorGraph.kt` (Accessor), `app/src/main/AndroidManifest.xml`,
+`BluetoothDashboardViewModel.kt` (ein Aufruf), `MonitorScreen.kt` (DEEP-Ankuendigung).
+
+**Test:**
+- `SamplingPolicyTest`: spielend, Screen an, `uiVisible = false`, kein DEEP → `Stopped`
+  (heute `ACTIVE`, faellt ohne Fix); dasselbe mit `burstUntilMs > now` → `Stopped`;
+  `deepCaptureUntilMs > now`, `uiVisible = false`, nichts spielt → `DEEP`; spielend mit
+  `uiVisible = true` → `ACTIVE`.
+- `runningMeasurement`: `Held(ARM_A)` → Vergleich; `null` und `deepUntil > now` → DEEP;
+  `null` und `deepUntil <= now` → `null`.
+- `MonitorViewModel` (Robolectric): Arm A laeuft, kein Schirm-Abonnent → Lesungen laufen
+  bis `TARGET_REACHED` (faellt ohne Mess-Sammler); AK-17-Lauf mit `uiVisible = false`
+  zaehlt nicht weiter.
+- Dienst (Robolectric): `ACTION_STOP` → `end(StoppedOutside)` gerufen, Dienst beendet;
+  `held = null` ohne DEEP → Dienst beendet sich.
+- **Geraet** (naechste Session, „AK-4 Bildschirm-aus-Messung"): Arm A auf Akku, Display
+  aus, Musik, 15 min → `TARGET_REACHED` ohne `READING_GAP`; ohne Monitor und ohne
+  Messung keine `dumpsys`-Aufrufe (Retest F-014).
+
+---
+
+### AD-040 — Die LDAC-Sperre sitzt in `LdacTuning.pin`; ein Arm endet den Vergleich, statt ungepinnt neu zu starten (2026-09-28, Status: aktiv — Nutzer 28.09. Entscheide 2 und 6)
+
+**Kontext:** F-019 (Luecke aus T-047i): jedes Armende ausser `TARGET_REACHED` startet
+denselben Arm aus der aktuellen Lesung neu (`ComparisonController.kt:159-164`), auch
+unter ABR; Codec weg von LDAC → Neustart je Lesung. Ausloeser: die LDAC-Chips auf zwei
+Schirmen (`LiveLinkPanel.kt`, `BitrateSection.kt`, beide ueber `LdacTuning.pin`), der
+Rueckweg (`SettingsRestore` → `LdacTuning.apply`), „Apply now" im Profil (Applier),
+Reconnect, Sample-Rate-Wechsel.
+
+**Optionen:**
+A. **Sperre nur in der Oberflaeche.** Konsequenz: jeder kuenftige Aufrufer von `pin`
+umgeht sie.
+B. **Sperre in `LdacTuning.pin`** — der eine Weg beider Chip-Reihen — plus Ende statt
+Neustart im Controller.
+C. **Sperre im `CodecPreferenceController`.** Konsequenz: sperrt auch das Pinnen des
+Vergleichs und den Rueckweg, braucht Ausnahmen; `:core-system` kennt den Vergleich nicht.
+
+**Entscheidung:** B.
+1. **Sperre:** `pin` liefert `CodecApplyOutcome.Unavailable(LOCKED)` — ohne Ledger-Eintrag,
+   ohne Schreibung —, solange `ActiveComparison.held?.phase ∈ {ARM_A, INSTRUCT, ARM_B}`
+   (reine Funktion `locksLdac(phase)`, erste Zeile von `pin`). Das Pinnen des Vergleichs
+   selbst laeuft in `PIN_AND_CHECK` und ist frei. Beide Chip-Reihen lesen denselben
+   Zustand und sind gesperrt. `LdacTuning.apply` sperrt nicht; der Rueckweg beendet den
+   Vergleich vorher (3).
+2. **Ende statt ungepinntem Neustart:** Neu gestartet wird ein Arm nur, wenn er
+   `READING_GAP` oder `PAUSED` endete **und** die Lesung denselben `RunLink` traegt wie
+   der beendete Lauf (`LinkLiveSnapshot.runLink()` wird dafuer oeffentlich). Jedes andere
+   Ende (`QUALITY_CHANGED`, `CODEC_CHANGED`, `DISCONNECTED`, `RATE_UNREADABLE`, neu
+   `SAMPLE_RATE_CHANGED`) und ein Linkwechsel ueber die Luecke beenden den Vergleich; ebenso
+   `onCheck`, wenn die neueste Lesung nicht Arm As `RunLink` traegt. Kein Urteil.
+   ```kotlin
+   sealed interface ComparisonEnd {
+       data class LinkChanged(val arm: String, val end: RunEnd?) : ComparisonEnd  // end == null: Wechsel vor Arm B
+       data object SettingsPutBack : ComparisonEnd
+       data object StoppedOutside : ComparisonEnd                                 // Stop in der Benachrichtigung (AD-039)
+   }
+   // ComparisonUi.ended: ComparisonEnd? — steht in CHOOSE, bis eine Massnahme oder "Compare" getippt wird
+   ```
+   Nicht in `NotComparable`: dort landen nur zwei fertige Arme.
+3. **Der Rueckweg beendet den Vergleich:** `SettingsRestore` bekommt
+   `endMeasurement: () -> Unit = { ActiveComparison.end(ComparisonEnd.SettingsPutBack) }`,
+   gerufen in `restoreAll` nach dem Leer-Check und **vor** `pauseAutoApply`, dem ersten
+   Schreiben. Das ist der eine Einstieg aller Rueckweg-Knoepfe (Bluetooth-Tab, Gate, Monitor).
+4. **Sample-Rate (Entscheid 2):** `endAgainst` bekommt
+   `codec?.sampleRateHz != link.sampleRateHz -> RunEnd.SAMPLE_RATE_CHANGED`; der KDoc-Satz
+   „it ends no run" an `RunLink` wird falsch und faellt. Gilt fuer AK-17-Lauf und Arme.
+
+**Nicht gesperrt:** der Codecwunsch aus Profileditor/„Apply now" waehrend eines Arms. Er
+schreibt ueber den Applier in `:core-system`, der den Vergleich nicht kennt; der Arm
+endet dann `QUALITY_CHANGED`/`CODEC_CHANGED` und der Vergleich mit Grund (Teil 2) —
+kein falsches Urteil.
+
+**Konsequenzen:** Ein Urteil entsteht nur ueber zwei Arme am selben gepinnten Link. Die
+Chips sind fuer die Dauer des Vergleichs gesperrt (bis ~30 min plus Anleitung); Auswege
+sind „Cancel", Stop und der Rueckweg.
+
+**Umkehrbarkeit:** leicht.
+
+**Beruehrt Dateien:** `ComparisonController.kt`, neu `ActiveComparison.kt`, `LdacTuning.kt`,
+`SettingsRestore.kt`, `ObservationRun.kt`; Oberflaeche (Saetze, gesperrte Chips):
+`ComparisonSection.kt`, `ObservationRunSection.kt`, `LiveLinkPanel.kt`, `BitrateSection.kt`.
+
+**Test:**
+- `ComparisonControllerTest`: Arm A laeuft, Lesung mit `ADAPTIVE` → `phase == CHOOSE`,
+  `ended == LinkChanged("A", QUALITY_CHANGED)`, kein neuer Arm (heute Neustart); Codec AAC
+  → genau ein Ende, weitere Lesungen aendern nichts (heute 20 Neustarts in 20 Lesungen,
+  Probe P5); Luecke > 120 s mit gleichem Link → Arm A neu (wie heute); Luecke, danach
+  anderer Link → Ende; `INSTRUCT`, neueste Lesung ABR, `onCheck` → Ende statt Arm B.
+- `locksLdac`: `ARM_A`, `INSTRUCT`, `ARM_B` → true; `CHOOSE`, `PIN_AND_CHECK`, `RESULT` → false.
+- `SettingsRestoreTest`: Reihenfolge-Log `endMeasurement` vor dem ersten `saveProfile`;
+  leeres Ledger → `endMeasurement` nicht gerufen.
+- `ObservationRunTest`: LDAC 990, 96 kHz → 88,2 kHz, sonst gleich → `end ==
+  SAMPLE_RATE_CHANGED` (heute `null`, Probe P3b).
+
+---
+
+### AD-041 — Der Applier haelt den Codecwunsch eines Profils im Ledger fest; Autoapply bleibt nach dem Rueckweg aus (2026-09-28, Status: aktiv — Nutzer 28.09. Entscheid 7; **`security-reviewer` vor dem Bau**: neuer Ledger-Schreiber; loest die Codec-Regel aus AD-033 ab)
+
+**Kontext:** F-020. Codec-Schreibstellen (Grep `codec.apply(|controller.apply(|\.apply(address`
+in `app/src/main` und `core-system/src/main`, 28.09., `c2a29f5`): `LdacTuning.apply` (aus
+`pin` mit Eintrag, aus dem Rueckweg ohne — richtig so) und `DeviceProfileApplier.kt:302`
+**ohne** — die einzige Luecke; die uebrigen Treffer sind EQ und Durchreicher in
+`SystemGraph`. QA-Probe R1: Banner verborgen, `restoreAll` tut nichts, Autoapply bleibt an.
+
+**Optionen:**
+A. **Eintrag beim Speichern im Profileditor** (`priorWish` = alter Wunsch). Konsequenz:
+zweite Aufnahmestelle; Speichern aendert noch keine Einstellung (erst der Applier), und
+Profile aus der Zeit vor dem Ledger schrieben weiter ohne Eintrag.
+B. **Eintrag im Applier vor `codec.apply`**, unter der Ledger-Sperre ueber `ifRecorded`
+wie Globals und HD-Audio. Eine Stelle fuer Autoapply, „Apply now" und Editor-Anwenden.
+C. **Im Bestand:** Codec aus Profilen bleibt draussen. Konsequenz: AK-11 „aus jedem
+Tuning-Zustand" verletzt.
+
+**Entscheidung:** B, Eintrag `LedgerEntry.Ldac(profile.deviceKey, priorWish =
+profile.codecPreference, priorLive = null)`.
+- **Festgehalten wird der Systemzustand, nicht der Profilinhalt.** `priorWish` ist der
+  aktuelle Wunsch; der Rueckweg laesst ihn stehen (`putBack` speichert nur bei
+  Abweichung). Das Profil ist Nutzerdaten und wird ausgesetzt, nicht geleert (AD-034).
+  Bewusst anders als beim Chip: dort schreibt die App den Wunsch als Nebenwirkung, und
+  der Rueckweg nimmt ihn zurueck.
+- **`priorLive = null`**, weil der Applier die Live-Stufe nicht lesen kann
+  (`CodecPreferenceController` hat nur `apply`, `:core-system` kennt die Live-Quelle
+  nicht). Nach M12 heisst das beim Rueckweg „Stufe bleibt bis zum naechsten Verbinden";
+  dann greift wegen AD-034 kein Autoapply, und der Stack nimmt seinen Standard.
+- Nicht persistierbar → `ProfileAction.Skipped("codec", PRIOR_NOT_RECORDED)`, keine
+  Schreibung (M1/M3). Gleiche Einstellung wie beim Chip (`ldac:<deviceKey>`): der erste
+  Eintrag gewinnt (`withBaseline`).
+- **Autoapply nach dem Rueckweg: bleibt aus** (AD-034 unveraendert). Ein Profil mit
+  Codecwunsch ist „beruehrt" und wird vor dem ersten Rueckschreiben ausgesetzt;
+  Wiedereinschalten ist der vorhandene Schalter.
+- **Wettlauf M4/M11 (SR-028):** Eintrag und Schreibung unter `ledger.lock`, wie der
+  Rueckweg je Eintrag. Ein Verbinden, das das Profil vor dem Aussetzen gelesen hat,
+  kann nach dem Rueckweg noch einmal schreiben — dann **mit** neuem Eintrag, und das
+  Banner zeigt ihn. Der Schaden aus SR-028 („geaendert, Ledger leer") tritt nicht auf.
+- **Benannter Widerspruch zu AD-033** („Codec-Familie aus Profilen wird nicht
+  festgehalten"): abgeloest. Live zurueckgestellt wird die Familie weiterhin nicht (der
+  Stack haelt sie je Verbindung); der Eintrag sorgt dafuer, dass Banner, Aussetzen und
+  Bericht greifen. `LedgerEntry.Ldac` traegt damit auch Nicht-LDAC-Wuensche; Typname
+  und JSON-Typ `ldac` bleiben (ein Umbenennen waere eine Formatmigration), der KDoc wird
+  breiter.
+
+**Konsequenzen:** Jede Codec-Schreibung der App hat einen Eintrag. Dauerhaft: das Profil
+behaelt nach dem Rueckweg seinen Wunsch; wer ihn loswerden will, aendert das Profil.
+
+**Umkehrbarkeit:** leicht (kein Formatwechsel).
+
+**Beruehrt Dateien:** `DeviceProfileApplier.kt`; `SettingsLedger.kt` (nur KDoc von `Ldac`).
+
+**Test:** `DeviceProfileApplierTest`: Profil mit `CodecPreference("LDAC", 1000)`,
+Fake-Ledger → `recordIfAbsent(Ldac(key, wish, null))` vor `codec.apply` im
+Reihenfolge-Log (faellt ohne Fix: kein Eintrag); Ledger `false` → kein `codec.apply`,
+`Skipped` mit `PRIOR_NOT_RECORDED`; AAC-Wunsch → ebenfalls Eintrag. `SettingsRestoreTest`:
+nur dieser Eintrag, Profil `autoApply = true`, Geraet verbunden → danach `autoApply ==
+false`, Wunsch unveraendert, Geraet in `liveKeptUntilReconnect`.
+
+---
+
+### AD-042 — Ein unlesbares Ledger verwirft nur der Nutzer, nach Warnung und nur, wenn es in dem Moment unlesbar ist (2026-09-28, Status: aktiv — F-021; **`security-reviewer` vor dem Bau**: lockert AK-11 fuer die verlorenen Vorwerte)
+
+**Kontext:** `SettingsLedgerStore.decode` wirft bei jedem nicht vollstaendig lesbaren
+Inhalt; dann verweigert `recordIfAbsent` jede Schreibung und `entries()` meldet einen
+Fehler (M3, gewollt). Ausweg heute nur „App-Daten loeschen" — das kostet Profile, EQ,
+Hoerprofile. Zweite, ungehandhabte Form: ist die Protobuf-Datei selbst kaputt, wirft
+DataStore bei jedem Lesen **und** jedem `edit` (`PreferenceDataStoreFactory.create` ohne
+`corruptionHandler`, `SystemGraph.kt:295-298`) — dann scheitert jeder Ausweg ueber `edit`.
+
+**Optionen:**
+A. **Bestaetigtes Verwerfen:** Knopf im Banner-Zweig „unlesbar" mit Warnung; der Store
+ersetzt den Inhalt nur, wenn er **in derselben `edit`-Transaktion** nicht dekodierbar
+ist. Datei-Korruption uebersetzt ein `ReplaceFileCorruptionHandler` in genau diesen
+Zustand: er schreibt einen Marker, den `decode` nicht lesen kann — das Ledger bleibt
+unlesbar (M3), wird aber editierbar.
+B. **Nachsichtig dekodieren** (lesbare Eintraege behalten). Konsequenz: fuer die
+verlorenen Eintraege genau das stille „leer", das M3 verbietet.
+C. **Automatisch zuruecksetzen** (Handler liefert leer, oder nach n Fehlern).
+Konsequenz: bricht M3 woertlich.
+D. **Im Bestand:** App-Daten loeschen. Konsequenz: F-021 bleibt.
+
+**Entscheidung:** A.
+```kotlin
+// SettingsLedger
+/** Nur nach bestaetigter Nutzerhandlung. Ersetzt den Inhalt durch eine leere Liste, aber nur,
+ *  wenn er in derselben edit-Transaktion nicht dekodierbar ist. true = ersetzt. */
+suspend fun discardUnreadable(): Boolean
+// NoSettingsLedger: false. SettingsLedgerStore: unter lock; edit { if (decode wirft) prefs[KEY_ENTRIES] = "[]" };
+// IOException -> false.
+// Store und SystemGraph bauen den DataStore ueber eine gemeinsame Fabrik mit
+// corruptionHandler = ReplaceFileCorruptionHandler { preferencesOf(KEY_ENTRIES to CORRUPT_MARKER) }
+```
+- **M3 bleibt:** kein Lesepfad liefert je „leer" fuer kaputten Inhalt; leer wird es nur
+  durch die Handlung, und nur wenn der Inhalt in dem Moment unlesbar ist. Der Handler
+  greift nur bei `CorruptionException`, nicht bei gewoehnlichem `IOException`; der
+  Marker ist kein JSON-Array.
+- **Ausloeser:** `DeviceProfilesViewModel.discardUnreadableLedger()` nach
+  Bestaetigungsdialog; nie automatisch, nicht von aussen. Warnung (Wortlaut T-054b):
+  was die App vorher geaendert hat, kann sie danach nicht mehr zurueckstellen; ab jetzt
+  gilt der aktuelle Zustand als „vorher"; alles bleibt in den Android-Einstellungen aenderbar.
+
+**Konsequenzen:** Der Ausweg kostet genau die ohnehin verlorenen Vorwerte, nichts sonst.
+Jede kuenftige Korruption landet im selben, bedienbaren Zustand.
+
+**Umkehrbarkeit:** leicht — eine Methode und ein Handler, das Format bleibt.
+
+**Beruehrt Dateien:** `SettingsLedger.kt`, `SystemGraph.kt`, `DeviceProfilesViewModel.kt`,
+`DeviceProfilesScreen.kt` (Knopf und Dialog im Banner-Zweig `:1429`).
+
+**Test:** `SettingsLedgerStoreTest` (Robolectric): Inhalt `"{kaputt"` → `entries()` ist
+Fehler, `discardUnreadable() == true`, danach `entries() == success([])` und
+`recordIfAbsent` true; lesbarer Inhalt mit einem Eintrag → `false`, Eintrag bleibt
+(faellt, wenn die Pruefung nicht in der Transaktion steht); Datei mit ueberschriebenen
+Bytes → `entries()` ist Fehler, **nicht** leer, danach `discardUnreadable() == true`.
+`NoSettingsLedger.discardUnreadable() == false`.
+
+---
+
+### AD-043 — Bauschnitt fuer den Fixzyklus nach T-051: vier Laeufe (2026-09-28, Status: aktiv)
+
+**Kontext:** AD-039..042, Nachtrag AD-035 (F-017), dazu ohne Strukturfrage F-011, F-014,
+F-016, F-018, SR-031, DR-006, Ledger-Banner-Ersatztext, Sample-Rate-Ende. Regel wie
+AD-038: hoechstens fuenf Dateien mit eigener Logik je Lauf; Verdrahtung, Texte und
+Tests zaehlen nicht. Keine Datenbank-Anweisung (L-033 nicht beruehrt).
+
+| Lauf | Inhalt | Dateien mit Logik | Verdrahtung / nur Text | Security-Vorlauf | UI_SPEC |
+|---|---|---|---|---|---|
+| **X-1** | AD-040 Teile 1–4 | `ComparisonController.kt`, neu `ActiveComparison.kt`, `LdacTuning.kt`, `SettingsRestore.kt`, `ObservationRun.kt` | — | nein (keine neue Schreibung) | Grund `LOCKED` |
+| **X-2** | AD-041, AD-042, F-011, DR-006, Banner-Ersatztext, SR-031 | `DeviceProfileApplier.kt`, `SettingsLedger.kt`, `DeviceProfilesViewModel.kt`, `DeviceProfilesScreen.kt` | `SystemGraph.kt`, `BtDashboardApp.kt` (Banner in `FULL_SETUP`), `BluetoothSystemControls.kt` (F-011) | **ja** | F-021-Warnung, F-011, DR-006, Banner |
+| **X-3** | AD-039, F-014 | neu `MeasurementService.kt`, `MonitorViewModel.kt`, `SamplingPolicy.kt`, `MonitorEngine.kt` | `MonitorGraph.kt`, `app/src/main/AndroidManifest.xml`, `BluetoothDashboardViewModel.kt`, `MonitorScreen.kt` | **ja** | Benachrichtigung, Ankuendigungen |
+| **X-4** | Vergleichs-Oberflaeche: F-015-Saetze, F-016, F-017, F-018, Endgrund F-019, Sample-Rate-Satz, gesperrte Chips | `ComparisonSection.kt`, `ObservationRunSection.kt`, `LiveLinkPanel.kt`, `BitrateSection.kt` | — | nein | alle Vergleichstexte |
+
+- **F-016** in X-4: Paarungsfakten nur zeigen, wenn die Adresse des Snapshots
+  `armA.run.link.address` ist, sonst „nicht lesbar" — kein neues Feld am Arm.
+- **F-018** in X-4: Stufe und Codec je Arm aus dem eigenen `run.link`; „gepinnt" nur bei
+  `adaptive == false`.
+
+**Reihenfolge:** Welle 1: X-1 ∥ Security-Vorlauf (AD-039 Stop-Aktion, AD-041, AD-042 in
+einem Lauf); danach X-2. Welle 2: X-3 (braucht `ActiveComparison` aus X-1). Welle 3: X-4
+(braucht `ComparisonEnd` und die Sperre aus X-1, `MeasurementService.foreground` aus X-3,
+UI_SPEC). Dann ein QA-Retest. Dateilisten paarweise disjunkt; einzige geteilte Datei
+waere `DeviceProfilesViewModel.kt`, deshalb verdrahtet X-1 den Rueckweg-Haken als
+Default-Parameter in `SettingsRestore`.
+
+**Risiken:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Bei Display aus auf Akku luecken die Lesungen trotz Wiedergabe | Geraeteprobe AD-039: `READING_GAP` in Arm A | Teil-Wakelock fuer die Armdauer mit Timeout (AD-039 Punkt 6) |
+| Android verweigert den Diensttyp (A17, Hintergrundstart) | `foreground == false`, Log „TYPE refused" | Vergleich nur bei offenem Schirm, Schirm sagt es; Typ neu bewerten |
+| Ein kuenftiger Pin-Aufrufer umgeht die Sperre | Grep `LdacTuning.pin\|controller.apply(` findet einen neuen Weg | Sperre sitzt in `pin`; neue Wege muessen dort durch |
+
+**Umkehrbarkeit:** leicht — ein Plan.
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -2479,3 +2869,20 @@ Keine Datenbank-Anweisung in diesem Schnitt (L-033 nicht beruehrt).
 - **`@DeleteTable`-AutoMigration.** Zweites Migrationsmuster neben den
   handgeschriebenen. Wieder interessant, wenn der Bestand insgesamt auf
   AutoMigrationen umzieht. (AD-028)
+- **Die Messung ueber `EqForegroundService`.** Aendert Lebensdauer und Benachrichtigung
+  der Hoerfunktion fuer eine Messfunktion und braeuchte einen Port nach `:core-monitor`.
+  Wieder interessant, wenn der EQ-Dienst ohnehin sichtbar und verbindungsgebunden wird
+  (R-013 Option b) — dann ein Dienst mit zwei Gruenden statt zwei Diensten. (AD-039)
+- **Ein eigener Wakelock fuer die Arme.** Waehrend der Wiedergabe haelt der Player einen
+  (T-007). Wieder interessant, wenn die Geraeteprobe bei Display aus Luecken zeigt. (AD-039)
+- **Der Vergleich prozessweit statt im `MonitorViewModel`.** Der Poll, der ihn fuettert,
+  lebt dort; ein Griff (`ActiveComparison`) reicht. Wieder interessant, wenn ein
+  Vergleich das Wegwischen der Aufgabe ueberstehen soll. (AD-039)
+- **Codec-Sperre im Applier waehrend eines Vergleichs.** `:core-system` kennt den
+  Vergleich nicht; ein Profil-„Apply now" beendet ihn mit Grund. Wieder interessant, wenn
+  das im Alltag oft passiert. (AD-040)
+- **Live-Stufe im Applier lesen (`priorLive`).** Braucht eine Leseoperation am
+  `CodecPreferenceController`. Wieder interessant, wenn der Nutzer die Stufe nach dem
+  Rueckweg sofort statt beim naechsten Verbinden zurueck will. (AD-041)
+- **Den unlesbaren Ledger-Inhalt aufbewahren.** Niemand kann ihn lesen. Wieder
+  interessant, wenn ein Fehlerbericht ihn braucht. (AD-042)
