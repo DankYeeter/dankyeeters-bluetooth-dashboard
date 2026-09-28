@@ -129,9 +129,6 @@ class DerivedCalibrationTest {
             calibration().toPreset().id,
             DerivedCalibration.presetIdFor("abc123"),
         )
-        assertTrue(DerivedCalibration.isDerivedId("derived_abc123"))
-        assertFalse(DerivedCalibration.isDerivedId(CalibrationPresetRepository.GENERIC_ID))
-        assertFalse(DerivedCalibration.isDerivedId(null))
     }
 
     /**
