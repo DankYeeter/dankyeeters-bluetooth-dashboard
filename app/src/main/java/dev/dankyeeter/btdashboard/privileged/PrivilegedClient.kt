@@ -22,6 +22,7 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
 import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -781,11 +782,9 @@ private fun Bounded.Unanswered.reason(changes: Boolean): String = when (this) {
 
     Bounded.Unanswered.TIMED_OUT ->
         "the privileged helper did not answer within " +
-            "${PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS / MILLIS_PER_SECOND} s" +
+            "${PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS.milliseconds.inWholeSeconds} s" +
             if (changes) " — whether the change took effect is unknown" else ""
 }
-
-private const val MILLIS_PER_SECOND = 1_000
 
 /** Where an HD-audio answer came from, and what it actually said. */
 private sealed interface HdAudioCallResult {
