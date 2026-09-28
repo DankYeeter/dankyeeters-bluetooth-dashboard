@@ -21,9 +21,6 @@ enum class ToneEar(val nativeValue: Int) {
  *    only reads lock-free atomics.
  */
 interface ToneGenerator {
-    /** True while an output stream is open and running. */
-    val isRunning: Boolean
-
     /** Stream sample rate in Hz, or 0 when not running. */
     val sampleRate: Int
 

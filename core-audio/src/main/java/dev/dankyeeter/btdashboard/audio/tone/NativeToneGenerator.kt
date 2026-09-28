@@ -12,7 +12,6 @@ class NativeToneGenerator : ToneGenerator, Closeable {
     private var handle: Long = nativeCreate()
     private var running = false
 
-    override val isRunning: Boolean get() = running
     override val sampleRate: Int get() = if (handle == 0L) 0 else nativeSampleRate(handle)
 
     override fun start(): Boolean {
