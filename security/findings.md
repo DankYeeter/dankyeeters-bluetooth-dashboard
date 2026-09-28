@@ -294,3 +294,10 @@ nicht Teil von T-005.
 | SR-033 | JSONException-Meldungen tragen den ganzen Ledger-Inhalt ins Logcat (`SettingsLedger.kt:136-140`) | niedrig | offen (V12 in T-055b) | 2026-09-28 |
 
 - 2026-09-28 · T-055s Vorlauf AD-039/AD-041/AD-042: CONCERNS, Auflagen V1–V21 (`docs/berichte/T-055s-security-reviewer.md`).
+| SR-034 | Grep-Vorschlag AD-046 uebersieht Kotlin-Property-Zugriff (`.ssid`/`.ipAddress`), prueft nur `app/src/main/java` | niedrig | offen (W5 in Y-3) | 2026-09-28 |
+| SR-035 | Pruefung auf Standortberechtigung nur an den Quellmanifesten, Manifest-Merge ungeprueft | niedrig | offen (W6 in Y-3) | 2026-09-28 |
+| SR-036 | `openSettings(action: String)` nimmt jede Aktion an; exportierte `MainActivity` nimmt fremde Strings an | niedrig | offen (W3 in Y-2) | 2026-09-28 |
+| SR-037 | Sichtbarkeit beim Sprung zu `BLUETOOTH_SETTINGS` am Pixel nicht belegt (Hypothese) | niedrig | offen (W4, Geraeteprobe) | 2026-09-28 |
+| SR-038 | Zeilenumbruch in einem Grund faelscht Bedingungszeilen in `monitor_events.detail` | niedrig | offen (W2 in Y-1) | 2026-09-28 |
+
+- 2026-09-28 · T-058s Vorlauf AD-044/AD-045/AD-046: PASS, Bauauflagen W1–W7 in `docs/berichte/T-058s-security-reviewer.md`.
