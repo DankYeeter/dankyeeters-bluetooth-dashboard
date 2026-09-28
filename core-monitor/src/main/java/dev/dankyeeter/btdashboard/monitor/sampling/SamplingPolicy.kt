@@ -31,7 +31,7 @@ enum class SamplingMode(val intervalMs: Long) {
     BURST(5_000L),
     /** Normal playback with the screen on. */
     ACTIVE(30_000L),
-    /** Playback in the pocket, or idle with the monitor UI on screen. */
+    /** Playback with the display off under the monitor, or idle with the monitor on screen. */
     BACKGROUND(60_000L),
     /** Nothing to measure, or nobody looking. Events stay armed. */
     STOPPED(0L),
@@ -47,15 +47,23 @@ sealed interface SamplingDecision {
 
 /**
  * The battery contract from docs/archiv/PLAN.md, in one testable function: events are
- * always on (they cost nothing), polling only happens while there is something
- * to measure, and deep capture is opt-in and time-boxed.
+ * always on (they cost nothing), polling only happens while the monitor is open
+ * and there is something to measure (F-014), and deep capture is opt-in,
+ * time-boxed and the one poll that runs without the monitor (AD-039).
  */
 object SamplingPolicy {
 
     fun decide(conditions: MonitorConditions): SamplingDecision = with(conditions) {
         when {
+            // The one exception to AK-4: a capture the user started runs to its
+            // bounded end even off the screen, under the measurement service.
             nowMs < deepCaptureUntilMs ->
                 SamplingDecision.Poll(SamplingMode.DEEP, "deep capture requested")
+            // F-014: everything else belongs to the open monitor. Playback in
+            // the pocket used to be a reason on its own, and polled with nobody
+            // there to read the result.
+            !uiVisible ->
+                SamplingDecision.Stopped("no monitor screen open")
             isPlaying && nowMs < burstUntilMs ->
                 SamplingDecision.Poll(SamplingMode.BURST, "anomaly detected — sampling faster")
             isPlaying && isScreenOn ->
@@ -66,11 +74,10 @@ object SamplingPolicy {
             // cost roughly 200 full sample runs a day — each one a codec query
             // plus a `dumpsys bluetooth_manager` through the helper — for a
             // reading nothing was playing into and nobody was looking at.
-            // Someone has to actually be on the monitor or dashboard screen.
-            isScreenOn && uiVisible ->
+            isScreenOn ->
                 SamplingDecision.Poll(SamplingMode.BACKGROUND, "idle, monitor on screen")
             else ->
-                SamplingDecision.Stopped("nothing playing and no monitor screen open")
+                SamplingDecision.Stopped("nothing playing and the display is off")
         }
     }
 

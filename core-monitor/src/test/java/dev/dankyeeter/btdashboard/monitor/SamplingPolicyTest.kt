@@ -40,14 +40,14 @@ class SamplingPolicyTest {
 
     @Test
     fun `playing with the screen on polls every 30 seconds`() {
-        val poll = mode(playing = true, screenOn = true) as SamplingDecision.Poll
+        val poll = mode(playing = true, screenOn = true, uiVisible = true) as SamplingDecision.Poll
         assertEquals(SamplingMode.ACTIVE, poll.mode)
         assertEquals(30_000L, poll.intervalMs)
     }
 
     @Test
     fun `playing in the pocket backs off to 60 seconds`() {
-        val poll = mode(playing = true, screenOn = false) as SamplingDecision.Poll
+        val poll = mode(playing = true, screenOn = false, uiVisible = true) as SamplingDecision.Poll
         assertEquals(60_000L, poll.intervalMs)
     }
 
@@ -73,7 +73,7 @@ class SamplingPolicyTest {
      */
     @Test
     fun `an anomaly bursts to 5 seconds only while playing`() {
-        val burst = mode(playing = true, screenOn = true, burstUntil = 9_000) as SamplingDecision.Poll
+        val burst = mode(playing = true, screenOn = true, uiVisible = true, burstUntil = 9_000) as SamplingDecision.Poll
         assertEquals(SamplingMode.BURST, burst.mode)
 
         val idle = mode(playing = false, screenOn = true, uiVisible = true, burstUntil = 9_000)
@@ -105,12 +105,22 @@ class SamplingPolicyTest {
         assertTrue(mode(playing = false, screenOn = false, uiVisible = true) is SamplingDecision.Stopped)
     }
 
+    /** F-014 (user 2026-09-28): the sampler belongs to the open monitor; playback alone is no reason. */
     @Test
-    fun `playback polls whether or not anyone is watching`() {
-        assertEquals(
-            SamplingMode.ACTIVE,
-            (mode(playing = true, screenOn = true, uiVisible = false) as SamplingDecision.Poll).mode,
-        )
+    fun `playback without the monitor on screen stops`() {
+        assertTrue(mode(playing = true, screenOn = true, uiVisible = false) is SamplingDecision.Stopped)
+    }
+
+    @Test
+    fun `a burst without the monitor on screen stops`() {
+        assertTrue(mode(playing = true, screenOn = true, uiVisible = false, burstUntil = 9_000) is SamplingDecision.Stopped)
+    }
+
+    /** DEEP is the one exception: a capture the user started runs to its end off the screen (AD-039). */
+    @Test
+    fun `deep capture runs without the monitor and without playback`() {
+        val poll = mode(playing = false, screenOn = true, uiVisible = false, deepUntil = 5_000) as SamplingDecision.Poll
+        assertEquals(SamplingMode.DEEP, poll.mode)
     }
 }
 

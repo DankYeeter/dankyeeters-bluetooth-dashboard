@@ -154,14 +154,20 @@ class IdleWakeupTest {
      * and that is unchanged — but a codec change with nothing playing and no
      * screen open is now correctly *not* a reason to poll, so it can no longer
      * carry the assertion.
+     *
+     * Adjusted for F-014: playback is a reason to poll only under the open
+     * monitor. The monitor is therefore open from the start, with the display
+     * off, so the broadcast is the only thing that changes — the screen coming
+     * on would itself end the wait and prove nothing about the event.
      */
     @Test
     fun `a bluetooth event ends the idle wait`() = runTest {
         val (engine, _) = engine(this)
+        uiVisible.value = true
         engine.start(TestScope(StandardTestDispatcher(testScheduler)))
         advanceTimeBy(60_000L)
+        assertEquals(SamplingMode.STOPPED, engine.status.value.mode)
 
-        screenOn.value = true
         events.flow.emit(
             MonitorEvent(
                 timestampMs = 1_000L,
