@@ -316,3 +316,4 @@ nicht Teil von T-005.
 | SR-040 | 0-Byte-Ledgerdatei liest als nie geschrieben (M3-Luecke, `SettingsLedgerStoreTest.kt:203`); nur durch Dateisystemschaden/Root | niedrig | offen (Restrisiko, Entscheidung App Designer) | 2026-09-29 |
 
 - 2026-09-29 · T-059c am Stand d6d1890: PASS; V1–V21, W1–W3, W5–W7 wirksam. Ed25519: Peer-Eingabe wird ueber `Ed25519.decode` (`:107-119`) geprueft, kein Befund; KDoc `Ed25519.kt:200` falsch. W5-Ausnahme `AirPodsScanner.kt:57,60` vertretbar. README `:16`, `:155-156`, `BackupDocument.kt:14`, `core-hearing/src/main/AndroidManifest.xml:8` behaupten „no INTERNET/no network“ — falsch seit `4321cba`.
+| SR-039 | (Bestand) | niedrig | behoben (`ef15605`, `loggingEnabled` = `BuildConfig.DEBUG`, R8 faltet Release-Zweig; QA-Retest T-060r PASS) | 2026-09-29 |
