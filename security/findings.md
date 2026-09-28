@@ -290,3 +290,7 @@ nicht Teil von T-005.
 | SR-031 | Banner zu offenen Einstellungen fehlt in FULL_SETUP (`BtDashboardApp.kt:160-163`), M14 teilweise | niedrig | offen | 2026-09-28 |
 
 - 2026-09-28 · T-051c am Stand c2a29f5: PASS; AK-6 erfuellt (Helfer nicht erweitert); M1–M18 bis auf M14 wirksam. Bericht `docs/berichte/T-051c-security-reviewer.md`.
+| SR-032 | Vorwert vor der Ledger-Sperre gelesen: Codec (AD-041-Wortlaut, `DeviceProfileApplier.kt:81`) und HD (`:254`, Bestand); zweiter Rueckweg fuehrt auf den eigenen App-Wert | mittel | offen (V2, V3 in T-055b) | 2026-09-28 |
+| SR-033 | JSONException-Meldungen tragen den ganzen Ledger-Inhalt ins Logcat (`SettingsLedger.kt:136-140`) | niedrig | offen (V12 in T-055b) | 2026-09-28 |
+
+- 2026-09-28 · T-055s Vorlauf AD-039/AD-041/AD-042: CONCERNS, Auflagen V1–V21 (`docs/berichte/T-055s-security-reviewer.md`).

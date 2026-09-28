@@ -3601,7 +3601,12 @@ begrenzte Messung):
 | Tiefenaufnahme | `"BT Dashboard — watching live"` | `"{T} of 5 min. Ends on its own, or tap Stop."` | `"Stop"` — derselbe Pfad wie der bestehende Knopf `"Stop capture"` (`MonitorScreen.kt:194-197`) |
 
 Eigener Benachrichtigungskanal (nicht `eq_running_quiet`),
-`IMPORTANCE_DEFAULT` oder hoeher, mit Icon im Status-Balken.
+`IMPORTANCE_LOW` (lautlos) mit Icon im Status-Balken und
+`setOnlyAlertOnce(true)` — **Director 28.09. (T-055s B2), ersetzt
+„`IMPORTANCE_DEFAULT` oder hoeher“**; AD-039 gilt.
+**Sample-Rate-Ende (Director 28.09., T-055a Teil 4, fehlte in der Tabelle der
+Endsaetze):** `RunEnd.SAMPLE_RATE_CHANGED` → Satz `"Stopped: the sample rate
+changed, so readings before and after are not the same measurement."`
 
 **3. Ersetzter Prozesstod-Satz (`PROCESS_END`, ersetzt AK-T047-12
 zeichengenau; steht weiterhin "immer im `Result`"):**

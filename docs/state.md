@@ -85,6 +85,12 @@ Vergleich; F-020 Profileditor-Codec/Stufe kommt in den Rueckweg (AK-11); P3
 jetzt mitfixen. Naechst: architect (F-015/DEEP, F-020, F-021), dann
 Fixlaeufe developer, dann ein Retest. Recherche: R-012, R-013 fertig, C-001 laeuft.
 
+**Entwurf T-054 (22:51):** AD-039..043 (`7a3c341`), UI_SPEC T-054b mit
+AK-T054-1..11. Nutzer 22:5x: „Forget this list“ mit Warn-Dialog ja; Hinweis
+nur als Zeile; Benachrichtigung mit Symbol nur waehrend Messung ja. Nutzer ab
+22:51 abwesend. **Bau T-055** (`docs/tasks/T-055.md`): Welle 1 X-1 (a) ∥
+Security-Vorlauf (s), dann X-2 (b), X-3 (c), X-4 (d), ein Retest; danach
+P-001/P-004, P-002, ggf. P-003.
 **Backlog 22:3x:** Nutzer gab P-001, P-004, P-002 frei (GOAL AK-18..20),
 P-003 als Nachruecker nur ohne Standortberechtigung (AK-21 bedingt);
 `adaptiveBitrateIndex` streichen angenommen. Bau erst nach dem Fixzyklus
