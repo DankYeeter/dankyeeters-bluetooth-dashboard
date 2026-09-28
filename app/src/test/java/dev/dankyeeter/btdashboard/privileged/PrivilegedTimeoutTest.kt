@@ -29,6 +29,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 
 private const val ADDRESS = "AC:DE:48:00:37:8F"
 
@@ -113,6 +114,32 @@ class PrivilegedTimeoutTest {
 
     private fun CodecApplyOutcome.isBusy(): Boolean =
         this is CodecApplyOutcome.Unavailable && reason.contains("earlier request")
+}
+
+/** B7/SR-030: a helper's error text can quote the raw address; the app's log must not. */
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class)
+class PrivilegedCodecLogTest {
+
+    @After
+    fun disconnect() {
+        PrivilegedConnection.forget()
+    }
+
+    @Test
+    fun `an unreadable codec never puts the address in the log`() = runBlocking {
+        seedToken()
+        PrivilegedConnection.accept(
+            UnansweringHelper(codecStatusReply = PrivilegedProtocol.encodeError("unknown device $ADDRESS")),
+        )
+        ShadowLog.clear()
+
+        PrivilegedCodecController(context()).availableCodecs(ADDRESS)
+
+        val logged = ShadowLog.getLogsForTag("PrivilegedCodec").joinToString("\n") { it.msg }
+        assertTrue("the line ran: $logged", logged.contains("unknown device"))
+        assertFalse(logged, logged.contains(ADDRESS))
+    }
 }
 
 /** Blocks every codec and HD-audio write until [release]; answers everything else at once. */

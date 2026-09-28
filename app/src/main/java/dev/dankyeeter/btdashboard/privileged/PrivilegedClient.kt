@@ -20,6 +20,7 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
+import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -534,7 +535,8 @@ class PrivilegedCodecController internal constructor(
                     .filter { it in A2dpCodecMasks.writableFamilies }
 
             is CodecCallResult.Unavailable -> {
-                Log.i(TAG, "codec capabilities unreadable: ${result.reason}")
+                // The helper's text can quote the raw address (B7, SR-030).
+                Log.i(TAG, "codec capabilities unreadable: ${redactAddresses(result.reason)}")
                 emptyList()
             }
         }
