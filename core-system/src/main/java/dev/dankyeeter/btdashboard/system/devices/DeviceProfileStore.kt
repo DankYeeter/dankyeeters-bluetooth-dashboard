@@ -142,7 +142,8 @@ class DeviceProfileStore(context: Context) : DeviceProfileSource {
                 ).sanitized()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Dropping unreadable device profiles", e)
+            // The class only (V12): org.json quotes the text, which holds device keys and names.
+            Log.w(TAG, "Dropping unreadable device profiles (${e.javaClass.simpleName})")
             emptyList()
         }
     }

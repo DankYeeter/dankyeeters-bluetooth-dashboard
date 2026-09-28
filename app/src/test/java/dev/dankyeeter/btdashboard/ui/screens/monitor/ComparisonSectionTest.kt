@@ -262,6 +262,23 @@ class ComparisonSectionTest {
         }
     }
 
+    /** DR-008 at its sibling: an unanswered pin may have landed, so no "Could not pin" frame. */
+    @Test
+    fun `an unanswered pin is reported as unknown, not as not pinned`() {
+        show(
+            ComparisonUi(
+                ComparisonPhase.PIN_AND_CHECK,
+                Measure.USB_CABLE_OFF,
+                pinFailure = "the privileged helper did not answer within 15 s — whether the change took effect is unknown",
+            ),
+        )
+
+        composeRule.onNodeWithText(
+            "The privileged helper did not answer within 15 s — whether the change took effect is unknown. " +
+                "Nothing was measured.",
+        ).assertExists()
+    }
+
     /** AK-T047-8: the read-back words per bound condition; Wi-Fi "on" is never a contradiction (AD-035). */
     @Test
     fun `the read-back words follow the condition`() {

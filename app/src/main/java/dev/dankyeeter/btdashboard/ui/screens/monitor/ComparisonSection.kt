@@ -31,6 +31,7 @@ import dev.dankyeeter.btdashboard.monitor.optimize.NotComparable
 import dev.dankyeeter.btdashboard.monitor.optimize.Verdict
 import dev.dankyeeter.btdashboard.monitor.optimize.Verification
 import dev.dankyeeter.btdashboard.monitor.optimize.smallestDetectableBaseline
+import dev.dankyeeter.btdashboard.privileged.EFFECT_UNKNOWN
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import java.util.Locale
@@ -136,7 +137,14 @@ private fun PinAndCheck(state: ComparisonUi, topKbps: Int, onRetry: () -> Unit, 
         Text("Pinning to $topKbps kbps…")
         TextButton(onClick = onCancel) { Text("Cancel") }
     } else {
-        Text("Could not pin to $topKbps kbps: ${redactAddresses(failure)}. Nothing was measured.")
+        val reason = redactAddresses(failure)
+        // DR-008: an unanswered pin may have landed, so no "Could not pin" frame.
+        val said = if (reason.endsWith(EFFECT_UNKNOWN)) {
+            reason.replaceFirstChar(Char::uppercaseChar)
+        } else {
+            "Could not pin to $topKbps kbps: $reason"
+        }
+        Text("$said. Nothing was measured.")
         Row {
             TextButton(onClick = onRetry) { Text("Try again") }
             TextButton(onClick = onCancel) { Text("Cancel") }

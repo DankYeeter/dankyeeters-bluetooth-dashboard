@@ -108,7 +108,8 @@ class DeviceConnectionWatcher(
                 // nameless device is its address, and the helper's own sentences,
                 // which can name one. The dashboard shows it in full.
                 Log.i(TAG, "auto-apply for $logLabel: ${result::class.simpleName}")
-            }.onFailure { Log.w(TAG, "profile auto-apply failed", it) }
+                // The class only (V12): the message can quote the device.
+            }.onFailure { Log.w(TAG, "profile auto-apply failed (${it.javaClass.simpleName})") }
         }
     }
 
