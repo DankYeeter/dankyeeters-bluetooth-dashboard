@@ -2492,9 +2492,11 @@ ihn fuer genau ihre Dauer.
    Statusleiste — bewusst anders als der EQ-Kanal: eine laufende Messung ist eine
    Nachricht), `VISIBILITY_PUBLIC`, keine Adresse im Text (M18). Tippen oeffnet die App.
    **Abbruch von aussen:** Aktion „Stop" = `PendingIntent.getService(…, ACTION_STOP,
-   FLAG_IMMUTABLE)` an den nicht exportierten Dienst → `ActiveComparison.end(StoppedOutside)`
+   FLAG_IMMUTABLE)` an den nicht exportierten Dienst → `ActiveComparison.end(Cancelled)`
    und `engine.stopDeepCapture()`, dann `stopSelf`. Sie schreibt keine Einstellung und
-   ist nicht der Rueckweg (T-047b: Rueckweg nie von aussen).
+   ist nicht der Rueckweg (T-047b: Rueckweg nie von aussen). **Nachtrag 2026-09-29
+   (T-055d, `d3caa96`, Director-Entscheid Option A):** „Cancel" im Schirm nimmt denselben
+   Pfad (`ActiveComparison.end(Cancelled)`, AK-T054-2); der Endgrund hiess vorher `StoppedOutside`.
 5. **Scheitert `startForeground`** (Typ verweigert, `BLUETOOTH_CONNECT` fehlt), bleibt
    `foreground == false`: der Vergleich laeuft wie heute nur bei offenem Schirm, und der
    Schirm sagt das statt der Ankuendigung (AK-3). Sind Benachrichtigungen abgeschaltet,
@@ -2545,7 +2547,7 @@ Verdrahtung `MonitorGraph.kt` (Accessor), `app/src/main/AndroidManifest.xml`,
 - `MonitorViewModel` (Robolectric): Arm A laeuft, kein Schirm-Abonnent → Lesungen laufen
   bis `TARGET_REACHED` (faellt ohne Mess-Sammler); AK-17-Lauf mit `uiVisible = false`
   zaehlt nicht weiter.
-- Dienst (Robolectric): `ACTION_STOP` → `end(StoppedOutside)` gerufen, Dienst beendet;
+- Dienst (Robolectric): `ACTION_STOP` → `end(Cancelled)` gerufen, Dienst beendet;
   `held = null` ohne DEEP → Dienst beendet sich.
 - **Geraet** (naechste Session, „AK-4 Bildschirm-aus-Messung"): Arm A auf Akku, Display
   aus, Musik, 15 min → `TARGET_REACHED` ohne `READING_GAP`; ohne Monitor und ohne
@@ -2587,7 +2589,7 @@ Vergleichs und den Rueckweg, braucht Ausnahmen; `:core-system` kennt den Verglei
    sealed interface ComparisonEnd {
        data class LinkChanged(val arm: String, val end: RunEnd?) : ComparisonEnd  // end == null: Wechsel vor Arm B
        data object SettingsPutBack : ComparisonEnd
-       data object StoppedOutside : ComparisonEnd                                 // Stop in der Benachrichtigung (AD-039)
+       data object Cancelled : ComparisonEnd        // "Cancel" im Schirm und Stop in der Benachrichtigung, ein Pfad (AD-039; bis d3caa96 StoppedOutside)
    }
    // ComparisonUi.ended: ComparisonEnd? — steht in CHOOSE, bis eine Massnahme oder "Compare" getippt wird
    ```
