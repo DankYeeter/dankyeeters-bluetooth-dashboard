@@ -65,7 +65,7 @@ class NalRCompensationCalculatorTest {
 
         val r = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
         expected.forEachIndexed { i, e ->
-            assertEquals("band ${EqBands.CENTER_FREQUENCIES_HZ[i]}", e, r.left.bandGainsDb[i], eps)
+            assertEquals("band ${EqBandLayout.DEFAULT.centersHz[i]}", e, r.left.bandGainsDb[i], eps)
         }
         assertEquals(-9.01f, r.eq.preGainDb, 1e-3f)
     }
@@ -296,8 +296,8 @@ class NalRCompensationCalculatorTest {
     @Test
     fun `result always has the expected shape and stays inside the EQ range`() {
         val r = calculator.compute(flatAudiogram(70.0), "noble_encore", 1f, 1f)
-        assertEquals(EqBands.COUNT, r.leftGainsDb.size)
-        assertEquals(EqBands.COUNT, r.rightGainsDb.size)
+        assertEquals(EqBandLayout.DEFAULT.bandCount, r.leftGainsDb.size)
+        assertEquals(EqBandLayout.DEFAULT.bandCount, r.rightGainsDb.size)
         (r.leftGainsDb + r.rightGainsDb).forEach {
             assertTrue(it in EqBands.MIN_GAIN_DB..EqBands.MAX_GAIN_DB)
         }
