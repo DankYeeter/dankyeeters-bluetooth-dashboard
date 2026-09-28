@@ -13,7 +13,9 @@ Two halves, one app:
   retransmissions and takeover events over time, so a dropout you heard can be
   matched against what the link was doing at that second.
 
-Kotlin · Jetpack Compose · Material 3 · Oboe/NDK · Shizuku · no network.
+Kotlin · Jetpack Compose · Material 3 · Oboe/NDK · own privileged helper (no
+Shizuku, no root). No cloud, no analytics — see [Privacy](#privacy) for what
+the one network-related permission is actually for.
 
 > ### Disclaimer
 >
@@ -67,8 +69,21 @@ Kotlin · Jetpack Compose · Material 3 · Oboe/NDK · Shizuku · no network.
   model identification (which selects the matching calibration preset).
 - Per-device profiles: when a known headphone connects, its compensation
   profile, media volume and absolute-volume preference are applied
-  automatically. Addresses are stored hashed, never as raw MACs.
+  automatically. Addresses are stored hashed, never as raw MACs. Every
+  setting the app changes this way can be put back with one "Back to
+  before" tap; if the record of what changed cannot be read, a "Forget this
+  list" option gives up on restoring it rather than staying stuck.
 - Absolute-volume toggle, when `WRITE_SECURE_SETTINGS` has been granted.
+- Guided A/B comparison of two link conditions (e.g. two LDAC quality
+  levels), with the same measurement window and duration on both sides.
+  Keeps running if the screen turns off, through a notification with its own
+  Stop button.
+- "Measures" panel: for each of the six evidence-backed tuning measures
+  (moving away from other 2.4 GHz Wi-Fi, removing a competing Bluetooth
+  device, …), the app reads the phone's current state and reports it in the
+  same wording the comparison uses — never as a pass/fail score — with a
+  jump-to-settings button where Android has a page for it (Wi-Fi or
+  Bluetooth settings).
 
 **Everything else**
 
@@ -101,9 +116,12 @@ There is no Play Store release and there will not be one.
 2. Open it on the phone and allow installation from this source when Android
    asks.
 3. Launch the app. The **setup wizard** starts automatically and walks you
-   through everything else: Bluetooth permission, microphone (for the ambient
-   check), notifications, notification access, Shizuku, and the optional ADB
-   command. Every step re-checks itself live, and every step can be skipped.
+   through four steps: Bluetooth permission, microphone (for the ambient
+   check), notifications, and the app's own helper (see
+   [App helper](#app-helper) below). Every step re-checks itself live. Only
+   the microphone step can be skipped — Bluetooth and notifications cannot,
+   because the app cannot work without the first and cannot even finish this
+   wizard without the second.
 4. Set the EQ inside your headphone's own app (Focal & Naim, Noble FoKus, …) to
    **Flat**. That EQ runs in the headphone's DSP *after* Bluetooth
    transmission, so it stacks with ours instead of replacing it. This app never
@@ -111,50 +129,91 @@ There is no Play Store release and there will not be one.
 
 Minimum Android 12 (API 31).
 
-You can re-open the wizard any time from the dashboard's system-access card.
+You can re-open the wizard any time from Settings → **Setup** panel
+("Review setup" / "Finish setup"). The separate **System access** panel next
+to it reopens the helper screen described below without going through the
+whole wizard.
 
-## Shizuku
+## App helper
 
-Android does not let an ordinary app equalize other apps' audio. Reaching the
-system output mix needs an elevated identity, and on an unrooted phone
-[Shizuku](https://github.com/RikkaApps/Shizuku) is the way to get one: it runs
-a service under the ADB shell user after a one-time wireless-debugging pairing,
-and hands that identity to apps you authorize.
+Android does not let an ordinary app equalize other apps' audio or read the
+Bluetooth stack's negotiated codec. Both need shell-level access (the same
+level `adb shell` has, not root), and this app ships its own helper for that
+instead of using a separate tool such as Shizuku — that used to be documented
+here and was removed.
 
-1. Install Shizuku from its
-   [GitHub releases](https://github.com/RikkaApps/Shizuku/releases).
-2. Settings → System → Developer options → **Wireless debugging: on**.
-3. In Shizuku: "Pair device with pairing code", enter the code wireless
-   debugging shows, then tap **Start**.
-4. Authorize this app when it asks.
+The helper is started from **the phone itself**, through Android's own
+wireless-debugging pairing, at the wizard's last step ("App helper") or later
+from Settings → **System access**. _The steps below are transcribed
+from the app's own source and its on-screen text, not executed on a device in
+this session — mark them ungeprüft if you hit a difference:_
 
-**Without Shizuku the app still runs**, in session mode: the EQ attaches only
-to players that broadcast `ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION`. Tidal
-does not do that reliably, so in practice the system-wide EQ, the privileged
-link-quality source and the foreign-EQ scan are the features you lose. The UI
-says which ones, rather than pretending.
+1. Tap **Activate**. The first time, it asks you to turn on developer
+   options and wireless debugging:
+   1. Settings → About phone → tap **Build number** seven times.
+   2. Settings → System → Developer options → **Wireless debugging: on**.
+   3. Open **"Pair device with pairing code"** and leave that dialog open.
+   4. Type the six digits shown there into the app.
+2. The app pairs with the phone's own debugging service and starts the
+   helper. You know it worked when the screen shows **"Helper running."** and
+   the wizard step's status changes to **"Done"**.
 
-**After a reboot Shizuku stops**, because Android turns wireless debugging off
-at boot. The app restores what it can and otherwise posts an "EQ inactive —
-restart Shizuku" notification instead of leaving you to wonder why music sounds
-different.
+This is needed once per phone. Android turns wireless debugging off at every
+reboot, so **the helper stops at every reboot**; after that, restarting it is
+a single tap on "Activate" — from a notification the app posts after a
+reboot, or from the System access screen — with no code to type again, because
+the pairing itself is remembered.
+
+**Fallback, only if pairing will not work:** the System access screen also
+shows a ready-to-run command, with a copy button, that does the same thing
+from a computer with `adb` installed:
+
+```
+adb shell '<command with a one-time token, shown in the app>'
+```
+
+**Without a running helper the app still works**, with less: the EQ attaches
+only to players that broadcast `ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION`
+(Tidal does not do that reliably), the codec reads as unknown, and the
+foreign-EQ check reports "cannot check" instead of an all-clear. The
+System access screen names exactly which of these are affected, rather than
+hiding the difference. _Not verified against a device in this session; based
+on the setup-wizard and system-access source._
 
 ### `WRITE_SECURE_SETTINGS` (optional)
 
-Only the absolute-volume toggle needs it. No app can grant it to itself; run
-this once from a computer:
+Only the absolute-volume toggle needs it. The helper grants it automatically
+the moment it connects, and — unlike the helper — the grant survives reboots.
+If the helper cannot start on your phone, you can grant it once from a
+computer instead:
 
 ```
 adb shell pm grant dev.dankyeeter.btdashboard android.permission.WRITE_SECURE_SETTINGS
 ```
 
-The setup wizard shows the same command with a copy button.
+The System access screen shows the same command with a copy button.
 
 ## Privacy
 
-- **No `INTERNET` permission is declared anywhere in this project.** The app
-  cannot phone home even if it wanted to: no analytics, no crash reporting, no
-  cloud sync, no update check.
+- **The app does declare `INTERNET`, but only to reach itself.** Starting the
+  helper without a computer (see [App helper](#app-helper)) needs a socket,
+  and Android gates socket creation — loopback included — behind this
+  permission. The connection this app opens always goes to `127.0.0.1`, never
+  to an address announced over the network, so nothing can leave the device
+  through it even if something else on the network claims to be an adb
+  daemon. There is no HTTP client, no analytics, no crash reporter, no cloud
+  sync and no update check anywhere in this project — that claim now rests on
+  the code doing none of those things, rather than on the permission being
+  structurally absent.
+- **`ACCESS_NETWORK_STATE`** is declared for one thing: reading which Wi-Fi
+  frequency band (2.4 or 5 GHz) the phone is currently on, for the "Measures"
+  panel and the guided comparison. The app reads the band and nothing else —
+  no SSID, no BSSID, no location; Android blanks those fields for an app
+  without location access, and this app requests none.
+- A link-quality-loss entry in the monitor's local log records the tuning
+  measures' state (Wi-Fi band, a second connected Bluetooth device, …) at the
+  moment the loss episode was first read, each marked "read" or "could not be
+  read: reason". No entry claims a cause.
 - Hearing data, profiles and link history stay in app-private storage. Export
   is manual, through the system file picker, to a location you choose.
 - Bluetooth addresses are hashed before being persisted, so a permanent
@@ -172,7 +231,7 @@ framework would cost more than it saves.
 | `:app` | Compose UI: dashboard, EQ, hearing test, monitor, setup wizard, device profiles; Tidal notification listener; backup import/export |
 | `:core-audio` | `DynamicsProcessing` EQ wrapper and the Oboe/NDK tone generator (C++) |
 | `:core-hearing` | Hughson-Westlake protocol, audiogram model, NAL-R compensation math, calibration presets, profile storage |
-| `:core-system` | Shizuku integration, EQ attachment strategies, per-device profiles, absolute volume, setup state, DataStore, boot receiver |
+| `:core-system` | Privileged-helper client, EQ attachment strategies, per-device profiles, absolute volume, setup state, DataStore, boot receiver |
 | `:core-monitor` | Codec status, link-quality sampling, BQR/dumpsys sources, foreign-EQ detection, Room history |
 
 ### How the EQ actually works
@@ -183,8 +242,8 @@ custom DSP could equalize Tidal. The system EQ is therefore Android's
 channel plus its built-in limiter, attached inside the system mixer. Two
 strategies sit behind one interface:
 
-1. **Global (Shizuku).** Attach to session 0, the output mix — the only path
-   that reaches every app.
+1. **Global (app helper).** Attach to session 0, the output mix — the only
+   path that reaches every app.
 2. **Session mode (no privileges).** Attach to sessions apps announce by
    broadcast. Works only for well-behaved players.
 
@@ -196,8 +255,8 @@ sine generation with strict channel isolation for the hearing test.
 A source hierarchy, degrading transparently and always showing which level is
 live:
 
-1. `BluetoothQualityReport` (Android 13+, needs `BLUETOOTH_PRIVILEGED` via
-   Shizuku's shell identity) — packet loss, retransmissions, RSSI, glitch
+1. `BluetoothQualityReport` (Android 13+, needs `BLUETOOTH_PRIVILEGED` via the
+   app helper's shell identity) — packet loss, retransmissions, RSSI, glitch
    reports. Whether the shell user may register these callbacks has to be
    verified per Android version.
 2. The public codec-status API plus system broadcasts.
