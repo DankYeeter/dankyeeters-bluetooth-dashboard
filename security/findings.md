@@ -301,3 +301,18 @@ nicht Teil von T-005.
 | SR-038 | Zeilenumbruch in einem Grund faelscht Bedingungszeilen in `monitor_events.detail` | niedrig | offen (W2 in Y-1) | 2026-09-28 |
 
 - 2026-09-28 · T-058s Vorlauf AD-044/AD-045/AD-046: PASS, Bauauflagen W1–W7 in `docs/berichte/T-058s-security-reviewer.md`.
+
+| ID | Titel | Prioritaet | Status | Letzte Pruefung |
+|---|---|---|---|---|
+| SR-031 | (Bestand) | niedrig | behoben (Banner in FULL_SETUP und ACTIVATION_ONLY, `BtDashboardApp.kt:164,181`) | 2026-09-29 |
+| SR-032 | (Bestand) | mittel | behoben (V2, V3; `DeviceProfileApplier.kt:262,304,326`) | 2026-09-29 |
+| SR-033 | (Bestand) | niedrig | behoben (V12) | 2026-09-29 |
+| SR-034 | (Bestand) | niedrig | behoben (W5) | 2026-09-29 |
+| SR-035 | (Bestand) | niedrig | behoben (W6) | 2026-09-29 |
+| SR-036 | (Bestand) | niedrig | behoben (W3) | 2026-09-29 |
+| SR-037 | (Bestand) | niedrig | offen (W4, Geraet) | 2026-09-29 |
+| SR-038 | (Bestand) | niedrig | behoben (W2) | 2026-09-29 |
+| SR-039 | `PairingTrace` loggt beide SPAKE2-Nachrichten und 48 Bit Schluessel-Fingerabdruck in jedem Build (`PairingTrace.kt:35-49`); kein Angriffspfad; Behebung: hinter `BuildConfig.DEBUG` oder entfernen | niedrig | offen | 2026-09-29 |
+| SR-040 | 0-Byte-Ledgerdatei liest als nie geschrieben (M3-Luecke, `SettingsLedgerStoreTest.kt:203`); nur durch Dateisystemschaden/Root | niedrig | offen (Restrisiko, Entscheidung App Designer) | 2026-09-29 |
+
+- 2026-09-29 · T-059c am Stand d6d1890: PASS; V1–V21, W1–W3, W5–W7 wirksam. Ed25519: Peer-Eingabe wird ueber `Ed25519.decode` (`:107-119`) geprueft, kein Befund; KDoc `Ed25519.kt:200` falsch. W5-Ausnahme `AirPodsScanner.kt:57,60` vertretbar. README `:16`, `:155-156`, `BackupDocument.kt:14`, `core-hearing/src/main/AndroidManifest.xml:8` behaupten „no INTERNET/no network“ — falsch seit `4321cba`.

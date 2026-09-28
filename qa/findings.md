@@ -331,3 +331,12 @@ kein Grund zum Entfernen, sondern einer zum Testen.
 | F-019 | Arm startet ungepinnt neu (bekannte Luecke aus T-047i): Rueckweg/LDAC-Chip in Arm A → beide Arme ABR, Urteil „vergleichbar“; Rueckweg in Arm B → 15 min verloren; Codec weg von LDAC → Neustart je Lesung (per Probe nachgestellt) | P2 | qa-engineer (T-051b) | director → Nutzer, developer | offen | 2026-09-28 | T-051b |
 | F-020 | Codec/LDAC-Stufe aus dem Profileditor: kein Rueckweg, Banner verborgen, Autoapply bleibt an (per Probe) — AK-11? | P2 | qa-engineer (T-051b) | director → Nutzer | offen | 2026-09-28 | T-051b |
 | F-021 | Einmal unlesbares Ledger sperrt dauerhaft alle Schreibungen; Ausweg nur App-Daten loeschen | P3 | qa-engineer (T-051b) | director → Nutzer | offen | 2026-09-28 | T-051b |
+| F-014 | Statuswechsel: behoben, testbelegt (`SamplingPolicy.kt:62-64`, `SamplingPolicyTest`) | P2 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-015 | Statuswechsel: behoben (Poll haelt waehrend ARM_A/ARM_B, MeasurementService); Geraeteprobe AD-039 offen | P2 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-016 | Statuswechsel: behoben, testbelegt (`ComparisonSection.kt:275`) | P3 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-017 | Statuswechsel: behoben, testbelegt (`ComparisonSection.kt:229`) | P3 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-018 | Statuswechsel: behoben, testbelegt (`armLinkLine` je Arm) | P3 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-019 | Statuswechsel: behoben, testbelegt (Sperre, Ende statt Neustart, Rueckweg beendet vor Schreiben) | P2 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-020 | Statuswechsel: behoben (AD-041), testbelegt | P2 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-021 | Statuswechsel: behoben (AD-042), testbelegt | P3 | qa-engineer (T-059a) | – | behoben | 2026-09-29 | T-059a |
+| F-022 | QA: Gate „ohne offenen Monitor“ (AK-18/19/20) ungetestet, `MonitorViewModel(` nirgends instanziiert — **Director 00:45: verworfen**, Primaerquelle `MonitorConditionBookTest.kt:49-106` instanziiert das ViewModel per Reflection (Z. 60) und prueft Gate, Luecke und Rueckkehr in vier Tests; Rot-vorher per Mutation belegt (T-058a). Grep auf `MonitorViewModel(` sah die Reflection nicht | – | qa-engineer (T-059a) | – | verworfen | 2026-09-29 | T-059a |

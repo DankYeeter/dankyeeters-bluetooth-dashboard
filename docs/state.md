@@ -125,6 +125,11 @@ T-058a gemergt. **Suite 2709/0** (Director 00:06, `6be9c2f`). Fixzyklus T-055
 damit gebaut; eigene Texte der developer (T-055c/d, T-058a Annahmen 1–4) →
 ui-ux-Review. Laufen: T-058a-Fortsetzung (Move + Dispatcher), architect
 Nachtrag `StoppedOutside`→`Cancelled`.
+**00:27 — alles gebaut:** T-058b (`964cccf`, P-002) und T-058c (`ea08aed`,
+P-003, `ACCESS_NETWORK_STATE`) gemergt. **Suite 2727/0** (Director 00:27,
+`d6d1890`). Pruefphase **T-059** laeuft (QA, ui-ux Review, Security) auf
+eingefrorenem Stand `d6d1890`. README „No INTERNET permission“ falsch → nach
+der Pruefung technical-writer.
 **T-057b Spec fertig (23:16):** `UI_SPEC.md:3886-4210`, AK-T057-1..10.
 Zwei Designfragen im autonomen Lauf nach Empfehlung entschieden (Nutzer
 nachtraeglich vorlegen): Sprungknoepfe an beiden Orten; P-001-Panel nicht
