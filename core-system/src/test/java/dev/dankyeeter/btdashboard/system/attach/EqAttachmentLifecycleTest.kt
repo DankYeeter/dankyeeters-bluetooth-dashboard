@@ -1,9 +1,7 @@
 package dev.dankyeeter.btdashboard.system.attach
 
-import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
-import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -390,7 +388,7 @@ class EqAttachmentLifecycleTest {
      * `DynamicsProcessing` is a binder round-trip into audioserver and takes
      * milliseconds on the device.
      */
-    private class RecordingFactory : SystemEqualizerFactory {
+    private class RecordingFactory : (Int) -> SystemEqualizer? {
         val created = mutableListOf<FakeEqualizer>()
 
         /** When true, stands in for AudioFlinger refusing the effect. */
@@ -400,7 +398,7 @@ class EqAttachmentLifecycleTest {
         @Volatile
         var onCreate: ((Int) -> Unit)? = null
 
-        override fun create(sessionId: Int): SystemEqualizer? {
+        override fun invoke(sessionId: Int): SystemEqualizer? {
             onCreate?.invoke(sessionId)
             if (refuse) return null
             return FakeEqualizer(sessionId).also { synchronized(created) { created += it } }
@@ -415,9 +413,6 @@ class EqAttachmentLifecycleTest {
         override val isAlive: Boolean get() = alive && !closed
 
         override fun apply(settings: EqSettings) = Unit
-        override fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) = Unit
-        override fun setPreGain(db: Float) = Unit
-        override fun setEnabled(enabled: Boolean) = Unit
 
         override fun close() {
             closed = true
