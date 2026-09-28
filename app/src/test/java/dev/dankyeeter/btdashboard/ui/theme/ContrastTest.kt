@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,14 +21,17 @@ class ContrastTest {
 
     private val scheme = EdgyColorScheme
 
+    /** WCAG minimum for body text. Below this, small text is not readable. */
+    private val bodyMin = 4.5
+
     /** WCAG minimum for large text and for the non-text parts of a control. */
     private val largeMin = 3.0
 
     private fun assertBody(name: String, foreground: Color, background: Color) {
         val ratio = Contrast.ratio(foreground, background)
         assertTrue(
-            "$name is %.2f:1, needs %.1f:1 for body text".format(ratio, Contrast.BODY_MIN),
-            ratio >= Contrast.BODY_MIN,
+            "$name is %.2f:1, needs %.1f:1 for body text".format(ratio, bodyMin),
+            ratio >= bodyMin,
         )
     }
 
@@ -99,7 +103,7 @@ class ContrastTest {
         // of it cannot also stand out against a black surface. So the lane's
         // boundaries and its label carry the information, and those are what is
         // pinned here.
-        val fill = Contrast.composite(scheme.primary.copy(alpha = 0.18f), scheme.surface)
+        val fill = scheme.primary.copy(alpha = 0.18f).compositeOver(scheme.surface)
         assertNonText("codec change divider on surface", scheme.primary, scheme.surface)
         assertBody("codec name on the lane fill", scheme.onSurface, fill)
     }
@@ -148,7 +152,7 @@ class ContrastTest {
         )
         tones.forEach { (tone, accent) ->
             panelStops.forEach { (name, background) ->
-                val fill = Contrast.composite(accent.copy(alpha = 0.14f), background)
+                val fill = accent.copy(alpha = 0.14f).compositeOver(background)
                 assertBody("$tone pill label over $name", accent, fill)
             }
         }
@@ -173,7 +177,7 @@ class ContrastTest {
     @Test
     fun `panel header eyebrow is readable, not just decorative`() {
         panelStops.forEach { (name, background) ->
-            val eyebrow = Contrast.composite(Gold.Base.copy(alpha = 0.85f), background)
+            val eyebrow = Gold.Base.copy(alpha = 0.85f).compositeOver(background)
             assertBody("panel header eyebrow on $name", eyebrow, background)
         }
     }
@@ -219,17 +223,5 @@ class ContrastTest {
             Contrast.ratio(Color.Black, Color.White),
             1e-9,
         )
-    }
-
-    @Test
-    fun `compositing an opaque colour changes nothing`() {
-        assertEquals(Color.Red, Contrast.composite(Color.Red, Color.Blue))
-    }
-
-    @Test
-    fun `a fully transparent foreground becomes the background`() {
-        val result = Contrast.composite(Color.Red.copy(alpha = 0f), Color.Blue)
-        assertEquals(Color.Blue.red, result.red, 1e-6f)
-        assertEquals(Color.Blue.blue, result.blue, 1e-6f)
     }
 }
