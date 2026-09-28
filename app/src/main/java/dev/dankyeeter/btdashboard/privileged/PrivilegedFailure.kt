@@ -3,6 +3,8 @@ package dev.dankyeeter.btdashboard.privileged
 import android.os.DeadObjectException
 import android.os.TransactionTooLargeException
 import android.util.Log
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +12,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -235,7 +238,15 @@ internal class PrivilegedCallGuard(
         // cheapest call on the interface settles it with certainty instead of a
         // heuristic.
         val run = consecutiveFailures
-        val alive = runCatching { ping() }.isSuccess
+        // Waited for at most callTimeoutMs, off the caller's thread: the caller
+        // may hold the settings ledger's lock, and a wedged helper would keep it
+        // there. A ping that does not answer counts as a helper that is gone.
+        // Outside bounded()'s slot, because `version()` writes nothing that
+        // could land late.
+        val alive = runCatching {
+            CompletableFuture.runAsync(ping, Dispatchers.IO.asExecutor())
+                .get(callTimeoutMs, TimeUnit.MILLISECONDS)
+        }.isSuccess
         consecutiveFailures = 0
         if (alive) {
             Log.i(TAG, "$run failures in a row, but the helper answered a ping")

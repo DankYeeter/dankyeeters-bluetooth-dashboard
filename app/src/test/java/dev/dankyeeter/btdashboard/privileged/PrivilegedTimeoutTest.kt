@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.privileged
 
 import android.app.Application
 import android.content.Context
+import android.os.TransactionTooLargeException
 import androidx.test.core.app.ApplicationProvider
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
@@ -112,6 +113,25 @@ class PrivilegedTimeoutTest {
         assertFalse(ledgerLock.isLocked)
     }
 
+    @Test
+    fun `a liveness ping the helper never answers frees the ledger lock and forgets the helper`() = runBlocking {
+        val wedged = UnansweringHelper(writeError = TransactionTooLargeException(), wedgedPing = true)
+        PrivilegedConnection.accept(wedged)
+        try {
+            val codec = PrivilegedCodecController(PrivilegedBootstrap(context()), guard)
+            repeat(PrivilegedCallGuard.FAILURES_BEFORE_PING - 1) {
+                assertTrue(codec.apply(ADDRESS, LDAC_990) is CodecApplyOutcome.Unavailable)
+            }
+
+            val pinged = withTimeoutOrNull(TEST_BOUND_MS) { underLedgerLock { codec.apply(ADDRESS, LDAC_990) }.await() }
+            assertNotNull("the ledger lock was still held after $TEST_BOUND_MS ms", pinged)
+            assertFalse(ledgerLock.isLocked)
+            assertFalse("a helper that does not answer the ping counts as gone", PrivilegedConnection.isConnected)
+        } finally {
+            wedged.release.countDown()
+        }
+    }
+
     private fun CodecApplyOutcome.isBusy(): Boolean =
         this is CodecApplyOutcome.Unavailable && reason.contains("earlier request")
 }
@@ -142,9 +162,16 @@ class PrivilegedCodecLogTest {
     }
 }
 
-/** Blocks every codec and HD-audio write until [release]; answers everything else at once. */
+/**
+ * Blocks every codec and HD-audio write until [release]; answers everything else at once.
+ *
+ * @param writeError thrown by every write instead of blocking.
+ * @param wedgedPing blocks `version()` until [release] as well.
+ */
 private class UnansweringHelper(
     private val codecStatusReply: String = NOT_UNDER_TEST,
+    private val writeError: Exception? = null,
+    private val wedgedPing: Boolean = false,
 ) : IPrivilegedService.Stub() {
 
     val release = CountDownLatch(1)
@@ -152,11 +179,15 @@ private class UnansweringHelper(
 
     private fun hang(): String {
         writes.incrementAndGet()
+        writeError?.let { throw it }
         release.await()
         return NOT_UNDER_TEST
     }
 
-    override fun version(): Int = PrivilegedServer.VERSION
+    override fun version(): Int {
+        if (wedgedPing) release.await()
+        return PrivilegedServer.VERSION
+    }
 
     override fun exec(token: String?, command: MutableList<String>?): String = NOT_UNDER_TEST
 
