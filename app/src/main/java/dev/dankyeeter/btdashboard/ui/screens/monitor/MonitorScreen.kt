@@ -58,6 +58,7 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
     val observationRun by viewModel.observationRun.ui.collectAsStateWithLifecycle()
     val comparison by viewModel.comparison.ui.collectAsStateWithLifecycle()
     val measurementKeptOffScreen by MeasurementService.foreground.collectAsStateWithLifecycle()
+    val conditionBook by viewModel.conditionBook.collectAsStateWithLifecycle()
 
     // The sampler only polls on a lit screen while somebody is actually
     // looking at link data. The ViewModel covers screen-open/close; this
@@ -130,6 +131,9 @@ fun MonitorScreen(viewModel: MonitorViewModel = viewModel()) {
                 )
             },
         )
+
+        // Next after the link: what can be checked on this phone right now (P-001).
+        MeasureStatusPanel(conditionBook)
 
         DataSourcePanel(
             mode = status.mode,

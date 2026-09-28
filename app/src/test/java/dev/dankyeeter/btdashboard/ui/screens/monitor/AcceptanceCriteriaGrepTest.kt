@@ -368,6 +368,45 @@ class AcceptanceCriteriaGrepTest {
         )
     }
 
+    /**
+     * AK-T057-3 — the Measures panel carries no T-039 word, no count, no icon and
+     * nothing that follows a `Verification` value.
+     */
+    @Test
+    fun `the Measures panel judges nothing as a whole`() {
+        val panel = listOf(SourceTree.monitorFile("MeasureStatusSection.kt"))
+        assertNone("AK-T057-3", panel, JUDGEMENT_WORDS, "a reading, not a score (R-E, T-039 word lists)")
+        assertNone("AK-T057-3", panel, COUNTER, "no count across the six")
+        assertNone("AK-T057-3", panel, Regex("""\bIcons?\b|painterResource|Verification"""), "no icon, no colour per state")
+    }
+
+    /** AK-T057-5 — the episode lines and their heading name no cause, comments included. */
+    @Test
+    fun `the episode lines claim no cause`() {
+        assertNone(
+            criterion = "AK-T057-5",
+            files = listOf(SourceTree.monitorFile("ConditionStatus.kt")),
+            pattern = CAUSE_WORDS,
+            why = "the log shows what the surroundings were, never why the loss happened (AK-19)",
+        )
+    }
+
+    /** W1 (T-058s) — the book is kept in the event row's text and nowhere else, never in a log line. */
+    @Test
+    fun `the condition book goes nowhere but the event row`() {
+        val users = hits(SourceTree.appAndLinkSources, Regex("""conditionLines\(""")).map { it.file.name }.toSet()
+        assertTrue(
+            "W1: conditionLines( outside ConditionStatus.kt, MonitorViewModel.kt, EventLog.kt: $users",
+            (users - setOf("ConditionStatus.kt", "MonitorViewModel.kt", "EventLog.kt")).isEmpty(),
+        )
+        assertNone(
+            criterion = "W1",
+            files = SourceTree.appAndLinkSources,
+            pattern = Regex("""Log\.\w\(.*(book|conditionBook|conditionLines)"""),
+            why = "the book may not reach logcat",
+        )
+    }
+
     // ---- the scan ---------------------------------------------------------------
 
     /** One matching line, printed the way a grep would print it. */
@@ -468,6 +507,8 @@ private object SourceTree {
     val livePanel: File by lazy {
         file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/LiveLinkPanel.kt")
     }
+
+    fun monitorFile(name: String): File = file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/$name")
 
     fun relative(file: File): String = file.relativeTo(root).path.replace('\\', '/')
 
