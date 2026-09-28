@@ -91,6 +91,26 @@ nur als Zeile; Benachrichtigung mit Symbol nur waehrend Messung ja. Nutzer ab
 22:51 abwesend. **Bau T-055** (`docs/tasks/T-055.md`): Welle 1 X-1 (a) ∥
 Security-Vorlauf (s), dann X-2 (b), X-3 (c), X-4 (d), ein Retest; danach
 P-001/P-004, P-002, ggf. P-003.
+**Stand 23:1x:** T-055a erledigt bis Teil 4 (`e9b9546`, Suite 2618/0
+developer 23:02; Teil 4 Sample-Rate an X-4). T-055s CONCERNS (SR-032, SR-033,
+V1–V21). T-056 Audit-Bereinigung fertig auf `t056-bereinigung` (`6587363`,
+−268 Zeilen netto, Suite gruen 23:10 laut developer) — **Merge nach T-055b**.
+Laufen: T-055b (Branch), T-055c (Worktree `t055c-measurement`), T-057a/b
+(Entwurf Features). **Fuer den Security-Pruefdurchgang am Ende:**
+`PairingTrace` loggt SPAKE2-Nachrichten und Schluessel-Fingerabdruck in jedem
+Build; `Ed25519.isOnCurve` ohne main-Aufrufer, KDoc sagt „Used to reject peer
+input“ (Audit Nr. 12).
+**T-055b erledigt** (`4ac22ab`: AD-041/042, SR-031/032/033, F-011, DR-006,
+Banner). T-056 gemergt. **Suite 2649/0** (Director 23:21, `4d5f5e6`, `clean
+test --no-build-cache`). Offen daraus: Satz fuer „Verwerfen ohne Wirkung“
+selbst gesetzt vom developer („Nothing was forgotten — the list could not be
+changed just now.“) → ui-ux im Review; 0-Byte-Ledger liest als leer (M3-Luecke,
+theoretisch) → Security am Ende. K-2 „root“: `SystemAccessScreen.kt:128`,
+`SetupWizardScreen.kt:408` sagen korrekt „not root“ — kein Befund.
+**T-057b Spec fertig (23:16):** `UI_SPEC.md:3886-4210`, AK-T057-1..10.
+Zwei Designfragen im autonomen Lauf nach Empfehlung entschieden (Nutzer
+nachtraeglich vorlegen): Sprungknoepfe an beiden Orten; P-001-Panel nicht
+einklappbar.
 **Backlog 22:3x:** Nutzer gab P-001, P-004, P-002 frei (GOAL AK-18..20),
 P-003 als Nachruecker nur ohne Standortberechtigung (AK-21 bedingt);
 `adaptiveBitrateIndex` streichen angenommen. Bau erst nach dem Fixzyklus

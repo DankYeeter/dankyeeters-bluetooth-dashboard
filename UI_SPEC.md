@@ -3885,3 +3885,326 @@ Kein neues Token, keine neue Farbe, keine neue Dialogform.
    den offenen Schirm; dieser hier **braucht ihn nicht mehr**, und genau das
    ist die Nachricht. **Empfehlung: keinen Dialog, nur die In-App-Zeile plus
    Benachrichtigung.**
+
+## Saeule 3 — Pruefstand, Umgebung, Sprung, Band (T-057b) — 2026-09-28
+
+Wortlaute und Akzeptanzkriterien zu P-001/P-004/P-002/P-003 (`docs/tasks/T-057.md`,
+`GOAL.md` AK-18..21, `docs/product/BACKLOG.md`). **Unverifiziert (Spezifikation
+ohne Geraet und ohne laufende App), Code gelesen und Wortlaute daraus
+wiederverwendet, nicht ausgefuehrt.** Gelesen: `Measures.kt`,
+`ComparisonSection.kt`, `EnvironmentConditions.kt`, `MonitorViewModel.kt`,
+`MonitorScreen.kt`, `EventLog.kt`, `LinkEvent.kt`, `ActivateScreen.kt`,
+`BluetoothSection.kt`, `GOAL.md`, `docs/product/BACKLOG.md`. `ARCHITECTURE.md`
+(T-057a) lief parallel und war beim Schreiben dieses Abschnitts nicht
+gegengelesen — Mechanik (Lesetakt, Episoden-Zuordnung, Intent-Ziele je Eintrag,
+P-003-Baubarkeit) legt a fest; weicht die gebaute Mechanik von einer hier
+getroffenen Annahme ab, passt sich der **Wortlaut** an, nicht die verlangte
+Bedeutung. Alles, was hier nicht geaendert wird, gilt unveraendert weiter
+(R-A..R-G, Woerterverbote aus T-039, `{T}`/`{t}`/`{g}`-Formatierung).
+
+### Bestand statt Neuerfindung
+
+| Neu gebraucht fuer | Wiederverwendete Komponente/Wortlaut | Beleg |
+|---|---|---|
+| Pruefstand je Massnahme (P-001) | `readBackSentence(measure, book)` zeichengenau, `measure.displayName` | `ComparisonSection.kt:289-306,320-328` |
+| Panelrahmen | `Panel`, `PanelHeader`, `ExplainedHeader` | `Panel.kt:40-121`, `MonitorScreen.kt:172,216` |
+| Sekundaerknopf fuer Sprung (P-002) | `GoldOutlinedButton` | `MonitorScreen.kt:194-197` |
+| Knopf-Beschriftung "Open {Ziel}" | bestehendes Muster | `ActivateScreen.kt:225,230,294,472` |
+| Aufklappbare Zeile fuer Umgebungszustand (P-004) | `AnimatedVisibility`-Erweiterungsmuster der Eventzeile | `EventLog.kt:141-204` |
+| Fehlersatz-Ton bei nicht aufloesbarem Sprung | Formel von `PinAndCheck`s Fehlersatz ("Could not ... Nothing was measured.") | `ComparisonSection.kt:131-132` |
+
+Kein neues Token, keine neue Farbe, keine neue Dialogform. **Eine bestehende
+Stelle wird bewusst NICHT wiederverwendet:** das `runCatching { startActivity
+(...) }.onFailure { Log.w(...) }`-Muster aus `ActivateScreen.kt:339-345,346-351`
+und `BluetoothSection.kt:558-564` schluckt einen nicht aufloesbaren Sprung
+stumm — genau der Fehler, den AK-20 verbietet ("ein nicht aufloesbarer Sprung
+erzeugt einen sichtbaren Satz"). Fuer die neuen P-002-Knoepfe gilt stattdessen
+AK-T057-8 unten.
+
+### P-001 (AK-18) — Panel "Measures", immer sichtbar solange der Monitor offen ist
+
+**Zweck:** Auf einen Blick sehen, ob die Bedingungen fuer eine belegte
+Massnahme *jetzt* gegeben sind — ohne dafuer einen Vergleich zu starten.
+
+**Aufbau:** Neues, eigenstaendiges `Panel` in `MonitorScreen`s Spalte,
+zwischen `LiveLinkPanel` (Zeile 91-128) und `DataSourcePanel` (Zeile 130-137)
+— dieselbe Reihenfolge-Logik wie im bestehenden Kommentar ("erstes Panel
+beantwortet, was der Link gerade tut"; dieses beantwortet als naechstes "was
+kann ich gerade pruefen"). Kein Einklappen, keine eigene Sichtbarkeits-Regel
+jenseits der Bildschirmkomposition — wie `DataSourcePanel`/`TimelinePanel`
+immer da, nie ein Umschalter, der es verschwinden lassen kann (ein Panel, das
+man wegklappen kann, wird beim genauen Fall, in dem man es braucht, zuerst
+weggeklappt sein).
+
+`PanelHeader("Measures")`, `ExplainedHeader`-Erklaerung (Fragezeichen,
+bestehendes Muster):
+`"The six measures with evidence behind them (R-010). Each line below is
+read from this phone right now, in the same words the guided comparison uses
+to read a condition back. This is a reading, not a score — there is no
+combined result across the six, and a line reading confirmed here was never
+tested under a pinned run."`
+
+Je Zeile, in fester `Measure.entries`-Reihenfolge (A2, A1, A3, A4, A5, A7 —
+dieselbe Reihenfolge wie in `Choose()`, `ComparisonSection.kt:91`), niemals
+nach Status sortiert oder gruppiert:
+
+`Text(measure.displayName, bodyMedium)` + darunter
+`Text(readBackSentence(measure, book), bodySmall, onSurfaceVariant)` — **die
+bestehende Funktion, zeichengenau, keine zweite Formulierung.** Fuer
+`NO_DISCOVERY`, `BODY_OUT_OF_PATH`, `SINK_ALLOWS_LDAC` liefert sie bereits
+`"Not checkable from this phone."` (kein `Condition` hinterlegt); das bleibt
+so, bis eine dieser drei je gelesen werden kann.
+
+**Zustaende:**
+- *Sechs Zeilen, immer* — kein Leerzustand, keine "lädt"-Zeile: die erste
+  Zeile erscheint mit der ersten `LinkLiveSnapshot`, die `MonitorScreen`
+  sowieso schon haelt; vor der ersten Lesung zeigt jede Zeile den
+  `Unreadable`-Zweig ("Not checkable: ...") statt eines Platzhalters.
+- *Eine Massnahme nicht lesbar:* eigener Grund aus `ConditionValue.Unreadable
+  .reason`, nie ein generisches "unknown".
+- *Sehr lange Geraetename/keine Sonderbehandlung noetig* — diese Zeilen
+  nennen kein `{device}`, keine Textlaenge haengt von aussen ab.
+
+**Ausdruecklich verboten (R-E, Risiko aus dem Backlog):** kein Icon, kein
+Haken/Kreuz, keine Farbe nach `Verification` (wie in `ComparisonSection.kt`
+bereits Konvention: "keine Fehlerfarbe/kein Bildzeichen", `UI_SPEC.md`
+Zeile 3098), kein Zaehler ("4 von 6"), keine zusammenfassende Zeile, kein Wort
+aus der T-039-Verbotsliste ("ready", "stable", "good to go" u. ae.), keine
+Sortierung, die "erfuellt" nach oben oder unten zieht.
+
+### P-004 (AK-19) — Umgebungszustand am Verlustausbruch, im Eventprotokoll
+
+**Zweck:** Wer im Protokoll einen Verlustausbruch sieht, sieht daneben auch,
+was die Umgebung zu dem Zeitpunkt war — ohne dass die App eine Ursache
+behauptet.
+
+**Aufbau:** Erweiterung der bestehenden Aufklapp-Zeile in `EventLogPanel`
+(`EventRow`, `EventLog.kt:179-202`) fuer denjenigen `LossDetected`-Eintrag,
+der die erste Lesung einer Episode traegt (Zuordnung/Speicherort legt
+`ARCHITECTURE.md` fest, T-057a Punkt 1) — der Wortlaut unten gilt
+unveraendert, unabhaengig davon, wie die Episodengrenze technisch gezogen
+wird, solange es "die erste Lesung dieser Episode" ist. Position: nach
+`event.detail` (Satz), vor `event.payloadLine()` (Zeilen 184-200), als
+weitere `Text`-Zeilen in `bodySmall`/`onSurfaceVariant` — dieselbe
+Aufklapp-Mechanik, kein zweiter Tap-Ort.
+
+Kopfzeile: `"Conditions when this episode was first read:"`
+
+Je `Condition` (feste Reihenfolge: `WIFI_RADIO`, `WIFI_SCAN_ALWAYS`,
+`USB_POWER`, `OTHER_ACL_LINKS`, `DISCOVERY_SEEN`), eine Zeile:
+- Gelesen: `"{displayName}: {value}, read."` — z. B. `"Wi-Fi power: on, read."`
+- Nicht lesbar: `"{displayName}: not readable — {reason}."` — `{reason}` ist
+  `ConditionValue.Unreadable.reason` zeichengenau, wie an anderen Stellen
+  (`readBackSentence`) auch nicht neu formuliert.
+
+`{displayName}` ist `Condition.displayName` (`ComparisonSection.kt:375ff.`,
+dort `private` — fuer die Wiederverwendung in `EventLog.kt` `internal`
+machen; kein neues Vokabular fuer dieselben fuenf Bedingungen).
+
+**Zustaende:** Jeder andere `LossDetected`-Eintrag (nicht die erste Lesung
+seiner Episode) zeigt diesen Block **nicht** — sonst wiederholt sich
+dasselbe Zustandsbuch bei jedem Fenster einer laengeren Episode und liest
+sich wie fuenf neue Tatsachen statt einer. Ohne offenen Monitor entsteht laut
+AK-19 gar kein Eintrag — das ist bereits durch die bestehende Architektur
+gegeben (das Eventprotokoll fuellt sich nur bei laufendem Poller) und wird
+hier nicht veraendert.
+
+**Verboten (Scheinkausalitaet, GOAL.md AK-19, Backlog-Risiko):** Kein Satz in
+diesem Block oder in der Kopfzeile enthaelt eines der Woerter/Fragmente
+*because, cause, causes, caused, due to, leads to, trigger, triggers,
+correlat, explains, result in, so that, that is why* (Grep-testbar, engl.
+Wortliste, da die UI englisch ist).
+
+### P-002 (AK-20) — Sprungknoepfe je Massnahme/Ausweichen, sichtbarer Fehlschlag
+
+**Zweck:** Jede der zehn Eintraege (sechs `Measure`, vier `Fallback`) fuehrt
+entweder mit einem Knopf direkt zur Systemstelle, oder sagt ausdruecklich,
+dass es keine gibt — nie ein Text ohne Handlung, wo eine moeglich waere, und
+nie ein Knopf, der schweigend nichts tut.
+
+**Aufbau:** Zusaetzlicher `GoldOutlinedButton` unter der bestehenden
+`instruction`-Zeile jedes Eintrags — an beiden Stellen, an denen die zehn
+Eintraege heute schon einzeln mit Text stehen: der Massnahmen-/Ausweichen-
+Liste in `Choose()` (`ComparisonSection.kt:91-122`) **und** dem neuen
+P-001-Panel oben (dieselbe `onClick`-Funktion an beiden Stellen verdrahtet —
+Funktionsidentitaet, kein zweiter Pfad). Welcher der zehn Eintraege einen
+Knopf bekommt und wohin er fuehrt, legt `ARCHITECTURE.md` (T-057a Punkt 2)
+fest; diese Vorgabe legt nur die **Worte und das Verhalten** fest, nicht die
+Zuordnung.
+
+**Beschriftung, wo ein Ziel existiert:** `"Open {Ziel-Name}"` — dasselbe
+Muster wie die bestehenden Knoepfe `"Open Wi-Fi settings"`/`"Open wireless
+debugging"` (`ActivateScreen.kt:225,230,294,472`). Fuehrt derselbe Eintrag
+schon heute zu einem bestehenden Knopf mit eigenem Namen (z. B. Wi-Fi), wird
+dessen Beschriftung uebernommen, keine zweite Formulierung fuer dasselbe
+Ziel.
+
+**Wo kein Ziel existiert ("Handgriff"):** kein Knopf. Der bestehende
+`instruction`-Satz (`ComparisonSection.kt:330-346`) steht allein und bleibt
+unveraendert — er beschreibt heute schon die Handbewegung (Kabel ab, Koerper
+aus dem Weg, Kopfhoerer-eigenes Menue), nicht eine Systemeinstellung dieses
+Telefons.
+
+**Nicht aufloesbarer Sprung (AK-T057-8):** Der Knopf versucht die Navigation
+immer; schlaegt sie fehl (`ActivityNotFoundException` oder jede andere
+Exception aus `startActivity`), ersetzt an derselben Stelle, an der der
+Knopf stand, dieser Satz den Knopf, bis zum naechsten Tap auf eine andere
+Handlung in derselben Zeile:
+`"Could not open {Ziel-Name} on this phone — nothing changed."`
+(Formel wie `PinAndCheck`s `"Could not pin to {S} kbps: {reason}. Nothing
+was measured."`, `ComparisonSection.kt:132`.) Das bestehende
+Silent-Swallow-Muster (`runCatching {...}.onFailure { Log.w(...) }` ohne
+Nutzertext) wird fuer diese neuen Knoepfe **nicht** uebernommen.
+
+**Rueckkehr, Neu-Lesung:** Kommt die App nach einem Sprung in den
+Vordergrund zurueck (`ON_START`, bereits vorhandener Haken in
+`MonitorScreen.kt:64-77`), wird das Zustandsbuch **einmal sofort** neu
+gelesen — nicht erst beim naechsten regulaeren Poll-Takt. Ob das ueber genau
+denselben `ON_START`-Callback oder einen eigenen Trigger laeuft, ist
+Mechanik (T-057a); die Anforderung ist die *sofortige* Neulesung, weil sonst
+die Zeile aus P-001 fuer die Dauer eines ganzen Takts sichtbar veraltet
+bliebe, direkt nachdem der Nutzer genau diese Einstellung geaendert hat.
+
+### P-003 (AK-21, bedingt) — WLAN-Band im Pruefstand von A2
+
+**Nur einbauen, wenn `ARCHITECTURE.md` (T-057a Punkt 3) P-003 unter der
+Nutzerbedingung (keine Standortberechtigung, keine SSID/BSSID) als baubar
+bestaetigt.** Sonst bleibt der bestehende Satz `"Not checkable: Wi-Fi being
+on here does not say which band it used."` unveraendert, dieser Unterabschnitt
+ruht, und AK-21/AK-T057-9 gelten nicht.
+
+Falls baubar: vier neue Zweige in derselben Familie wie die bestehenden
+`Verification`/`Condition.WIFI_RADIO`-Zeilen in `readBackSentence`
+(`ComparisonSection.kt:293-305`), wortgleich in der P-001-Zeile und im
+Rueckleseergebnis der Instruct-Phase (dieselbe Funktion):
+
+- 2,4 GHz, verbunden: `"Contradicts what this run needs: Wi-Fi here is on a
+  2.4 GHz network."`
+- 5 GHz, verbunden: `"Not checkable: whether 5 GHz Wi-Fi affects this
+  pairing has not been measured."`
+- Band nicht lesbar (Lesung schlaegt fehl, Grund vorhanden):
+  `"Not checkable: {reason}."` — `{reason}` aus der neuen Lesefunktion,
+  gleiche Formel wie der bestehende `Unreadable`-Zweig.
+- Berechtigung fehlt (Android verlangt sie auf diesem Geraet trotz des
+  gewaehlten Lesewegs): `"Not checkable: reading the Wi-Fi band on this
+  phone needs location access this app does not request."`
+
+Keine dieser vier Zeilen behauptet, 5-GHz-WLAN sei unbedenklich — das ist
+laut `docs/perf/T-036-trennmessung.md` nicht gemessen und bleibt es.
+
+### Ausdruecklich nicht Teil dieser Vorgabe
+
+- **Lesetakt/`ConditionBook`-Zugriffspfad fuer P-001/P-004** (AK-4-Inventar,
+  ob ein neuer `dumpsys` noetig wird) — reine Architekturfrage, T-057a Punkt 1.
+- **Episodengrenze** (wann eine Serie von `LossDetected` als "eine Episode"
+  statt viele Einzelereignisse zaehlt, und wo der Zustandsbuch-Schnappschuss
+  dafuer gespeichert wird) — T-057a Punkt 1; der Wortlaut oben gilt fuer das
+  Ergebnis, nicht fuer den Algorithmus.
+- **Welcher der zehn Eintraege ein Sprungziel bekommt, und die konkrete
+  Intent-Aktion je Ziel** — T-057a Punkt 2.
+- **Ob das Oeffnen der Bluetooth-Einstellungen (falls das A3s Ziel wird) eine
+  Geraetesuche ausloest und damit A1 widerspraeche** — offene Architekturfrage
+  aus dem Backlog; findet T-057a das heraus und bestaetigt den Widerspruch,
+  braucht der betroffene Knopf einen zusaetzlichen Warnsatz, der dann als
+  Nachtrag hier ergaenzt wird, nicht in dieser Fassung vorweggenommen.
+- **P-003s Leseweg selbst** (`NetworkCapabilities`/`WifiInfo`, welche
+  Berechtigung) — T-057a Punkt 3, mit Nutzerbedingung.
+
+### Akzeptanzkriterien
+
+- **AK-T057-1** `MeasuresPanel` rendert in jeder Komposition von
+  `MonitorScreen` genau sechs Zeilen in `Measure.entries`-Reihenfolge; keine
+  Zeile wird abhaengig vom `Verification`-Wert hinzugefuegt, entfernt oder
+  umsortiert. Compose-Test ueber alle drei `Verification`-Werte gemischt.
+- **AK-T057-2** Jede Zeile ist zeichengenau `measure.displayName` gefolgt von
+  `readBackSentence(measure, book)` — derselbe Funktionsaufruf wie im
+  Vergleich, keine zweite Implementierung. Unit-/Compose-Test, der beide
+  Renderorte (P-001-Panel, Instruct-Phase) gegen denselben `ConditionBook`
+  vergleicht.
+- **AK-T057-3** Kein sichtbarer Text im `MeasuresPanel` und in seiner
+  `ExplainedHeader`-Erklaerung enthaelt ein Wort aus der bestehenden
+  T-039-Verbotsliste, ein Icon-Ressourcenverweis, eine von `Verification`
+  abhaengige Farbe, oder einen Zaehler-artigen Ausdruck (Regex auf
+  `\d+\s*(of|von)\s*6`). Grep-Test.
+- **AK-T057-4** Der `LossDetected`-Eintrag, der die erste Lesung einer
+  Episode traegt, zeigt beim Aufklappen zusaetzlich die Kopfzeile und genau
+  fuenf Zeilen in der festen `Condition`-Reihenfolge oben, jede endend auf
+  `", read."` oder `"not readable — {reason}."`; jeder andere `LossDetected`-
+  Eintrag zeigt diesen Block nicht. Unit-Test mit einer Fixture-Episode aus
+  mehreren Fenstern.
+- **AK-T057-5** Keine der fuenf Zeilen, der Kopfzeile oder eines Satzes in
+  diesem Abschnitt enthaelt eines der Fragmente *because, cause, causes,
+  caused, due to, leads to, trigger, triggers, correlat, explains, result
+  in, so that, that is why* (Gross-/Kleinschreibung ignoriert). Grep-Test,
+  Ergebnis auch bei leerem Treffer in den Bericht.
+- **AK-T057-6** Fuer alle zehn `Measure`/`Fallback`-Eintraege legt eine
+  Zuordnungstabelle im Programm fest: Knopf mit Ziel, oder kein Knopf. Ein
+  Eintrag ohne Knopf zeigt nie einen deaktivierten/leeren Knopf, nur den
+  bestehenden Instruktionssatz. Unit-Test, der `Measure.entries +
+  Fallback.entries` gegen die Tabelle prueft (Vollstaendigkeit, AK-20).
+- **AK-T057-7** Jeder Knopf mit Ziel ist an beiden Renderorten (Choose-Liste,
+  P-001-Panel) mit derselben Callback-Referenz verdrahtet. Compose-Test oder
+  Referenzgleichheits-Unit-Test.
+- **AK-T057-8** Schlaegt die Navigation fehl, ersetzt der Satz `"Could not
+  open {Ziel-Name} on this phone — nothing changed."` den Knopf an Ort und
+  Stelle; kein `Log`-only-Pfad ohne Nutzertext fuer einen der neuen Knoepfe.
+  Unit-/Compose-Test mit simuliertem `ActivityNotFoundException`.
+- **AK-T057-9** Nach Rueckkehr aus einem Sprung (naechstes `ON_START`) wird
+  das Zustandsbuch spaetestens im naechsten Rendering neu gelesen, ohne auf
+  den naechsten regulaeren Poll-Takt zu warten. Unit-Test auf den
+  Lifecycle-Hook.
+- **AK-T057-10 (nur falls P-003 laut `ARCHITECTURE.md` baubar ist)** Bei
+  2,4-GHz-Verbindung liefert die A2-Zeile zeichengenau den Contradicts-Satz
+  oben; bei 5 GHz, nicht lesbarem Band und fehlender Berechtigung die
+  passende Not-checkable-Zeile mit Grund; keiner der vier Saetze behauptet,
+  5 GHz sei unbedenklich. Unit-Test ueber alle vier Faelle. Ist P-003 laut
+  `ARCHITECTURE.md` nicht baubar, entfaellt dieses Kriterium ersatzlos und
+  der bestehende Satz bleibt durch einen Regressionstest abgesichert.
+
+### Offene Fragen an den App Designer
+
+1. **Sollen die P-002-Sprungknoepfe sowohl in der Vergleichs-Auswahlliste als
+   auch im neuen, staendig sichtbaren P-001-Panel erscheinen, oder nur an
+   einer der beiden Stellen?** Ich habe beide vorgesehen (gleiche Funktion,
+   kein zweiter Pfad), weil das P-001-Panel genau der Ort ist, an dem der
+   Nutzer "Wi-Fi ist an" liest und sofort handeln will — ein Knopf nur in der
+   Vergleichs-Liste waere dort unsichtbar, wo der Bedarf entsteht. Preis:
+   sechs bis zehn zusaetzliche Knopfzeilen machen das ohnehin schon dichte
+   Panel laenger. **Empfehlung: an beiden Stellen, wie spezifiziert.**
+2. **Soll das P-001-Panel eine eigene, ausklappbare Kurzfassung bekommen
+   (z. B. nur "Measures" mit Pfeil, Zeilen erst nach Tap), statt immer alle
+   sechs Zeilen auf dem Bildschirm zu haben?** Ich habe mich gegen ein
+   Einklappen entschieden, weil AK-18 "zeigt ... zu jeder der sechs
+   Massnahmen" als staendige Anzeige liest und ein Panel, das man wegklappen
+   kann, im entscheidenden Moment (Musik laeuft, Aussetzer werden bemerkt)
+   typischerweise zugeklappt ist. **Empfehlung: kein Einklappen, wie
+   spezifiziert** — wird der Bildschirm dadurch zu dicht, ist das ein
+   Bildschirm-Layout-Finding fuer einen spaeteren Review, keine Frage, die
+   das Merkmal selbst betrifft.
+
+```
+STATUS: erledigt
+AUFTRAG: T-057b — Vorgabe (`UI_SPEC.md`) fuer P-001 (AK-18), P-004 (AK-19),
+  P-002 (AK-20), P-003 bedingt (AK-21); Spec-Modus, kein Code.
+GELESEN: GOAL.md, docs/product/BACKLOG.md (P-001..P-004, Streichungen,
+  Empfehlung), Measures.kt, ComparisonSection.kt, EnvironmentConditions.kt,
+  MonitorViewModel.kt, MonitorScreen.kt, EventLog.kt, LinkEvent.kt,
+  ActivateScreen.kt, BluetoothSection.kt, UI_SPEC.md (T-054b/T-047c-Abschnitte
+  als Formatvorbild), .claude/agent-memory/ui-ux-designer/*.
+GEÄNDERT: UI_SPEC.md — neuer Abschnitt "Saeule 3 — Pruefstand, Umgebung,
+  Sprung, Band (T-057b) — 2026-09-28" angehaengt, kein bestehender Abschnitt
+  veraendert.
+ANNAHMEN: (1) P-001/P-004-Panel-Platzierung, Panel-Titel "Measures" und
+  Nicht-Einklappbarkeit sind Geschmacksentscheidungen ohne objektiv richtig/
+  falsch — als Empfehlung entschieden, zwei Varianten als offene Fragen
+  gestellt. (2) P-002-Zuordnung (welcher der zehn Eintraege ein Sprungziel
+  bekommt) und P-003-Baubarkeit sind ARCHITECTURE.md/T-057a vorbehalten;
+  diese Vorgabe legt nur Wortlaut/Verhalten fest, nicht die Zuordnung selbst.
+  (3) `ARCHITECTURE.md` war beim Schreiben nicht gegengelesen (Parallellauf);
+  bei Widerspruch gilt laut Auftrag die Mechanik aus a, der Wortlaut hier
+  passt sich an.
+NÄCHSTER: developer-Laeufe gegen ARCHITECTURE.md (T-057a) + UI_SPEC.md
+  (dieser Abschnitt); Abgleich beider Dokumente vor dem ersten Bau empfohlen,
+  falls a von einer hier getroffenen Wortlaut-Annahme abweicht.
+BLOCKIERT DURCH: nichts.
+```
