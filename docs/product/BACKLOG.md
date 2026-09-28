@@ -278,3 +278,282 @@ Offene Fragen vor einer Freigabe:
   nicht ab?
 
 Freigabe liegt beim Nutzer.
+
+## Lauf 2 - 2026-09-29 - Modus discover
+
+Auftrag T-061c. **Warteschlange gezaehlt: 0** freigegebene, nicht gebaute
+Eintraege (P-001..P-004 gebaut, Nachtrag unten) — discover zulaessig. Rahmen
+wie Lauf 1: jeder Kandidat nachts ohne Geraet baubar und pruefbar
+(Unit/Robolectric), Geraeteabnahme im naechsten Geraetetermin.
+Play-Store- und Weitergabe-Pflichten stehen **nicht** unter den Kandidaten,
+sondern unter "Bedingt", weil der Nutzer ueber eine Veroeffentlichung noch
+nicht entschieden hat (C-001, Entscheidungsvorlage offen).
+
+### Statusnachtrag zu Lauf 1 (am Code geprueft 29.09.)
+
+Die Statuszeilen von Lauf 1 bleiben stehen, wie sie geschrieben wurden; es gilt
+dieser Nachtrag. Die Warteschlangen-Tabelle oben fuehrt P-001, P-004, P-002 noch
+als Zeilen, der Kopf "0 von hoechstens 3" ist richtig.
+
+- P-001: gebaut (2026-09-29, T-058a) — `MeasureStatusPanel`, `MonitorScreen.kt:136`.
+- P-004: gebaut (2026-09-29, T-058a) — `LossEpisode`, `ConditionStatus.kt:17`.
+- P-002: gebaut (2026-09-29, T-058b) — `SettingsJumps.kt`, `MeasureStatusSection.kt`.
+- P-003: gebaut (2026-09-29, T-058c) — `ACCESS_NETWORK_STATE`, ohne Standort,
+  `app/src/main/AndroidManifest.xml:30-37`. Die Bedingung des Nutzers ist damit
+  erfuellt (siehe Streichvorschlag 2.3).
+
+Pruefphase T-059/T-060 abgenommen laut `docs/state.md`; Geraeteabnahme aller vier offen.
+
+### Vergleichsfeld - Fortschreibung Stand 2026-09-29
+
+Die Tabelle oben gilt weiter. Hier nur geaenderte und neue Zeilen, Spalten wie oben.
+
+| Funktion | EO | BCC | BCM | WS | RG | wir | Topf |
+|---|---|---|---|---|---|---|---|
+| Ist-Stand je Massnahme ausserhalb eines Vergleichs | nein | nein | nein | nein | nein | **ja** (P-001) | B (vorhanden) |
+| Sprung zur Einstellung je Massnahme | ja | ja | nein | nein | teilweise | **ja** (P-002) | A (vorhanden) |
+| WLAN-Band neben dem BT-Audiopfad | nein | nein | nein | nein | teilweise | **ja** (P-003) | B (vorhanden) |
+| Umgebungszustand am Verlustereignis | nein | nein | nein | teilweise | nein | **ja** (P-004) | B (vorhanden) |
+| **Umgebungszustand ueber die ganze Messdauer, nicht nur an ihren Grenzen** | nein | nein | nein | teilweise (von Hand, offline) | nein | nein — Zustandsbuch an Armbeginn und Armende, nur die Geraetesuche wird dazwischen verfolgt (`ComparisonController.kt:194,199,221`) | **B -> P-005** |
+| **Liste der von der App geaenderten Einstellungen mit Vorwert** | nein | unbekannt | nein (stellt nichts) | nein | nein | teilweise — Banner nennt nur die Anzahl (`DeviceProfilesScreen.kt:1433`), Einzelzeilen erst nach dem Zurueckstellen (`SettingsRestore.kt:219`) | **B -> P-006** |
+| **Eigene Last des Werkzeugs auf den Audiopfad sichtbar** | nein | unbekannt (nicht beworben) | unbekannt (nicht beworben) | nein | nein | nein — nur Inventur-Dokument T-049a; F-012 und F-014 per adb gefunden | **B -> P-007** |
+| Widget / Schnellkachel fuer Codec oder Profil | unbekannt | ja | unbekannt | nein | nein | nein | C |
+| Abtastrate, Bittiefe, Kanalmodus stellen | ja | ja | nein | nein | nein | nein (44,1-kHz-Familie nur als Ausweichen-Wissen, AK-12) | C - gesperrt durch AK-12 |
+| Bass-Booster, Raumklang, Hall | nein | ja | nein | nein | nein | nein | C - Nicht-Ziel 1 |
+
+Gesichtet, keine Spalte: "Bluetooth Codec Monitor" v1.0.5 bei Appteka
+(Suchtreffer: Codec, Rate, Bittiefe, Kanalmodus, Hintergrundueberwachung,
+Aenderungsverlauf). Ob es dieselbe App wie BCM ist, ist **unbekannt**; seine
+Merkmale fallen in bestehende Zeilen (Hintergrund gesperrt, Verlauf Nicht-Ziel).
+
+**Quellen, abgerufen 2026-09-29:**
+- BCC: https://bluetooth-codec-changer.en.uptodown.com/android (2.4.1, dort mit
+  23.09.2026 datiert: Codec automatisch bei Verbindung, Profile je App, EQ,
+  Bass-Booster, Raumklang, Hall, Abtastrate/Bittiefe/Kanalmodus, Widgets). Die
+  Schnellkachel stammt nur aus einer Suchtreffer-Zusammenfassung (Grokipedia,
+  nicht abgerufen). Play-Seite https://play.google.com/store/apps/details?id=com.amrg.bluetooth_codec_converter
+  lieferte erneut keinen Inhalt.
+- BCM Appteka: https://appteka.store/app/ab5r318181 (nur Suchtreffer, nicht abgerufen).
+- BCM GitHub: README wie Lauf 1; fuer die Zeile "eigene Last" nicht geprueft, daher unbekannt.
+- EO: Abtastrate/Bittiefe/Kanalmodus sind Bestand der Entwickleroptionen (Projektbestand `BluetoothDeveloperOptions.kt`, nicht extern).
+- wir: Code am Stand `68d3859`, Suchen 29.09.2026 (Zeilennachweise in der Tabelle).
+
+**Befund zu Topf A: leer.** Was das Feld fast ueberall hat und hier fehlt, ist
+durch AK-4 oder Nicht-Ziele gesperrt (Hintergrund, Benachrichtigung, Verlauf);
+die einzige offene A-Zeile aus Lauf 1 (Sprung) ist gebaut. Aufholen steht in
+diesem Lauf nicht an. Deshalb nur drei Kandidaten, alle Topf B.
+
+### P-005 - Umgebungszustand ueber die ganze Armdauer, nicht nur an den Grenzen   [B weisser Fleck]
+**Problem:** Ein Vergleichsarm dauert 15 min (`Comparison.kt:9`). Das
+Zustandsbuch wird an seinem Beginn und seinem Ende gelesen; nur die
+Geraetesuche wird dazwischen verfolgt. Faellt das WLAN mitten im Arm aus der
+Verbindung und kommt zurueck, verbindet sich fuenf Minuten lang ein zweites
+Geraet oder steckt kurz ein Ladekabel, dann liest der Arm an beiden Enden
+denselben Zustand. Das Ergebnis nennt dann Bedingungen, unter denen der Arm
+nicht durchgehend lief. Erkennbar ist das heute gar nicht — genau deshalb.
+**Vorschlag:** Waehrend eines Arms wird jede lesbare Groesse des Zustandsbuchs
+bei jeder Lesung mit dem Stand am Armbeginn verglichen. Wich sie ab, nennt das
+Ergebnis an Ort und Stelle, welche Groesse und wie lange die Abweichung
+beobachtet wurde. Die App behauptet keinen Zusammenhang mit dem Ergebnis.
+**Bei B - warum macht es niemand:** (1) Es lohnt sich nur fuer diese
+Nutzungsweise. Kein anderes Werkzeug im Feld hat einen gemessenen
+Vorher/Nachher-Vergleich mit Zustandsbuch; das Muster "waehrend des Arms
+gesehen" existiert hier schon fuer die Geraetesuche (`discoverySeen`).
+**Abnahmekriterium:** Weicht waehrend eines Vergleichsarms eine lesbare Groesse
+des Zustandsbuchs bei irgendeiner Lesung vom Stand am Armbeginn ab, nennt das
+Vergleichsergebnis an Ort und Stelle diese Groesse und die Dauer, ueber die die
+Abweichung beobachtet wurde; eine Groesse, die im Arm zeitweise nicht lesbar
+war, erscheint als "nicht durchgehend lesbar" und nie als unveraendert.
+**Beleg:** Code `ComparisonController.kt:194,199,221` (Lesung an den
+Armgrenzen); `docs/perf/T-027-hoereindruck.md:70` (WLAN-Assoziationsverlust
+19:48:49 mitten in einer Zelle); `docs/perf/baselines.md:338-340`
+(T-029/T-032-Widerspruch erst nachtraeglich durch die WLAN-Assoziation
+erklaert); `docs/state.md` T-008 vierte Zelle INCONCLUSIVE (unbemerktes WLAN)
+und Verfahrensregel "Read-back deckt das vollstaendige Zustandsbuch ab, je
+Abschnitt". Vergleichsfeld-Zeile "Umgebungszustand ueber die ganze Messdauer".
+**Schnittgroesse:** ein Zyklus.
+**Kosten und Risiko:** Lesen im Arm, auch bei Display aus in der
+AK-4-Ausnahme — ob der Messdienst das Zustandsbuch dort schon je Lesung liest,
+ist offen (Frage an `architect`); falls nicht, ist es neue Arbeit innerhalb
+der Ausnahme und gehoert ins Inventar. Risiko Scheinkausalitaet wie bei P-004:
+"WLAN wich 4 min ab" neben einem schlechten Arm liest sich als Ursache.
+Wortlaut braucht `ui-ux-designer`.
+**Nachts baubar:** ja (Robolectric mit Lesungsverlauf "Zustand kippt und kehrt zurueck").
+**Status:** vorgeschlagen
+
+### P-006 - Welche Einstellungen die App gerade veraendert haelt, mit Vorwert   [B weisser Fleck]
+**Problem:** Der Rueckweg-Banner sagt "3 settings not put back yet"
+(`DeviceProfilesScreen.kt:1433`). Welche es sind, was die App gesetzt hat und
+was vorher galt, erfaehrt der Nutzer erst, nachdem er alles zurueckgestellt hat
+(Bericht, `SettingsRestore.kt:219`). Wer 990 gepinnt lassen, aber wissen will,
+was die App sonst noch an seinem Telefon veraendert haelt, muss den Rueckweg
+blind ausloesen oder ihm blind nicht trauen.
+**Vorschlag:** Solange Aenderungen der App offen sind, kann der Nutzer vor dem
+Rueckweg jede davon sehen: Einstellung, gesetzter Wert, festgehaltener Vorwert.
+Ansehen schreibt nichts. Kein teilweiser Rueckweg in diesem Schnitt.
+**Bei B - warum macht es niemand:** (1) Kein anderes Werkzeug im Feld haelt
+einen Ausgangszustand fest (Lauf 1, Zeile "Rueckweg": nur wir); ohne Liste gibt
+es nichts anzuzeigen.
+**Abnahmekriterium:** Solange Einstellungen, die die App gesetzt hat, nicht
+zurueckgestellt sind, nennt die App vor dem Rueckweg jede davon mit dem
+gesetzten Wert und dem vor dem ersten Setzen festgehaltenen Wert; ein
+Vorwert "war nicht gesetzt" und ein Vorwert "vorher nicht lesbar" werden
+unterschieden und nie als Standardwert gezeigt; die Anzeige schreibt nichts.
+**Beleg:** *unbelegt* als Nutzerproblem — kein QA-, Usability- oder
+Nutzerbefund. Vorhanden sind nur der Code-Befund (Banner zeigt die Anzahl)
+und C-001 Befund 1 (Play-Regel "review … all significant changes", A-002);
+Letzteres zaehlt nur bei Veroeffentlichung.
+**Schnittgroesse:** ein Zyklus (Liste und Vorwerte bestehen, neu ist die Anzeige).
+**Kosten und Risiko:** Eintraege der Codec-Praeferenz haengen an einem Geraet —
+angezeigt wird der Name, nie die Adresse (Muster SR-030); braucht einen Blick
+des `security-reviewer`. Ein weiterer Ort, an dem der unlesbare Zustand der
+Liste (F-021/AD-042) richtig erscheinen muss.
+**Nachts baubar:** ja (Robolectric).
+**Status:** vorgeschlagen
+
+### P-007 - Die App zeigt ihre eigene Last auf den Audiopfad   [B weisser Fleck]
+**Problem:** Das Zielbild verspricht, dass Messen kein Eingriff ist (Ziel,
+AK-1, AK-4). Zweimal hat die App das gebrochen, ohne dass es in der App
+sichtbar war: F-012 (43 Helferaufrufe in 25 s nach Verlassen des Monitors) und
+F-014 (`dumpsys` alle 30 s bei geschlossenem Monitor, leert laut R-011 die
+BQR-Queue). Beide fand QA nur am Geraet mit adb. Der Nutzer selbst kann nicht
+pruefen, ob die App still ist, wenn sie es sein soll.
+**Vorschlag:** Die App zaehlt ihre eigenen Aufrufe in den Audiopfad —
+Helferaufrufe und `dumpsys`-Lesungen, je Quelle — und zeigt bei offenem
+Monitor, wie viele es seit dem letzten Schliessen gab. Gezaehlte Werte, keine
+Bewertung, kein "leise/laut".
+**Bei B - warum macht es niemand:** (1) Es lohnt sich nur fuer ein Werkzeug,
+das Nicht-Einmischung verspricht. BCC und BCM fragen im Hintergrund ab, das
+ist dort das Merkmal (Lauf 1, Zeile "Hintergrundueberwachung"); eine Zaehlung
+wuerde ihnen nichts belegen, was sie behaupten.
+**Abnahmekriterium:** Die App zaehlt jeden eigenen Helferaufruf und jede eigene
+`dumpsys`-Lesung je Quelle; bei offenem Monitor zeigt sie die Zahlen fuer die
+Zeit seit dem letzten Schliessen des Monitors als gezaehlte Werte ohne
+Bewertung; jeder Aufrufweg zum Helfer ist per Test an die Zaehlung gebunden,
+und das Zaehlen selbst loest keine Lesung aus.
+**Beleg:** `qa/findings.md` F-012, F-014 (beide P2, beide nur per adb
+gefunden); GOAL AK-4 ("Jede periodische Arbeit im Prozess ist inventarisiert")
+— das Inventar ist heute ein Dokument (`docs/perf/T-049a-inventur.md`), keine
+laufende Pruefung.
+**Schnittgroesse:** ein Zyklus, falls es eine Stelle gibt, an der alle Aufrufe
+vorbeikommen (Frage an `architect`); sonst mehrere.
+**Kosten und Risiko:** Groesstes Risiko ist eine unvollstaendige Zaehlung:
+ein Aufrufweg, der nicht mitzaehlt, ergibt eine zu kleine Zahl — ein falscher
+Freispruch, gegen AK-3. Deshalb die Testbindung im Kriterium. Die Zahl sagt
+nichts ueber Hoerbarkeit (Regel R-E); der Wortlaut darf das nicht nahelegen.
+**Nachts baubar:** ja, wenn die Zaehlstelle feststeht.
+**Status:** vorgeschlagen
+
+### Bedingt - nur wenn der Nutzer eine Weitergabe will (C-001, offen)
+
+Keine Kandidaten, keine P-IDs. Werden sie gebraucht, schneide ich sie in einem
+eigenen Lauf zu. Kennung aus `docs/legal/AUFLAGEN.md`.
+- **A-014 Lizenzseite in der App**, `THIRD_PARTY_LICENSES.md` um Conscrypt
+  ergaenzt — Pflicht schon bei der ersten Weitergabe der APK, auch ueber
+  GitHub (C-001 Nr. 7). Der kleinste Punkt, ein Zyklus.
+- **A-016/A-018 Zweckbestimmung der Hoerkompensation**, Textpruefung,
+  MDR-Klaerung — jede Weitergabe einer Fassung mit Hoerkompensation.
+- **A-005 `QUERY_ALL_PACKAGES` aus dem Play-Build** — nur Play; die Frage
+  unabhaengig vom Store steht in Streichvorschlag 2.1.
+- **A-001 Offenlegung des Helfers im Setup mit Zustimmung, A-010
+  Datenschutzerklaerung in der App** — nur Play.
+- **A-012 Loeschen der Monitor-Historie in der App** (empfohlen): Hoertest-Laeufe
+  lassen sich loeschen (`HearingTestScreen.kt:1398`), die Monitor-Historie mit
+  Geraeteadressen nicht; sie verfaellt nach 24 h (`MonitorEngine.kt:253`).
+
+### Streichvorschlaege 2 - mindestens drei
+
+**2.1 Was:** Die Berechtigung `QUERY_ALL_PACKAGES` — auch in der privaten
+Fassung. Die EQ-App-Erkennung stuetzt sich dann auf die vorhandene
+`<queries>`-Liste (`app/src/main/AndroidManifest.xml:69-79`).
+**Warum es nicht mehr traegt:** Die App liest dafuer die vollstaendige Liste
+aller installierten Apps. Das ist mehr, als der Audiopfad hergibt (Nicht-Ziel
+"Keine neue Datensammlung …"), Google zaehlt es zu den sensiblen Daten (C-001
+Nr. 2), und fuer Play ist es ROT. Der Manifest-Kommentar selbst haelt die
+`<queries>`-Liste als tragende Rueckfallebene vor. Bei einer spaeteren
+Weitergabe muesste es ohnehin weg (A-005); zwei Fassungen mit
+unterschiedlicher Erkennung waeren Pflegelast.
+**Was der Verzicht kostet:** Ehrlich: ein EQ, den die Liste nicht kennt, wird
+nicht mehr gefunden — und der Manifest-Kommentar (Z. 40-43) begruendet die
+Vollabfrage genau mit diesem Fall. Die Anzeige muss dann sagen "nur bekannte
+EQ-Apps" (AK-3). Bleibt die App privat, ist das Play-Argument leer und nur das
+Nicht-Ziel-Argument bleibt.
+
+**2.2 Was:** Die dauerhafte Ablage der Encoder-Starvation-Forensik in Room
+(Tabelle `encoder_starvation_events`). Die Zeile im Ereignisprotokoll bleibt.
+**Warum es nicht mehr traegt:** Die App schreibt die Forensik
+(`LiveLinkSource.kt:287`, `MonitorGraph.kt:223`), liest sie aber nirgends:
+`starvations(` hat im Hauptcode keinen Aufrufer ausser seiner eigenen
+Definition (`MonitorRepository.kt:35,67`, `MonitorDatabase.kt:142`; Suche
+29.09.). Sie verfaellt nach 24 h (`MonitorEngine.kt:253`,
+`MonitorRepository.kt:74`), der KDoc verspricht dagegen eine Auswertung
+"possibly months later" per `sqlite3` (`MonitorDatabase.kt:58-59`) — auf einem
+ungerooteten Telefon ohne Debug-Build nicht erreichbar. Der eigene Kommentar
+sagt: "a capture nobody can read later is worth exactly as much as no
+capture" (`LiveLinkSource.kt:282-283`).
+**Was der Verzicht kostet:** Eine Schema-Migration. Die Forensik (welche
+Effektketten beim Aushungern liefen) ist verloren — wer sie spaeter doch
+auswerten will, braucht einen Leser, und das waere ein eigener Kandidat. Ob
+QA oder `performance-tuner` die Tabelle per `run-as` nutzt, habe ich nicht
+geprueft; das muss vor der Streichung gefragt werden.
+
+**2.3 Was:** Die Bedingungsklausel von AK-21 in `GOAL.md` ("— bedingt",
+"Geht das nicht, bleibt P-003 vorgemerkt und AK-21 ruht").
+**Warum es nicht mehr traegt:** Die Bedingung ist erfuellt — P-003 ist mit
+`ACCESS_NETWORK_STATE` und ohne Standortberechtigung gebaut
+(`app/src/main/AndroidManifest.xml:30-37`). Ein Kriterium, das als "bedingt"
+und moeglicherweise ruhend dasteht, wird von jedem Lesenden als halb gueltig
+gelesen.
+**Was der Verzicht kostet:** Die Bedingung selbst ("nur ohne Standort, keine
+SSID/BSSID") darf nicht mit verschwinden — sie ist die Grenze, die kuenftige
+Aenderungen halten muessen. Gestrichen wird nur das "ruht"; die Grenze bleibt
+als Satz im Kriterium. Uebertragen durch den `director` nach Nutzerentscheid.
+
+**Geprueft und nicht gestrichen:** Die Deklaration `BLUETOOTH_PRIVILEGED`
+(`core-monitor/src/main/AndroidManifest.xml:17`) — wird nie gewaehrt, haengt
+aber am BQR-Weg und damit an AK-7/T-037; der Nutzer hat AK-7 am 28.09. nicht
+aufgegeben, und T-061b entwirft den Weg gerade. Erst nach dieser AD neu bewerten.
+
+### Bewusst nicht vorgeschlagen (Topf C)
+
+- Widget / Schnellkachel fuer Codec oder Profil: BCC. Stellt ohne Messung und
+  ohne Rueckmeldung — gegen "misst danach gegen"; die Stufe ist im Monitor
+  einen Handgriff entfernt.
+- Abtastrate, Bittiefe, Kanalmodus stellen: EO, BCC. Wechselt oder senkt die
+  Leiter; nach AK-12 nur Ausweichen-Wissen.
+- Bass-Booster, Raumklang, Hall: BCC. Nicht-Ziel 1.
+- Aus Lauf 1 unveraendert: Verlauf/Export, Stabilitaetsetikett, Meldung bei
+  Abstieg/Trennung, Profile je App, Latenz, Akkustand, Gemeinde-Datenbank
+  (Gruende dort).
+
+Gesehen und zurueckgestellt, kein Topf: einen Vergleich wiederholen (Arm A
+nach Arm B noch einmal), weil Verluste in Clustern kommen (T-036). Das baut auf
+Saeule 3, die am Geraet noch nicht abgenommen ist — erst danach.
+
+### Empfehlung
+
+**Platz eins: P-005**, weil es das Kernergebnis der Saeule 3 gegen genau den
+Fehler absichert, der das Team selbst dreimal getroffen hat (T-008, T-027,
+T-029/T-032), und das Muster dafuer im Code schon fuer die Geraetesuche
+existiert. P-007 danach (belegt, aber Schnitt haengt an einer
+Architekturfrage). P-006 zuletzt (unbelegt). Alle drei sind unabhaengig
+voneinander; P-005 und P-006 beruehren verschiedene Bildschirme.
+
+Offene Fragen vor einer Freigabe:
+- `architect` (P-005): Liest der Messdienst im Arm bei Display aus das
+  Zustandsbuch je Lesung, oder nur der offene Monitor? Wenn nicht: welche
+  Lesung kommt dazu, und wie steht sie im AK-4-Inventar?
+- Nutzer (P-005): Genuegt es, eine Abweichung zu nennen (Vorschlag), oder soll
+  sie den Vergleich "nicht vergleichbar" machen? Und soll der Beobachtungslauf
+  (AK-17) dasselbe bekommen — das vergroessert den Schnitt.
+- `architect` (P-007): Gibt es eine Stelle, an der jeder Helferaufruf und jede
+  `dumpsys`-Lesung vorbeikommt, einschliesslich EQ-Dienst und
+  Boot-Empfaenger? Zaehlt die App oder der Helfer?
+- `security-reviewer` (P-006): Anzeige der Eintraege mit Geraetebezug.
+- `qa-engineer`/`performance-tuner` (Streichvorschlag 2.2): Wird
+  `encoder_starvation_events` fuer Messungen per `run-as` gelesen?
+- `performance-tuner` (aus Lauf 1 offen, kein Kandidat): 5-GHz-WLAN gegen
+  "WLAN aus" bei gepinnten 990 ist ungemessen; ob der gebaute Vergleich A2 bei
+  5-GHz-Verbindung ueberhaupt startet ("nicht pruefbar"), ist zu klaeren.
+
+Freigabe liegt beim Nutzer.
