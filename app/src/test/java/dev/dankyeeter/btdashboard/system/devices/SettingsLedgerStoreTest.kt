@@ -1,10 +1,10 @@
 package dev.dankyeeter.btdashboard.system.devices
 
 import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +15,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
@@ -26,8 +27,14 @@ class SettingsLedgerStoreTest {
     @get:Rule
     val folder = TemporaryFolder()
 
-    private fun dataStore(): DataStore<Preferences> =
-        PreferenceDataStoreFactory.create { File(folder.root, "settings_ledger.preferences_pb") }
+    private val file get() = File(folder.root, "settings_ledger.preferences_pb")
+
+    /** The same factory [dev.dankyeeter.btdashboard.system.SystemGraph] uses (V10). */
+    private fun dataStore(): DataStore<Preferences> = SettingsLedgerStore.createDataStore { file }
+
+    private suspend fun DataStore<Preferences>.putRaw(json: String) {
+        edit { it[stringPreferencesKey("entries_json")] = json }
+    }
 
     private val key = DeviceKey.fromAddress("AC:DE:48:00:37:8F")!!
 
@@ -109,6 +116,145 @@ class SettingsLedgerStoreTest {
 
         assertTrue(settings.writes.isEmpty())
         assertTrue(actions.single() is ProfileAction.Skipped)
+    }
+
+    @Test
+    fun `any codec wish and System Default survive a round trip (V6)`() = runTest {
+        val entries = listOf(
+            LedgerEntry.Ldac(key, CodecPreference("AAC", 48_000, 24, 2, 0), priorLive = null),
+            LedgerEntry.Ldac("other", CodecPreference(BluetoothCodecOptions.SYSTEM_DEFAULT), priorLive = null),
+        )
+        val store = SettingsLedgerStore(dataStore())
+
+        entries.forEach { assertTrue(store.recordIfAbsent(it)) }
+
+        assertEquals(entries, store.entries().getOrThrow())
+    }
+
+    @Test
+    fun `a ledger written in the T-047 format still decodes unchanged (V6)`() = runTest {
+        val dataStore = dataStore()
+        dataStore.putRaw(
+            """[{"type":"global","key":"k"},{"type":"hdAudio","deviceKey":"d","prior":"ENABLE"},""" +
+                """{"type":"ldac","deviceKey":"d","priorWish":{"codec":"LDAC","sampleRateHz":0,""" +
+                """"bitsPerSample":0,"channelMode":0,"ldacQuality":1000},"priorLive":990}]""",
+        )
+
+        assertEquals(
+            listOf(
+                LedgerEntry.Global("k", prior = null),
+                LedgerEntry.HdAudio("d", HdAudioPreference.ENABLE),
+                LedgerEntry.Ldac("d", CodecPreference("LDAC", ldacQuality = 1000L), priorLive = 990L),
+            ),
+            SettingsLedgerStore(dataStore).entries().getOrThrow(),
+        )
+    }
+
+    @Test
+    fun `an undecodable ledger is discarded on request and then works again (AD-042)`() = runTest {
+        val dataStore = dataStore()
+        dataStore.putRaw("{kaputt")
+        val store = SettingsLedgerStore(dataStore)
+        assertTrue(store.entries().isFailure)
+
+        assertTrue(store.discardUnreadable())
+
+        assertEquals(Result.success(emptyList<LedgerEntry>()), store.entries())
+        assertTrue(store.recordIfAbsent(LedgerEntry.Global("k", null)))
+    }
+
+    @Test
+    fun `a readable ledger is never discarded (AD-042, V8)`() = runTest {
+        val store = SettingsLedgerStore(dataStore())
+        store.recordIfAbsent(LedgerEntry.Global("k", null))
+
+        assertFalse(store.discardUnreadable())
+
+        assertEquals(listOf(LedgerEntry.Global("k", null)), store.entries().getOrThrow())
+    }
+
+    @Test
+    fun `a ledger never written counts as readable (V8)`() = runTest {
+        val dataStore = dataStore()
+        val store = SettingsLedgerStore(dataStore)
+
+        assertFalse(store.discardUnreadable())
+
+        assertTrue("the key stays absent", dataStore.data.first().asMap().isEmpty())
+    }
+
+    @Test
+    fun `a corrupt file reads as unreadable, never as empty, and can then be discarded (AD-042, V9, V10)`() = runTest {
+        file.writeBytes(ByteArray(16) { 0xFF.toByte() })
+        val store = SettingsLedgerStore(dataStore())
+
+        assertTrue("never an empty list in disguise", store.entries().isFailure)
+        assertTrue(store.discardUnreadable())
+        assertEquals(Result.success(emptyList<LedgerEntry>()), store.entries())
+    }
+
+    @Test
+    fun `the corruption marker cannot be read as a JSON array (V9)`() {
+        assertFalse(SettingsLedgerStore.CORRUPT_MARKER.trimStart().startsWith("["))
+    }
+
+    /** V10: documents what DataStore makes of an empty file; not a choice of this app. */
+    @Test
+    fun `a zero-byte file reads as a ledger never written`() = runTest {
+        file.writeBytes(ByteArray(0))
+
+        assertEquals(Result.success(emptyList<LedgerEntry>()), SettingsLedgerStore(dataStore()).entries())
+    }
+
+    @Test
+    fun `an undecodable ledger does not reach the log (SR-033, V12)`() = runTest {
+        val dataStore = dataStore()
+        dataStore.putRaw("""[{"type":"ldac","deviceKey":"KEY-SENTINEL"""")
+        val store = SettingsLedgerStore(dataStore)
+        ShadowLog.clear()
+
+        assertFalse(store.recordIfAbsent(LedgerEntry.Global("k", null)))
+
+        val logged = ShadowLog.getLogs().map { "${it.msg} ${it.throwable}" }
+        assertTrue(logged.toString(), logged.isNotEmpty() && logged.none { it.contains("KEY-SENTINEL") })
+    }
+
+    @Test
+    fun `a codec entry from the applier carries no address and no live level (V4)`() = runTest {
+        val address = "AC:DE:48:00:37:8F"
+        val profile = DeviceProfile(key, "Bathys", codecPreference = CodecPreference("LDAC", ldacQuality = 1000L))
+        val store = SettingsLedgerStore(dataStore())
+
+        DeviceProfileApplier(
+            profiles = object : DeviceProfileSource {
+                override suspend fun profileFor(deviceKey: String): DeviceProfile? = profile
+            },
+            volume = object : MediaVolumeController {
+                override fun currentPercent(): Int? = null
+                override fun setPercent(percent: Int): Boolean = true
+            },
+            compensation = object : CompensationApplier {
+                override suspend fun apply(compensationProfileId: String): Boolean = true
+            },
+            absoluteVolume = object : AbsoluteVolumeController {
+                override fun isWritable(): Boolean = true
+                override fun isEnabled(): Boolean = true
+                override fun setEnabled(enabled: Boolean): Boolean = true
+                override fun clear(): Boolean = true
+            },
+            secureSettings = FakeSettings(),
+            codec = object : CodecPreferenceController {
+                override fun isAvailable(): Boolean = true
+                override suspend fun apply(address: String, preference: CodecPreference) =
+                    CodecApplyOutcome.Applied("LDAC")
+            },
+            ledger = store,
+        ).applyNow(profile, address)
+
+        assertEquals(listOf(LedgerEntry.Ldac(key, profile.codecPreference, priorLive = null)), store.entries().getOrThrow())
+        val onDisk = file.readText(Charsets.ISO_8859_1)
+        assertFalse(onDisk.contains(address, ignoreCase = true))
+        assertFalse(onDisk.contains(address.replace(":", ""), ignoreCase = true))
     }
 
     private class FakeSettings : SecureSettingsController {

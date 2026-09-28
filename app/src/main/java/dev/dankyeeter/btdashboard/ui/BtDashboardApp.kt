@@ -158,7 +158,13 @@ fun BtDashboardApp(
     // after a rotation must not be able to flash the setup over a finished app
     // for the frame before the effect runs.
     if (phase == SetupPhase.FULL_SETUP || (inSetup && phase != SetupPhase.READY)) {
-        GateSurface { SetupWizardScreen(onDone = { inSetup = false }) }
+        // SR-031: a missing permission must not hide settings the app changed.
+        GateSurface {
+            Column {
+                SettingsRestoreBanner()
+                SetupWizardScreen(onDone = { inSetup = false })
+            }
+        }
         return
     }
     if (phase == SetupPhase.ACTIVATION_ONLY) {

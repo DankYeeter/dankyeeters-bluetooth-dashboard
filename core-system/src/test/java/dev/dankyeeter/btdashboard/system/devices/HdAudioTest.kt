@@ -1,5 +1,7 @@
 package dev.dankyeeter.btdashboard.system.devices
 
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,7 +50,7 @@ private class InertSettings : SecureSettingsController {
  */
 private class FakeHdAudio(
     private val available: Boolean = true,
-    private val state: HdAudioState = HdAudioState.Known(supported = true, enabled = null),
+    var state: HdAudioState = HdAudioState.Known(supported = true, enabled = null),
     private val outcome: HdAudioOutcome = HdAudioOutcome.Applied(enabled = true),
 ) : HdAudioController {
 
@@ -240,6 +242,22 @@ class HdAudioApplierTest {
 
         assertEquals(listOf(LedgerEntry.HdAudio(key, HdAudioPreference.SYSTEM_DEFAULT)), ledger.recorded)
         assertEquals(listOf(address to HdAudioPreference.DISABLE), hd.writes)
+    }
+
+    @Test
+    fun `the value before is read again under the lock (SR-032, V3)`() = runTest {
+        val hd = FakeHdAudio(state = HdAudioState.Known(supported = true, enabled = true))
+        val profile = profile(HdAudioPreference.DISABLE)
+        val ledger = FakeSettingsLedger()
+
+        ledger.lock.lock()
+        val applying = launch { applier(profile, hd, ledger = ledger).applyNow(profile, address) }
+        runCurrent()
+        hd.state = HdAudioState.Known(supported = true, enabled = null)
+        ledger.lock.unlock()
+        applying.join()
+
+        assertEquals(listOf(LedgerEntry.HdAudio(key, HdAudioPreference.SYSTEM_DEFAULT)), ledger.recorded)
     }
 
     @Test

@@ -63,6 +63,8 @@ private class FakeLedger(var held: List<LedgerEntry> = emptyList(), val refuse: 
     override suspend fun remove(entry: LedgerEntry) {
         held = held - entry
     }
+
+    override suspend fun discardUnreadable(): Boolean = false
 }
 
 private class FakeGlobals(val log: MutableList<String>) : SecureSettingsController {
@@ -311,6 +313,22 @@ class SettingsRestoreTest {
         assertTrue(log.isEmpty())
         assertNull(profiles.profileFor(KEY_AWAY)?.codecPreference)
         assertTrue(report.liveRestored.isEmpty() && report.liveKeptUntilReconnect.isEmpty())
+        assertTrue(ledger.held.isEmpty())
+    }
+
+    /** AD-041: the entry the applier writes for a profile's codec wish; the wish is user data and stays. */
+    @Test
+    fun `a codec entry from a profile pauses Autoapply and leaves the wish standing`() = runTest {
+        profiles.save(DeviceProfile(deviceKey = KEY_HERE, name = "Bathys", codecPreference = LDAC_990, autoApply = true))
+        val entry = LedgerEntry.Ldac(KEY_HERE, priorWish = LDAC_990, priorLive = null)
+        val ledger = FakeLedger(listOf(entry))
+
+        val report = restore(ledger).restoreAll()
+
+        val after = profiles.profileFor(KEY_HERE)!!
+        assertFalse(after.autoApply)
+        assertEquals(LDAC_990, after.codecPreference)
+        assertEquals(listOf(KEY_HERE), report.liveKeptUntilReconnect)
         assertTrue(ledger.held.isEmpty())
     }
 

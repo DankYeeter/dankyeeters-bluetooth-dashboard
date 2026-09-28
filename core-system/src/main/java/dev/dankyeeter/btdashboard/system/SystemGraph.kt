@@ -34,7 +34,6 @@ import dev.dankyeeter.btdashboard.system.devices.GlobalSettingsController
 import dev.dankyeeter.btdashboard.system.devices.SecureSettingsController
 import dev.dankyeeter.btdashboard.system.devices.SettingsLedger
 import dev.dankyeeter.btdashboard.system.devices.SettingsLedgerStore
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import dev.dankyeeter.btdashboard.system.devices.UnavailableCodecPreferenceController
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
@@ -294,7 +293,7 @@ object SystemGraph {
     /** The only DataStore over the ledger file (AD-033 M6); the way back and the chips use it too. */
     val settingsLedger: SettingsLedger by lazy {
         SettingsLedgerStore(
-            PreferenceDataStoreFactory.create {
+            SettingsLedgerStore.createDataStore {
                 ctx().preferencesDataStoreFile(SettingsLedgerStore.DATASTORE_NAME)
             },
         )

@@ -42,6 +42,7 @@ import dev.dankyeeter.btdashboard.ui.tuning.restoreBannerFor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -119,9 +120,17 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
     /** The last way back, so the banner knows whether to offer "Try again". */
     private val lastRestore = MutableStateFlow<RestoreReport?>(null)
 
+    /** Bumped by "Read again": a failed read ends the ledger's flow, so it is collected afresh. */
+    private val ledgerReads = MutableStateFlow(0)
+
     /** D2: follows the ledger itself, so a write from any screen or a connect shows up. */
-    val restoreBanner: StateFlow<RestoreBanner> = combine(ledger.changes, lastRestore, ::restoreBannerFor)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RestoreBanner.Hidden)
+    val restoreBanner: StateFlow<RestoreBanner> =
+        combine(ledgerReads.flatMapLatest { ledger.changes }, lastRestore, ::restoreBannerFor)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RestoreBanner.Hidden)
+
+    /** True after a confirmed "Forget this list" that changed nothing (AD-042, V11). */
+    private val _forgetRefused = MutableStateFlow(false)
+    val forgetRefused: StateFlow<Boolean> = _forgetRefused.asStateFlow()
 
     private val _restoring = MutableStateFlow(false)
     val restoring: StateFlow<Boolean> = _restoring.asStateFlow()
@@ -580,6 +589,23 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             } finally {
                 _restoring.value = false
             }
+        }
+    }
+
+    /** F-021 "Read again": reads the ledger file again; nothing else changes. */
+    fun readLedgerAgain() {
+        ledgerReads.value++
+    }
+
+    /**
+     * F-021 "Forget this list", after the user confirmed it, and only while the
+     * banner says the list is unreadable (AD-042, V11). Never started any other way.
+     */
+    fun discardUnreadableLedger() {
+        if (restoreBanner.value != RestoreBanner.Unreadable) return
+        viewModelScope.launch {
+            _forgetRefused.value = !ledger.discardUnreadable()
+            ledgerReads.value++
         }
     }
 

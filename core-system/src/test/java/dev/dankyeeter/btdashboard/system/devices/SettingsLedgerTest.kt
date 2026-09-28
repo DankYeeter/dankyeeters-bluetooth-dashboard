@@ -1,8 +1,11 @@
 package dev.dankyeeter.btdashboard.system.devices
 
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -32,6 +35,8 @@ class FakeSettingsLedger(
     override suspend fun remove(entry: LedgerEntry) {
         recorded = recorded - entry
     }
+
+    override suspend fun discardUnreadable(): Boolean = false
 }
 
 class WithBaselineTest {
@@ -71,10 +76,12 @@ class LedgerApplierTest {
         settings: SecureSettingsController,
         ledger: SettingsLedger,
         absolute: AbsoluteVolumeController = FakeAbsoluteVolume(),
-    ) = DeviceProfileApplier(
-        profiles = object : DeviceProfileSource {
+        profiles: DeviceProfileSource = object : DeviceProfileSource {
             override suspend fun profileFor(deviceKey: String): DeviceProfile? = null
         },
+        codec: CodecPreferenceController = UnavailableCodecPreferenceController,
+    ) = DeviceProfileApplier(
+        profiles = profiles,
         volume = object : MediaVolumeController {
             override fun currentPercent(): Int? = null
             override fun setPercent(percent: Int): Boolean = true
@@ -84,6 +91,7 @@ class LedgerApplierTest {
         },
         absoluteVolume = absolute,
         secureSettings = settings,
+        codec = codec,
         ledger = ledger,
     )
 
@@ -166,5 +174,119 @@ class LedgerApplierTest {
         val skipped = actions.filterIsInstance<ProfileAction.Skipped>().single()
         assertEquals("absolute volume", skipped.what)
         assertEquals(reason, skipped.reason)
+    }
+
+    // ---- AD-041: the codec wish of a profile ---------------------------------
+
+    private val address = "AC:DE:48:00:11:22"
+    private val ldac1000 = CodecPreference("LDAC", ldacQuality = 1000L)
+
+    /** The stored profile, changeable while a test holds the ledger lock. */
+    private class StoredProfile(var profile: DeviceProfile?) : DeviceProfileSource {
+        override suspend fun profileFor(deviceKey: String): DeviceProfile? = profile?.takeIf { it.deviceKey == deviceKey }
+    }
+
+    private class LoggingCodec(private val log: MutableList<String>, private val ledger: SettingsLedger) :
+        CodecPreferenceController {
+        override fun isAvailable(): Boolean = true
+        override suspend fun apply(address: String, preference: CodecPreference): CodecApplyOutcome {
+            log += "codec ${preference.codec} locked=${ledger.lock.isLocked}"
+            return CodecApplyOutcome.Applied(preference.codec)
+        }
+    }
+
+    private fun withCodec(preference: CodecPreference?) =
+        DeviceProfile(deviceKey = key, name = "Bathys", codecPreference = preference)
+
+    /** Also V7: the fake holds a real Mutex, so a nested lock would hang this test. */
+    @Test
+    fun `a codec wish is recorded before the write, under the lock (AD-041, V1)`() = runTest {
+        val log = mutableListOf<String>()
+        val ledger = FakeSettingsLedger(log = log)
+        val profile = withCodec(ldac1000)
+
+        applier(FakeSecureSettings(), ledger, profiles = StoredProfile(profile), codec = LoggingCodec(log, ledger))
+            .applyNow(profile, address)
+
+        val entry = LedgerEntry.Ldac(key, priorWish = ldac1000, priorLive = null)
+        assertEquals(listOf("record $entry", "codec LDAC locked=true"), log)
+    }
+
+    @Test
+    fun `a ledger that cannot record stops the codec write (AD-041, V1)`() = runTest {
+        val log = mutableListOf<String>()
+        val ledger = FakeSettingsLedger(accept = false, log = log)
+        val profile = withCodec(ldac1000)
+
+        val actions = applier(FakeSecureSettings(), ledger, profiles = StoredProfile(profile), codec = LoggingCodec(log, ledger))
+            .applyNow(profile, address)
+
+        assertFalse(log.any { it.startsWith("codec") })
+        val skipped = actions.filterIsInstance<ProfileAction.Skipped>().single()
+        assertEquals("codec", skipped.what)
+        assertEquals(reason, skipped.reason)
+    }
+
+    @Test
+    fun `non-LDAC wishes and System Default are recorded too (AD-041, V1)`() = runTest {
+        listOf(CodecPreference("AAC"), CodecPreference(BluetoothCodecOptions.SYSTEM_DEFAULT)).forEach { wish ->
+            val log = mutableListOf<String>()
+            val ledger = FakeSettingsLedger(log = log)
+            val profile = withCodec(wish)
+
+            applier(FakeSecureSettings(), ledger, profiles = StoredProfile(profile), codec = LoggingCodec(log, ledger))
+                .applyNow(profile, address)
+
+            assertEquals(listOf(LedgerEntry.Ldac(key, priorWish = wish, priorLive = null)), ledger.recorded)
+            assertEquals("record came first for ${wish.codec}", 2, log.size)
+        }
+    }
+
+    @Test
+    fun `without an address the ledger is not touched (AD-041, V1)`() = runTest {
+        val log = mutableListOf<String>()
+        val ledger = FakeSettingsLedger(log = log)
+        val profile = withCodec(ldac1000)
+
+        applier(FakeSecureSettings(), ledger, profiles = StoredProfile(profile), codec = LoggingCodec(log, ledger))
+            .applyNow(profile, address = null)
+
+        assertTrue(log.isEmpty())
+    }
+
+    @Test
+    fun `the prior wish is read fresh under the lock, not from the profile handed in (SR-032, V2)`() = runTest {
+        val log = mutableListOf<String>()
+        val ledger = FakeSettingsLedger(log = log)
+        val stale = withCodec(CodecPreference("LDAC", ldacQuality = 1002L))
+        val stored = StoredProfile(stale)
+        val applier = applier(FakeSecureSettings(), ledger, profiles = stored, codec = LoggingCodec(log, ledger))
+
+        ledger.lock.lock()
+        val applying = launch { applier.applyNow(stale, address) }
+        runCurrent()
+        // The way back ran meanwhile and withdrew the wish.
+        stored.profile = withCodec(null)
+        ledger.lock.unlock()
+        applying.join()
+
+        assertEquals(listOf(LedgerEntry.Ldac(key, priorWish = null, priorLive = null)), ledger.recorded)
+    }
+
+    @Test
+    fun `a profile gone from the store is neither recorded nor written (V2)`() = runTest {
+        val log = mutableListOf<String>()
+        val ledger = FakeSettingsLedger(log = log)
+
+        val actions = applier(FakeSecureSettings(), ledger, profiles = StoredProfile(null), codec = LoggingCodec(log, ledger))
+            .applyNow(withCodec(ldac1000), address)
+
+        assertTrue(log.isEmpty())
+        assertEquals(reason, actions.filterIsInstance<ProfileAction.Skipped>().single().reason)
+    }
+
+    @Test
+    fun `the placeholder ledger never discards anything (AD-042)`() = runTest {
+        assertFalse(NoSettingsLedger.discardUnreadable())
     }
 }

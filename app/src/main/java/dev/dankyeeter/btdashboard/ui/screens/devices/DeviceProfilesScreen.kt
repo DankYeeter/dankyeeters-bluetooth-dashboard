@@ -314,8 +314,8 @@ private fun BluetoothSystemPanel(viewModel: DeviceProfilesViewModel) {
         ExplainedHeader(
             "Shown but not changeable",
             "These affect Bluetooth audio and this app cannot write them, so they are " +
-                "shown read-only rather than left out. Each is a system property, which " +
-                "only a rooted phone can change.",
+                "shown read-only rather than left out. Each is a system property outside " +
+                "the settings this app can write.",
         )
         BluetoothReadOnlySettings.all.forEach { setting ->
             ExplainedRow(
@@ -1395,25 +1395,35 @@ fun SettingsRestoreBanner(viewModel: DeviceProfilesViewModel = viewModel()) {
     val banner by viewModel.restoreBanner.collectAsStateWithLifecycle()
     val report by viewModel.restoreReport.collectAsStateWithLifecycle()
     val restoring by viewModel.restoring.collectAsStateWithLifecycle()
+    val forgetRefused by viewModel.forgetRefused.collectAsStateWithLifecycle()
     SettingsRestoreBannerContent(
         banner = banner,
         report = report,
         restoring = restoring,
+        forgetRefused = forgetRefused,
         onConfirm = viewModel::restoreAll,
         onReportRead = viewModel::dismissRestoreReport,
+        onReadAgain = viewModel::readLedgerAgain,
+        onForget = viewModel::discardUnreadableLedger,
     )
 }
 
-/** Wording from UI_SPEC D2 and S3-5, character for character. */
+/** Wording from UI_SPEC D2, S3-5 and T-054b (F-021, DR-006), character for character. */
 @Composable
 internal fun SettingsRestoreBannerContent(
     banner: RestoreBanner,
     report: List<String>?,
     restoring: Boolean,
+    forgetRefused: Boolean,
     onConfirm: () -> Unit,
     onReportRead: () -> Unit,
+    onReadAgain: () -> Unit,
+    onForget: () -> Unit,
 ) {
     var confirming by remember { mutableStateOf(false) }
+    var confirmingForget by remember { mutableStateOf(false) }
+    // Keyed on the banner: a read that succeeds changes it, so only a failed one keeps this.
+    var readAgainFailed by remember(banner) { mutableStateOf(false) }
 
     if (banner != RestoreBanner.Hidden) {
         Panel(modifier = Modifier.fillMaxWidth()) {
@@ -1426,7 +1436,17 @@ internal fun SettingsRestoreBannerContent(
                     }
                 }
 
-                else -> Text("The list of changed settings could not be read, so they cannot be put back from here.")
+                else -> {
+                    Text(
+                        "The list of changed settings could not be read, so nothing can be put back " +
+                            "until it can be read again.",
+                    )
+                    GoldOutlinedButton(onClick = { readAgainFailed = true; onReadAgain() }) { Text("Read again") }
+                    if (readAgainFailed) {
+                        TextButton(onClick = { confirmingForget = true }) { Text("Forget this list") }
+                    }
+                    if (forgetRefused) Text("Nothing was forgotten — the list could not be changed just now.")
+                }
             }
         }
     }
@@ -1451,10 +1471,30 @@ internal fun SettingsRestoreBannerContent(
         )
     }
 
+    if (confirmingForget) {
+        AlertDialog(
+            onDismissRequest = { confirmingForget = false },
+            title = { Text("Forget the list of changed settings?") },
+            text = {
+                Text(
+                    "This does not put anything back — whatever this app changed stays as it is now. " +
+                        "It only clears the record, so this banner goes away and future changes start a " +
+                        "fresh list. Settings changed before this point can no longer be put back automatically.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmingForget = false; onForget() }) { Text("Forget the list") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingForget = false }) { Text("Cancel") }
+            },
+        )
+    }
+
     report?.takeIf { it.isNotEmpty() }?.let { lines ->
         AlertDialog(
             onDismissRequest = onReportRead,
-            title = { Text("Back to before") },
+            title = { Text("Settings put back") },
             text = {
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),

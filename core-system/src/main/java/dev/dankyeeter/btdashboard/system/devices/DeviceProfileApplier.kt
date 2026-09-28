@@ -258,7 +258,8 @@ class DeviceProfileApplier(
                     if (alreadyRight) {
                         add(ProfileAction.HdAudioSet(wish.asEnabled(), alreadySet = true))
                     } else {
-                        val outcome = ifRecorded({ ledger.recordHdAudio(profile.deviceKey, before) }) {
+                        // Read again under the lock: the way back may have run since (SR-032).
+                        val outcome = ifRecorded({ ledger.recordHdAudio(profile.deviceKey, hdAudio.read(address)) }) {
                             hdAudio.apply(address, wish)
                         }
                         when (outcome) {
@@ -299,7 +300,11 @@ class DeviceProfileApplier(
                     ),
                 )
 
-                else -> when (val outcome = codec.apply(address, preference)) {
+                else -> when (
+                    val outcome = ifRecorded({ recordCodecWish(profile.deviceKey) }) { codec.apply(address, preference) }
+                ) {
+                    null -> add(ProfileAction.Skipped("codec", PRIOR_NOT_RECORDED))
+
                     is CodecApplyOutcome.Applied -> add(ProfileAction.CodecSet(outcome.observed))
 
                     is CodecApplyOutcome.NotObserved ->
@@ -310,6 +315,17 @@ class DeviceProfileApplier(
                 }
             }
         }
+    }
+
+    /**
+     * AD-041: holds the stored wish, not the live codec — the applier cannot read
+     * that, so [LedgerEntry.Ldac.priorLive] stays null (M12). Read here, under the
+     * lock, rather than taken from the profile handed in: the way back may have
+     * changed the stored wish since (SR-032). No stored profile: nothing recorded.
+     */
+    private suspend fun recordCodecWish(deviceKey: String): Boolean {
+        val stored = profiles.profileFor(deviceKey) ?: return false
+        return ledger.recordIfAbsent(LedgerEntry.Ldac(deviceKey, stored.codecPreference, priorLive = null))
     }
 
     /**

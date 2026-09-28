@@ -2,8 +2,11 @@ package dev.dankyeeter.btdashboard.system.devices
 
 import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.preferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -11,9 +14,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 
 /**
@@ -33,7 +38,13 @@ sealed interface LedgerEntry {
     /** Persisted by the stack per device (`a2dpOptionalCodecsEnabled`). */
     data class HdAudio(val deviceKey: String, val prior: HdAudioPreference) : LedgerEntry
 
-    /** Profile wish and live level; [priorLive] null: not readable or not connected before. */
+    /**
+     * Codec wish of the device's profile and live LDAC level. Despite the name
+     * (kept, like the JSON type `ldac`, to spare a format migration), [priorWish]
+     * may be any codec family or System Default: the profile applier records
+     * every codec wish it writes (AD-041). [priorLive] null: not readable or not
+     * connected before.
+     */
     data class Ldac(val deviceKey: String, val priorWish: CodecPreference?, val priorLive: Long?) : LedgerEntry
 }
 
@@ -72,6 +83,13 @@ interface SettingsLedger {
 
     /** Only after the way back is confirmed by read-back. Throws if the ledger cannot be read. */
     suspend fun remove(entry: LedgerEntry)
+
+    /**
+     * Only after the user confirmed it (AD-042). Replaces the content with an
+     * empty list, but only if it cannot be decoded in the same transaction.
+     * True: replaced. False: readable, or not writable — nothing changed.
+     */
+    suspend fun discardUnreadable(): Boolean
 }
 
 /**
@@ -84,6 +102,7 @@ object NoSettingsLedger : SettingsLedger {
     override suspend fun recordIfAbsent(entry: LedgerEntry): Boolean = true
     override suspend fun entries(): Result<List<LedgerEntry>> = Result.success(emptyList())
     override suspend fun remove(entry: LedgerEntry) = Unit
+    override suspend fun discardUnreadable(): Boolean = false
 }
 
 /** Reads the value before and records it. False: the caller skips the write. */
@@ -133,10 +152,11 @@ class SettingsLedgerStore(private val dataStore: DataStore<Preferences>) : Setti
         }
         true
     } catch (e: IOException) {
-        Log.w(TAG, "ledger not writable, refusing the write", e)
+        // Class name only: a JSONException message carries the whole ledger text (SR-033).
+        Log.w(TAG, "ledger not writable, refusing the write (${e.javaClass.simpleName})")
         false
     } catch (e: JSONException) {
-        Log.w(TAG, "ledger not decodable, refusing the write", e)
+        Log.w(TAG, "ledger not decodable, refusing the write (${e.javaClass.simpleName})")
         false
     }
 
@@ -155,6 +175,24 @@ class SettingsLedgerStore(private val dataStore: DataStore<Preferences>) : Setti
     override suspend fun remove(entry: LedgerEntry) {
         dataStore.edit { prefs ->
             prefs[KEY_ENTRIES] = encode(decode(prefs[KEY_ENTRIES]).filterNot { it.settingId == entry.settingId })
+        }
+    }
+
+    override suspend fun discardUnreadable(): Boolean = lock.withLock {
+        try {
+            var replaced = false
+            dataStore.edit { prefs ->
+                try {
+                    decode(prefs[KEY_ENTRIES])
+                } catch (e: JSONException) {
+                    prefs[KEY_ENTRIES] = encode(emptyList())
+                    replaced = true
+                }
+            }
+            replaced
+        } catch (e: IOException) {
+            Log.w(TAG, "ledger not writable, nothing discarded (${e.javaClass.simpleName})")
+            false
         }
     }
 
@@ -218,6 +256,23 @@ class SettingsLedgerStore(private val dataStore: DataStore<Preferences>) : Setti
     companion object {
         /** DataStore stores this as `files/datastore/settings_ledger.preferences_pb`. */
         const val DATASTORE_NAME = "settings_ledger"
+
+        /**
+         * What a corrupt file is replaced with (AD-042): not a JSON array, so the
+         * ledger still reads as unreadable (M3), but can be edited — and so
+         * discarded by the user — again.
+         */
+        const val CORRUPT_MARKER = "corrupt ledger file replaced"
+
+        /** The only way the ledger's DataStore is built: once in `SystemGraph` (M6), and by the tests. */
+        fun createDataStore(produceFile: () -> File): DataStore<Preferences> =
+            PreferenceDataStoreFactory.create(
+                corruptionHandler = ReplaceFileCorruptionHandler { e ->
+                    Log.w(TAG, "ledger file corrupt, marked unreadable (${e.javaClass.simpleName})")
+                    preferencesOf(KEY_ENTRIES to CORRUPT_MARKER)
+                },
+                produceFile = produceFile,
+            )
 
         private const val TAG = "SettingsLedger"
         private const val TYPE_GLOBAL = "global"

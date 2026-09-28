@@ -102,8 +102,7 @@ object BluetoothReadOnlySettings {
         explanation = "Whether a dedicated chip encodes Bluetooth audio instead of the " +
             "main processor. Offload saves battery and takes the audio out of this " +
             "app's equaliser path.",
-        whyReadOnly = "A system property, not a setting: only a rooted phone can " +
-            "change it.",
+        whyReadOnly = "A system property, not a setting — this app cannot write it.",
     )
 
     val maxConnectedAudioDevices = ReadOnlySystemSetting(

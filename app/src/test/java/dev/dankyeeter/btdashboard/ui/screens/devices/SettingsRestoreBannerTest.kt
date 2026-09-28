@@ -5,6 +5,7 @@ import android.app.Application
 import android.os.Looper
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -12,12 +13,14 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.LedgerEntry
+import dev.dankyeeter.btdashboard.ui.BtDashboardApp
 import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import dev.dankyeeter.btdashboard.ui.tuning.RestoreBanner
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -28,6 +31,7 @@ import org.robolectric.annotation.Config
 
 private const val HEAD = "Settings changed by the process are still active."
 private const val SHOW_NAMELESS = "bluetooth_show_devices_without_names"
+private const val FORGET_REFUSED = "Nothing was forgotten — the list could not be changed just now."
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -37,18 +41,93 @@ class SettingsRestoreBannerTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     private var confirmed = 0
+    private var readAgain = 0
+    private var forgotten = 0
 
-    private fun showBanner(banner: RestoreBanner) {
+    private fun showBanner(banner: RestoreBanner, report: List<String>? = null, forgetRefused: Boolean = false) {
         composeRule.setContent {
             BtDashboardTheme {
                 SettingsRestoreBannerContent(
                     banner = banner,
-                    report = null,
+                    report = report,
                     restoring = false,
+                    forgetRefused = forgetRefused,
                     onConfirm = { confirmed++ },
                     onReportRead = {},
+                    onReadAgain = { readAgain++ },
+                    onForget = { forgotten++ },
                 )
             }
+        }
+    }
+
+    @Test
+    fun `an unreadable list offers Read again first and Forget only after a read that failed (AK-T054-9)`() {
+        showBanner(RestoreBanner.Unreadable)
+
+        composeRule.onNodeWithText(
+            "The list of changed settings could not be read, so nothing can be put back until it can be read again.",
+        ).assertExists()
+        composeRule.onNodeWithText("Forget this list").assertDoesNotExist()
+        composeRule.onNodeWithText("Read again").assertIsEnabled().performClick()
+        assertEquals(1, readAgain)
+
+        composeRule.onNodeWithText("Forget this list").performClick()
+        composeRule.onNodeWithText("Forget the list of changed settings?").assertExists()
+        composeRule.onNodeWithText(
+            "This does not put anything back — whatever this app changed stays as it is now. It only clears " +
+                "the record, so this banner goes away and future changes start a fresh list. Settings changed " +
+                "before this point can no longer be put back automatically.",
+        ).assertExists()
+        composeRule.onNodeWithText("Cancel").performClick()
+        composeRule.onNodeWithText("Forget the list of changed settings?").assertDoesNotExist()
+        assertEquals("Cancel changes nothing", 0, forgotten)
+
+        composeRule.onNodeWithText("Forget this list").performClick()
+        composeRule.onNodeWithText("Forget the list").performClick()
+        assertEquals(1, forgotten)
+    }
+
+    @Test
+    fun `a forget that changed nothing says so and the banner stays (V11)`() {
+        showBanner(RestoreBanner.Unreadable, forgetRefused = true)
+
+        composeRule.onNodeWithText(HEAD).assertExists()
+        composeRule.onNodeWithText(FORGET_REFUSED).assertExists()
+    }
+
+    @Test
+    fun `the report after the way back is titled Settings put back (AK-T054-10)`() {
+        showBanner(RestoreBanner.Hidden, report = listOf("Everything is back."))
+
+        composeRule.onNodeWithText("Settings put back").assertExists()
+        composeRule.onNodeWithText("Back to before").assertDoesNotExist()
+    }
+
+    @Test
+    fun `forget is not started while the banner is not unreadable (V11)`() {
+        val viewModel = DeviceProfilesViewModel(ApplicationProvider.getApplicationContext())
+
+        viewModel.discardUnreadableLedger()
+
+        // Without the guard the readable ledger answers false and the refusal line would show.
+        repeat(25) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(20)
+        }
+        assertFalse(viewModel.forgetRefused.value)
+    }
+
+    @Test
+    fun `the setup wizard carries the banner too (SR-031)`() {
+        runBlocking { SystemGraph.settingsLedger.recordIfAbsent(LedgerEntry.Global(SHOW_NAMELESS, prior = null)) }
+
+        composeRule.setContent { BtDashboardTheme { BtDashboardApp() } }
+
+        // Robolectric grants no runtime permission, so the gate is the full setup.
+        composeRule.onNodeWithText("Setup").assertExists()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasText(HEAD)).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
