@@ -38,8 +38,8 @@ sealed interface ComparisonEnd {
     /** The way back ran. */
     data object SettingsPutBack : ComparisonEnd
 
-    /** Stop in the measurement notification (AD-039). */
-    data object StoppedOutside : ComparisonEnd
+    /** "Cancel" on the screen and "Stop" in the measurement notification: one path (AD-039, AK-T054-2). */
+    data object Cancelled : ComparisonEnd
 }
 
 /** What the comparison section shows. Nothing of it is stored (AD-037). */

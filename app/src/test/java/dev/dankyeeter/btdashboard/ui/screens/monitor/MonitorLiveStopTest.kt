@@ -127,7 +127,7 @@ class MonitorLiveStopTest {
         awaitNextPass()
         assertNotEquals("arm A took readings off the screen", arm, viewModel.comparison.ui.value.running)
 
-        viewModel.comparison.end(ComparisonEnd.StoppedOutside)
+        viewModel.comparison.end(ComparisonEnd.Cancelled)
         assertPollStops()
     }
 

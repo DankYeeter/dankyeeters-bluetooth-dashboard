@@ -149,7 +149,7 @@ open class MeasurementService : Service() {
 
     /** Stop in the notification: exactly these four steps, and no write among them (V16). */
     private fun stopMeasurement() {
-        ActiveComparison.end(ComparisonEnd.StoppedOutside)
+        ActiveComparison.end(ComparisonEnd.Cancelled)
         MonitorGraph.engine.stopDeepCapture()
         finish()
     }

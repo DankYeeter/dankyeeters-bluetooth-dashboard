@@ -342,6 +342,17 @@ class AcceptanceCriteriaGrepTest {
         )
     }
 
+    /** AK-T054-3 — the process sentence that said only Arm A lives in memory is gone everywhere. */
+    @Test
+    fun `the old process sentence is gone`() {
+        assertNone(
+            criterion = "AK-T054-3",
+            files = SourceTree.appSources,
+            pattern = Regex("""Arm A lives only in this app's memory|being killed by Android between arms"""),
+            why = "the process sentence was replaced (UI_SPEC F-015); an arm survives the screen, not the process",
+        )
+    }
+
     /**
      * AK-T047-13 — the comparison's way back is D2's banner and its flow:
      * `SettingsRestore` is built in one place only, and the Monitor screen hands

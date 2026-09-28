@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
@@ -54,17 +55,23 @@ internal fun ComparisonSection(
     onMeasure: (Measure) -> Unit,
     onCompare: () -> Unit,
     onCheck: () -> Unit,
+    /** "New comparison", and "Cancel" after a failed pin, when nothing runs to be stopped. */
     onReset: () -> Unit,
     restoreButton: @Composable () -> Unit,
+    /** "Cancel" while a comparison runs: the very call the notification's "Stop" makes (AK-T054-2). */
+    onCancel: () -> Unit = { ActiveComparison.end(ComparisonEnd.Cancelled) },
+    /** Whether the measurement service holds the arms off the screen (AD-039 point 5). */
+    keptOffScreen: Boolean = MeasurementService.foreground.collectAsStateWithLifecycle().value,
 ) {
     val topKbps = topStepKbps(snapshot.codec?.sampleRateHz)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Compare a change, before and after", style = MaterialTheme.typography.titleSmall)
         when (state.phase) {
             ComparisonPhase.CHOOSE -> Choose(snapshot, state, topKbps, onMeasure, onCompare)
-            ComparisonPhase.PIN_AND_CHECK -> PinAndCheck(state, topKbps, onCompare, onReset)
-            ComparisonPhase.ARM_A, ComparisonPhase.ARM_B -> ArmProgress(state, onReset, restoreButton)
-            ComparisonPhase.INSTRUCT -> Instruct(state, onCheck, onReset, restoreButton)
+            ComparisonPhase.PIN_AND_CHECK ->
+                PinAndCheck(state, topKbps, onCompare, if (state.pinFailure == null) onCancel else onReset)
+            ComparisonPhase.ARM_A, ComparisonPhase.ARM_B -> ArmProgress(state, keptOffScreen, onCancel, restoreButton)
+            ComparisonPhase.INSTRUCT -> Instruct(state, onCheck, onCancel, restoreButton)
             ComparisonPhase.RESULT -> Result(snapshot, state, onReset, restoreButton)
         }
     }
@@ -88,6 +95,7 @@ private fun Choose(
     state.alreadyApplies?.let {
         Text("${it.displayName} already applies — there is nothing to compare a change against.")
     }
+    state.measure?.let { measure -> state.ended?.let { endedSentence(it, measure) } }?.let { Text(it) }
     Measure.entries.forEach { measure ->
         Row(
             modifier = Modifier.selectable(
@@ -138,7 +146,12 @@ private fun PinAndCheck(state: ComparisonUi, topKbps: Int, onRetry: () -> Unit, 
 }
 
 @Composable
-private fun ArmProgress(state: ComparisonUi, onCancel: () -> Unit, restoreButton: @Composable () -> Unit) {
+private fun ArmProgress(
+    state: ComparisonUi,
+    keptOffScreen: Boolean,
+    onCancel: () -> Unit,
+    restoreButton: @Composable () -> Unit,
+) {
     val run = state.running?.run ?: return
     state.restart?.let { Text(restartLine(it)) }
     if (state.phase == ComparisonPhase.ARM_B) state.readBack?.let { Text(readBackSentence(state.measure, it)) }
@@ -149,6 +162,7 @@ private fun ArmProgress(state: ComparisonUi, onCancel: () -> Unit, restoreButton
             "${formatSpan(run.observedMs)} of ${formatSpan(run.targetMs ?: ARM_TARGET_MS)} observed."
         },
     )
+    Text(if (keptOffScreen) ARM_KEEPS_COUNTING else ARM_NEEDS_THIS_SCREEN)
     TextButton(onClick = onCancel) { Text("Cancel") }
     restoreButton()
 }
@@ -190,7 +204,7 @@ private fun Result(
             is ComparisonResult.NotComparableResult -> result.reasons.forEach { Text(notComparableSentence(it)) }
             null -> Unit
         }
-        frameLines(armA, armB).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        frameLines(armA, armB, state.result).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         boundaryLines(snapshot, armA).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         Text(PROCESS_END, style = MaterialTheme.typography.bodySmall)
     }
@@ -198,17 +212,21 @@ private fun Result(
     restoreButton()
 }
 
-/** The measurement frame (AK-14): durations, step, cadence, book, what was not checked, drift, scope, limit. */
-private fun frameLines(armA: Arm, armB: Arm): List<String> {
-    val link = armA.run.link
-    val step = LdacQuality.chipLabel(LdacQuality.codeOf(link?.mode), link?.sampleRateHz)
+/**
+ * The measurement frame (AK-14): durations, each arm's own step and codec (F-018), cadence, the
+ * read-back of the counted arm B (F-017), book, what was not checked, drift, scope, limit.
+ */
+private fun frameLines(armA: Arm, armB: Arm, result: ComparisonResult?): List<String> {
     val cadences = (armA.run.cadencesMs + armB.run.cadencesMs).sorted().joinToString(" or ") { formatSpan(it) }
     val books = listOf(armA.start, armA.end, armB.start, armB.end)
     val notChecked = Condition.entries.filter { c -> books.any { it[c] !is ConditionValue.Read } }
     return buildList {
         add("Arm A ran for ${formatSpan(armA.run.observedMs)}, Arm B for ${formatSpan(armB.run.observedMs)}.")
-        add("Both pinned to $step, ${link?.codec?.displayName ?: "codec not read"}.")
+        add(armLinkLine("A", armA))
+        add(armLinkLine("B", armB))
         add("Read every $cadences.")
+        // The book at the start of the arm that counted, the one the verification was read from (AD-035).
+        if (result is ComparisonResult.Compared) add(readBackSentence(result.measure, result.after.start))
         Condition.entries.forEach { c ->
             add(
                 "${c.displayName}: ${armA.start.shown(c)} at the start of Arm A, ${armA.end.shown(c)} at the end. " +
@@ -232,7 +250,21 @@ private fun frameLines(armA: Arm, armB: Arm): List<String> {
     }
 }
 
-/** AK-16 (AD-036): the app names the limit of its advice, beside the facts it could read. */
+/** One arm's step and codec from its own link; "pinned" only when the link was not adaptive. */
+private fun armLinkLine(armName: String, arm: Arm): String {
+    val link = arm.run.link
+    val step = if (link?.adaptive == false) {
+        LdacQuality.chipLabel(LdacQuality.codeOf(link.mode), link.sampleRateHz)
+    } else {
+        "not pinned (ABR)"
+    }
+    return "Arm $armName: $step, ${link?.codec?.displayName ?: "codec not read"}."
+}
+
+/**
+ * AK-16 (AD-036): the app names the limit of its advice, beside the facts it could read — and
+ * those only while the pairing connected now is the one arm A ran on (F-016, AK-15).
+ */
 private fun boundaryLines(snapshot: LinkLiveSnapshot, armA: Arm): List<String> {
     val threeMbps = when (snapshot.pairing?.threeMbps) {
         true -> "yes"
@@ -240,14 +272,39 @@ private fun boundaryLines(snapshot: LinkLiveSnapshot, armA: Arm): List<String> {
         null -> "not readable"
     }
     val mtu = snapshot.ldac?.stack?.effectiveMtu?.toString() ?: "not readable"
+    val pairingFacts = if (snapshot.device?.address == armA.run.link?.address) {
+        listOf("3 Mbps EDR: $threeMbps — read on this pairing.", "Effective MTU: $mtu — read on this pairing.")
+    } else {
+        listOf(
+            "3 Mbps EDR and effective MTU are not shown — the connected pairing has changed since this " +
+                "comparison ran.",
+        )
+    }
     return listOf(
         "Whether this pairing can carry ${topStepKbps(armA.run.link?.sampleRateHz)} kbps at all is not something " +
             "this phone can determine — that needs the packet type, and it is not readable without BQR access " +
             "this app does not have.",
-        "3 Mbps EDR: $threeMbps — read on this pairing.",
-        "Effective MTU: $mtu — read on this pairing.",
-        "Packet type and retransmission rate: not readable without BQR.",
-    )
+    ) + pairingFacts + "Packet type and retransmission rate: not readable without BQR."
+}
+
+/**
+ * Why the last comparison stopped without a result (UI_SPEC F-019), named from the arm's own
+ * end where it has one; null for the user's own "Cancel" or "Stop", which need no reason.
+ */
+internal fun endedSentence(ended: ComparisonEnd, measure: Measure): String? {
+    val why = when (ended) {
+        ComparisonEnd.Cancelled -> return null
+        ComparisonEnd.SettingsPutBack -> "when settings were put back"
+        is ComparisonEnd.LinkChanged -> when (ended.end) {
+            RunEnd.CODEC_CHANGED -> "because the codec left LDAC"
+            RunEnd.QUALITY_CHANGED -> "because the LDAC quality changed"
+            RunEnd.DISCONNECTED -> "because the headphone disconnected"
+            RunEnd.SAMPLE_RATE_CHANGED -> "because the sample rate changed"
+            RunEnd.RATE_UNREADABLE -> "because the rate stopped being readable"
+            else -> "because the link changed"
+        }
+    }
+    return "Comparing ${measure.displayName} was stopped $why — no result, and neither arm counts."
 }
 
 internal fun verdictSentence(verdict: Verdict, pValue: Double): String {
@@ -391,9 +448,21 @@ private val NotComparable.Where.words: String
 internal const val RESULT_TAG = "comparison-result"
 
 internal const val PROCESS_END =
-    "A comparison does not survive the app's process ending — Arm A lives only in this app's memory. Leaving " +
-        "this screen or the app keeps it; being killed by Android between arms loses it, and the comparison " +
-        "starts over."
+    "A comparison does not survive the app's process ending — Arm A and Arm B live only in this app's memory. " +
+        "Once an arm has started, leaving this screen, switching apps, or the screen turning off does not pause " +
+        "or restart it; only the process ending does, and then the comparison starts over."
+
+/** UI_SPEC F-015, verbatim (AK-T054-1): under the progress line while an arm counts. */
+internal const val ARM_KEEPS_COUNTING =
+    "This keeps counting if you leave this screen, switch apps, or the screen turns off — only stopping the " +
+        "app's process ends it early. Stop it here or from the notification."
+
+/**
+ * When Android refused the measurement service, the screen says so instead of the announcement
+ * (AD-039 point 5). UI_SPEC names no wording; this follows the deep capture's.
+ */
+internal const val ARM_NEEDS_THIS_SCREEN =
+    "Android did not let this comparison run in the background — keep this screen open until this arm ends."
 
 private val ARM_MINUTES = ARM_TARGET_MS.milliseconds.inWholeMinutes
 

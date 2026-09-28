@@ -146,7 +146,7 @@ class MeasurementServiceTest {
 
         assertEquals(Service.START_NOT_STICKY, result)
         assertEquals(ComparisonPhase.CHOOSE, control.ui.value.phase)
-        assertEquals(ComparisonEnd.StoppedOutside, control.ui.value.ended)
+        assertEquals(ComparisonEnd.Cancelled, control.ui.value.ended)
         assertEquals(Measure.USB_CABLE_OFF, control.ui.value.measure)
         assertEquals(0L, MonitorGraph.engine.status.value.deepCaptureUntilMs)
         assertEquals("the comparison's own pin, and nothing after it", 1, pins)

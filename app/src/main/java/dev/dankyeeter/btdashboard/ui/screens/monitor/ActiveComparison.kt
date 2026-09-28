@@ -20,7 +20,10 @@ object ActiveComparison {
     private val _held = MutableStateFlow<Held?>(null)
     val held: StateFlow<Held?> = _held.asStateFlow()
 
-    /** Only [ComparisonController], in step with its own phase change. */
+    /**
+     * [ComparisonController], in step with its own phase change; and null from
+     * `MonitorViewModel.onCleared`, once the comparison is gone with its ViewModel.
+     */
     internal fun set(held: Held?) {
         _held.value = held
     }
