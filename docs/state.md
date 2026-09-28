@@ -107,6 +107,24 @@ selbst gesetzt vom developer („Nothing was forgotten — the list could not be
 changed just now.“) → ui-ux im Review; 0-Byte-Ledger liest als leer (M3-Luecke,
 theoretisch) → Security am Ende. K-2 „root“: `SystemAccessScreen.kt:128`,
 `SetupWizardScreen.kt:408` sagen korrekt „not root“ — kein Befund.
+**23:4x:** T-055c erledigt und gemergt (`2a575b0`; MeasurementService, F-014,
+DEEP-Grenze; Suite 2646/0 laut developer im Worktree). Entscheid: „Cancel“ und
+„Stop“ ein Pfad (Option A, in T-055d). T-058s Security PASS (W1–W7,
+SR-034..038). Laufen: T-055d (X-4, Branch), T-058a (Y-1, Worktree
+`t058a-pruefstand`). Danach T-058b ∥ T-058c, dann ein QA-Retest + ui-ux-Review
+der selbst gesetzten Texte + Security-Pruefdurchgang.
+**23:57:** T-058a gebaut auf `t058a-pruefstand` (`117b912`, Suite 2696/0 laut
+developer; `88a8898` aendert eine Zeile `ComparisonSection.kt`). Merge nach
+T-055d; danach Fortsetzung T-058a: Move `readBackSentence`/`ConditionBook.shown`/
+`Condition.displayName` nach `ConditionStatus.kt` (AD-044 P. 5) und
+`readConditions` weg vom Main-Dispatcher (alle 2 s Settings-Lesungen auf dem
+UI-Thread, ungemessen, AK-1).
+**00:06:** T-055d erledigt (`94b15fe`; F-015..F-019-Oberflaeche, Sample-Rate-Ende,
+Cancel=Stop als `Cancelled`, `@Volatile`, Engine-Tests haengen nicht mehr),
+T-058a gemergt. **Suite 2709/0** (Director 00:06, `6be9c2f`). Fixzyklus T-055
+damit gebaut; eigene Texte der developer (T-055c/d, T-058a Annahmen 1–4) →
+ui-ux-Review. Laufen: T-058a-Fortsetzung (Move + Dispatcher), architect
+Nachtrag `StoppedOutside`→`Cancelled`.
 **T-057b Spec fertig (23:16):** `UI_SPEC.md:3886-4210`, AK-T057-1..10.
 Zwei Designfragen im autonomen Lauf nach Empfehlung entschieden (Nutzer
 nachtraeglich vorlegen): Sprungknoepfe an beiden Orten; P-001-Panel nicht
