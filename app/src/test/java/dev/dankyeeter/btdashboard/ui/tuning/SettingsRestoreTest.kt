@@ -134,6 +134,7 @@ class SettingsRestoreTest {
         ledger: SettingsLedger,
         connected: List<String> = listOf(ADDRESS_HERE),
         saveProfile: suspend (DeviceProfile) -> Unit = profiles::save,
+        endMeasurement: () -> Unit = {},
     ) = SettingsRestore(
         ledger = ledger,
         globals = globals,
@@ -146,7 +147,26 @@ class SettingsRestoreTest {
             log += "ldac $quality"
             CodecApplyOutcome.Applied("LDAC")
         },
+        endMeasurement = endMeasurement,
     )
+
+    /** AD-040 part 3: what a comparison pinned is about to be put back, so it stops before the first write. */
+    @Test
+    fun `the way back ends a running comparison before its first write, and only when something is held`() = runTest {
+        profiles.save(DeviceProfile(deviceKey = KEY_HERE, name = "Bathys", codecPreference = LDAC_990))
+        val order = mutableListOf<String>()
+        fun logged(ledger: SettingsLedger) = restore(
+            ledger,
+            saveProfile = { order += "save"; profiles.save(it) },
+            endMeasurement = { order += "end measurement" },
+        )
+
+        logged(FakeLedger()).restoreAll()
+        assertTrue("nothing held, nothing ended", order.isEmpty())
+
+        logged(FakeLedger(listOf(LedgerEntry.Global(AVRCP, prior = "avrcp14")))).restoreAll()
+        assertEquals(listOf("end measurement", "save"), order)
+    }
 
     @Test
     fun `everything goes back, Autoapply first, and only what did not stays held`() = runTest {

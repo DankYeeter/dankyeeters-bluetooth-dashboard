@@ -14,6 +14,8 @@ import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfileStore
 import dev.dankyeeter.btdashboard.system.devices.LedgerEntry
 import dev.dankyeeter.btdashboard.system.devices.SettingsLedger
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ActiveComparison
+import dev.dankyeeter.btdashboard.ui.screens.monitor.locksLdac
 import dev.dankyeeter.btdashboard.ui.screens.monitor.rawAddressFor
 import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -221,8 +223,11 @@ object LdacTuning {
      * @return what the link did. A request that was never made — another one
      *   in flight, or the value before not recordable — is
      *   [CodecApplyOutcome.Unavailable], never [CodecApplyOutcome.Applied] (M16).
+     *   So is every request while a comparison arm runs or waits for arm B:
+     *   the lock sits here, on the one path both chip rows take (AD-040).
      */
     suspend fun pin(quality: Long, deviceKey: String? = null, shownAddress: String? = null): CodecApplyOutcome {
+        if (locksLdac(ActiveComparison.held.value?.phase)) return CodecApplyOutcome.Unavailable(LOCKED)
         if (_state.value.busy || !gate.tryLock()) return CodecApplyOutcome.Unavailable(BUSY)
         try {
             _state.value = LdacTuningState(busy = true)
@@ -355,6 +360,9 @@ object LdacTuning {
         "the value before could not be recorded, so it could not be put back later"
 
     private const val BUSY = "another LDAC quality request is still running"
+
+    internal const val LOCKED =
+        "a comparison is running, and changing it now would make the two arms not the same measurement"
 }
 
 /**

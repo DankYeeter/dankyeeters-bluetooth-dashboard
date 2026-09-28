@@ -327,7 +327,8 @@ data class RunLink(
     val sampleRateHz: Int?,
 )
 
-private fun LinkLiveSnapshot.runLink() =
+/** The link this reading is on; a comparison arm resumes only on the same one (AD-040). */
+fun LinkLiveSnapshot.runLink() =
     RunLink(device?.address, codec?.family, ldac?.mode, ldac?.isAdaptive, codec?.sampleRateHz)
 
 /**

@@ -15,6 +15,8 @@ import dev.dankyeeter.btdashboard.system.devices.LedgerEntry
 import dev.dankyeeter.btdashboard.system.devices.SecureSettingsController
 import dev.dankyeeter.btdashboard.system.devices.SettingRead
 import dev.dankyeeter.btdashboard.system.devices.SettingsLedger
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ActiveComparison
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ComparisonEnd
 import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONException
@@ -52,11 +54,14 @@ class SettingsRestore(
     private val saveProfile: suspend (DeviceProfile) -> Unit,
     private val connected: suspend () -> List<BtAudioDevice>,
     private val requestLdac: suspend (address: String, quality: Long) -> CodecApplyOutcome,
+    /** Stops a running comparison: what it pinned is about to be put back (AD-040). */
+    private val endMeasurement: () -> Unit = { ActiveComparison.end(ComparisonEnd.SettingsPutBack) },
 ) {
 
     suspend fun restoreAll(): RestoreReport {
         val entries = ledger.entries().getOrElse { return RestoreReport(emptyList(), emptyList(), emptyList()) }
         if (entries.isEmpty()) return RestoreReport(emptyList(), emptyList(), emptyList())
+        endMeasurement()
 
         // First, and awaited: a connect during the way back must not re-apply a
         // profile wish. If it cannot be paused, nothing is written (M10).

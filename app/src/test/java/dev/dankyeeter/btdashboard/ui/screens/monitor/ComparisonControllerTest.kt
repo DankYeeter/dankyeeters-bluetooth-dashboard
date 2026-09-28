@@ -24,6 +24,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
 
 /** The comparison's phases against a fed reading sequence (AD-038 S3-6 test cases). */
@@ -33,6 +34,12 @@ class ComparisonControllerTest {
     private var dropoutTotal = 0L
     private var book: ConditionBook = books("usb")
     private val pins = mutableListOf<String?>()
+    private var family = CodecFamily.LDAC
+    private var quality = 1000L
+
+    /** The handle is process-wide; no test may leave a comparison behind for the next. */
+    @After
+    fun releaseHandle() = ActiveComparison.set(null)
 
     private fun books(usb: String): ConditionBook = mapOf(
         Condition.WIFI_RADIO to ConditionValue.Read("on"),
@@ -49,12 +56,16 @@ class ComparisonControllerTest {
             readBook = { _, _ -> book },
         )
 
-    /** Pinned 990, playing, the counter at [dropoutTotal]. */
+    /** Playing on [family] at [quality] (pinned 990 unless a test moves it), the counter at [dropoutTotal]. */
     private fun reading() = LinkLiveSnapshot(
         timestampMs = nowMs,
         device = LiveDeviceSnapshot(address = "XX:XX:XX:XX:37:8F", isConnected = true, isPlaying = true),
-        codec = LiveCodecSnapshot(family = CodecFamily.LDAC, sampleRateHz = 96_000, codecSpecific1 = 1000L),
-        ldac = LdacState.from(1000L, 96_000, LdacStackState(qualityMode = "HIGH", transmissionKbps = 990)),
+        codec = LiveCodecSnapshot(family = family, sampleRateHz = 96_000, codecSpecific1 = quality),
+        ldac = if (family == CodecFamily.LDAC) {
+            LdacState.from(quality, 96_000, LdacStackState(qualityMode = if (quality == ABR) "ABR" else "HIGH", transmissionKbps = 990))
+        } else {
+            null
+        },
         tx = A2dpTxStats(dropoutCount = dropoutTotal),
     )
 
@@ -74,13 +85,18 @@ class ComparisonControllerTest {
         }
     }
 
-    /** Chooses A5, pins, and counts arm A to its end with five dropouts; stops in Instruct. */
-    private fun TestScope.throughArmA(control: ComparisonController) {
+    /** Chooses A5 and pins; arm A is counting. */
+    private fun TestScope.intoArmA(control: ComparisonController) {
         control.feed()
         control.onMeasure(Measure.USB_CABLE_OFF)
         control.onCompare()
         runCurrent()
         assertEquals(ComparisonPhase.ARM_A, control.ui.value.phase)
+    }
+
+    /** Chooses A5, pins, and counts arm A to its end with five dropouts; stops in Instruct. */
+    private fun TestScope.throughArmA(control: ComparisonController) {
+        intoArmA(control)
         control.feedUntilTarget(dropoutAt = setOf(100, 200, 300, 400, 500))
 
         // AK-T047-9: the target line stands for one reading before the phase changes.
@@ -139,6 +155,7 @@ class ComparisonControllerTest {
         assertEquals(ComparisonPhase.PIN_AND_CHECK, state.phase)
         assertNull(state.running)
         assertEquals("the link still reads LDAC 660: waited 3 s", state.pinFailure)
+        assertNull("a failed pin holds no comparison", ActiveComparison.held.value)
     }
 
     @Test
@@ -194,7 +211,91 @@ class ComparisonControllerTest {
         assertNull(state.armA)
     }
 
+    /** AD-040 part 2: an arm that saw ABR is no longer on the pinned link; today it started again. */
+    @Test
+    fun `arm A seeing ABR ends the comparison instead of counting again`() = runTest {
+        val control = controller()
+        intoArmA(control)
+        repeat(10) { control.feed() }
+
+        quality = ABR
+        control.feed()
+
+        val state = control.ui.value
+        assertEquals(ComparisonPhase.CHOOSE, state.phase)
+        assertEquals(ComparisonEnd.LinkChanged("A", RunEnd.QUALITY_CHANGED), state.ended)
+        assertEquals(Measure.USB_CABLE_OFF, state.measure)
+        assertNull("no new arm", state.running)
+        assertNull(ActiveComparison.held.value)
+    }
+
+    /** Probe P5: twenty readings off LDAC were twenty restarts; now they are one end. */
+    @Test
+    fun `the codec leaving LDAC ends the comparison once`() = runTest {
+        val control = controller()
+        intoArmA(control)
+        repeat(3) { control.feed() }
+
+        family = CodecFamily.AAC
+        control.feed()
+        val ended = control.ui.value
+        repeat(19) { control.feed() }
+
+        assertEquals(ComparisonEnd.LinkChanged("A", RunEnd.CODEC_CHANGED), ended.ended)
+        assertEquals("later readings change nothing", ended, control.ui.value)
+    }
+
+    @Test
+    fun `a gap that comes back on another link ends the comparison`() = runTest {
+        val control = controller()
+        intoArmA(control)
+        repeat(30) { control.feed() }
+
+        quality = ABR
+        control.feed(stepMs = GAP_MS)
+
+        assertEquals(ComparisonEnd.LinkChanged("A", RunEnd.READING_GAP), control.ui.value.ended)
+        assertNull(control.ui.value.running)
+    }
+
+    @Test
+    fun `a link other than arm A's at the check ends the comparison instead of starting arm B`() = runTest {
+        val control = controller()
+        throughArmA(control)
+        book = books("none")
+
+        quality = ABR
+        control.feed()
+        control.onCheck()
+
+        val state = control.ui.value
+        assertEquals(ComparisonPhase.CHOOSE, state.phase)
+        assertEquals(ComparisonEnd.LinkChanged("B", null), state.ended)
+        assertNull("neither arm counts", state.armA)
+        assertNull(state.running)
+    }
+
+    /** AD-040 part 3 through AD-039's handle: the way back reaches the comparison without the screen. */
+    @Test
+    fun `ending through the process-wide handle stops the comparison and keeps the measure`() = runTest {
+        val control = controller()
+        intoArmA(control)
+        assertEquals(ComparisonPhase.ARM_A, ActiveComparison.held.value?.phase)
+
+        ActiveComparison.end(ComparisonEnd.SettingsPutBack)
+
+        val state = control.ui.value
+        assertEquals(ComparisonPhase.CHOOSE, state.phase)
+        assertEquals(ComparisonEnd.SettingsPutBack, state.ended)
+        assertEquals(Measure.USB_CABLE_OFF, state.measure)
+        assertNull(ActiveComparison.held.value)
+
+        control.onMeasure(Measure.NO_DISCOVERY)
+        assertNull("the line stands until a measure is tapped", control.ui.value.ended)
+    }
+
     private companion object {
+        const val ABR = 1003L
         const val STEP_MS = 1_000L
         const val GAP_MS = 130_000L
         const val MAX_READINGS = 2_000
