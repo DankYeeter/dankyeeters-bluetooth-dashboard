@@ -318,3 +318,6 @@ nicht Teil von T-005.
 - 2026-09-29 · T-059c am Stand d6d1890: PASS; V1–V21, W1–W3, W5–W7 wirksam. Ed25519: Peer-Eingabe wird ueber `Ed25519.decode` (`:107-119`) geprueft, kein Befund; KDoc `Ed25519.kt:200` falsch. W5-Ausnahme `AirPodsScanner.kt:57,60` vertretbar. README `:16`, `:155-156`, `BackupDocument.kt:14`, `core-hearing/src/main/AndroidManifest.xml:8` behaupten „no INTERNET/no network“ — falsch seit `4321cba`.
 | SR-039 | (Bestand) | niedrig | behoben (`ef15605`, `loggingEnabled` = `BuildConfig.DEBUG`, R8 faltet Release-Zweig; QA-Retest T-060r PASS) | 2026-09-29 |
 - 2026-09-29 · T-061a: B5 (priorLive unter der Sperre, `c58e503`) und B7 (`DeviceConnectionWatcher` loggt keine Rohadresse mehr, `e05c64a`) behoben; K-2-Rest `PrivilegedClient.kt:532` an T-062 gegeben.
+| SR-041 | Ledger-Sperre beim LDAC-Pinnen ueber drei `exec` ohne Zeitgrenze (`LdacTuning.kt:278`→`LiveLinkSource.kt:136-138`→`PrivilegedClient.kt:371`); Folge von `c58e503` (B5), widerspricht der `exec`-Ausnahme in AD-048; B6 nur teilweise behoben | mittel | offen | 2026-09-29 |
+
+- 2026-09-29 · T-063c am Stand 483d78b: CONCERNS. B5, B7 wirksam; K-2-Rest `PrivilegedClient.kt:540` behoben. B6 fuer Codec/HD-Audio und Ping wirksam, beim Pinnen nicht (SR-041). Beobachtung: `DeviceConnectionWatcher.kt:94` loggt namenloses Geraet mit `DeviceKey` (rueckrechenbar) → fester Text.
