@@ -32,31 +32,20 @@ internal object PairingTrace {
 
     private const val TAG = "PairingTrace"
 
-    /** Turned on only while the exchange is being investigated. */
-    var enabled: Boolean = true
-
     fun sent(packet: AdbPairingPacket) {
-        if (!enabled) return
         Log.i(TAG, "-> ${AdbPairingPacket.typeName(packet.type)} " +
             "len=${packet.payload.size} ${packet.payload.preview()}")
     }
 
     fun received(packet: AdbPairingPacket) {
-        if (!enabled) return
         Log.i(TAG, "<- ${AdbPairingPacket.typeName(packet.type)} " +
             "len=${packet.payload.size} ${packet.payload.preview()}")
     }
 
     fun keyDerived(key: ByteArray) {
-        if (!enabled) return
         // A fingerprint, not the key: enough to see whether two runs agree,
         // useless to anyone reading the log afterwards.
         Log.i(TAG, "key fp=${key.fingerprint()}")
-    }
-
-    fun note(message: String) {
-        if (!enabled) return
-        Log.i(TAG, message)
     }
 
     /**
