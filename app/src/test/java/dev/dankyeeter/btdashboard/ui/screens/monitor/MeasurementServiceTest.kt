@@ -273,7 +273,10 @@ class MeasurementServiceTest {
 
         val permissions = document.getElementsByTagName("uses-permission")
         val declared = (0 until permissions.length).map { (permissions.item(it) as org.w3c.dom.Element).getAttributeNS(ANDROID, "name") }
-        assertEquals(listOf("android.permission.INTERNET", "android.permission.QUERY_ALL_PACKAGES"), declared)
+        assertEquals(
+            listOf("android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE", "android.permission.QUERY_ALL_PACKAGES"),
+            declared,
+        )
 
         mainDirs().map { File(it, "AndroidManifest.xml") }.filter { it.isFile }
             .forEach { assertFalse("WAKE_LOCK in $it", "WAKE_LOCK" in it.readText()) }
