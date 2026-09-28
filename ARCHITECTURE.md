@@ -3113,6 +3113,227 @@ falsch); AK-20 `SettingsJumpsTest` (zehn Eintraege) und `MonitorViewModel`-Rueck
 
 ---
 
+### AD-048 — Codec- und HD-Audio-Aufrufe an den Helfer enden nach 15 s; ein unbeantworteter Aufruf sperrt die naechsten, nicht das Ledger (2026-09-29, Status: aktiv — B6 aus T-055s)
+
+**Kontext:** B6: Die Ledger-Sperre wird ueber Helferaufrufe gehalten, die kein Ende haben.
+Unter der Sperre laufen genau zwei Arten Helferaufruf: `PrivilegedCodecController.call`
+(Pinnen `LdacTuning.recordThenPin`, Applier `DeviceProfileApplier.kt:304` bei jedem Verbinden
+mit Codecwunsch seit AD-041, Rueckweg `SettingsRestore.putBack(Ldac)`) und
+`PrivilegedHdAudioController.call` (Applier `:262`, Rueckweg `putBack(HdAudio)`). Globals laufen
+in-App ueber `GlobalSettingsController`, nicht ueber den Helfer. Haengt der Helfer lebend (kein
+`DeadObjectException`), haelt der Aufrufer die Sperre fuer immer, und der Rueckweg wartet davor.
+Zwei Tatsachen tragen den Entwurf:
+1. **Ein Binder-Aufruf ist nicht abbrechbar.** `service.setCodecPreference(...)` blockiert einen
+   Thread in einer nativen Transaktion; Coroutine-Abbruch ist kooperativ, und `withContext` kehrt
+   erst zurueck, wenn sein Block fertig ist. Ein `withTimeout` um den bestehenden
+   `withContext(Dispatchers.IO) { ... }` beendet **nichts**. Der Timeout muss den Aufruf
+   zuruecklassen, nicht abbrechen. (Randbedingung: Kotlin-Coroutines-Semantik, gilt fuer jede
+   blockierende Transaktion; `Thread.interrupt` erreicht Binder nicht.)
+2. **Ein zurueckgelassener Aufruf kann spaeter noch schreiben.** Loest sich der Haenger, landet die
+   Schreibung eventuell nach einem Rueckweg, der die Sperre inzwischen bekommen, zurueckgestellt und
+   den Eintrag vergessen hat — dann steht der App-Wert ohne Ausgangszustand da (AK-11, Klasse
+   SR-032).
+
+Obergrenze des Helfers selbst, aus dem Code gelesen, nicht gemessen: A2DP-Bindung
+`BIND_TIMEOUT_SECONDS = 8` plus Ruecklesen `SETTLE_BUDGET_MS = 2_500` (`HelperBluetooth.kt:785-786`)
+plus die einzelnen Stack-Aufrufe.
+
+**Optionen:**
+- **A. Im Bestand bleiben.** Konsequenz: B6 bleibt; ein haengender Helfer blockiert Pinnen,
+  Autoapply und Rueckweg bis zum Prozessende.
+- **B. Timeout um den Sperrbereich** (`withTimeout` um `ledger.lock.withLock`). Konsequenz: wirkt
+  wegen Tatsache 1 gar nicht; wuerde er wirken, gaebe er die Sperre bei laufender Schreibung frei —
+  genau der Fall aus Tatsache 2.
+- **C. Timeout im Rueckweg** (nur `SettingsRestore`). Konsequenz: Pinnen und Autoapply haengen
+  weiter, und der Rueckweg wartet trotzdem auf die Sperre, die ein haengender Schreiber haelt.
+- **D. Timeout am Client-Aufruf, mit Einzelplatz.** Der Binder-Aufruf laeuft in einem eigenen
+  Scope, der Aufrufer wartet hoechstens 15 s. Solange ein zurueckgelassener Aufruf noch laeuft,
+  wird jeder weitere Codec-/HD-Audio-Aufruf **sofort** abgelehnt, ohne den Helfer zu erreichen.
+  Konsequenz: die Sperre ist nach hoechstens 15 s frei; eine spaete Schreibung kann nicht mehr mit
+  einer Rueckschreibung ueberlappen, weil die Rueckschreibung den Helfer gar nicht erreicht.
+
+**Entscheidung:** D, in `PrivilegedCallGuard` (der Guard ist schon der eine prozessweite Ort fuer
+den Zustand aller privilegierten Aufrufe, `PrivilegedCallGuard.SHARED`). Illustration, keine Vorgabe
+fuer Namen:
+
+```kotlin
+// PrivilegedCallGuard, neben succeeded()/failed()
+internal class PrivilegedCallGuard(
+    private val threshold: Int = FAILURES_BEFORE_PING,
+    private val forget: () -> Unit = PrivilegedConnection::forget,
+    private val callTimeoutMs: Long = HELPER_CALL_TIMEOUT_MS,   // 15_000
+) {
+    private val inFlight = AtomicReference<Deferred<*>?>(null)
+
+    /** Busy: an earlier call is unanswered. TimedOut: this one is. Exceptions from block pass through as today. */
+    suspend fun <T> bounded(block: () -> T): Bounded<T> {
+        val call = CALLS.async(start = LAZY) { block() }        // CALLS = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        if (!inFlight.compareAndSet(inFlight.get()?.takeUnless { it.isActive }, call)) {
+            call.cancel()
+            return Bounded.Busy
+        }
+        call.start()
+        return withTimeoutOrNull(callTimeoutMs) { Bounded.Done(call.await()) } ?: Bounded.TimedOut
+    }
+}
+```
+
+Die zwei `call`-Funktionen in `PrivilegedClient.kt` (Codec `:607`, HD-Audio `:712`) setzen nur
+`block(service, token)` in `guard.bounded { ... }`; Dekodieren, `succeeded()` und `failed()`
+bleiben, wie sie sind. `Busy` und `TimedOut` werden zu `Unavailable` mit Satz:
+- TimedOut: „the privileged helper did not answer within 15 s — whether the change took effect is
+  unknown" (bei Lesungen ohne Halbsatz nach dem Strich).
+- Busy: „the privileged helper has not answered an earlier request yet — nothing was sent".
+
+**Zustand nach Timeout (AK-11):** Der Eintrag steht schon vor dem Schreiben und **bleibt**. Das ist
+richtig, egal ob die Schreibung spaeter landet oder nie: Der Eintrag haelt den Wert *vor* der App,
+und genau dahin fuehrt der Rueckweg. Kein Schreiber entfernt einen Eintrag nach `Unavailable` (heute
+schon so: `recordThenPin`, `ifRecorded`); `SettingsRestore.forget` laeuft nur nach bestaetigtem
+Ruecklesen, also bleibt ein Eintrag nach Timeout/Busy als „pending" mit dem Satz oben im Bericht.
+Der Rueckweg laeuft damit durch: Globals und Profilwuensche werden zurueckgestellt, die
+Helfer-Eintraege bleiben offen und sind mit einem zweiten Tipp nachholbar; `putBack(Ldac)` ist dafuer
+schon idempotent (Profilwunsch gleich → nur die Live-Stufe). Dauer des Rueckwegs bei haengendem
+Helfer: hoechstens einmal 15 s, danach lehnt Busy sofort ab.
+
+**Timeout und Guard:** Ein Timeout ruft `failed()` **nicht** auf — dessen Ping `version()` ist
+selbst ein Binder-Aufruf und haengt am selben Helfer. Einmal `Log.w` genuegt. Stirbt der Helfer
+spaeter, feuert die bestehende Death-Recipient in `PrivilegedConnection` unabhaengig davon.
+
+**15 s:** oberhalb der Helfer-Budgets (8 s + 2,5 s, abgeleitet, nicht gemessen) und gleich dem
+Helfer-eigenen `exec`-Timeout (`PrivilegedServer.kt:772`). Ein Wert darunter wuerde einen langsamen,
+aber gesunden Helfer als „unbekannt" melden. Eine Konstante mit KDoc, die beide Quellen nennt; keine
+Einstellung.
+
+**Weggelassen:** `exec` (`EXEC_LOCK`) und `restartBluetooth`. Beide laufen nicht unter der
+Ledger-Sperre; `exec` hat den 15-s-Timeout schon im Helfer, und die Dauer eines Neustarts
+(`wait-for-state`) ist unbekannt — ein Timeout dort muesste erst gemessen werden.
+
+**Umsetzung — ein developer-Lauf (Z-1):**
+
+| Datei | Aenderung |
+|---|---|
+| `app/.../privileged/PrivilegedFailure.kt` | `PrivilegedCallGuard`: `callTimeoutMs`, `bounded`, Ergebnis `Done/Busy/TimedOut`, Konstante `HELPER_CALL_TIMEOUT_MS` |
+| `app/.../privileged/PrivilegedClient.kt` | zwei `call`-Funktionen ueber `guard.bounded`; `guard` als Konstruktorparameter (Default `SHARED`) an `PrivilegedCodecController` und `PrivilegedHdAudioController` — Muster wie `PrivilegedShellRunner` |
+| neu `app/src/test/.../privileged/PrivilegedTimeoutTest.kt` | Robolectric, Fake-Helfer nach `PrivilegedTransportTest.kt:375`, `PrivilegedConnection.accept(fake)` |
+
+**Rot-vorher** (Guard mit `callTimeoutMs = 200`; der Fake blockiert `setCodecPreference` an einem
+`CountDownLatch`, das im `finally` freigegeben wird):
+1. *Ein Helfer, der nie antwortet, haelt die Ledger-Sperre hoechstens bis zum Timeout.* Im Test:
+   `async(Dispatchers.IO) { ledger.lock.withLock { controller.apply(addr, ldac990) } }`, dann
+   `withTimeoutOrNull(5_000) { it.await() }` — erwartet nicht-null, `Unavailable` mit „did not
+   answer", danach `ledger.lock.isLocked == false`. **Wichtig:** der Test darf den Aufruf nicht
+   direkt in `withTimeout` legen — heute kehrt er dann nie zurueck, und die Suite haengt, statt rot
+   zu werden (Tatsache 1).
+2. *Waehrend ein Aufruf unbeantwortet ist, erreicht der naechste den Helfer nicht.* Nach Fall 1 ein
+   zweites `apply` → sofort `Unavailable` mit „earlier request", Aufrufzaehler des Fakes bleibt 1.
+   Dann Latch frei, auf das Ende des ersten warten, drittes `apply` erreicht den Fake (Zaehler 2).
+3. Dasselbe wie 1 fuer `PrivilegedHdAudioController.apply` (ein Test, kein Satz je Methode).
+
+Nicht beruehrt: `SettingsLedger.kt`, `SettingsRestore.kt`, `LdacTuning.kt`,
+`DeviceProfileApplier.kt` — sie behandeln `Unavailable` bereits als „nicht bestaetigt, Eintrag
+bleibt". Die zwei Saetze sind vom Architekten gesetzt → ui-ux-Review.
+
+**Konsequenzen:** Ein haengender Helfer kostet hoechstens 15 s und blockiert danach nur noch sich
+selbst. Ein verkeilter, aber lebender Helfer erscheint weiter als „verbunden"; jede Codec-/HD-Aktion
+sagt dann „earlier request". Ein haengender Binder-Thread bleibt im IO-Pool, bis der Helfer antwortet
+oder stirbt — hoechstens einer, wegen des Einzelplatzes.
+
+**Umkehrbarkeit:** leicht — zwei Dateien, keine Schnittstelle nach aussen, keine Persistenz.
+
+---
+
+### AD-049 — BQR-Callback im Helfer mit dessen vorhandenem Bootstrap, abgeholt statt zugestellt; zuerst eine Geraeteprobe, kein Bau (2026-09-29, Status: Entwurf — **Nutzer: AK-7-Freigabe**, **`security-reviewer` vor dem Bau** (AK-6/AK-10), **Geraeteprobe G0–G4 vor dem Bau**)
+
+**Kontext:** T-037 meldet „strukturell blockiert — `BluetoothAdapter` ist unter rohem `app_process`
+`null`; braucht echten App-Bootstrap oder AIDL (Bau-, kein Messschritt)". **Randbedingung dieses
+Befunds:** gemessen mit einer Scratch-Sonde, die nur `ActivityThread.systemMain()` aufrief
+(`docs/perf/T-037-callback-probe.md`, Befund 3). **Der Helfer tut mehr:**
+`HelperBluetooth.primeFrameworkInitializer()` (`HelperBluetooth.kt:586`) setzt genau den fehlenden
+`BluetoothServiceManager` in `BluetoothFrameworkInitializer`, und `adapterOrBuild()` (`:618`) baut den
+Adapter ueber den Konstruktor `BluetoothAdapter(IBluetoothManager, Context, AttributionSource)` mit
+Attribution `com.android.shell`. Am Geraet belegt am 21.08. (Android 16) fuer `getProfileProxy` und
+`setCodecConfigPreference`: Log `privileged helper: adapter attributed to com.android.shell`
+(`docs/archiv/HANDOVER.md:1567-1584`). Der Befund aus T-037 gilt also fuer die Sonde, **nicht** fuer
+den Helfer. Offen ist nicht mehr der Bootstrap, sondern ob der Stack die Registrierung ueber diesen
+Adapter annimmt — ein Mess-, kein Bauschritt.
+
+Weitere Kraefte:
+- **AK-7 ist zurueckgestellt:** „Bis dahin wird an diesem Kanal nichts gebaut." R-011 (die
+  verlangte Klaerung) liegt vor; die Freigabe selbst hat der Nutzer nicht gegeben.
+- **R-011:** `dumpsys bluetooth_manager` leert die BQR-Queue fuer alle [Q, doppelt]; der Callback
+  wird laut `AddLinkQualityEventToQueue` getrennt von der Queue ausgeliefert, also ohne sie zu
+  leeren [Q, **einfach abgefragt**] — genau das muss die Probe bestaetigen.
+  `bqr.event_mask`/`bqr.min_interval_ms` sind auf dem Pixel 11 Pro leer: Berichte kommen, wenn
+  ueberhaupt, ereignisgesteuert, nicht periodisch. T-036 sah BQR nur im Arm mit 2,4-GHz-WLAN.
+- **AK-6/AK-10:** jede Helfererweiterung einzeln vom `security-reviewer`.
+- **AK-1/AK-4:** keine Arbeit ohne offenen Monitor; die Registrierung kostet je Ereignis eine
+  Binder-Zustellung vom Stack an den Helfer.
+- **Bestand:** Die Naht existiert — `QualityReportSource` (`core-monitor/.../link/QualityReportSource.kt`)
+  mit Verbraucher `LinkSampleCollector` und `LinkQualitySample`. Die einzige Implementierung
+  `ReflectiveQualityReportSource` versucht die Registrierung aus der App-Uid.
+
+**Optionen:**
+- **A. Die App registriert selbst** (Bestand: `ReflectiveQualityReportSource`). Konsequenz: scheitert
+  an `BLUETOOTH_PRIVILEGED` (`signature|privileged`, R-011 Befund 4, [P]); die App-Uid bekommt sie
+  nie. Auf Android 17 nicht geprueft, aber ohne Weg.
+- **B. Der Helfer registriert mit seinem vorhandenen Bootstrap**, puffert die Berichte und die App
+  holt sie ab. Konsequenz: kein neuer Prozess, kein neues Bootstrap, ein Muster (Frage/Antwort als
+  String, AD-027); zwei neue Helferkommandos.
+- **C. Der Helfer ruft `IBluetooth.registerBluetoothQualityReportReadyCallback` roh ueber AIDL**,
+  am `BluetoothAdapter` vorbei. Konsequenz: versteckte, versionsabhaengige Signaturen
+  (`AttributionSource`-Parameter) per Reflection, ein Callback-Stub fuer ein verstecktes Interface.
+  Bruechiger als B, loest kein Problem, das B hat.
+- **D. Der Helfer stellt zu** (die App uebergibt einen Listener-Binder, der Helfer ruft in die App).
+  Konsequenz: erste Aufrufrichtung Helfer→App; die App muesste die Aufrufer-Uid pruefen; zweites
+  Muster neben Frage/Antwort. Groessere Angriffsflaeche fuer keinen Gewinn — Berichte kommen selten,
+  und der Monitor liest ohnehin im Takt.
+- **E. Im Bestand bleiben:** AD-036 bleibt, AK-16 sagt „strukturell nicht bestimmbar".
+
+**Entscheidung:** B, mit C nur als Rueckfall, falls die Probe an B scheitert und die Fehlermeldung
+auf den Adapter-Wrapper zeigt. **Bis G0–G4 belegt und AK-7 freigegeben sind, gilt E.**
+
+Zuschnitt fuer den spaeteren Bau (Entwurf, nicht beauftragt):
+- **Helfer** (`HelperBluetooth.kt`): `adapterOrBuild()` wiederverwenden;
+  `registerBluetoothQualityReportReadyCallback(Executor, Callback)` reflektiv; Ringpuffer 32
+  Eintraege, aeltester faellt, Zaehler der verworfenen. **Es verlaesst nur der
+  Link-Quality-Common-Teil den Helfer** (Pakettyp, RSSI, Sendeleistungsstufe, Wiederholungen,
+  Nicht-Empfang, AFH-Auslass, Zeitstempel) — keine Adresse, kein Name (PII, SR-030-Klasse).
+  Abmelden bei `watch(false)` und in der bestehenden Death-Recipient auf den App-Token
+  (`PrivilegedServer.watchApp`, `:210`) — der Callback ueberlebt keinen Verbraucher (die Luecke,
+  die `ReflectiveQualityReportSource.stop()` selbst benennt).
+- **Protokoll** (`IPrivilegedService.aidl`, `PrivilegedServer.kt`, `PrivilegedProtocol.kt`): zwei
+  Kommandos, String-Antwort wie alle anderen (AD-027): `watchQualityReports(token, on: boolean)` und
+  `takeQualityReports(token)` (leert **nur den Helfer-eigenen Puffer**, nie die Stack-Queue).
+  Helferversion +1.
+- **App:** `HelperQualityReportSource` implementiert das bestehende `QualityReportSource`
+  (`start` = watch an, `stop` = watch aus, `samples` = `take` im vorhandenen Monitor-Takt) und
+  **ersetzt** `ReflectiveQualityReportSource` in `MonitorGraph.kt:174`, die geloescht wird (A ist
+  ohne Weg; zwei Implementierungen fuer denselben Zweck waeren zwei Muster). Nur bei offenem Monitor
+  (AK-4); unlesbar → `Unavailable(Grund)` (AK-3).
+- **AK-16:** erst wenn G4 den Pakettyp liefert, eine eigene AD als Erweiterung von AD-036.
+
+**Am Geraet zu belegen** (performance-tuner, Scratch-Sonde wie T-037, aber mit den zwei
+Helferschritten aus `HelperBluetooth.kt:586-660` kopiert; kein Produktcode; App und Helfer beendet
+(F-014); nur passiv):
+
+| Nr | Belegt, wenn | Scheitert → |
+|---|---|---|
+| G0 | Sonde loggt „BluetoothFrameworkInitializer primed" und einen Adapter ungleich `null` unter Android 17 | T-037-Befund gilt auch fuer das Helfer-Rezept → C pruefen |
+| G1 | `registerBluetoothQualityReportReadyCallback` kehrt ohne `SecurityException` zurueck, Statuscode notiert | Grund notieren; bei Attributionsfehler C, bei Berechtigung E endgueltig |
+| G2 | mindestens ein Bericht erreicht den Callback (Bedingung wie T-036: 990 gepinnt, 2,4-GHz-WLAN, ≤ 30 min Warten) | „nicht belegt", nicht „negativ" — ohne Ereignis keine Aussage |
+| G3 | **ein einziges** `dumpsys bluetooth_manager` am Ende zeigt denselben Bericht noch in der Queue | Callback konsumiert doch → Option B verletzt AK-1 gegen andere Leser, zurueck an den Architekten |
+| G4 | der Bericht traegt einen lesbaren Pakettyp (z. B. 2-DH5/3-DH5) | B liefert AK-7-Felder ohne Pakettyp; AD-036 bleibt |
+
+Danach, vor Auslieferung: AK-1-Messreihe mit aktiver Registrierung (performance-tuner).
+
+**Konsequenzen:** Der naechste Schritt ist eine Probe von hoechstens einer Sitzung statt eines Baus.
+Gelingt sie, waechst der Helfer um zwei lesende Kommandos und einen Puffer ohne PII. Die App verliert
+eine Implementierung, die nie funktioniert hat.
+
+**Umkehrbarkeit:** leicht, solange nur entworfen; nach dem Bau mittel (Helferversion, AIDL).
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -3249,3 +3470,15 @@ falsch); AK-20 `SettingsJumpsTest` (zehn Eintraege) und `MonitorViewModel`-Rueck
   fand keine Seite. Wieder interessant, wenn ein Geraet die Seite nachweislich hat. (AD-045)
 - **`NetworkCallback` fuer das WLAN-Band.** Registrierung mit Lebensdauer fuer den Fall „WLAN
   verbunden, aber nicht aktives Netz". Wieder interessant, wenn der Fall am Geraet auftritt. (AD-046)
+- **Ein Timeout um die Ledger-Sperre oder nur im Rueckweg.** Ein Binder-Aufruf ist nicht
+  abbrechbar; der Timeout wirkte nicht, und wirkte er, gaebe er die Sperre bei laufender
+  Schreibung frei. Wieder interessant nie — der Ort ist der Client-Aufruf. (AD-048)
+- **Timeout fuer `exec` und den Bluetooth-Neustart.** Nicht unter der Ledger-Sperre; `exec` endet
+  im Helfer nach 15 s, die Neustartdauer ist ungemessen. Wieder interessant, wenn ein verkeilter
+  Helfer die Monitor-Lesungen haengen laesst oder der Neustart unter die Sperre kommt. (AD-048)
+- **Einen verkeilten, lebenden Helfer vergessen.** Der Ping waere selbst ein haengender
+  Binder-Aufruf. Wieder interessant, wenn „earlier request" am Geraet dauerhaft stehen bleibt. (AD-048)
+- **BQR ueber rohe `IBluetooth`-AIDL oder mit Zustellung Helfer→App.** Bruechige versteckte
+  Signaturen bzw. eine zweite Aufrufrichtung. Wieder interessant: AIDL, wenn G0/G1 am
+  Adapter-Wrapper scheitern; Zustellung, wenn Berichte so dicht kommen, dass der Monitor-Takt sie
+  verliert (Zaehler der verworfenen > 0). (AD-049)
