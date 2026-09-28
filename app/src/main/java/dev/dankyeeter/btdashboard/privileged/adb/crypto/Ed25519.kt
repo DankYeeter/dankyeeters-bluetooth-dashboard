@@ -197,7 +197,7 @@ internal object Ed25519 {
 
     fun scalarMultiplyBase(scalar: BigInteger): Point = scalarMultiply(scalar, B)
 
-    /** Whether the point satisfies the curve equation. Used to reject peer input. */
+    /** Whether the point satisfies the curve equation. Used only in tests, to check the curve constants. */
     fun isOnCurve(p: Point): Boolean {
         val (x, y) = p.toAffine()
         val x2 = x.multiply(x).mod(P)

@@ -50,7 +50,7 @@ private suspend fun DataStore<Preferences>.editOnIo(
  * with no queries beyond "give me all runs". Everything is serialised into a
  * single JSON string so a partial write can never leave half a run behind, and
  * any parse failure degrades to "no runs" instead of crashing. Nothing leaves
- * the device — there is no INTERNET permission.
+ * the device: this store never opens a network connection.
  */
 class AudiogramStore(context: Context) {
 

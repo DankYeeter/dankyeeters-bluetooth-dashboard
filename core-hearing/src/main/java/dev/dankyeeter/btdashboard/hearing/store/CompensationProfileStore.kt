@@ -27,7 +27,7 @@ private val Context.profileDataStore: DataStore<Preferences> by
 
 /**
  * Named compensation profiles, stored locally as JSON in DataStore. Nothing
- * leaves the device — the app has no INTERNET permission.
+ * leaves the device: this store never opens a network connection.
  *
  * A profile is a *complete* snapshot (audiogram + preset + slider + resulting
  * EQ) so that loading one never depends on the current hearing-test data still

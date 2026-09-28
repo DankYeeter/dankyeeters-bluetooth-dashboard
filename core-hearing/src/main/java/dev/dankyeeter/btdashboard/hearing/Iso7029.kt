@@ -382,8 +382,8 @@ object Iso7029 {
  * 41 it would still say 41 in ten years, and the curve would quietly stop
  * matching the person. A year is also the coarsest form of the fact that still
  * answers the question, which is the right amount of personal data to keep for
- * drawing a reference line. It never leaves the phone; there is no INTERNET
- * permission.
+ * drawing a reference line. It never leaves the phone: this class never
+ * opens a network connection.
  *
  * @param birthYear four-digit year as the user typed it. Validity is
  *   [isPlausible]'s business, not the constructor's — a store that threw on a

@@ -33,8 +33,8 @@ private suspend fun DataStore<Preferences>.editOnIo(
 ): Preferences = withContext(Dispatchers.IO) { edit(transform) }
 
 /**
- * Persists the EQ state locally with DataStore. Nothing leaves the device;
- * there is no INTERNET permission.
+ * Persists the EQ state locally with DataStore. Nothing leaves the device:
+ * this store never opens a network connection.
  *
  * Band gains are stored as a semicolon-separated string rather than 20 separate
  * keys so that a partial write can never leave a half-updated curve behind.
