@@ -3,7 +3,6 @@ package dev.dankyeeter.btdashboard.system.attach
 import android.util.Log
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
-import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -46,13 +45,13 @@ import java.util.concurrent.ConcurrentHashMap
  * moment it next happens, which is what will confirm or kill that explanation.
  *
  * So: one lock, held across every read-modify-write of [equalizers]. It is held
- * while `factory.create` runs, which is a short binder call into audioserver
+ * while `factory` runs, which is a short binder call into audioserver
  * that cannot call back into this class, so it cannot deadlock. [status] reads
  * the map without it on purpose — a status is a report, and blocking the UI
  * thread behind an attach to produce one would be the wrong trade.
  */
 class SessionAttachmentStrategy(
-    private val factory: SystemEqualizerFactory,
+    private val factory: (sessionId: Int) -> SystemEqualizer?,
 ) : EqAttachmentStrategy {
 
     override val kind = AttachmentKind.SESSION_BROADCAST
@@ -155,7 +154,7 @@ class SessionAttachmentStrategy(
                 equalizers.remove(sessionId)?.close()
             }
 
-            val eq = factory.create(sessionId)
+            val eq = factory(sessionId)
             if (eq == null) {
                 Log.w(TAG, "Could not attach to session $sessionId; will retry on the next event")
                 return false
@@ -200,7 +199,7 @@ class SessionAttachmentStrategy(
             var allBack = true
             sessions.forEach { sessionId ->
                 equalizers.remove(sessionId)?.close()
-                val eq = factory.create(sessionId)
+                val eq = factory(sessionId)
                 if (eq == null) {
                     Log.w(TAG, "re-attach to $sessionId failed; will retry on the next event")
                     allBack = false

@@ -118,17 +118,6 @@ interface CodecModeSignatures {
      */
     val codecNames: Set<String>
 
-    /**
-     * Encoded frames per second at this sample rate — **independent of the
-     * bitrate mode**, because a codec with a fixed frame length in samples
-     * emits the same number of frames per second whatever it spends on each.
-     *
-     * That independence is what makes it a sanity check rather than a signal:
-     * if the measured frame rate does not match this, the link is not what the
-     * config claims and no mode inference below it is worth anything.
-     */
-    fun framesPerSecond(sampleRateHz: Int): Double?
-
     /** The modes and their encoded frame sizes. Empty when unverified. */
     fun signatures(sampleRateHz: Int): List<CodecModeSignature>
 

@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 /**
  * The full pipeline of docs/archiv/COMPENSATION.md section 3.
@@ -65,7 +66,7 @@ class NalRCompensationCalculatorTest {
 
         val r = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
         expected.forEachIndexed { i, e ->
-            assertEquals("band ${EqBands.CENTER_FREQUENCIES_HZ[i]}", e, r.left.bandGainsDb[i], eps)
+            assertEquals("band ${EqBandLayout.DEFAULT.centersHz[i]}", e, r.left.bandGainsDb[i], eps)
         }
         assertEquals(-9.01f, r.eq.preGainDb, 1e-3f)
     }
@@ -133,7 +134,7 @@ class NalRCompensationCalculatorTest {
     fun `slope never exceeds 6 dB per octave`() {
         val brutal = listOf(0.0, 0.0, 0.0, 0.0, 0.0, 80.0, 80.0, 80.0)
         val r = calculator.computeDetailed(audiogram(brutal, brutal), CalibrationPresetRepository.GENERIC_ID, 1f, 1f)
-        val slope = NalRCompensationCalculator.maxSlopeDbPerOctave(r.left.bandGainsDb)
+        val slope = maxSlopeDbPerOctave(r.left.bandGainsDb)
         assertTrue("slope $slope", slope <= NalRCompensationCalculator.MAX_SLOPE_DB_PER_OCTAVE + 1e-9)
     }
 
@@ -143,8 +144,12 @@ class NalRCompensationCalculatorTest {
         val limited = NalRCompensationCalculator.limitSlope(input)
         limited.forEachIndexed { i, v -> assertTrue(v <= input[i] + 1e-9) }
         assertEquals(6.0, limited[8], eps)
-        assertTrue(NalRCompensationCalculator.maxSlopeDbPerOctave(limited) <= 6.0 + 1e-9)
+        assertTrue(maxSlopeDbPerOctave(limited) <= 6.0 + 1e-9)
     }
+
+    /** Largest absolute inter-band step. */
+    private fun maxSlopeDbPerOctave(values: List<Double>): Double =
+        (1 until values.size).maxOfOrNull { abs(values[it] - values[it - 1]) } ?: 0.0
 
     @Test
     fun `moving average is a true 3-point average with shortened ends`() {
@@ -296,8 +301,8 @@ class NalRCompensationCalculatorTest {
     @Test
     fun `result always has the expected shape and stays inside the EQ range`() {
         val r = calculator.compute(flatAudiogram(70.0), "noble_encore", 1f, 1f)
-        assertEquals(EqBands.COUNT, r.leftGainsDb.size)
-        assertEquals(EqBands.COUNT, r.rightGainsDb.size)
+        assertEquals(EqBandLayout.DEFAULT.bandCount, r.leftGainsDb.size)
+        assertEquals(EqBandLayout.DEFAULT.bandCount, r.rightGainsDb.size)
         (r.leftGainsDb + r.rightGainsDb).forEach {
             assertTrue(it in EqBands.MIN_GAIN_DB..EqBands.MAX_GAIN_DB)
         }

@@ -38,9 +38,6 @@ internal interface DpEffect {
 
     fun setLimiterEnabled(channelIndex: Int, enabled: Boolean)
 
-    /** Reads a pre-EQ gain back out of the framework. */
-    fun preEqBandGain(channelIndex: Int, bandIndex: Int): Float
-
     /** Unregisters the native effect from AudioFlinger. May throw. */
     fun release()
 }
@@ -108,9 +105,6 @@ private class FrameworkDpEffect(private val effect: DynamicsProcessing) : DpEffe
         limiter.isEnabled = enabled
         effect.setLimiterByChannelIndex(channelIndex, limiter)
     }
-
-    override fun preEqBandGain(channelIndex: Int, bandIndex: Int): Float =
-        effect.getPreEqBandByChannelIndex(channelIndex, bandIndex).gain
 
     override fun release() = effect.release()
 }
@@ -294,23 +288,6 @@ class DynamicsProcessingEqualizer internal constructor(
         )
     }
 
-    override val activeLayout: EqBandLayout get() = layout
-
-    override fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) = guard {
-        require(bandIndex in 0 until layout.bandCount) { "band index out of range: $bandIndex" }
-        writeBand(ear, bandIndex, gainDb.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB))
-    }
-
-    override fun setPreGain(db: Float) = guard {
-        val clamped = db.coerceIn(-24f, 0f)
-        effect.setInputGainAllChannelsTo(clamped)
-        lastWritten.preGainDb = clamped
-    }
-
-    override fun setEnabled(enabled: Boolean) = guard {
-        effect.enabled = enabled
-    }
-
     /**
      * Swaps in an effect with the new band count. If the framework refuses the
      * new configuration the old effect is already gone, so the equaliser marks
@@ -427,11 +404,6 @@ class DynamicsProcessingEqualizer internal constructor(
         )
         lastWritten.compressor[ear.channelIndex][bandIndex] = boostDb
     }
-
-    /** Reads a gain back out of the framework — proof the value reached the effect. */
-    fun readBandGain(ear: Ear, bandIndex: Int): Float? = runCatching {
-        effect.preEqBandGain(ear.channelIndex, bandIndex)
-    }.getOrNull()
 
     private inline fun guard(block: () -> Unit) {
         if (!alive) return
@@ -592,9 +564,6 @@ class DynamicsProcessingEqualizer internal constructor(
         val createdInstanceCount: Int get() = instancesCreated.get()
         val releasedInstanceCount: Int get() = instancesReleased.get()
 
-        /** Created minus released: what should still be registered right now. */
-        val liveInstanceCount: Int get() = createdInstanceCount - releasedInstanceCount
-
         /**
          * Attaches a fresh effect to [sessionId]. Returns null on any failure —
          * missing permission for a foreign/global session, unsupported device,
@@ -705,10 +674,4 @@ class DynamicsProcessingEqualizer internal constructor(
                 .build()
         }
     }
-}
-
-/** Default factory; :core-system decides which session id to pass in. */
-class DynamicsProcessingEqualizerFactory : SystemEqualizerFactory {
-    override fun create(sessionId: Int): SystemEqualizer? =
-        DynamicsProcessingEqualizer.create(sessionId)
 }

@@ -374,11 +374,11 @@ class PrivilegedProtocolTest {
                 "setOptionalCodecs",
                 "shutdown",
             ),
-            PrivilegedProtocol.WRITE_OPERATIONS.map { it.aidlName }.sorted(),
+            PrivilegedProtocol.PrivilegedOperation.entries.filter { it.mutates }.map { it.aidlName }.sorted(),
         )
         assertEquals(
             listOf("codecStatus", "exec", "optionalCodecs", "version"),
-            PrivilegedProtocol.READ_OPERATIONS.map { it.aidlName }.sorted(),
+            PrivilegedProtocol.PrivilegedOperation.entries.filterNot { it.mutates }.map { it.aidlName }.sorted(),
         )
     }
 
@@ -424,14 +424,5 @@ class PrivilegedProtocolTest {
             PrivilegedProtocol.ALLOWED.all { it.first() == "dumpsys" || it.first() == "ps" },
         )
         assertFalse(PrivilegedProtocol.PrivilegedOperation.EXEC.mutates)
-    }
-
-    @Test
-    fun `operations can be found by their AIDL name`() {
-        assertEquals(
-            PrivilegedProtocol.PrivilegedOperation.SET_CODEC_PREFERENCE,
-            PrivilegedProtocol.PrivilegedOperation.byAidlName("setCodecPreference"),
-        )
-        assertNull(PrivilegedProtocol.PrivilegedOperation.byAidlName("nothingLikeThat"))
     }
 }

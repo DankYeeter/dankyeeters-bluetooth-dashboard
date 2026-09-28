@@ -34,7 +34,6 @@ class HughsonWestlakeTestControllerTest {
         val activations = mutableListOf<Triple<ToneEar?, Double, Double>>()
         var respondCallback: (() -> Unit)? = null
 
-        override val isRunning: Boolean get() = startCalls > 0
         override val sampleRate: Int get() = 48_000
 
         override fun start(): Boolean {

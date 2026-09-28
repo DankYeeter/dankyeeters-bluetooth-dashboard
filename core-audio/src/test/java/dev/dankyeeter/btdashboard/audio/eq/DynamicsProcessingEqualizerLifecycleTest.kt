@@ -271,21 +271,6 @@ class DynamicsProcessingEqualizerLifecycleTest {
         assertBalanced()
     }
 
-    /** A single band gain must reach the effect even when nothing else changed. */
-    @Test
-    fun `setBandGain writes through and then diffs like everything else`() {
-        val rig = Rig()
-        rig.eq.apply(enabled)
-        val effect = rig.effects.single()
-        effect.clearWrites()
-
-        rig.eq.setBandGain(Ear.RIGHT, 2, -4f)
-        assertEquals(1, effect.preEqWrites.size)
-
-        rig.eq.setBandGain(Ear.RIGHT, 2, -4f)
-        assertEquals("the second write is the same value", 1, effect.preEqWrites.size)
-    }
-
     // ---- enable verification -------------------------------------------------
 
     /**
@@ -407,10 +392,6 @@ class DynamicsProcessingEqualizerLifecycleTest {
         override fun setLimiterEnabled(channelIndex: Int, enabled: Boolean) {
             limiterWrites++
         }
-
-        override fun preEqBandGain(channelIndex: Int, bandIndex: Int): Float =
-            preEqWrites.lastOrNull { it.channelIndex == channelIndex && it.bandIndex == bandIndex }
-                ?.band?.gainDb ?: 0f
 
         override fun release() {
             releaseAttempts++

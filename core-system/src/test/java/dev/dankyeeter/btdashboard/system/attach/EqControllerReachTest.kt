@@ -2,7 +2,6 @@ package dev.dankyeeter.btdashboard.system.attach
 
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
-import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -123,7 +122,7 @@ class EqControllerReachTest {
     @Test
     fun `harvesting only starts once the session strategy carries real settings`() {
         val order = mutableListOf<String>()
-        val session = SessionAttachmentStrategy(NoEqualizers)
+        val session = SessionAttachmentStrategy(noEqualizers)
         val controller = EqController(
             global = FakeGlobal(AttachmentStatus.ActiveGlobal(0)),
             session = session,
@@ -146,7 +145,7 @@ class EqControllerReachTest {
 
     @Test
     fun `a failed attach is not remembered as done`() {
-        val session = SessionAttachmentStrategy(RefusingFactory)
+        val session = SessionAttachmentStrategy(refusingFactory)
         val controller = EqController(
             global = FakeGlobal(AttachmentStatus.ActiveGlobal(0)),
             session = session,
@@ -176,7 +175,7 @@ class EqControllerReachTest {
         onReceiverToggle: (Boolean) -> Unit = {},
     ) = EqController(
         global = global,
-        session = SessionAttachmentStrategy(NoEqualizers),
+        session = SessionAttachmentStrategy(noEqualizers),
         globalAttachReachesOutput = globalReachesProvider,
         setSessionReceiverEnabled = onReceiverToggle,
     )
@@ -204,12 +203,8 @@ class EqControllerReachTest {
     }
 
     /** No session ever announces itself, which is the uninteresting half here. */
-    private object NoEqualizers : SystemEqualizerFactory {
-        override fun create(sessionId: Int): SystemEqualizer? = null
-    }
+    private val noEqualizers: (Int) -> SystemEqualizer? = { null }
 
     /** Stands in for AudioFlinger turning the effect down. */
-    private object RefusingFactory : SystemEqualizerFactory {
-        override fun create(sessionId: Int): SystemEqualizer? = null
-    }
+    private val refusingFactory: (Int) -> SystemEqualizer? = { null }
 }

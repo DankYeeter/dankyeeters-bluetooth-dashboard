@@ -3,10 +3,9 @@ package dev.dankyeeter.btdashboard.ui.theme
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import androidx.core.graphics.ColorUtils
 
 /**
  * A metallic ramp derived from one colour.
@@ -108,7 +107,7 @@ data class MetalPalette(
             val (hue, saturation, _) = base.toHsl()
             val bodySaturation = saturation.coerceAtLeast(MIN_SATURATION)
             val colors = SHAPE.map { step ->
-                hsl(
+                Color.hsl(
                     hue = hue,
                     saturation = (bodySaturation * step.saturation).coerceIn(0f, 1f),
                     lightness = step.lightness,
@@ -131,45 +130,13 @@ data class MetalPalette(
     }
 }
 
-/** HSL as (hue in degrees, saturation 0..1, lightness 0..1). */
-internal fun Color.toHsl(): Triple<Float, Float, Float> {
-    val r = red
-    val g = green
-    val b = blue
-    val maxC = max(r, max(g, b))
-    val minC = min(r, min(g, b))
-    val delta = maxC - minC
-    val lightness = (maxC + minC) / 2f
-
-    if (delta < 1e-6f) return Triple(0f, 0f, lightness)
-
-    val saturation = delta / (1f - abs(2f * lightness - 1f))
-    val hue = when (maxC) {
-        r -> 60f * (((g - b) / delta) % 6f)
-        g -> 60f * (((b - r) / delta) + 2f)
-        else -> 60f * (((r - g) / delta) + 4f)
-    }
-    return Triple((hue + 360f) % 360f, saturation.coerceIn(0f, 1f), lightness)
-}
-
-/** The inverse of [toHsl]. */
-internal fun hsl(hue: Float, saturation: Float, lightness: Float): Color {
-    val c = (1f - abs(2f * lightness - 1f)) * saturation
-    val h = ((hue % 360f) + 360f) % 360f / 60f
-    val x = c * (1f - abs((h % 2f) - 1f))
-    val m = lightness - c / 2f
-
-    val (r, g, b) = when {
-        h < 1f -> Triple(c, x, 0f)
-        h < 2f -> Triple(x, c, 0f)
-        h < 3f -> Triple(0f, c, x)
-        h < 4f -> Triple(0f, x, c)
-        h < 5f -> Triple(x, 0f, c)
-        else -> Triple(c, 0f, x)
-    }
-    return Color(
-        red = (r + m).coerceIn(0f, 1f),
-        green = (g + m).coerceIn(0f, 1f),
-        blue = (b + m).coerceIn(0f, 1f),
-    )
+/**
+ * HSL as (hue in degrees, saturation 0..1, lightness 0..1).
+ *
+ * `RGBToHSL` rather than `colorToHSL`: the latter reads the channels through
+ * `android.graphics.Color`, which JVM unit tests stub to zero.
+ */
+internal fun Color.toHsl(): FloatArray {
+    val argb = toArgb()
+    return FloatArray(3).also { ColorUtils.RGBToHSL(argb shr 16 and 0xFF, argb shr 8 and 0xFF, argb and 0xFF, it) }
 }

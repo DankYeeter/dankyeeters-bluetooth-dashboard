@@ -2,7 +2,7 @@ package dev.dankyeeter.btdashboard.system
 
 import android.content.Context
 import dev.dankyeeter.btdashboard.system.boot.BootReceiver
-import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizerFactory
+import dev.dankyeeter.btdashboard.audio.eq.DynamicsProcessingEqualizer
 import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeMonitor
 import dev.dankyeeter.btdashboard.hearing.HearingGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanner
@@ -83,7 +83,7 @@ object SystemGraph {
     }
 
     val eqController: EqController by lazy {
-        val factory = DynamicsProcessingEqualizerFactory()
+        val factory = { sessionId: Int -> DynamicsProcessingEqualizer.create(sessionId) }
         EqController(
             global = GlobalAttachmentStrategy(factory),
             session = SessionAttachmentStrategy(factory),
