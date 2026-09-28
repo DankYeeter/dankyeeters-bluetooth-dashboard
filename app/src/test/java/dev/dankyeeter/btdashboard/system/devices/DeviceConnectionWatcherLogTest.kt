@@ -4,20 +4,17 @@ import android.app.Application
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Intent
-import android.content.Context
 import android.os.Looper
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.core.app.ApplicationProvider
+import dev.dankyeeter.btdashboard.privateDataStore
 import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
-import kotlin.properties.ReadOnlyProperty
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,7 +63,7 @@ class DeviceConnectionWatcherLogTest {
     /** V12: org.json quotes the text it could not parse, and stored profiles carry device keys and names. */
     @Test
     fun `an unreadable profile store keeps its content out of the log`() = runBlocking {
-        val raw = profileDataStore()
+        val raw = privateDataStore(context, "dev.dankyeeter.btdashboard.system.devices.DeviceProfileStoreKt", "deviceProfileDataStore")
         raw.edit { it[stringPreferencesKey("device_profiles_json")] = """[{"deviceKey":"$KEY","name":"$ADDRESS"""" }
         try {
             ShadowLog.clear()
@@ -81,19 +78,6 @@ class DeviceConnectionWatcherLogTest {
             raw.edit { it.clear() }
         }
     }
-
-    /**
-     * The store's own DataStore, which it does not expose: the only way to put
-     * text in it that its encoder would never write. The delegate ignores the property.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun profileDataStore(): DataStore<Preferences> =
-        (
-            Class.forName("dev.dankyeeter.btdashboard.system.devices.DeviceProfileStoreKt")
-                .getDeclaredField("deviceProfileDataStore\$delegate")
-                .apply { isAccessible = true }
-                .get(null) as ReadOnlyProperty<Context, DataStore<Preferences>>
-        ).getValue(context, DeviceProfileStore::profiles)
 
     /** Every log line of the watcher for one nameless connect, messages and throwables. */
     private fun logOfNamelessConnect(applierProfiles: DeviceProfileSource): String = runBlocking {

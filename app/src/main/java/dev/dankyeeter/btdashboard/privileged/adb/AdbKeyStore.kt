@@ -57,7 +57,7 @@ class AdbKeyStore(context: Context) {
     fun keyPair(): KeyPair = synchronized(this) {
         if (exists) {
             runCatching { load() }
-                .onFailure { Log.w(TAG, "stored ADB key unreadable, generating a new one", it) }
+                .onFailure { Log.w(TAG, "stored ADB key unreadable, generating a new one (${it.javaClass.simpleName})") }
                 .getOrNull()
                 ?.let { return it }
         }

@@ -141,7 +141,7 @@ class CompensationProfileStore(context: Context) {
                 )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Dropping unreadable compensation profiles", e)
+            Log.w(TAG, "Dropping unreadable compensation profiles (${e.javaClass.simpleName})")
             emptyList()
         }
     }

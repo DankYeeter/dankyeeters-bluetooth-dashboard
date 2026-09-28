@@ -341,7 +341,7 @@ class AudiogramStore(context: Context) {
                 )
             }
         } catch (e: Exception) {
-            Log.w(TAG, "stored runs could not be parsed, starting empty", e)
+            Log.w(TAG, "stored runs could not be parsed, starting empty (${e.javaClass.simpleName})")
             emptyList()
         }
     }
@@ -386,7 +386,7 @@ class AudiogramStore(context: Context) {
                 savedAtMillis = obj.optLong("savedAt"),
             ).takeUnless { it.isEmpty }
         } catch (e: Exception) {
-            Log.w(TAG, "stored clinical audiogram could not be parsed", e)
+            Log.w(TAG, "stored clinical audiogram could not be parsed (${e.javaClass.simpleName})")
             null
         }
     }
@@ -408,7 +408,7 @@ class AudiogramStore(context: Context) {
                     .getOrDefault(Iso7029Sex.UNSPECIFIED),
             )
         } catch (e: Exception) {
-            Log.w(TAG, "stored age reference could not be parsed", e)
+            Log.w(TAG, "stored age reference could not be parsed (${e.javaClass.simpleName})")
             null
         }
     }
@@ -424,7 +424,7 @@ class AudiogramStore(context: Context) {
             val obj = JSONObject(raw)
             FitBaseline(left = obj.readMap("left"), right = obj.readMap("right"))
         } catch (e: Exception) {
-            Log.w(TAG, "stored fit baseline could not be parsed", e)
+            Log.w(TAG, "stored fit baseline could not be parsed (${e.javaClass.simpleName})")
             FitBaseline()
         }
     }
