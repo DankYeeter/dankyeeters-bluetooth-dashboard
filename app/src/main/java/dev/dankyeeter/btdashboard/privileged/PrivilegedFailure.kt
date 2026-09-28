@@ -4,6 +4,14 @@ import android.os.DeadObjectException
 import android.os.TransactionTooLargeException
 import android.util.Log
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * What went wrong with a call into the helper, as a decision rather than a
@@ -126,13 +134,59 @@ internal enum class PrivilegedFailure {
 internal class PrivilegedCallGuard(
     private val threshold: Int = FAILURES_BEFORE_PING,
     private val forget: () -> Unit = PrivilegedConnection::forget,
+    private val callTimeoutMs: Long = HELPER_CALL_TIMEOUT_MS,
 ) {
 
     /** What the caller should do and what it should say. */
     data class Verdict(val forgotten: Boolean, val reason: String)
 
+    /** How a [bounded] call ended. */
+    sealed interface Bounded<out T> {
+        data class Done<T>(val value: T) : Bounded<T>
+
+        enum class Unanswered : Bounded<Nothing> {
+            /** An earlier call is still unanswered; this one never reached the helper. */
+            BUSY,
+
+            /** This call is unanswered and has been left running. */
+            TIMED_OUT,
+        }
+    }
+
     @Volatile
     private var consecutiveFailures: Int = 0
+
+    /** The one call left running after its caller stopped waiting, if any. */
+    private val inFlight = AtomicReference<Deferred<*>?>(null)
+
+    /**
+     * Runs a blocking helper call, but waits for it at most [callTimeoutMs] (AD-048).
+     *
+     * WHY it is left running rather than cancelled: a Binder transaction cannot
+     * be interrupted, so a cancelled coroutine would still wait for it — and the
+     * caller may be holding the settings ledger's lock. WHY one slot: a call left
+     * running may still write when the helper wakes up, so nothing else is sent
+     * until it has ended; otherwise that late write could land after a way back.
+     *
+     * Exceptions thrown by [block] are rethrown to the caller unchanged. A time-out
+     * deliberately does not count as a failure: the liveness ping would be one
+     * more call into the same unanswering helper.
+     */
+    suspend fun <T> bounded(block: () -> T): Bounded<T> {
+        val call = CALLS.async(start = CoroutineStart.LAZY) { block() }
+        // isCompleted, not isActive: a call claimed but not yet started is not
+        // active either, and must still count as occupying the slot.
+        val free = inFlight.get()?.takeIf { it.isCompleted }
+        if (!inFlight.compareAndSet(free, call)) {
+            call.cancel()
+            return Bounded.Unanswered.BUSY
+        }
+        call.start()
+        return withTimeoutOrNull(callTimeoutMs) { Bounded.Done(call.await()) }
+            ?: Bounded.Unanswered.TIMED_OUT.also {
+                Log.w(TAG, "a helper call did not answer within $callTimeoutMs ms and is left running")
+            }
+    }
 
     /** Called after any call that came back, successful or not. */
     fun succeeded() {
@@ -207,7 +261,21 @@ internal class PrivilegedCallGuard(
          */
         const val FAILURES_BEFORE_PING: Int = 5
 
+        /**
+         * How long a caller waits for a codec or HD-audio call (AD-048).
+         *
+         * Above the helper's own budget for such a call, read from the code and
+         * not measured: `HelperBluetooth.BIND_TIMEOUT_SECONDS` (8 s) plus
+         * `SETTLE_BUDGET_MS` (2.5 s). Equal to the helper's own exec time-out,
+         * `PrivilegedServer.TIMEOUT_SECONDS`. Anything shorter would report a slow
+         * but healthy helper as "unknown".
+         */
+        const val HELPER_CALL_TIMEOUT_MS: Long = 15_000
+
         private const val TAG = "PrivilegedCallGuard"
+
+        /** Where calls run, so a call left running outlives the caller that gave up on it. */
+        private val CALLS = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
         /** The one every caller in the app uses; see the class documentation. */
         val SHARED: PrivilegedCallGuard = PrivilegedCallGuard()

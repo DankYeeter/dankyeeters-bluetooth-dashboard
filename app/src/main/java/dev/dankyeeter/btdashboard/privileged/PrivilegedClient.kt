@@ -9,6 +9,7 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
 import dev.dankyeeter.btdashboard.monitor.codec.NoOpCodecController
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
+import dev.dankyeeter.btdashboard.privileged.PrivilegedCallGuard.Bounded
 import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
 import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
 import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
@@ -20,6 +21,7 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -510,13 +512,16 @@ sealed interface CodecCallResult {
  * never "no codecs available" — those look identical in a list and mean
  * opposite things.
  */
-class PrivilegedCodecController(
-    context: Context,
-    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+class PrivilegedCodecController internal constructor(
+    private val bootstrap: PrivilegedBootstrap,
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard,
 ) : CodecController, CodecPreferenceController {
 
-    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
-    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
+    constructor(
+        context: Context,
+        bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+    ) : this(bootstrap, PrivilegedCallGuard.SHARED)
 
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
@@ -543,7 +548,7 @@ class PrivilegedCodecController(
         // "match" afterwards — whatever the stack renegotiates is the point —
         // so the raw call is used and any observation counts as applied.
         if (preference.codec == BluetoothCodecOptions.SYSTEM_DEFAULT) {
-            return when (val result = call { service, token ->
+            return when (val result = call(changes = true) { service, token ->
                 service.setCodecPreference(
                     token, address, A2dpCodecMasks.SYSTEM_DEFAULT_SENTINEL, 0, 0, 0, 0L,
                 )
@@ -580,7 +585,7 @@ class PrivilegedCodecController(
     }
 
     /** Reads the codec status through the helper. */
-    private suspend fun read(address: String): CodecCallResult = call { service, token ->
+    private suspend fun read(address: String): CodecCallResult = call(changes = false) { service, token ->
         service.codecStatus(token, address)
     }
 
@@ -591,7 +596,7 @@ class PrivilegedCodecController(
             ?: return CodecCallResult.Unavailable(
                 "${requested.family.displayName} cannot be requested on this Android version",
             )
-        return call { service, token ->
+        return call(changes = true) { service, token ->
             service.setCodecPreference(
                 token,
                 address,
@@ -604,7 +609,9 @@ class PrivilegedCodecController(
         }
     }
 
+    /** @param changes whether the call writes, which decides the time-out sentence. */
     private suspend fun call(
+        changes: Boolean,
         block: (IPrivilegedService, String) -> String?,
     ): CodecCallResult = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
@@ -615,7 +622,11 @@ class PrivilegedCodecController(
             ?: return@withContext CodecCallResult.Unavailable("no token for the privileged helper")
 
         runCatching {
-            val reply = block(service, token)
+            val reply = when (val outcome = guard.bounded { block(service, token) }) {
+                is Bounded.Done -> outcome.value
+                is Bounded.Unanswered ->
+                    return@withContext CodecCallResult.Unavailable(outcome.reason(changes))
+            }
             guard.succeeded()
             if (reply == null) {
                 CodecCallResult.Unavailable("the helper returned nothing")
@@ -626,6 +637,10 @@ class PrivilegedCodecController(
                     )
             }
         }.getOrElse { error ->
+            // The wait in bounded() can be cancelled. That is the caller leaving,
+            // not a failed call — counting it could end in failed()'s ping, one
+            // more unbounded call into a helper that is not answering.
+            if (error is CancellationException) throw error
             // The line that used to be here called forget() on any throw, and
             // the `getCodecStatus unavailable: InvocationTargetException` in the
             // owner's log was one such throw from a live helper — which then
@@ -655,19 +670,22 @@ class PrivilegedCodecController(
  * success is reported from a call that merely returned, and an absent helper
  * answers "cannot check" rather than "not supported".
  */
-class PrivilegedHdAudioController(
-    context: Context,
-    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+class PrivilegedHdAudioController internal constructor(
+    private val bootstrap: PrivilegedBootstrap,
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard,
 ) : HdAudioController {
 
-    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
-    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
+    constructor(
+        context: Context,
+        bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+    ) : this(bootstrap, PrivilegedCallGuard.SHARED)
 
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
     override suspend fun read(address: String): HdAudioState =
-        when (val result = call { service, token -> service.optionalCodecs(token, address) }) {
+        when (val result = call(changes = false) { service, token -> service.optionalCodecs(token, address) }) {
             is HdAudioCallResult.Observed -> HdAudioState.Known(
                 // Unknown support is reported as supported rather than as not.
                 // A bonded device that has never connected reads "unknown", and
@@ -685,7 +703,7 @@ class PrivilegedHdAudioController(
     override suspend fun apply(address: String, preference: HdAudioPreference): HdAudioOutcome {
         val wire = OptionalCodecs.fromTriState(preference.asEnabled())
         return when (
-            val result = call { service, token ->
+            val result = call(changes = true) { service, token ->
                 service.setOptionalCodecs(token, address, wire)
             }
         ) {
@@ -710,6 +728,7 @@ class PrivilegedHdAudioController(
      * where a wrong answer would be least visible.
      */
     private suspend fun call(
+        changes: Boolean,
         block: (IPrivilegedService, String) -> String?,
     ): HdAudioCallResult = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
@@ -722,7 +741,11 @@ class PrivilegedHdAudioController(
             )
 
         runCatching {
-            val reply = block(service, token)
+            val reply = when (val outcome = guard.bounded { block(service, token) }) {
+                is Bounded.Done -> outcome.value
+                is Bounded.Unanswered ->
+                    return@withContext HdAudioCallResult.Unavailable(outcome.reason(changes))
+            }
             guard.succeeded()
             if (reply == null) {
                 HdAudioCallResult.Unavailable("the helper returned nothing")
@@ -733,6 +756,7 @@ class PrivilegedHdAudioController(
                     )
             }
         }.getOrElse { error ->
+            if (error is CancellationException) throw error
             val verdict = guard.failed("a privileged HD-audio call", error) { service.version() }
             HdAudioCallResult.Unavailable(verdict.reason)
         }
@@ -742,6 +766,24 @@ class PrivilegedHdAudioController(
     // PrivilegedCallGuard, which logs every privileged failure in one place
     // together with how it classified it — which is the part worth reading.
 }
+
+/**
+ * The sentence for a codec or HD-audio call [PrivilegedCallGuard.bounded] did
+ * not let finish (AD-048).
+ *
+ * @param changes whether the call writes: only then is its effect unknown.
+ */
+private fun Bounded.Unanswered.reason(changes: Boolean): String = when (this) {
+    Bounded.Unanswered.BUSY ->
+        "the privileged helper has not answered an earlier request yet — nothing was sent"
+
+    Bounded.Unanswered.TIMED_OUT ->
+        "the privileged helper did not answer within " +
+            "${PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS / MILLIS_PER_SECOND} s" +
+            if (changes) " — whether the change took effect is unknown" else ""
+}
+
+private const val MILLIS_PER_SECOND = 1_000
 
 /** Where an HD-audio answer came from, and what it actually said. */
 private sealed interface HdAudioCallResult {
