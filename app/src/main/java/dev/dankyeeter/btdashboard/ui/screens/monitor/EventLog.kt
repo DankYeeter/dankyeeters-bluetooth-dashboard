@@ -29,7 +29,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+internal val timeFormat =SimpleDateFormat("HH:mm:ss", Locale.US)
 
 /** How many events the log shows before it starts hiding older ones. */
 private const val EVENT_LIMIT = 40

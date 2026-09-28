@@ -429,7 +429,7 @@ private fun Fallback.sentence(): String {
     }
 }
 
-private val Condition.displayName: String
+internal val Condition.displayName: String
     get() = when (this) {
         Condition.WIFI_RADIO -> "Wi-Fi power"
         Condition.WIFI_SCAN_ALWAYS -> "Wi-Fi scanning"

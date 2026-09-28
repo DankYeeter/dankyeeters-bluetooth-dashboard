@@ -17,9 +17,11 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxProbe
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
+import dev.dankyeeter.btdashboard.monitor.optimize.ConditionBook
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.system.SystemGraph
@@ -97,6 +99,9 @@ internal fun redactAddresses(text: String): String =
 /** Six hex octets. Already-redacted addresses contain `X` and never match. */
 private val RAW_ADDRESS = Regex("""\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b""")
 
+/** The environment book of one reading on the open screen, and that reading's time (AD-044 point 1). */
+internal data class ReadBook(val book: ConditionBook, val readAtMs: Long)
+
 class MonitorViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Timeline window: the last two hours is what correlating a dropout needs. */
@@ -124,14 +129,27 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
     val liveIntervalMs: StateFlow<Long> = _liveIntervalMs.asStateFlow()
 
     /**
-     * The poll a live event was last taken from.
+     * The newest poll this ViewModel has seen.
      *
      * `MonitorGraph.liveLinkUpdates` replays its last reading to a new
      * collector, so a rotation or a tab switch hands us an update we have
      * already written to the timeline. Without this guard one dropout would
-     * appear twice in the event log for no reason the user could see.
+     * appear twice in the event log for no reason the user could see, and a
+     * replayed reading would be booked as a fresh one.
      */
-    private var lastRecordedPollMs = 0L
+    private var lastSeenPollMs = 0L
+
+    private val _conditionBook = MutableStateFlow<ReadBook?>(null)
+
+    /**
+     * The environment book of the newest fresh reading on the open screen
+     * (AD-044, AK-18). Null off the screen and until the first reading after it
+     * comes back, so a return from the system settings reads anew (AD-045).
+     */
+    internal val conditionBook: StateFlow<ReadBook?> = _conditionBook.asStateFlow()
+
+    /** The loss episode the open screen is in, or null (AD-044 point 3). */
+    private var lossEpisode: LossEpisode? = null
 
     /**
      * The observation run (`UI_SPEC.md` T-039). Fed from [liveUpdates] and from
@@ -175,13 +193,7 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
                 MonitorGraph.liveLink.updates(interval)
             }
         }
-        .onEach { update ->
-            recordLiveEvents(update)
-            // AK-17: a run counts only on the open screen. An arm may hold this
-            // poll off the screen (AD-039); the run must not count on that.
-            if (MonitorGraph.uiVisible.value) observationRun.onReading(update.snapshot, _liveIntervalMs.value)
-            comparison.onReading(update.snapshot, _liveIntervalMs.value)
-        }
+        .onEach(::onReading)
         // Shared, not merely cold: the panel now reads this twice — once for the
         // numbers and once for the 60-second graph — and a second collector of
         // the cold branch above would start a second poll loop, i.e. double the
@@ -303,6 +315,44 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         MonitorGraph.ensureRunning()
         viewModelScope.launch { _bqr.value = MonitorGraph.qualityReportSource.start() }
         holdPollWhileAnArmCounts()
+        forgetBookOffScreen()
+    }
+
+    /**
+     * One poll. The book, the event log and the run belong to the open screen
+     * only (AK-17, AK-18, AK-19): an arm may hold this poll off the screen
+     * (AD-039), and only the comparison takes readings there.
+     */
+    internal suspend fun onReading(update: LinkLiveUpdate) {
+        val fresh = update.snapshot.timestampMs > lastSeenPollMs
+        if (fresh) lastSeenPollMs = update.snapshot.timestampMs
+        if (MonitorGraph.uiVisible.value) {
+            if (fresh) bookAndRecord(update)
+            observationRun.onReading(update.snapshot, _liveIntervalMs.value)
+        }
+        comparison.onReading(update.snapshot, _liveIntervalMs.value)
+    }
+
+    /** AD-044 point 1: the book comes with this reading, its dump facts off this snapshot — no dump of its own. */
+    private suspend fun bookAndRecord(update: LinkLiveUpdate) {
+        val snapshot = update.snapshot
+        val book = readConditions(getApplication(), snapshot, snapshot.pairing?.discovering)
+        _conditionBook.value = ReadBook(book, snapshot.timestampMs)
+        val hasLoss = update.events.any { it is LinkEvent.LossDetected }
+        lossEpisode = nextEpisode(lossEpisode, snapshot.timestampMs, hasLoss, book, _liveIntervalMs.value)
+        recordLiveEvents(update)
+    }
+
+    /** Off the screen there is no book and no episode; the first reading back starts both anew. */
+    private fun forgetBookOffScreen() {
+        viewModelScope.launch {
+            MonitorGraph.uiVisible.collect { visible ->
+                if (!visible) {
+                    _conditionBook.value = null
+                    lossEpisode = null
+                }
+            }
+        }
     }
 
     /**
@@ -367,15 +417,12 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
      * correlating "it stuttered at 14:31" will look.
      */
     private suspend fun recordLiveEvents(update: LinkLiveUpdate) {
-        if (update.events.isEmpty()) return
-        if (update.snapshot.timestampMs <= lastRecordedPollMs) return
-        lastRecordedPollMs = update.snapshot.timestampMs
         update.events.forEach { event ->
             val record = event.toMonitorEvent(
                 deviceAddress = update.snapshot.device?.address,
                 deviceName = update.snapshot.device?.name,
                 linkCodec = update.snapshot.codec?.family,
-            )
+            ).withEpisodeBook(lossEpisode)
             if (alreadyReported(record)) return@forEach
             MonitorGraph.repository.recordEvent(record)
         }
