@@ -85,23 +85,28 @@ class DeviceConnectionWatcher(
     private fun handleConnect(device: BluetoothDevice) {
         val address = device.address ?: return
         val key = DeviceKey.fromAddress(address) ?: return
-        val name = runCatching { device.name }.getOrNull()?.takeIf { it.isNotBlank() } ?: address
+        val name = runCatching { device.name }.getOrNull()?.takeIf { it.isNotBlank() }
         // Logged unconditionally: auto-apply is invisible when it works, so
         // without this there is no way to tell "applied silently" apart from
         // "the broadcast never arrived" — which is exactly the ambiguity that
         // made this feature impossible to diagnose on a real device.
-        Log.i(TAG, "ACL connect: $name")
+        // Never the raw address (SR-030): a nameless device is logged by its key.
+        val logLabel = name ?: key
+        Log.i(TAG, "ACL connect: $logLabel")
         scope.launch {
             runCatching {
                 // Remember the device first, so an unknown headphone shows up in
                 // the profile editor even though nothing was applied to it.
-                store.noteSeen(key, name, clock())
+                store.noteSeen(key, name ?: address, clock())
                 // Independent of any profile: a device switch can kill the
                 // global effect, and every connect is a chance to notice.
                 runCatching { onConnected() }
                 val result = applier.onDeviceConnected(address)
                 _lastResult.value = result
-                Log.i(TAG, "auto-apply for $name: $result")
+                // Only the kind: the result quotes the profile name, which for a
+                // nameless device is its address, and the helper's own sentences,
+                // which can name one. The dashboard shows it in full.
+                Log.i(TAG, "auto-apply for $logLabel: ${result::class.simpleName}")
             }.onFailure { Log.w(TAG, "profile auto-apply failed", it) }
         }
     }
