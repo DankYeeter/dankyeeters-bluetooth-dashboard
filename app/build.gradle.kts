@@ -43,9 +43,14 @@ android {
     // AIDL for the privileged helper's Binder interface. The generated stub
     // has to be loadable in two places: this app, and the helper that
     // app_process starts from this same APK.
+    //
+    // buildConfig: on for this module only (the project default is off, see
+    // gradle.properties). PairingTrace needs BuildConfig.DEBUG to gate its
+    // logging (SR-039); nothing else in the module reads a BuildConfig field.
     buildFeatures {
         compose = true
         aidl = true
+        buildConfig = true
     }
 
     /**

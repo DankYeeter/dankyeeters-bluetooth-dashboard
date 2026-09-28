@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.privileged.adb
 
 import android.util.Log
+import dev.dankyeeter.btdashboard.BuildConfig
 
 /**
  * Writes the pairing exchange to the log, byte for byte.
@@ -30,19 +31,29 @@ import android.util.Log
  */
 internal object PairingTrace {
 
+    /**
+     * Gates every log call below. Defaults to [BuildConfig.DEBUG] so a release
+     * build never writes the SPAKE2 exchange to the log (SR-039); tests flip it
+     * to check the release path without needing an actual release build.
+     */
+    internal var loggingEnabled: Boolean = BuildConfig.DEBUG
+
     private const val TAG = "PairingTrace"
 
     fun sent(packet: AdbPairingPacket) {
+        if (!loggingEnabled) return
         Log.i(TAG, "-> ${AdbPairingPacket.typeName(packet.type)} " +
             "len=${packet.payload.size} ${packet.payload.preview()}")
     }
 
     fun received(packet: AdbPairingPacket) {
+        if (!loggingEnabled) return
         Log.i(TAG, "<- ${AdbPairingPacket.typeName(packet.type)} " +
             "len=${packet.payload.size} ${packet.payload.preview()}")
     }
 
     fun keyDerived(key: ByteArray) {
+        if (!loggingEnabled) return
         // A fingerprint, not the key: enough to see whether two runs agree,
         // useless to anyone reading the log afterwards.
         Log.i(TAG, "key fp=${key.fingerprint()}")
