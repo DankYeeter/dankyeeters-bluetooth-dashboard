@@ -28,14 +28,15 @@ class ObservationRunTest {
         family: CodecFamily = CodecFamily.LDAC,
         codecSpecific1: Long = 0L,
         dropoutTotal: Long? = null,
+        sampleRateHz: Int = 96_000,
     ) = LinkLiveSnapshot(
         timestampMs = timestampMs,
         device = LiveDeviceSnapshot(address = address, isConnected = connected, isPlaying = playing),
-        codec = LiveCodecSnapshot(family = family, sampleRateHz = 96_000, codecSpecific1 = codecSpecific1),
+        codec = LiveCodecSnapshot(family = family, sampleRateHz = sampleRateHz, codecSpecific1 = codecSpecific1),
         ldac = if (family == CodecFamily.LDAC) {
             LdacState.from(
                 codecSpecific1,
-                96_000,
+                sampleRateHz,
                 kbps?.let { LdacStackState(qualityMode = if (codecSpecific1 == 0L) "ABR" else "MID", transmissionKbps = it) },
             )
         } else {
@@ -150,6 +151,7 @@ class ObservationRunTest {
             RunEnd.READING_GAP to running.plus(reading(next + ObservationRun.RUN_GAP_MAX_MS, 660), 1_000L),
             RunEnd.PAUSED to running.paused(next, next + ObservationRun.RUN_GAP_MAX_MS + 1_000L),
             RunEnd.RATE_UNREADABLE to running.plus(reading(next, null), 1_000L),
+            RunEnd.SAMPLE_RATE_CHANGED to running.plus(reading(next, 660, sampleRateHz = 88_200), 1_000L),
             RunEnd.TARGET_REACHED to ObservationRun.startedAfter(null, targetMs = running.observedMs)
                 .fed(List(150) { 660 }),
         )
@@ -173,6 +175,18 @@ class ObservationRunTest {
 
         val toMid = pinnedHigh.plus(reading(4_000L, 660, codecSpecific1 = 1001L), 1_000L)
         assertEquals(RunEnd.QUALITY_CHANGED, toMid.end)
+    }
+
+    /** AD-040 part 4 (probe P3b): 96 to 88.2 kHz is another ladder, so the run ends rather than carrying on. */
+    @Test
+    fun `a sample-rate change ends the run`() {
+        val pinnedHigh = (1..3).fold(started()) { run, s ->
+            run.plus(reading(s * 1_000L, 990, codecSpecific1 = 1000L), 1_000L)
+        }
+        assertNull(pinnedHigh.end)
+
+        val moved = pinnedHigh.plus(reading(4_000L, 990, codecSpecific1 = 1000L, sampleRateHz = 88_200), 1_000L)
+        assertEquals(RunEnd.SAMPLE_RATE_CHANGED, moved.end)
     }
 
     /** A different headphone is a different pairing, and the run belongs to one. */

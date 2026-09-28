@@ -40,6 +40,9 @@ enum class RunEnd {
     /** Playback went on, but the stack stopped printing the rate. */
     RATE_UNREADABLE,
 
+    /** The link moved to another sample rate: another rate ladder, not the same measurement (AD-040). */
+    SAMPLE_RATE_CHANGED,
+
     /** [ObservationRun.observedMs] reached [ObservationRun.targetMs]. */
     TARGET_REACHED,
 }
@@ -316,8 +319,8 @@ data class ObservationRun(
 
 /**
  * What a run belongs to: one pairing, one codec, one LDAC setting. Two runs
- * compare only on the same link. [sampleRateHz] only names the ladder the
- * run's thresholds come from; it ends no run.
+ * compare only on the same link. [sampleRateHz] names the ladder the run's
+ * thresholds come from.
  */
 data class RunLink(
     val address: String?,
@@ -345,6 +348,7 @@ private fun LinkLiveSnapshot.endAgainst(link: RunLink): RunEnd? {
         device == null || !device.isConnected || device.address != link.address -> RunEnd.DISCONNECTED
         codec?.family != link.codec -> RunEnd.CODEC_CHANGED
         ldac?.mode != link.mode || ldac?.isAdaptive != link.adaptive -> RunEnd.QUALITY_CHANGED
+        codec?.sampleRateHz != link.sampleRateHz -> RunEnd.SAMPLE_RATE_CHANGED
         device.isPlaying && !hasReadableRate -> RunEnd.RATE_UNREADABLE
         else -> null
     }

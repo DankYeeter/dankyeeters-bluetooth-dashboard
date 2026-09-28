@@ -248,6 +248,11 @@ class ObservationRunSectionTest {
         assertEquals(RunEnd.entries.size, lines.toSet().size)
         assertEquals("Run ended after 2 min without a reading. 2 min observed.", endLine(RunEnd.READING_GAP, 124_000L))
         assertEquals("Run ended after 2 min of paused playback. 2 min observed.", endLine(RunEnd.PAUSED, 124_000L))
+        assertEquals(
+            "Stopped: the sample rate changed, so readings before and after are not the same measurement. " +
+                "2 min observed.",
+            endLine(RunEnd.SAMPLE_RATE_CHANGED, 124_000L),
+        )
 
         render(snapshot(), counting.stopped())
         composeRule.onNodeWithText("Run stopped. 2 min observed.").assertExists()
