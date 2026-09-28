@@ -56,8 +56,9 @@ class MonitorEngine(
     private val _status = MutableStateFlow(MonitorStatus())
     val status: StateFlow<MonitorStatus> = _status.asStateFlow()
 
-    private var deepCaptureUntilMs = 0L
-    private var burstUntilMs = 0L
+    // Set from the main thread (a tap, the measurement service), read by the loop on another.
+    @Volatile private var deepCaptureUntilMs = 0L
+    @Volatile private var burstUntilMs = 0L
     private val lastSamples = mutableMapOf<String, LinkQualitySample>()
     private var jobs = mutableListOf<Job>()
     private val wake = MutableStateFlow(0L)
