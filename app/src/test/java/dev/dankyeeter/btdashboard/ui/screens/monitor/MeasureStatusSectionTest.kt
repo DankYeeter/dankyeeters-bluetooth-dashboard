@@ -5,7 +5,9 @@ import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import dev.dankyeeter.btdashboard.monitor.optimize.Condition
 import dev.dankyeeter.btdashboard.monitor.optimize.ConditionBook
 import dev.dankyeeter.btdashboard.monitor.optimize.ConditionValue
@@ -13,14 +15,17 @@ import dev.dankyeeter.btdashboard.monitor.optimize.Measure
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.Date
 
-/** AK-18, AK-T057-1..3: the Measures panel on the Monitor screen. */
+/** AK-18, AK-20, AK-T057-1..3, -6, -8: the Measures panel on the Monitor screen. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class MeasureStatusSectionTest {
@@ -37,8 +42,18 @@ class MeasureStatusSectionTest {
         Condition.DISCOVERY_SEEN to ConditionValue.Read("no"),
     )
 
+    /** AD-045: the two measures with a system page; every other row has no button at all. */
+    private val jumps = mapOf(
+        Measure.NO_2_4_GHZ_WIFI to "Open Wi-Fi settings",
+        Measure.NO_SECOND_DEVICE to "Open Bluetooth settings",
+    )
+
     private fun show(readBook: ReadBook?): List<String> {
         composeRule.setContent { BtDashboardTheme { MeasureStatusPanel(readBook) } }
+        return texts()
+    }
+
+    private fun texts(): List<String> {
         fun SemanticsNode.walk(): List<SemanticsNode> = listOf(this) + children.flatMap { it.walk() }
         return composeRule.onRoot(useUnmergedTree = true).fetchSemanticsNode().walk()
             .flatMap { node -> node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text } }
@@ -49,7 +64,7 @@ class MeasureStatusSectionTest {
         val texts = show(ReadBook(book, READ_AT_MS))
 
         val expected = listOf("MEASURES", "Read at ${timeFormat.format(Date(READ_AT_MS))}.") +
-            Measure.entries.flatMap { listOf(it.displayName, readBackSentence(it, book)) }
+            Measure.entries.flatMap { listOf(it.displayName, readBackSentence(it, book)) + listOfNotNull(jumps[it]) }
         assertEquals(expected, texts)
     }
 
@@ -68,7 +83,26 @@ class MeasureStatusSectionTest {
     fun `before a reading the six names stand under one waiting line`() {
         val texts = show(null)
 
-        assertEquals(listOf("MEASURES", "Waiting for the first reading.") + Measure.entries.map { it.displayName }, texts)
+        assertEquals(
+            listOf("MEASURES", "Waiting for the first reading.") +
+                Measure.entries.flatMap { listOf(it.displayName) + listOfNotNull(jumps[it]) },
+            texts,
+        )
+    }
+
+    /** AK-T057-8: nothing on this phone answers the Bluetooth page. */
+    @Test
+    fun `a jump that cannot open says so where its button stood`() {
+        shadowOf(RuntimeEnvironment.getApplication()).checkActivities(true)
+        show(null)
+
+        composeRule.onNodeWithText("Open Bluetooth settings").performClick()
+
+        val texts = texts()
+        val a3 = texts.indexOf(Measure.NO_SECOND_DEVICE.displayName)
+        assertEquals("Could not open Bluetooth settings on this phone — nothing changed.", texts[a3 + 1])
+        assertFalse(texts.toString(), "Open Bluetooth settings" in texts)
+        assertTrue(texts.toString(), "Open Wi-Fi settings" in texts)
     }
 
     /** AK-T057-3 on what is drawn; the file itself is in [AcceptanceCriteriaGrepTest]. */

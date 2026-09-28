@@ -330,6 +330,20 @@ class ComparisonSectionTest {
         composeRule.onNodeWithText(ARM_NEEDS_THIS_SCREEN).assertDoesNotExist()
     }
 
+    /** AD-045: a page button only in the instruction, only for a measure with a page — never on the catalog. */
+    @Test
+    fun `the instruction offers the chosen measure's page, and only where one exists`() {
+        fun jumps() = allTexts().filter { it.startsWith("Open ") }
+        show(ComparisonUi(measure = Measure.NO_2_4_GHZ_WIFI))
+        assertEquals(emptyList<String>(), jumps())
+
+        state = ComparisonUi(ComparisonPhase.INSTRUCT, Measure.NO_2_4_GHZ_WIFI, armA = arm)
+        assertEquals(listOf("Open Wi-Fi settings"), jumps())
+
+        state = ComparisonUi(ComparisonPhase.INSTRUCT, Measure.USB_CABLE_OFF, armA = arm)
+        assertEquals(emptyList<String>(), jumps())
+    }
+
     /** AK-T054-3: the process sentence, character for character. */
     @Test
     fun `the process sentence says an arm survives everything but the process`() {

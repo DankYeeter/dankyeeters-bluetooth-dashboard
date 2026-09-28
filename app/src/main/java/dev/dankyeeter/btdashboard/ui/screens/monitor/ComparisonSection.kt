@@ -175,6 +175,7 @@ private fun Instruct(
 ) {
     val measure = state.measure ?: return
     Text(measure.instruction)
+    SettingsJump(measure)
     val readBack = state.readBack
     readBack?.let { Text(readBackSentence(measure, it)) }
     if (readBack != null && measure.verifies(readBack) == Verification.CONTRADICTED) {
