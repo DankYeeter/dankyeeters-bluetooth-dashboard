@@ -32,12 +32,12 @@ import java.util.Base64
  *
  * That is a category change, not a bigger version of the same thing, so it is
  * modelled as one: [PrivilegedOperation] names every entry point the Binder
- * offers and declares for each whether it mutates. Mutating operations are a
- * separate, explicitly listed set — deliberately *not* a flag or an extra
- * argument on the read path, because a mutating call that travels through the
- * same door as a read is one forgotten branch away from being reachable by
- * accident. `PrivilegedProtocolTest` reflects over the AIDL interface and
- * fails if a method is added there and not classified here.
+ * offers and declares for each whether it mutates. Mutating operations are
+ * separate entry points, pinned by name in the test — deliberately *not* a
+ * flag or an extra argument on the read path, because a mutating call that
+ * travels through the same door as a read is one forgotten branch away from
+ * being reachable by accident. `PrivilegedProtocolTest` reflects over the
+ * AIDL interface and fails if a method is added there and not classified here.
  */
 object PrivilegedProtocol {
 
@@ -125,24 +125,7 @@ object PrivilegedProtocol {
          */
         SHUTDOWN("shutdown", mutates = true),
         ;
-
-        companion object {
-            fun byAidlName(name: String): PrivilegedOperation? =
-                entries.firstOrNull { it.aidlName == name }
-        }
     }
-
-    /** Operations that observe and change nothing. */
-    val READ_OPERATIONS: List<PrivilegedOperation> =
-        PrivilegedOperation.entries.filterNot { it.mutates }
-
-    /**
-     * Operations that change the device. Listed separately and by name so that
-     * "how much can this helper actually do to the phone" is one short list to
-     * read rather than a property to go looking for.
-     */
-    val WRITE_OPERATIONS: List<PrivilegedOperation> =
-        PrivilegedOperation.entries.filter { it.mutates }
 
     // ---- wire format --------------------------------------------------------
     //
