@@ -32,6 +32,9 @@ und ein Ledger, das vor jedem ersten Schreiben den Ausgangszustand festhaelt.
 Seit AD-039 (28.09.) darf eine vom Nutzer gestartete, zeitlich begrenzte
 Messung ohne offenen Monitor weiterlaufen (AK-4-Ausnahme); ein eigener,
 kurzlebiger Vordergrunddienst in `:app` haelt dafuer den Prozess.
+Seit AD-044..046 (28.09.) liest der offene Monitor das Zustandsbuch je Lesung
+mit (Pruefstand der sechs Massnahmen, Umgebung am Verlusteintrag, Sprung zur
+Einstellung, WLAN-Band ohne Standortrecht).
 
 ## Struktur
 
@@ -61,6 +64,26 @@ zusammenkommen (Beispiel: `LdacTuning`).
 Wuensche des Nutzers (Geraeteprofile, EQ) in den Stores von `:core-system`;
 fluechtiger Laufzustand in `StateFlow`s neben der Oberflaeche. Der Helper haelt
 keinen fachlichen Zustand ausser seiner Identitaet.
+
+**AK-4-Inventar — wiederkehrende Arbeit im Prozess** (angelegt 2026-09-28, T-057a;
+vorher gab es keines: Grep `Inventar|periodisch` in dieser Datei, `docs/` ohne
+`archiv/` und im Code fand keine Liste). Grundlage: Grep
+`delay(|while (isActive|while (currentCoroutineContext().isActive|while (true)|WorkManager|AlarmManager|postDelayed`
+in `*/src/main`, Stand `14fa3fc`. Wer periodische Arbeit hinzufuegt, traegt sie hier ein.
+
+| Arbeit | Takt | Laeuft nur, wenn | Beruehrt den Audiopfad | Grund |
+|---|---|---|---|---|
+| `LiveLinkSource.updates` (`dumpsys bluetooth_manager`, `media.audio_flinger`, `audio`) | Tafeltakt, Default 2 s | Monitor sammelt (`WhileSubscribed`); ab AD-039 auch waehrend eines Vergleichsarms | liest; `bluetooth_manager` leert die BQR-Queue (R-011) | Live-Tafel (AK-2), Vergleich |
+| `A2dpTxProbe.samples` (`dumpsys bluetooth_manager`) | 500 ms | Nahaufnahme an und Monitor sammelt | liest, wie oben | Nahaufnahme ≥ 2 Hz (AK-2) |
+| `MonitorEngine`-Schleife (`SamplingPolicy`) | je Modus | heute auch „playing, screen off" (F-014); nach X-3 nur `uiVisible` oder DEEP | liest | Zeitachse; DEEP ist AK-4-Ausnahme |
+| `MeasurementService` (AD-039) | ein `delay` bis zum DEEP-Ende, kein Takt | Messung laeuft | nein | AK-4-Ausnahme |
+| Zustandsbuch je Monitor-Lesung (AD-044, **geplant**) | je frischer Lesung von `LiveLinkSource` | `MonitorGraph.uiVisible` | nein: `Settings.Global` ×2, Battery-Sticky-Intent, ab AD-046 `ConnectivityManager` ×2; kein `dumpsys`, kein Funk | AK-18, AK-19 |
+| `VolumeGuard`-Wachhund | `POLL_INTERVAL_MS` | Hoertest-Lauf (`HearingTestViewModel`) | nein, liest die Lautstaerke | Hoertest |
+| `HughsonWestlakeTestController` | Reizabstand | Hoertest-Lauf | spielt den Pruefton | Hoertest |
+
+Nicht periodisch (einmalige Wartezeiten oder blockierendes Annehmen):
+`PlaybackSessionHarvester` (Entprellen), `BtDashboardApplication` (Helfer-Start),
+`ActivateScreen`, `HearingTestViewModel` (Hinweisdauer), `PrivilegedServer` (Annahmeschleife).
 
 **Historie:** Die Entscheidungen vor AD-001 sind nicht rueckwirkend als AD
 gefasst worden. Sie stehen ausfuehrlich im KDoc der betroffenen Typen und in
@@ -1574,9 +1597,9 @@ class AudioTrackToneGenerator : ToneGenerator, Closeable // Thread + AudioTrack
 Rate `AudioTrack.getNativeOutputSampleRate(STREAM_MUSIC)`, Puffer 2x
 `getMinBufferSize`, `PERFORMANCE_MODE_LOW_LATENCY`, `USAGE_MEDIA`/`MUSIC` wie
 bisher, Thread mit `THREAD_PRIORITY_URGENT_AUDIO`, **keine Allokation in der
-Schleife**, Parameter als `@Volatile`. `write(...) < 0` setzt `isRunning` auf
-false — heute bleibt das Kotlin-Flag nach `onErrorAfterClose` faelschlich true
-(Nebenbefund, faellt mit weg).
+Schleife**, Parameter als `@Volatile`. (Nachtrag 2026-09-28: der Satz zu
+`isRunning` entfaellt — `ToneGenerator.isRunning` ist in T-056 entfernt,
+`eba9858`, Branch `t056-bereinigung`.)
 
 **Geraetenachweis (W-7), A/B beide Engines, gleiche Sitzung, Pixel 11 Pro:**
 1. Pegelschritt −10 dB per Goertzel: Differenz zwischen den Engines innerhalb
@@ -2075,7 +2098,7 @@ Wuensche, bis es wieder eingeschaltet ist; der Bericht nennt die Profile beim Na
 
 ---
 
-### AD-035 — Der Prozess leitet an und liest zurueck; die Lesbarkeit stellt die Laufzeit fest (2026-09-23, Status: aktiv — Nutzer 23.09. F3; loest die Abhaengigkeit von P-3)
+### AD-035 — Der Prozess leitet an und liest zurueck; die Lesbarkeit stellt die Laufzeit fest (2026-09-23, Status: aktiv — Nutzer 23.09. F3; loest die Abhaengigkeit von P-3; Punkt „Kein Band" und „keine neue Permission" **abgeloest durch AD-046** am 2026-09-28)
 
 **Kontext:** F3: kein neues Helfer-Kommando, kein WLAN-Schalten, kein Leihen der
 Scan-Schalter. P-3 (Geraeteinventur) faellt in die Geraetesession; der Code darf
@@ -2763,6 +2786,331 @@ Default-Parameter in `SettingsRestore`.
 
 ---
 
+### AD-044 — Der offene Monitor liest das Zustandsbuch je Lesung mit; ein Verlusteintrag traegt das Buch der ersten Lesung seiner Episode als Text (2026-09-28, Status: aktiv — AK-18, AK-19)
+
+**Kontext:** Gelesen am Branch `auto/2026-09-23-saeule3`, `14fa3fc`: `MonitorViewModel.kt`,
+`ComparisonController.kt`, `ComparisonSection.kt`, `EnvironmentConditions.kt`, `Measures.kt`,
+`LinkEvent.kt`, `LiveLinkSource.kt`, `MonitorDatabase.kt`, `MonitorScreen.kt`. Das Buch
+(`readConditions`, AD-035) wird heute nur an den Armgrenzen des Vergleichs gelesen.
+Verlusteintraege entstehen je Poll-Fenster mit Verlust (`LiveLinkSource.lossEvent` →
+`LinkEvent.LossDetected` → `MonitorViewModel.recordLiveEvents` → Room
+`monitor_events.detail`); die Episoden aus AD-023 sind **nicht gebaut** (Grep
+`LOSS_EVENT_COOLDOWN|LossFold` in `*/src/main`: 0 Treffer). Nach X-3 (AD-039 Teil 3)
+sammelt das `MonitorViewModel` waehrend eines Arms auch bei Display aus — dann schriebe
+`recordLiveEvents` Eintraege ohne offenen Monitor, gegen AK-19. R-011: kein neuer
+`dumpsys bluetooth_manager`. Kraefte: AK-3 (das Buch gehoert zu genau dieser Lesung),
+AK-1/AK-4 (Kosten je Takt), Umkehrbarkeit der Persistenz.
+
+**Optionen:**
+A. **Buch je frischer Lesung, nur bei `uiVisible`; Episodenbuch als Text in `detail`.**
+Kein Schemawechsel.
+B. **Eigene Spalte `environment` in `monitor_events`** (Room 4→5). Konsequenz: strukturiert,
+aber eine Migration (L-033, schwer umkehrbar) fuer einen Text, der nur angezeigt wird.
+C. **Buch per Push** (`ContentObserver` auf `wifi_on`, Batterie-Broadcast). Konsequenz: keine
+Lesung ohne Aenderung, aber zwei Registrierungen mit eigener Lebensdauer, und die
+Dump-Felder kommen trotzdem je Lesung — zwei Mechanismen fuer ein Buch.
+D. **Buch nur im Speicher** (Eintrag → Buch). Konsequenz: nach Prozessende fehlt es den
+Zeilen — AK-19 „jeder Protokolleintrag" gebrochen.
+
+**Entscheidung:** A.
+
+1. **Lesung je Takt.** In `liveUpdates.onEach` (oberhalb von `shareIn`, laeuft also nur fuer
+   frische Polls, nie fuer den Replay): ist `MonitorGraph.uiVisible` (Accessor aus X-3) wahr,
+   `readConditions(app, snapshot, snapshot.pairing?.discovering)`; sonst wird nichts gelesen.
+   Die Dump-Felder (`OTHER_ACL_LINKS`, `DISCOVERY_SEEN`) kommen aus dem Snapshot derselben
+   Lesung — kein neuer `dumpsys`. Wird `uiVisible` falsch, wird das Buch `null`.
+   ```kotlin
+   // MonitorViewModel
+   data class ReadBook(val book: ConditionBook, val readAtMs: Long)   // readAtMs = snapshot.timestampMs
+   val conditionBook: StateFlow<ReadBook?>
+   ```
+2. **Ereignisse nur bei offenem Monitor.** `recordLiveEvents` laeuft nur bei `uiVisible` —
+   fuer alle Live-Ereignisse, wie vor AD-039. Der Vergleich bekommt seine Lesungen
+   unabhaengig davon (`comparison.onReading`).
+3. **Episode**, klein, bis AD-023 gebaut ist: eine Folge sichtbarer Lesungen mit
+   `LossDetected` ohne Lesung ohne Verlust dazwischen und ohne `isReadingGap`.
+   ```kotlin
+   // app/.../ui/screens/monitor/ConditionStatus.kt (rein)
+   internal data class LossEpisode(val lastLossAtMs: Long, val book: ConditionBook)
+   /** Kein Verlust -> null; Verlust nach Verlust ohne Luecke -> prev mit neuem lastLossAtMs; sonst neue Episode mit [book]. */
+   internal fun nextEpisode(prev: LossEpisode?, atMs: Long, hasLoss: Boolean, book: ConditionBook, expectedIntervalMs: Long): LossEpisode?
+   internal fun conditionLines(book: ConditionBook): List<String>   // je Condition eine Zeile: gelesen / nicht lesbar: Grund
+   ```
+   `hasLoss` = die Lesung traegt ein `LossDetected` (dasselbe Kriterium wie die Zeile).
+   Nicht sichtbar → Episode `null`. Wird AD-023 gebaut, uebernimmt dessen Episodenbeginn
+   diese Rolle; kein Widerspruch.
+4. **Zeile:** nur `MonitorEventType.DROPOUT`: `record.copy(detail = record.detail + "\n" +
+   conditionLines(episode.book).joinToString("\n"))`. Gruende laufen durch
+   `redactAddresses`. Kein Ursachenwort (Liste UI_SPEC T-057b).
+5. **Pruefstand (AK-18):** neu `MeasureStatusSection.kt`, sechs Zeilen in `Measure.entries`-
+   Reihenfolge (R-010, keine Sortierung nach Stand — die waere eine Rangfolge), je
+   `readBackSentence(measure, book)` und Lesezeit; `null` → Satz „wird gelesen". Keine
+   Gesamtzeile. `readBackSentence`, `Condition.displayName`, `ConditionBook.shown` ziehen
+   wortgleich von `ComparisonSection.kt` nach `ConditionStatus.kt` (ein Satz Worte fuer
+   Vergleich, Pruefstand und Protokoll).
+6. **Rueckkehr (fuer AD-045):** faellt aus 1 heraus — ON_STOP macht das Buch `null`, die erste
+   frische Lesung nach ON_START fuellt es neu.
+
+**Randbedingung:** „`onEach` laeuft einmal je frischem Poll" gilt fuer `MonitorViewModel.kt:168-191`
+am Stand `14fa3fc`; der Mess-Sammler aus X-3 haengt am selben geteilten Fluss und verdoppelt
+`onEach` nicht. Aendert X-3 das, prueft Y-1 es zuerst.
+
+**Kosten:** je frischer Lesung bei offenem Monitor zwei `Settings.Global`-Lesungen und ein
+Sticky-Intent (ab AD-046 zwei `ConnectivityManager`-Aufrufe); kein `dumpsys`, kein Funk.
+Ungemessen; im AK-4-Inventar eingetragen.
+
+**Konsequenzen:** Leicht: AD-045 braucht keinen eigenen Rueckkehr-Haken, AD-046 erweitert nur
+`readConditions`. Dauerhaft: das Buch im Protokoll ist Text in der Sprache zur Schreibzeit;
+wer spaeter nach Bedingungen filtern will, braucht B. Lange Verlustphasen schreiben weiter
+eine Zeile je Fenster (Bestand) — jede mit demselben Episodenbuch.
+
+**Umkehrbarkeit:** leicht — kein Schema; alte Zeilen behalten ihren Text.
+
+**Beruehrt Dateien:** `MonitorViewModel.kt`, neu `ConditionStatus.kt`, neu
+`MeasureStatusSection.kt`; Verschiebung/Verdrahtung `ComparisonSection.kt`, `MonitorScreen.kt`.
+
+**Test (rot vorher):**
+- `MonitorViewModel` (Robolectric, Lesungen wie `MonitorLiveStopTest`): `uiVisible` wahr,
+  `wifi_on = "1"`, eine Lesung t1 → `conditionBook.value?.book[WIFI_RADIO] == Read("on")`,
+  `readAtMs == t1`. `uiVisible` falsch, Arm A laeuft, Lesung mit Verlust → `conditionBook == null`
+  und keine neue `monitor_events`-Zeile (faellt nach X-3 ohne Sperre). **AK-20-Rueckkehr:**
+  Buch(t1) → `setUiVisible(false)` → `null` → `setUiVisible(true)` → weiter `null` bis zur
+  Lesung t2 → `readAtMs == t2`, zwischendurch `wifi_on = "0"` → `Read("off")`.
+- `ConditionStatusTest` (JVM): (0, kein Verlust, B0), (2000, Verlust, B1), (4000, Verlust, B2),
+  (6000, kein), (8000, Verlust, B4), Takt 2000 → Zeilen bei 2000 und 4000 tragen B1, bei 8000 B4.
+  (2000, Verlust, B1), (200 000, Verlust, B5) → B5 (Luecke). `conditionLines`: jede
+  `Condition` genau einmal; `Unreadable("x")` → Zeile nennt „x", nie die Gelesen-Form; keine
+  Zeile enthaelt ein Wort der Ursachenliste, fuer alle Werte.
+- `MeasureStatusSectionTest` (Robolectric): sechs Zeilen in `Measure.entries`-Reihenfolge;
+  `USB_POWER = Unreadable("battery state not read")` → A5 „Not checkable: battery state not
+  read." und kein „Confirmed"; A1/A4/A7 immer nicht pruefbar; kein Wort der
+  Sammelbewertungsliste (UI_SPEC, R-E).
+
+---
+
+### AD-045 — Sprung nur zu zwei belegten Systemseiten, per `startActivity` mit gefangenem Fehler; die Rueckkehr liest ueber AD-044 neu (2026-09-28, Status: aktiv — AK-20, AK-9)
+
+**Kontext:** AK-20 verlangt fuer alle zehn Eintraege aus `Measures.kt` eine festgelegte
+Antwort. Bestand: fuenf `startActivity`-Stellen mit stillem `runCatching` (z. B.
+`ActivateScreen.kt:343`). A-005 nimmt `QUERY_ALL_PACKAGES` aus dem Play-Build. Offene Frage
+aus P-002: startet der Sprung in die Bluetooth-Einstellungen eine Geraetesuche (dann
+widerspraeche er A1)?
+
+**Quellen** (AOSP Settings, GitHub-Spiegel `aosp-mirror/platform_packages_apps_settings`,
+`main`, letzter Commit 2025-03-24, abgerufen 2026-09-28; googlesource lieferte 503):
+- `android.settings.BLUETOOTH_SETTINGS` → `Settings$ConnectedDeviceDashboardActivity`,
+  Fragment `ConnectedDeviceDashboardFragment` (`AndroidManifest.xml:360-376`).
+- `android.settings.WIFI_SETTINGS` → `Settings$WifiSettingsActivity`, `NetworkProviderSettings`.
+- `startDiscovery()` steht nur in `DeviceListPreferenceFragment.kt:317`, Basis von
+  `BluetoothPairingDetail` („Neues Geraet koppeln", eigene Aktion
+  `BLUETOOTH_PAIRING_SETTINGS`, verlangt `BLUETOOTH_SCAN`) und `DevicePickerFragment`;
+  `ConnectedDeviceDashboardFragment` erbt nicht davon. `AlwaysDiscoverable` (Sichtbarkeit,
+  keine Suche) startet dort nur, wenn der Aufrufer Settings oder SystemUI ist
+  (`ConnectedDeviceDashboardFragment.java:106-111`).
+- `startActivity` braucht keine Package-Visibility und kein `<queries>`; `resolveActivity`
+  schon. Empfohlen: `ActivityNotFoundException` fangen —
+  https://developer.android.com/training/package-visibility/use-cases, abgerufen 2026-09-28.
+
+**Randbedingung:** „keine Suche beim Sprung" ist am AOSP-Stand 2025-03 belegt, **nicht** an
+Android 17 und nicht am Pixel-Build (dort z. B. der Nearby-Slice
+`config_nearby_devices_slice_uri` der Play-Dienste, dessen Scanverhalten nicht in AOSP liegt).
+Geraeteprobe unten.
+
+**Optionen:**
+A. **Feste Zuordnung, `startActivity` in `try`/`catch`**, fehlgeschlagen → sichtbarer Satz.
+B. **`resolveActivity` vorab, `<queries>` je Aktion.** Konsequenz: zusaetzlicher
+Manifestteil; ohne `QUERY_ALL_PACKAGES` (A-005) haengt das Ergebnis an der Deklaration,
+und ein positives `resolve` garantiert den Start trotzdem nicht.
+C. **Auch Ausweichen und Nur-Lesen-Werte bekommen Spruenge** (Entwickleroptionen). Konsequenz:
+T-049a fand dort auf dem Pixel 11/A17 keinen Bluetooth-Punkt; und ein Sprung aus
+„Ausweichen" machte Wissen zur Aktion (AD-037, AK-12).
+
+**Entscheidung:** A.
+```kotlin
+// app/.../ui/tuning/SettingsJumps.kt
+/** The system page for [measure], or null: none exists, it is a physical step, or it is the sink's. */
+fun settingsAction(measure: Measure): String? = when (measure) {
+    Measure.NO_2_4_GHZ_WIFI -> Settings.ACTION_WIFI_SETTINGS          // "android.settings.WIFI_SETTINGS"
+    Measure.NO_SECOND_DEVICE -> Settings.ACTION_BLUETOOTH_SETTINGS    // "android.settings.BLUETOOTH_SETTINGS"
+    Measure.NO_DISCOVERY, Measure.BODY_OUT_OF_PATH, Measure.USB_CABLE_OFF, Measure.SINK_ALLOWS_LDAC -> null
+}
+/** Always null, spelled out so a new entry forces a decision. */
+fun settingsAction(fallback: Fallback): String? = when (fallback) {
+    Fallback.LOWER_STEP, Fallback.ADAPTIVE_BITRATE, Fallback.CODEC_CHANGE, Fallback.FAMILY_44_1_KHZ -> null
+}
+/** Starts [action]; false on ActivityNotFoundException or SecurityException. */
+fun openSettings(context: Context, action: String): Boolean
+```
+Gruende fuer `null` (Worte UI_SPEC): A1 — Suchquellen sind die Koppelseite (nicht oeffnen)
+und der Fast-Pair-Schalter der Play-Dienste (keine oeffentliche Aktion, R-010 A1); A4, A5
+Handgriff; A7 Einstellung der Gegenstelle; Ausweichen: Wissen, keine Aktion (AD-037) — Stufe,
+ABR und Codec stellt die App selbst an ihrer Stelle, fuer 44,1 kHz fand T-049a keine Seite.
+Die drei Nur-Lesen-Werte (F-011) bekommen keinen Sprung (Backlog P-002 c).
+
+- **Knoepfe:** je Zeile in `MeasureStatusSection` (nur wo `settingsAction != null`) und in
+  `ComparisonSection` Phase `INSTRUCT` fuer die gewaehlte Massnahme. „Ausweichen": keiner.
+- **Rueckkehr:** AD-044 Punkt 6. In `INSTRUCT` bleibt `readBack` bis „Check again"/„Start Arm B";
+  kein automatisches `onCheck` (startete Arm B ohne Tipp).
+- Die fuenf stillen `runCatching`-Stellen bleiben (keine Massnahmen).
+
+**Konsequenzen:** Kein Manifestteil, unabhaengig von A-005. Der Landeort ist erst am Geraet
+bewiesen.
+
+**Umkehrbarkeit:** leicht.
+
+**Beruehrt Dateien:** neu `SettingsJumps.kt`, `MeasureStatusSection.kt`, `ComparisonSection.kt`.
+
+**Test (rot vorher):**
+- `SettingsJumpsTest`: Tabelle aller zehn Eintraege (`Measure.entries + Fallback.entries`) →
+  A2 `"android.settings.WIFI_SETTINGS"`, A3 `"android.settings.BLUETOOTH_SETTINGS"`, acht
+  `null`; Groesse 10.
+- `openSettings` (Robolectric, `checkActivities(true)`): ohne aufloesbare Aktivitaet → `false`;
+  mit registrierter Aktivitaet fuer die Aktion → `true`, `nextStartedActivity.action` gleich.
+- `MeasureStatusSectionTest`: Sprung A3 nicht aufloesbar → Satz (UI_SPEC) sichtbar; A4-Zeile
+  ohne Knopf.
+- **Geraet:** Monitor offen, Sprung A3, 20 s auf der Seite, zurueck. Einmal von Hand
+  `dumpsys bluetooth_manager | grep Discovering` waehrend die Seite offen ist — **nicht
+  waehrend einer Messung** (R-011). `Discovering: true` → A3-Sprung auf `null`.
+
+---
+
+### AD-046 — Das WLAN-Band kommt aus `ConnectivityManager` ohne Standortrecht; A2 widerspricht bei 2,4 GHz (2026-09-28, Status: aktiv — AK-21, **P-003 baubar: ja**; oeffnet AD-035; **`security-reviewer` vor dem Bau**: neue Berechtigung `ACCESS_NETWORK_STATE`)
+
+**Kontext:** AK-21 unter der Nutzerbedingung „nur ohne Standortberechtigung; SSID/BSSID werden
+nicht gelesen". AD-035 schloss das Band aus („Kein Band", „keine neue Permission").
+
+**Quellen** (AOSP ueber GrapheneOS-Baeume Branch `17`, Android-17-Basis, gepusht
+2026-09-26, abgerufen 2026-09-28; googlesource lieferte 503):
+- `WifiInfo(WifiInfo source, long redactions)` (`packages/modules/Wifi`,
+  `framework/java/android/net/wifi/WifiInfo.java:596-620`): unter
+  `REDACT_FOR_ACCESS_FINE_LOCATION` werden BSSID, SSID, Netz-ID, AP-MLD-Adresse geschwaerzt;
+  `mFrequency = source.mFrequency` bleibt. `getFrequency()` (`:1204-1212`): bei MLO die
+  Frequenz des verbundenen Links mit dem hoechsten RSSI.
+- `ConnectivityService.getNetworkCapabilities` (`packages/modules/Connectivity`,
+  `service/src/com/android/server/ConnectivityService.java:3284-3292, 4241-4245`): verlangt nur
+  `ACCESS_NETWORK_STATE` und schwaerzt mit `includeLocationSensitiveInfo = false` die
+  Standortfelder **immer** — SSID/BSSID erreichen die App gar nicht.
+- Bandgrenzen: `ScanResult.java:885-932` (2412–2484, 5160–5885, 5935 und 5955–7115 MHz); die
+  Pruefmethoden dort sind `@hide`, deshalb eine eigene Funktion.
+
+**Randbedingung:** belegt am Quelltext eines Android-17-Baums, **nicht** am Pixel-Build.
+Liefert der Pixel 0 oder −1, wird das „nicht lesbar" — AK-21 wird dann ehrlich nie
+„widerspricht", aber nie falsch.
+
+**Optionen:**
+A. **`ConnectivityManager.getNetworkCapabilities(activeNetwork)?.transportInfo as? WifiInfo`
+→ `frequency`**, neue Berechtigung `ACCESS_NETWORK_STATE` (normal, bei Installation, kein
+Dialog; heute in keinem Manifest, Grep 28.09.).
+B. **`WifiManager.getConnectionInfo()`**. Konsequenz: seit API 31 abgekuendigt, braucht
+`ACCESS_WIFI_STATE`, oeffnet „kein `WifiManager`" woertlich — gleiche Schwaerzung, kein Gewinn.
+C. **Helfer `cmd wifi status`** (AD-005). Konsequenz: neues Helfer-Kommando, F3 verbietet es.
+D. **`NetworkCallback` auf `TRANSPORT_WIFI`**, solange der Monitor offen ist. Konsequenz: sieht
+WLAN auch, wenn es nicht das aktive Netz ist, kostet aber eine Registrierung mit Lebensdauer.
+E. **Im Bestand:** AK-21 ruht.
+
+**Entscheidung:** A. Grenze, bewusst: ist WLAN verbunden, aber nicht das aktive Netz (kein
+Internet, VPN), ist das Band „nicht lesbar" — Richtung vorsichtig. Hoeher nur mit D.
+```kotlin
+// core-monitor/.../optimize/Measures.kt
+enum class Condition(val stable: Boolean) {
+    WIFI_RADIO(true), WIFI_BAND(true), WIFI_SCAN_ALWAYS(true), USB_POWER(true), OTHER_ACL_LINKS(true),
+    DISCOVERY_SEEN(false),
+}
+// WIFI_BAND: Read("off") | Read("2.4 GHz") | Read("5 GHz") | Read("6 GHz") | Unreadable(grund)
+enum class Measure(val r010: String, val condition: Condition?, private val alsoChanged: Condition? = null) {
+    NO_2_4_GHZ_WIFI("A2", Condition.WIFI_BAND, alsoChanged = Condition.WIFI_RADIO), /* Rest unveraendert */
+    ;
+    /** What carrying this measure out changes; a change of these between the arms is the measure itself. */
+    val governs: Set<Condition> get() = setOfNotNull(condition, alsoChanged)
+}
+// verify A2: "off" -> VERIFIED, "2.4 GHz" -> CONTRADICTED, sonst NOT_VERIFIABLE
+
+// app/.../ui/tuning/EnvironmentConditions.kt
+internal fun bandValue(radio: ConditionValue, frequencyMhz: Int?, error: Throwable?): ConditionValue
+// radio Read("off") -> Read("off"), ohne ConnectivityManager-Aufruf; radio Unreadable -> Unreadable;
+// error -> Unreadable(message); null (kein WLAN als aktives Netz) -> Unreadable; Frequenz -> Band
+// nach den Grenzen oben; ausserhalb -> Unreadable("… MHz in no known band")
+```
+- `Comparison.kt`: Ausnahme „Bedingung der gewaehlten Massnahme" wird `c !in measure.governs`
+  (heute `c != measure.condition`, Z. 113). Ohne das beendete ein Wechsel von 2,4 auf 5 GHz —
+  die Massnahme selbst — den A2-Vergleich; mit `WIFI_BAND` als `stable` blockiert derselbe
+  Wechsel jeden anderen Vergleich (T-036: 2,4 GHz ist der belegte Ausloeser).
+- A2 vor Arm B bei 2,4 GHz: `CONTRADICTED`, Arm B startet nicht. „Bereits umgesetzt" nur bei „off".
+- 5 und 6 GHz bleiben `NOT_VERIFIABLE`: T-036s Arm „ohne" war WLAN **aus**.
+- Gelesen wird nur in `readConditions`: bei offenem Monitor (AD-044) und an den Armgrenzen —
+  genau AK-21.
+- Nur `getFrequency()` wird gelesen; die App fasst `ssid`, `bssid`, IP nicht an.
+
+**Konsequenzen:** Neue Berechtigung und damit Policy-Flaeche; AK-10 unberuehrt (kein Helfer).
+Das Band steht ueber AD-044 im lokalen Protokoll — die Datenschutzliste (C-001 Nr. 10) muss es
+nennen. Rahmenzeilen und `notChecked` zeigen `WIFI_BAND` ohne Strukturaenderung.
+
+**Umkehrbarkeit:** leicht — ein Enum-Eintrag, eine Funktion, eine Manifestzeile.
+
+**Beruehrt Dateien:** `EnvironmentConditions.kt`, `Measures.kt`, `Comparison.kt`,
+`ConditionStatus.kt` (A2-Worte, Name `WIFI_BAND`); Verdrahtung `app/src/main/AndroidManifest.xml`.
+
+**Test (rot vorher):**
+- `bandValue` (JVM): (`Read("off")`, –) → `Read("off")`; (`Read("on")`, 2437) → „2.4 GHz";
+  2484 → „2.4 GHz"; 2485 → `Unreadable`; 5180 → „5 GHz"; 5935 und 5955 → „6 GHz"; (`Read("on")`,
+  `null`) → `Unreadable`; Fehler `SecurityException("x")` → `Unreadable("x")`; (`Unreadable`, 2437)
+  → `Unreadable`, nie `Read`.
+- `readConditions` (Robolectric, `ShadowNetworkCapabilities.setTransportInfo` mit Frequenz 2437,
+  `wifi_on = "1"`) → `book[WIFI_BAND] == Read("2.4 GHz")`.
+- `MeasuresTest`: A2 „2.4 GHz" → `CONTRADICTED`, „5 GHz" → `NOT_VERIFIABLE`, „off" → `VERIFIED`;
+  `NO_2_4_GHZ_WIFI.governs == setOf(WIFI_BAND, WIFI_RADIO)`, sonst `setOfNotNull(condition)`.
+- `ComparisonTest`: A2, Band Ende A „2.4 GHz" → Anfang B „5 GHz", Funk beide „on" → vergleichbar;
+  derselbe Wechsel bei A5 → `ConditionChanged(WIFI_BAND, BETWEEN_ARMS)`; A2 Funk on→off, Band
+  „2.4 GHz"→„off" → vergleichbar.
+- `ComparisonControllerTest`: A2 in `INSTRUCT`, Buch „2.4 GHz" → `onCheck` bleibt in `INSTRUCT`.
+- `AcceptanceCriteriaGrepTest`: kein `getSSID|getBSSID|WifiManager` in `app/src/main/java`,
+  kein `ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|NEARBY_WIFI_DEVICES` in den Manifesten,
+  `getNetworkCapabilities` nur in `EnvironmentConditions.kt`.
+- **Geraet:** 2,4-GHz-Netz → A2 „widerspricht"; 5-GHz-Netz → „nicht pruefbar"; `dumpsys package`
+  der App zeigt keine Standortberechtigung.
+
+---
+
+### AD-047 — Bauschnitt fuer P-001/P-004, P-002, P-003: drei Laeufe Y-1..Y-3 (2026-09-28, Status: aktiv)
+
+**Kontext:** AD-044..046. Regel wie AD-038/AD-043: hoechstens fuenf Dateien mit eigener Logik
+je Lauf; Verdrahtung, Verschiebung, Texte und Tests zaehlen nicht. Keine Datenbank-Anweisung
+(L-033 nicht beruehrt; AD-044 Option B verworfen). Alle Laeufe nach dem Fixzyklus T-055.
+
+| Lauf | AD / AK | Dateien mit Logik | Verdrahtung / Verschiebung | Security-Vorlauf | UI_SPEC T-057b | braucht |
+|---|---|---|---|---|---|---|
+| **Y-1** | AD-044 / AK-18, AK-19, AK-20 (Rueckkehr) | `MonitorViewModel.kt`, neu `ConditionStatus.kt`, neu `MeasureStatusSection.kt` | `ComparisonSection.kt` (drei Funktionen wortgleich heraus), `MonitorScreen.kt` | nein | Pruefstand, „wird gelesen", Protokollzeilen, Ursachen- und Sammelwortliste | X-3 (`uiVisible`-Accessor, Mess-Sammler), X-4 (`ComparisonSection.kt`) |
+| **Y-2** | AD-045 / AK-20 | neu `SettingsJumps.kt`, `MeasureStatusSection.kt`, `ComparisonSection.kt` | — | nein (feste Aktionen, keine Extras) | Knoepfe, Satz „nicht aufloesbar", Grund je Eintrag ohne Sprung | Y-1 |
+| **Y-3** | AD-046 / AK-21 | `EnvironmentConditions.kt`, `Measures.kt`, `Comparison.kt`, `ConditionStatus.kt` | `app/src/main/AndroidManifest.xml` | **ja** (`ACCESS_NETWORK_STATE`, AD-035 geoeffnet) | A2-Worte je Band, Name „Wi-Fi band" | Y-1, Security-Vorlauf |
+
+**Reihenfolge:** Y-1; dann **Y-2 ∥ Y-3** (Dateilisten disjunkt: {`SettingsJumps`,
+`MeasureStatusSection`, `ComparisonSection`} gegen {`EnvironmentConditions`, `Measures`,
+`Comparison`, `ConditionStatus`, Manifest}); Security-Vorlauf fuer Y-3 parallel zu Y-1. Dann ein
+QA-Retest. **F-011:** P-002 beruehrt `DeviceProfilesScreen.kt` und `BluetoothSystemControls.kt`
+nicht (keine Spruenge fuer die Nur-Lesen-Werte) — die Kollision aus dem Backlog entfaellt; X-2
+bleibt trotzdem vorher. Aendert UI_SPEC fuer P-003 auch Anleitung oder Namen von A2
+(`Measure.instruction`/`displayName` in `ComparisonSection.kt`), setzt das **Y-2**, nicht Y-3 —
+sonst teilen sich die parallelen Laeufe eine Datei.
+
+**Rot-vorher je AK:** AK-18 `MeasureStatusSectionTest` (Unlesbar → nicht pruefbar, sechs Zeilen);
+AK-19 `ConditionStatusTest` (Episodenbuch) und `MonitorViewModel` (keine Zeile bei `uiVisible`
+falsch); AK-20 `SettingsJumpsTest` (zehn Eintraege) und `MonitorViewModel`-Rueckkehr; AK-21
+`MeasuresTest` (2,4 GHz → `CONTRADICTED`) und `bandValue`. Einzelheiten in den ADs.
+
+**Risiken:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Die Buch-Lesung je Takt stoert (AK-1) | AK-1-Messreihe | Lesen seltener geht nicht ohne AK-19 „zum Zeitpunkt der ersten Lesung" zu brechen → Frage an den Nutzer |
+| Pixel-Settings sucht beim Bluetooth-Sprung doch | Geraeteprobe AD-045 | A3 auf `null`, Satz statt Knopf |
+| Pixel liefert ohne Standort keine Frequenz | A2 immer „nicht pruefbar: …" | AK-21 ruht faktisch; ehrlich, kein Bau noetig |
+| WLAN verbunden, aber nicht aktives Netz | Grund im Buch | Option D aus AD-046 |
+| Lange Verlustphasen fuellen das Protokoll | viele gleiche Zeilen | AD-023 bauen |
+
+**Umkehrbarkeit:** leicht — ein Plan.
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -2847,7 +3195,8 @@ Default-Parameter in `SettingsRestore`.
   empirischen Sammelsatz. (AD-036, AD-037)
 - **WLAN-Band ueber `WifiManager` oder ein Helfer-Kommando.** F3 und AD-005.
   Wieder interessant, wenn der Nutzer A2 genauer als „Funk aus" belegen will.
-  (AD-035)
+  (AD-035) — Nachtrag 28.09.: das Band kommt jetzt ueber `ConnectivityManager`
+  (AD-046); `WifiManager` und Helfer bleiben draussen.
 - **Eine MTU-Regel als AK-16-Urteil.** Urteil aus einer Sekundaertabelle ohne
   Messung. Wieder interessant, wenn T-037 den Pakettyp lesbar macht. (AD-036)
 - **Das Ledger als Dekorator an den Settings-Ports.** Der einzige Ort, der
@@ -2886,3 +3235,15 @@ Default-Parameter in `SettingsRestore`.
   Rueckweg sofort statt beim naechsten Verbinden zurueck will. (AD-041)
 - **Den unlesbaren Ledger-Inhalt aufbewahren.** Niemand kann ihn lesen. Wieder
   interessant, wenn ein Fehlerbericht ihn braucht. (AD-042)
+- **Eine Spalte fuer das Zustandsbuch in `monitor_events`.** Migration fuer einen Text, der nur
+  angezeigt wird. Wieder interessant, wenn das Protokoll nach Bedingungen gefiltert oder
+  ausgewertet werden soll. (AD-044)
+- **Das Buch per `ContentObserver`/Broadcast statt je Lesung.** Zweiter Mechanismus neben den
+  Dump-Feldern. Wieder interessant, wenn die AK-1-Messreihe die Lesung je Takt belastet. (AD-044)
+- **`resolveActivity` und `<queries>` fuer die Spruenge.** `startActivity` mit gefangenem Fehler
+  sagt dasselbe ohne Manifestteil. Wieder interessant, wenn ein Knopf vorab ausgegraut werden
+  soll. (AD-045)
+- **Spruenge fuer „Ausweichen" und die Nur-Lesen-Werte.** Wissen wuerde Aktion (AD-037); T-049a
+  fand keine Seite. Wieder interessant, wenn ein Geraet die Seite nachweislich hat. (AD-045)
+- **`NetworkCallback` fuer das WLAN-Band.** Registrierung mit Lebensdauer fuer den Fall „WLAN
+  verbunden, aber nicht aktives Netz". Wieder interessant, wenn der Fall am Geraet auftritt. (AD-046)
