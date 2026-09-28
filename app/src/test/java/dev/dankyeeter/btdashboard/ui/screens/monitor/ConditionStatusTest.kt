@@ -95,10 +95,13 @@ class ConditionStatusTest {
     /** AK-19, AK-T057-5: no line names a cause, for every value the app can read or report. */
     @Test
     fun `no condition line claims a cause`() {
-        val values = listOf("on", "off", "usb", "other", "none", "0", "3", "yes", "no").map { ConditionValue.Read(it) } +
+        val values = listOf("on", "off", "usb", "other", "none", "0", "3", "yes", "no", "2.4 GHz", "5 GHz", "6 GHz")
+            .map { ConditionValue.Read(it) } +
             listOf(
                 "not set on this phone", "unexpected value '2'", "battery state not read",
                 "pairing facts not read", "not observed in this reading",
+                "Wi-Fi power not read", "Wi-Fi is not the active network", "reading the network threw",
+                "2485 MHz in no known band",
             ).map { ConditionValue.Unreadable(it) }
         val text = values.flatMap { value -> conditionLines(Condition.entries.associateWith { value }) } +
             conditionLines(emptyMap()) + EPISODE_HEADING

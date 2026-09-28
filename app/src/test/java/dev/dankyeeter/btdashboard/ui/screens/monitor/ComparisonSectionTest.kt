@@ -76,6 +76,7 @@ class ComparisonSectionTest {
 
     private val book: ConditionBook = mapOf(
         Condition.WIFI_RADIO to ConditionValue.Read("on"),
+        Condition.WIFI_BAND to ConditionValue.Read("5 GHz"),
         Condition.WIFI_SCAN_ALWAYS to ConditionValue.Unreadable("not set on this phone"),
         Condition.USB_POWER to ConditionValue.Read("none"),
         Condition.OTHER_ACL_LINKS to ConditionValue.Read("0"),
@@ -270,11 +271,19 @@ class ComparisonSectionTest {
 
         assertEquals(
             "Confirmed: Wi-Fi is off on this phone.",
-            words(Measure.NO_2_4_GHZ_WIFI, Condition.WIFI_RADIO, ConditionValue.Read("off")),
+            words(Measure.NO_2_4_GHZ_WIFI, Condition.WIFI_BAND, ConditionValue.Read("off")),
         )
         assertEquals(
-            "Not checkable: Wi-Fi being on here does not say which band it used.",
-            words(Measure.NO_2_4_GHZ_WIFI, Condition.WIFI_RADIO, ConditionValue.Read("on")),
+            "Contradicts what this run needs: Wi-Fi here is on a 2.4 GHz network.",
+            words(Measure.NO_2_4_GHZ_WIFI, Condition.WIFI_BAND, ConditionValue.Read("2.4 GHz")),
+        )
+        assertEquals(
+            "Not checkable: whether 5 GHz Wi-Fi affects this pairing has not been measured.",
+            words(Measure.NO_2_4_GHZ_WIFI, Condition.WIFI_BAND, ConditionValue.Read("5 GHz")),
+        )
+        assertEquals(
+            "Not checkable: whether 6 GHz Wi-Fi affects this pairing has not been measured.",
+            words(Measure.NO_2_4_GHZ_WIFI, Condition.WIFI_BAND, ConditionValue.Read("6 GHz")),
         )
         assertEquals(
             "Confirmed: no other Bluetooth device is connected.",
@@ -295,7 +304,7 @@ class ComparisonSectionTest {
             )
         }
         listOf(
-            Measure.NO_2_4_GHZ_WIFI to Condition.WIFI_RADIO,
+            Measure.NO_2_4_GHZ_WIFI to Condition.WIFI_BAND,
             Measure.NO_SECOND_DEVICE to Condition.OTHER_ACL_LINKS,
             Measure.USB_CABLE_OFF to Condition.USB_POWER,
         ).forEach { (measure, condition) ->
@@ -432,7 +441,7 @@ class ComparisonSectionTest {
             readBackOf(Measure.USB_CABLE_OFF, battery, Verification.VERIFIED),
         )
         assertEquals(
-            listOf("Not checkable: Wi-Fi being on here does not say which band it used."),
+            listOf("Not checkable: whether 5 GHz Wi-Fi affects this pairing has not been measured."),
             readBackOf(Measure.NO_2_4_GHZ_WIFI, book, Verification.NOT_VERIFIABLE),
         )
         assertEquals(

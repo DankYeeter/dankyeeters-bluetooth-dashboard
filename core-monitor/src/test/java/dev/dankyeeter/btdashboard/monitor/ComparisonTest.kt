@@ -43,6 +43,7 @@ class ComparisonTest {
 
     private val calm: ConditionBook = mapOf(
         Condition.WIFI_RADIO to ConditionValue.Read("on"),
+        Condition.WIFI_BAND to ConditionValue.Read("5 GHz"),
         Condition.WIFI_SCAN_ALWAYS to ConditionValue.Read("off"),
         Condition.USB_POWER to ConditionValue.Read("none"),
         Condition.OTHER_ACL_LINKS to ConditionValue.Read("0"),
@@ -127,6 +128,19 @@ class ComparisonTest {
             reasonsOf(arm(run(5)), arm(run(0), start = usb)),
         )
         compared(arm(run(5)), arm(run(0), start = wifiOff))
+    }
+
+    /** AD-046: moving off 2.4 GHz is A2 itself; the same move under another measure changed the surroundings. */
+    @Test
+    fun `a band change between the arms is the measure only under A2`() {
+        val on24 = calm.with(Condition.WIFI_BAND, "2.4 GHz")
+        compared(arm(run(5), start = on24), arm(run(0)))
+        assertEquals(
+            listOf(NotComparable.ConditionChanged(Condition.WIFI_BAND, Where.BETWEEN_ARMS)),
+            reasonsOf(arm(run(5), start = on24), arm(run(0)), Measure.USB_CABLE_OFF),
+        )
+        val wifiOff = calm.with(Condition.WIFI_RADIO, "off").with(Condition.WIFI_BAND, "off")
+        compared(arm(run(5), start = on24), arm(run(0), start = wifiOff))
     }
 
     @Test

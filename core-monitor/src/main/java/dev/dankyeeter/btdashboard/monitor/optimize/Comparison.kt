@@ -110,7 +110,7 @@ private fun notComparable(before: Arm, after: Arm, measure: Measure): List<NotCo
         if (changed(after.start[c], after.end[c])) {
             add(NotComparable.ConditionChanged(c, NotComparable.Where.IN_ARM_B))
         }
-        if (c != measure.condition && changed(before.end[c], after.start[c])) {
+        if (c !in measure.governs && changed(before.end[c], after.start[c])) {
             add(NotComparable.ConditionChanged(c, NotComparable.Where.BETWEEN_ARMS))
         }
     }
