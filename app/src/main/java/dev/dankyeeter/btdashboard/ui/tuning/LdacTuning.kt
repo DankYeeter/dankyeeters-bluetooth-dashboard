@@ -4,6 +4,8 @@ import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
+import dev.dankyeeter.btdashboard.privileged.EFFECT_UNKNOWN
+import dev.dankyeeter.btdashboard.privileged.PrivilegedCallGuard
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
@@ -18,11 +20,16 @@ import dev.dankyeeter.btdashboard.ui.screens.monitor.ActiveComparison
 import dev.dankyeeter.btdashboard.ui.screens.monitor.locksLdac
 import dev.dankyeeter.btdashboard.ui.screens.monitor.rawAddressFor
 import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * What the bitrate control has to say about its last attempt.
@@ -258,7 +265,9 @@ object LdacTuning {
      *
      * [readLiveMode] is called under the lock, not before it: a way back that
      * ran while this waited has put the live level back, and the value before
-     * must be that level, not the one this pin read earlier (SR-032).
+     * must be that level, not the one this pin read earlier (SR-032). It is
+     * waited for at most [liveReadTimeoutMs]; a read that does not answer is
+     * held as unknown (M12), so a wedged helper cannot keep the lock (SR-041).
      *
      * @return the state to show, and what the link did.
      */
@@ -270,12 +279,13 @@ object LdacTuning {
         readLiveMode: suspend () -> LdacQualityMode?,
         quality: Long,
         apply: suspend (address: String?, quality: Long) -> CodecApplyOutcome,
+        liveReadTimeoutMs: Long = PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS,
     ): Pair<LdacTuningState, CodecApplyOutcome> = ledger.lock.withLock {
         if (deviceKey != null) {
             val before = LedgerEntry.Ldac(
                 deviceKey = deviceKey,
                 priorWish = profiles.profileFor(deviceKey)?.codecPreference,
-                priorLive = LdacQuality.priorLiveOf(readLiveMode()),
+                priorLive = LdacQuality.priorLiveOf(readAtMost(liveReadTimeoutMs, readLiveMode)),
             )
             if (!ledger.recordIfAbsent(before)) {
                 return@withLock LdacTuningState(
@@ -294,6 +304,22 @@ object LdacTuning {
             message = redactAddresses(tuningSentence(outcome, persisted)),
             messageIsError = outcome is CodecApplyOutcome.Unavailable && !persisted,
         ) to outcome
+    }
+
+    /**
+     * [read]'s answer, or null when it has none within [timeoutMs].
+     *
+     * WHY detached (a fresh Job, not a child): the read ends in Binder calls,
+     * which cannot be cancelled, and a child would keep this waiting for them.
+     * Cancelled on the way out, so a late answer stops before its next call.
+     */
+    private suspend fun <T> readAtMost(timeoutMs: Long, read: suspend () -> T?): T? {
+        val call = CoroutineScope(currentCoroutineContext() + Job()).async { read() }
+        return try {
+            withTimeoutOrNull(timeoutMs) { call.await() }
+        } finally {
+            call.cancel()
+        }
     }
 
     /** The level the link runs now, from one live reading; null when it cannot be read. */
@@ -392,12 +418,13 @@ internal fun tuningSentence(outcome: CodecApplyOutcome, persisted: Boolean): Str
         is CodecApplyOutcome.NotObserved ->
             "The link still reads ${outcome.observed}: ${outcome.detail}."
 
-        is CodecApplyOutcome.Unavailable ->
-            if (persisted) {
-                "It was not changed on the link right now — ${outcome.reason}."
-            } else {
-                "LDAC quality was not changed — ${outcome.reason}."
-            }
+        is CodecApplyOutcome.Unavailable -> when {
+            // DR-008: an unanswered write may have landed, so no "not changed"
+            // frame — the reason already says what is known, and stands alone.
+            outcome.reason.endsWith(EFFECT_UNKNOWN) -> "${outcome.reason.replaceFirstChar(Char::uppercaseChar)}."
+            persisted -> "It was not changed on the link right now — ${outcome.reason}."
+            else -> "LDAC quality was not changed — ${outcome.reason}."
+        }
     }
     return stored + live
 }

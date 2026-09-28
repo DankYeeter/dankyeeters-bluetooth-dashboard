@@ -208,7 +208,8 @@ internal class PrivilegedCallGuard(
      */
     fun failed(what: String, error: Throwable, ping: () -> Unit): Verdict {
         val failure = PrivilegedFailure.of(error)
-        Log.w(TAG, "$what failed, classified $failure", error)
+        // The class only (V12): the message can quote the address the call was for.
+        Log.w(TAG, "$what failed, classified $failure (${error.javaClass.simpleName})")
 
         if (failure.isDeath) {
             consecutiveFailures = 0

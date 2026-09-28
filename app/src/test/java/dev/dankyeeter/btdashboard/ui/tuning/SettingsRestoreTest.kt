@@ -19,14 +19,21 @@ import dev.dankyeeter.btdashboard.system.devices.SecureSettingsController
 import dev.dankyeeter.btdashboard.system.devices.SettingRead
 import dev.dankyeeter.btdashboard.system.devices.SettingsLedger
 import dev.dankyeeter.btdashboard.system.devices.withBaseline
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -382,6 +389,40 @@ class SettingsRestoreTest {
         pinning.join()
 
         assertEquals(listOf(LedgerEntry.Ldac(KEY_HERE, priorWish = null, priorLive = LdacQuality.NONE)), ledger.held)
+    }
+
+    /**
+     * SR-041: the live read is three helper calls behind the monitor's exec lock.
+     * The fake blocks the way a Binder call does — not cancellable — and the pin
+     * runs outside `runBlocking`'s children, so a regression fails instead of hanging.
+     */
+    @Test
+    fun `a live read that never answers frees the ledger lock and holds the level as unknown (SR-041)`() = runBlocking {
+        val ledger = FakeLedger()
+        val release = CountDownLatch(1)
+        try {
+            val pinning = CoroutineScope(Dispatchers.IO).async {
+                LdacTuning.recordThenPin(
+                    ledger = ledger,
+                    profiles = profiles,
+                    deviceKey = KEY_HERE,
+                    device = BtAudioDevice(ADDRESS_HERE, "Bathys"),
+                    readLiveMode = {
+                        withContext(Dispatchers.IO) { release.await() }
+                        LdacQualityMode.HIGH_QUALITY
+                    },
+                    quality = LdacQuality.STANDARD,
+                    apply = { _, _ -> CodecApplyOutcome.Applied("LDAC") },
+                    liveReadTimeoutMs = 200,
+                )
+            }
+
+            assertNotNull("the ledger lock was still held after 5000 ms", withTimeoutOrNull(5_000) { pinning.await() })
+            assertFalse(ledger.lock.isLocked)
+            assertEquals(listOf(LedgerEntry.Ldac(KEY_HERE, priorWish = null, priorLive = null)), ledger.held)
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test

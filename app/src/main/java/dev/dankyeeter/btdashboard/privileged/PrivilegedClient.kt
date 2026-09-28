@@ -783,8 +783,11 @@ private fun Bounded.Unanswered.reason(changes: Boolean): String = when (this) {
     Bounded.Unanswered.TIMED_OUT ->
         "the privileged helper did not answer within " +
             "${PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS.milliseconds.inWholeSeconds} s" +
-            if (changes) " — whether the change took effect is unknown" else ""
+            if (changes) " — $EFFECT_UNKNOWN" else ""
 }
+
+/** How an unanswered write ends its sentence; a frame around it must not claim "not changed" (DR-008). */
+internal const val EFFECT_UNKNOWN = "whether the change took effect is unknown"
 
 /** Where an HD-audio answer came from, and what it actually said. */
 private sealed interface HdAudioCallResult {

@@ -90,8 +90,9 @@ class DeviceConnectionWatcher(
         // without this there is no way to tell "applied silently" apart from
         // "the broadcast never arrived" — which is exactly the ambiguity that
         // made this feature impossible to diagnose on a real device.
-        // Never the raw address (SR-030): a nameless device is logged by its key.
-        val logLabel = name ?: key
+        // Never the raw address (SR-030), and never the key either: with a
+        // known vendor prefix it can be reversed to the address.
+        val logLabel = name ?: "unnamed device"
         Log.i(TAG, "ACL connect: $logLabel")
         scope.launch {
             runCatching {

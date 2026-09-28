@@ -8,6 +8,7 @@ import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
+import dev.dankyeeter.btdashboard.system.devices.HdAudioState
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
@@ -132,6 +133,20 @@ class PrivilegedTimeoutTest {
         }
     }
 
+    /** F-024: reads share the one slot with writes (AD-048, "every further codec/HD-audio call"). */
+    @Test
+    fun `a read behind an unanswered write is refused and never reaches the helper`() = runBlocking {
+        val codec = PrivilegedCodecController(PrivilegedBootstrap(context()), guard)
+        val hdAudio = PrivilegedHdAudioController(PrivilegedBootstrap(context()), guard)
+        outside.async { codec.apply(ADDRESS, LDAC_990) }
+        withTimeout(TEST_BOUND_MS) { while (helper.writes.get() == 0) delay(10) }
+
+        val read = withTimeoutOrNull(TEST_BOUND_MS) { hdAudio.read(ADDRESS) }
+
+        assertTrue("$read", (read as HdAudioState.Unreadable).reason.contains("earlier request"))
+        assertEquals("a read reached a helper that has not answered the write", 0, helper.reads.get())
+    }
+
     private fun CodecApplyOutcome.isBusy(): Boolean =
         this is CodecApplyOutcome.Unavailable && reason.contains("earlier request")
 }
@@ -160,6 +175,18 @@ class PrivilegedCodecLogTest {
         assertTrue("the line ran: $logged", logged.contains("unknown device"))
         assertFalse(logged, logged.contains(ADDRESS))
     }
+
+    /** T-063a, pattern V12: the exception's message can quote the address, its class cannot. */
+    @Test
+    fun `a failed helper call logs the exception class, not the exception`() {
+        ShadowLog.clear()
+
+        PrivilegedCallGuard(forget = {}).failed("a privileged codec call", IllegalStateException("unknown device $ADDRESS")) {}
+
+        val logged = ShadowLog.getLogsForTag("PrivilegedCallGuard").map { "${it.msg} ${it.throwable}" }
+        assertTrue(logged.toString(), logged.any { it.contains("IllegalStateException") })
+        assertTrue(logged.toString(), logged.none { it.contains(ADDRESS) })
+    }
 }
 
 /**
@@ -176,6 +203,7 @@ private class UnansweringHelper(
 
     val release = CountDownLatch(1)
     val writes = AtomicInteger()
+    val reads = AtomicInteger()
 
     private fun hang(): String {
         writes.incrementAndGet()
@@ -191,7 +219,7 @@ private class UnansweringHelper(
 
     override fun exec(token: String?, command: MutableList<String>?): String = NOT_UNDER_TEST
 
-    override fun codecStatus(token: String?, address: String?): String = codecStatusReply
+    override fun codecStatus(token: String?, address: String?): String = codecStatusReply.also { reads.incrementAndGet() }
 
     override fun setCodecPreference(
         token: String?,
@@ -203,7 +231,7 @@ private class UnansweringHelper(
         ldacQuality: Long,
     ): String = hang()
 
-    override fun optionalCodecs(token: String?, address: String?): String = NOT_UNDER_TEST
+    override fun optionalCodecs(token: String?, address: String?): String = NOT_UNDER_TEST.also { reads.incrementAndGet() }
 
     override fun setOptionalCodecs(token: String?, address: String?, preference: Int): String = hang()
 

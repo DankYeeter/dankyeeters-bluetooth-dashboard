@@ -60,5 +60,7 @@ class DeviceConnectionWatcherLogTest {
         val logged = ShadowLog.getLogsForTag("DeviceConnectionWatcher").joinToString("\n") { it.msg }
         assertTrue("both lines ran: $logged", logged.contains("ACL connect") && logged.contains("auto-apply for"))
         assertFalse(logged, logged.contains(ADDRESS))
+        assertFalse("the key can be reversed from a known vendor prefix", logged.contains(DeviceKey.fromAddress(ADDRESS)!!))
+        assertTrue(logged, logged.contains("unnamed device"))
     }
 }

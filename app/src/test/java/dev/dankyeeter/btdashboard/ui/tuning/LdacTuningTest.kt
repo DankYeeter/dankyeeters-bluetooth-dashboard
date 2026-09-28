@@ -258,6 +258,24 @@ class LdacTuningSentenceTest {
         assertTrue("stored" !in text.lowercase())
         assertTrue(text.contains("was not changed"))
     }
+
+    /** DR-008: a write the helper never answered may have landed, so no "not changed" frame. */
+    @Test
+    fun `an unanswered pin is reported as unknown, not as unchanged`() {
+        val unanswered = CodecApplyOutcome.Unavailable(
+            "the privileged helper did not answer within 15 s — whether the change took effect is unknown",
+        )
+
+        assertEquals(
+            "The privileged helper did not answer within 15 s — whether the change took effect is unknown.",
+            tuningSentence(unanswered, persisted = false),
+        )
+        assertEquals(
+            "Stored for this headphone and asked for again on every connect. " +
+                "The privileged helper did not answer within 15 s — whether the change took effect is unknown.",
+            tuningSentence(unanswered, persisted = true),
+        )
+    }
 }
 
 /** The comparison lock on the one path both chip rows take (AD-040). */
