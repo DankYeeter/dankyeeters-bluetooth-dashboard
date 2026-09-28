@@ -1,6 +1,8 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
 import android.provider.Settings
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -9,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import dev.dankyeeter.btdashboard.monitor.optimize.Measure
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
@@ -35,15 +38,17 @@ internal fun MeasureStatusPanel(readBook: ReadBook?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Measure.entries.forEach { measure ->
-            Text(measure.displayName, style = MaterialTheme.typography.bodyMedium)
-            readBook?.let {
-                Text(
-                    readBackSentence(measure, it.book),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(measure.displayName, style = MaterialTheme.typography.bodyMedium)
+                readBook?.let {
+                    Text(
+                        readBackSentence(measure, it.book),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                SettingsJump(measure)
             }
-            SettingsJump(measure)
         }
     }
 }
