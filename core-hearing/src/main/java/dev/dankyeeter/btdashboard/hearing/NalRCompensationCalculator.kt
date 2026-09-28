@@ -3,7 +3,6 @@ package dev.dankyeeter.btdashboard.hearing
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
-import kotlin.math.abs
 
 /**
  * The compensation pipeline of docs/archiv/COMPENSATION.md section 3, implemented step for
@@ -275,10 +274,6 @@ class NalRCompensationCalculator(
                 MAX_SLOPE_DB_PER_OCTAVE * octaves
             }
         }
-
-        /** Largest absolute inter-band step; for tests and the UI's warnings. */
-        fun maxSlopeDbPerOctave(values: List<Double>): Double =
-            (1 until values.size).maxOfOrNull { abs(values[it] - values[it - 1]) } ?: 0.0
     }
 }
 
