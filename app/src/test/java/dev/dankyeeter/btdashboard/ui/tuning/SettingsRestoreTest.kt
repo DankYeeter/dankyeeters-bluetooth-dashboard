@@ -19,8 +19,10 @@ import dev.dankyeeter.btdashboard.system.devices.SecureSettingsController
 import dev.dankyeeter.btdashboard.system.devices.SettingRead
 import dev.dankyeeter.btdashboard.system.devices.SettingsLedger
 import dev.dankyeeter.btdashboard.system.devices.withBaseline
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -344,7 +346,7 @@ class SettingsRestoreTest {
             profiles = profiles,
             deviceKey = KEY_HERE,
             device = BtAudioDevice(ADDRESS_HERE, "Bathys"),
-            liveMode = LdacQualityMode.NOT_PINNED,
+            readLiveMode = { LdacQualityMode.NOT_PINNED },
             quality = LdacQuality.HIGH_QUALITY,
             apply = { _, _ ->
                 log += "apply"
@@ -358,6 +360,31 @@ class SettingsRestoreTest {
     }
 
     @Test
+    fun `the live level before is read again under the lock (SR-032, B5)`() = runTest {
+        val ledger = FakeLedger()
+        var liveMode = LdacQualityMode.HIGH_QUALITY
+
+        ledger.lock.lock()
+        val pinning = launch {
+            LdacTuning.recordThenPin(
+                ledger = ledger,
+                profiles = profiles,
+                deviceKey = KEY_HERE,
+                device = BtAudioDevice(ADDRESS_HERE, "Bathys"),
+                readLiveMode = { liveMode },
+                quality = LdacQuality.STANDARD,
+                apply = { _, _ -> CodecApplyOutcome.Applied("LDAC") },
+            )
+        }
+        runCurrent()
+        liveMode = LdacQualityMode.NOT_PINNED
+        ledger.lock.unlock()
+        pinning.join()
+
+        assertEquals(listOf(LedgerEntry.Ldac(KEY_HERE, priorWish = null, priorLive = LdacQuality.NONE)), ledger.held)
+    }
+
+    @Test
     fun `a second pin keeps the first baseline`() = runTest {
         val ledger = FakeLedger()
         repeat(2) { i ->
@@ -366,7 +393,7 @@ class SettingsRestoreTest {
                 profiles = profiles,
                 deviceKey = KEY_HERE,
                 device = null,
-                liveMode = null,
+                readLiveMode = { null },
                 quality = if (i == 0) LdacQuality.HIGH_QUALITY else LdacQuality.STANDARD,
                 apply = { _, _ -> CodecApplyOutcome.Unavailable("no link") },
             )
@@ -382,7 +409,7 @@ class SettingsRestoreTest {
             profiles = profiles,
             deviceKey = KEY_HERE,
             device = BtAudioDevice(ADDRESS_HERE, "Bathys"),
-            liveMode = null,
+            readLiveMode = { null },
             quality = LdacQuality.HIGH_QUALITY,
             apply = { _, _ ->
                 log += "apply"

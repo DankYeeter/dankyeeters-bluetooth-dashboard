@@ -240,7 +240,7 @@ object LdacTuning {
                 profiles = SystemGraph.deviceProfiles,
                 deviceKey = key,
                 device = device,
-                liveMode = device?.let { liveModeOf(it, connected) },
+                readLiveMode = { device?.let { liveModeOf(it, connected) } },
                 quality = quality,
                 apply = ::apply,
             )
@@ -256,6 +256,10 @@ object LdacTuning {
      * all under the ledger's lock, so the way back never runs in between (M4).
      * Nothing is written when the ledger cannot hold the value before.
      *
+     * [readLiveMode] is called under the lock, not before it: a way back that
+     * ran while this waited has put the live level back, and the value before
+     * must be that level, not the one this pin read earlier (SR-032).
+     *
      * @return the state to show, and what the link did.
      */
     internal suspend fun recordThenPin(
@@ -263,7 +267,7 @@ object LdacTuning {
         profiles: DeviceProfileStore,
         deviceKey: String?,
         device: BtAudioDevice?,
-        liveMode: LdacQualityMode?,
+        readLiveMode: suspend () -> LdacQualityMode?,
         quality: Long,
         apply: suspend (address: String?, quality: Long) -> CodecApplyOutcome,
     ): Pair<LdacTuningState, CodecApplyOutcome> = ledger.lock.withLock {
@@ -271,7 +275,7 @@ object LdacTuning {
             val before = LedgerEntry.Ldac(
                 deviceKey = deviceKey,
                 priorWish = profiles.profileFor(deviceKey)?.codecPreference,
-                priorLive = LdacQuality.priorLiveOf(liveMode),
+                priorLive = LdacQuality.priorLiveOf(readLiveMode()),
             )
             if (!ledger.recordIfAbsent(before)) {
                 return@withLock LdacTuningState(
