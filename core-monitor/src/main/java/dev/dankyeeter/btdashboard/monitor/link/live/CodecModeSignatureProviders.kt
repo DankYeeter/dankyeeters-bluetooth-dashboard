@@ -105,7 +105,12 @@ object LdacModeSignatures : CodecModeSignatures {
     /** Every mode that can be pinned, best first. */
     val pinnableModes: List<CodecMode> = listOf(highQuality, standard, connectionPriority)
 
-    override fun framesPerSecond(sampleRateHz: Int): Double? =
+    /**
+     * Encoded frames per second at this sample rate — **independent of the
+     * bitrate mode**, because a fixed frame length in samples emits the same
+     * number of frames per second whatever it spends on each.
+     */
+    internal fun framesPerSecond(sampleRateHz: Int): Double? =
         sampleRateHz.takeIf { it > 0 }?.let { it.toDouble() / FRAME_SAMPLES }
 
     override fun signatures(sampleRateHz: Int): List<CodecModeSignature> {
@@ -146,7 +151,6 @@ object LhdcV5ModeSignatures : CodecModeSignatures {
         "LHDC v5 frame geometry has not been verified on a real link, so its bitrate " +
             "mode cannot be inferred yet"
 
-    override fun framesPerSecond(sampleRateHz: Int): Double? = null
     override fun signatures(sampleRateHz: Int): List<CodecModeSignature> = emptyList()
 }
 
@@ -172,6 +176,5 @@ object AptxAdaptiveModeSignatures : CodecModeSignatures {
         "aptX Adaptive varies its rate continuously rather than in named steps, so " +
             "frames-per-packet cannot identify a mode"
 
-    override fun framesPerSecond(sampleRateHz: Int): Double? = null
     override fun signatures(sampleRateHz: Int): List<CodecModeSignature> = emptyList()
 }
