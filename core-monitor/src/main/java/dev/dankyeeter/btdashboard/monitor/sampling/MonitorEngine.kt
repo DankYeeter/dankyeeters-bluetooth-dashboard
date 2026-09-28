@@ -25,6 +25,8 @@ data class MonitorStatus(
     val mode: SamplingMode = SamplingMode.STOPPED,
     val reason: String = "not started",
     val deepCaptureUntilMs: Long = 0L,
+    /** When the current deep capture was started; what the screen counts "captured" from. */
+    val deepCaptureSinceMs: Long = 0L,
 )
 
 /**
@@ -79,14 +81,23 @@ class MonitorEngine(
         _status.value = MonitorStatus(running = false, reason = "stopped")
     }
 
-    /** "Watch live" quick action: 10-second resolution for a bounded window. */
+    /**
+     * "Watch live" quick action: 10-second resolution for a bounded window.
+     *
+     * Never longer than [SamplingPolicy.DEEP_CAPTURE_WINDOW_MS], whatever is
+     * asked (T-055s V21), and the status carries it at once: the measurement
+     * service follows it and would otherwise learn of it one loop round late.
+     */
     fun startDeepCapture(durationMs: Long = SamplingPolicy.DEEP_CAPTURE_WINDOW_MS) {
-        deepCaptureUntilMs = clock() + durationMs
+        val now = clock()
+        deepCaptureUntilMs = now + durationMs.coerceIn(0L, SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)
+        _status.value = _status.value.copy(deepCaptureUntilMs = deepCaptureUntilMs, deepCaptureSinceMs = now)
         signalWake()
     }
 
     fun stopDeepCapture() {
         deepCaptureUntilMs = 0L
+        _status.value = _status.value.copy(deepCaptureUntilMs = 0L)
     }
 
     private suspend fun collectEvents() {

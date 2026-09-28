@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
@@ -61,6 +62,13 @@ object MonitorGraph {
      * anything; the event sources are unaffected and stay armed either way.
      */
     private val _uiVisible = MutableStateFlow(false)
+
+    /**
+     * Read side of [setUiVisible]. The observation run (AK-17) counts only while
+     * this is true: a comparison arm may hold the poll off the screen (AD-039),
+     * and the run must not count on that exception.
+     */
+    val uiVisible: StateFlow<Boolean> = _uiVisible.asStateFlow()
 
     @Volatile
     private var installedShell: ShellRunner? = null

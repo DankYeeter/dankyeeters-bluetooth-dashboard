@@ -29,6 +29,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -106,8 +107,12 @@ class MonitorLiveStopTest {
         assertPollStopsAfterLeaving(screen)
     }
 
+    /**
+     * AD-039 point 3, the AK-4 exception: arm A keeps its readings off the
+     * screen and lets go of the poll the moment the comparison ends.
+     */
     @Test
-    fun `leaving the screen stops the poll while arm A counts`() = runBlocking {
+    fun `leaving the screen keeps the poll while arm A counts, until the comparison ends`() = runBlocking {
         val viewModel = viewModel()
         val screen = openScreen(viewModel)
         viewModel.comparison.placeArmA()
@@ -116,7 +121,35 @@ class MonitorLiveStopTest {
         assertNotNull("arm A is running", arm)
         assertNull("arm A is still counting", arm?.run?.end)
 
-        assertPollStopsAfterLeaving(screen)
+        leave(screen)
+        delay(MonitorViewModel.LIVE_STOP_TIMEOUT_MS + TOLERANCE_MS)
+        awaitNextPass()
+        awaitNextPass()
+        assertNotEquals("arm A took readings off the screen", arm, viewModel.comparison.ui.value.running)
+
+        viewModel.comparison.end(ComparisonEnd.StoppedOutside)
+        assertPollStops()
+    }
+
+    /** AK-17: the observation run counts only on the open screen, even while arm A holds the poll. */
+    @Test
+    fun `a run counts nothing off the screen while arm A holds the poll`() = runBlocking {
+        SystemGraph.setupStore.setObservationRunNoticeAccepted(true)
+        val viewModel = viewModel()
+        val screen = openScreen(viewModel)
+        viewModel.observationRun.onStartTapped()
+        withTimeout(WAIT_MS) { while (viewModel.observationRun.ui.value.run == null) delay(POLL_STEP_MS) }
+        viewModel.comparison.placeArmA()
+        awaitNextPass()
+
+        leave(screen)
+        // Two passes, so none still in flight from before the screen left.
+        awaitNextPass()
+        awaitNextPass()
+        val run = viewModel.observationRun.ui.value.run
+        awaitNextPass()
+        awaitNextPass()
+        assertEquals("the run took no reading off the screen", run, viewModel.observationRun.ui.value.run)
     }
 
     private fun viewModel(): MonitorViewModel =
@@ -139,8 +172,18 @@ class MonitorLiveStopTest {
         withTimeout(WAIT_MS) { while (passes.get() == seen) delay(POLL_STEP_MS) }
     }
 
-    private suspend fun assertPollStopsAfterLeaving(screen: Job) {
+    /** What `MonitorScreen` does on leaving: its collections end, and it says it is gone. */
+    private suspend fun leave(screen: Job) {
         screen.cancelAndJoin()
+        MonitorGraph.setUiVisible(false)
+    }
+
+    private suspend fun assertPollStopsAfterLeaving(screen: Job) {
+        leave(screen)
+        assertPollStops()
+    }
+
+    private suspend fun assertPollStops() {
         delay(MonitorViewModel.LIVE_STOP_TIMEOUT_MS + TOLERANCE_MS)
         val settled = passes.get()
         delay(QUIET_WINDOW_MS)

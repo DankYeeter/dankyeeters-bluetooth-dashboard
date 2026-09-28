@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -175,7 +177,9 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         }
         .onEach { update ->
             recordLiveEvents(update)
-            observationRun.onReading(update.snapshot, _liveIntervalMs.value)
+            // AK-17: a run counts only on the open screen. An arm may hold this
+            // poll off the screen (AD-039); the run must not count on that.
+            if (MonitorGraph.uiVisible.value) observationRun.onReading(update.snapshot, _liveIntervalMs.value)
             comparison.onReading(update.snapshot, _liveIntervalMs.value)
         }
         // Shared, not merely cold: the panel now reads this twice — once for the
@@ -298,6 +302,24 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         MonitorGraph.setUiVisible(true)
         MonitorGraph.ensureRunning()
         viewModelScope.launch { _bqr.value = MonitorGraph.qualityReportSource.start() }
+        holdPollWhileAnArmCounts()
+    }
+
+    /**
+     * AD-039 point 3: while an arm counts, this ViewModel collects the live
+     * poll itself, so the arm keeps its readings with the screen off. The same
+     * shared poll at the same cadence — no second loop — and let go the moment
+     * the phase moves on.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun holdPollWhileAnArmCounts() {
+        viewModelScope.launch {
+            comparison.ui
+                .map { it.phase == ComparisonPhase.ARM_A || it.phase == ComparisonPhase.ARM_B }
+                .distinctUntilChanged()
+                .flatMapLatest { counting -> if (counting) liveUpdates else emptyFlow() }
+                .collect {}
+        }
     }
 
     /** Which source is actually feeding the timeline right now. */
@@ -404,9 +426,22 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissLdacMessage() = LdacTuning.dismissMessage()
 
+    /** "Compare" and "Try again": the comparison starts, and the service that keeps it off the screen. */
+    fun onCompare() {
+        comparison.onCompare()
+        MeasurementService.start(getApplication())
+    }
+
+    /** "Start Arm B" and "Check again": the service ended with arm A and comes back with arm B (T-055s B1). */
+    fun onCheck() {
+        comparison.onCheck()
+        MeasurementService.start(getApplication())
+    }
+
     fun startDeepCapture() {
         MonitorGraph.engine.startDeepCapture(SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)
         MonitorGraph.ensureRunning()
+        MeasurementService.start(getApplication())
     }
 
     fun stopDeepCapture() = MonitorGraph.engine.stopDeepCapture()
@@ -415,6 +450,9 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         // Leaving the screen must not leave idle polling for a screen that is
         // no longer there.
         MonitorGraph.setUiVisible(false)
+        // The comparison ends with this ViewModel (AD-037); nothing may still
+        // reach for it, and the measurement service lets go (AD-039 point 2).
+        ActiveComparison.set(null)
         super.onCleared()
     }
 
