@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.monitor
 
+import dev.dankyeeter.btdashboard.monitor.optimize.Condition
 import dev.dankyeeter.btdashboard.monitor.optimize.ConditionValue
 import dev.dankyeeter.btdashboard.monitor.optimize.Fallback
 import dev.dankyeeter.btdashboard.monitor.optimize.Measure
@@ -28,7 +29,9 @@ class MeasuresTest {
     fun `a reading verifies, contradicts or can not say`() {
         val cases = listOf(
             Triple(Measure.NO_2_4_GHZ_WIFI, "off", Verification.VERIFIED),
-            Triple(Measure.NO_2_4_GHZ_WIFI, "on", Verification.NOT_VERIFIABLE),
+            Triple(Measure.NO_2_4_GHZ_WIFI, "2.4 GHz", Verification.CONTRADICTED),
+            Triple(Measure.NO_2_4_GHZ_WIFI, "5 GHz", Verification.NOT_VERIFIABLE),
+            Triple(Measure.NO_2_4_GHZ_WIFI, "6 GHz", Verification.NOT_VERIFIABLE),
             Triple(Measure.NO_SECOND_DEVICE, "0", Verification.VERIFIED),
             Triple(Measure.NO_SECOND_DEVICE, "1", Verification.CONTRADICTED),
             Triple(Measure.USB_CABLE_OFF, "none", Verification.VERIFIED),
@@ -39,5 +42,13 @@ class MeasuresTest {
             assertEquals("$measure $value", expected, measure.verify(ConditionValue.Read(value)))
         }
         assertEquals(Verification.NOT_VERIFIABLE, Measure.USB_CABLE_OFF.verify(ConditionValue.Unreadable("no battery intent")))
+    }
+
+    /** AD-046: A2 reads the band, and turning Wi-Fi off to carry it out changes the radio as well. */
+    @Test
+    fun `a measure governs its own condition, A2 the radio too`() {
+        assertEquals(Condition.WIFI_BAND, Measure.NO_2_4_GHZ_WIFI.condition)
+        assertEquals(setOf(Condition.WIFI_BAND, Condition.WIFI_RADIO), Measure.NO_2_4_GHZ_WIFI.governs)
+        (Measure.entries - Measure.NO_2_4_GHZ_WIFI).forEach { assertEquals(it.name, setOfNotNull(it.condition), it.governs) }
     }
 }

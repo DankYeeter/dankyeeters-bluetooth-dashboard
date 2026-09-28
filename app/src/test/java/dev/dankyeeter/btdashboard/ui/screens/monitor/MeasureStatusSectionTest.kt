@@ -36,6 +36,7 @@ class MeasureStatusSectionTest {
     /** One condition per `Verification` value: Wi-Fi off confirms, a second device contradicts, USB is unreadable. */
     private val book: ConditionBook = mapOf(
         Condition.WIFI_RADIO to ConditionValue.Read("off"),
+        Condition.WIFI_BAND to ConditionValue.Read("off"),
         Condition.WIFI_SCAN_ALWAYS to ConditionValue.Read("on"),
         Condition.USB_POWER to ConditionValue.Unreadable("battery state not read"),
         Condition.OTHER_ACL_LINKS to ConditionValue.Read("2"),

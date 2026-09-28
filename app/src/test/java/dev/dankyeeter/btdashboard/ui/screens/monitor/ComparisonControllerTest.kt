@@ -85,18 +85,18 @@ class ComparisonControllerTest {
         }
     }
 
-    /** Chooses A5 and pins; arm A is counting. */
-    private fun TestScope.intoArmA(control: ComparisonController) {
+    /** Chooses [measure] (A5 unless a test says otherwise) and pins; arm A is counting. */
+    private fun TestScope.intoArmA(control: ComparisonController, measure: Measure = Measure.USB_CABLE_OFF) {
         control.feed()
-        control.onMeasure(Measure.USB_CABLE_OFF)
+        control.onMeasure(measure)
         control.onCompare()
         runCurrent()
         assertEquals(ComparisonPhase.ARM_A, control.ui.value.phase)
     }
 
-    /** Chooses A5, pins, and counts arm A to its end with five dropouts; stops in Instruct. */
-    private fun TestScope.throughArmA(control: ComparisonController) {
-        intoArmA(control)
+    /** Chooses [measure], pins, and counts arm A to its end with five dropouts; stops in Instruct. */
+    private fun TestScope.throughArmA(control: ComparisonController, measure: Measure = Measure.USB_CABLE_OFF) {
+        intoArmA(control, measure)
         control.feedUntilTarget(dropoutAt = setOf(100, 200, 300, 400, 500))
 
         // AK-T047-9: the target line stands for one reading before the phase changes.
@@ -140,6 +140,19 @@ class ComparisonControllerTest {
         assertNull("arm B has not started", state.running)
         assertEquals(ConditionValue.Read("usb"), state.readBack?.get(Condition.USB_POWER))
         assertSame(armA, state.armA)
+    }
+
+    /** AD-046: 2.4 GHz is A2 not carried out, so arm B waits. */
+    @Test
+    fun `Wi-Fi still on 2_4 GHz before arm B does not start arm B`() = runTest {
+        val control = controller()
+        throughArmA(control, Measure.NO_2_4_GHZ_WIFI)
+
+        book = books("usb") + (Condition.WIFI_BAND to ConditionValue.Read("2.4 GHz"))
+        control.onCheck()
+
+        assertEquals(ComparisonPhase.INSTRUCT, control.ui.value.phase)
+        assertNull("arm B has not started", control.ui.value.running)
     }
 
     @Test

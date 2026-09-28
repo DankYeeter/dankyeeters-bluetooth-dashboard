@@ -418,6 +418,37 @@ class AcceptanceCriteriaGrepTest {
         )
     }
 
+    /**
+     * W5 (T-058s) — one way to the network, and out of `WifiInfo` only the frequency.
+     * `AirPodsScanner.kt` reads a Bluetooth `ScanResult.rssi`, not Wi-Fi, so only `rssi` is
+     * left out of the rule there.
+     */
+    @Test
+    fun `the band is read through one expression and nothing else of the network`() {
+        val fields = "ssid|bssid|ipAddress|macAddress|networkId|rssi|linkSpeed|informationElements|passpointFqdn|apMldMacAddress"
+        fun wifiReads(fields: String) = Regex(
+            """\.($fields)\b|\b(getSSID|getBSSID|getIpAddress|getMacAddress|getRssi)\b|WifiManager|getLinkProperties|""" +
+                """register(Default)?NetworkCallback|requestNetwork|FLAG_INCLUDE_LOCATION_INFO""",
+        )
+        val (bleScanner, rest) = SourceTree.allMain.partition { it.name == "AirPodsScanner.kt" }
+        val why = "SSID/BSSID and the rest of WifiInfo stay unread (AK-21)"
+        assertNone("W5", rest, wifiReads(fields), why)
+        assertNone("W5", bleScanner, wifiReads(fields.replace("|rssi", "")), why)
+        val users = hits(SourceTree.allMain, Regex("""getNetworkCapabilities|WifiInfo""")).map { it.file.name }.toSet()
+        assertEquals("W5: getNetworkCapabilities/WifiInfo", setOf("EnvironmentConditions.kt"), users)
+    }
+
+    /** W7 (T-058s) — no band line and no Measures sentence leads to a permission request. */
+    @Test
+    fun `nothing on the monitor or in tuning asks for a permission`() {
+        assertNone(
+            criterion = "W7",
+            files = SourceTree.monitorScreen + SourceTree.tuning,
+            pattern = Regex("""RequestPermission|requestPermissions|ACTION_APPLICATION_DETAILS_SETTINGS|ACTION_LOCATION_SOURCE_SETTINGS"""),
+            why = "the app does not ask for location (AK-21, user's condition)",
+        )
+    }
+
     // ---- the scan ---------------------------------------------------------------
 
     /** One matching line, printed the way a grep would print it. */
@@ -488,6 +519,15 @@ private object SourceTree {
 
     /** The app and the module that measures the link — where a parameter can live. */
     val appAndLinkSources: List<File> by lazy { appSources + kotlinUnder("core-monitor/src/main") }
+
+    /** The app and every `core-*` module — the W5 scope. */
+    val allMain: List<File> by lazy {
+        appSources + root.listFiles().orEmpty().filter { it.name.startsWith("core-") }.sorted()
+            .flatMap { kotlinUnder("${it.name}/src/main") }
+    }
+
+    /** `ui/tuning`: the environment book and the settings jumps — with [monitorScreen], the W7 scope. */
+    val tuning: List<File> by lazy { kotlinUnder("app/src/main/java/dev/dankyeeter/btdashboard/ui/tuning") }
 
     /** The observation run's arithmetic and display — the AK-T039-10 scope. */
     val observationRunCore: List<File> by lazy {

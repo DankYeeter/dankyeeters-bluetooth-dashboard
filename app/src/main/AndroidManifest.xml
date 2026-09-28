@@ -28,6 +28,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
+      ACCESS_NETWORK_STATE: only for the Wi-Fi band in the Measures panel and
+      the comparison's read-back of A2 (AD-046). The app reads the active
+      network's frequency and nothing else of it - no SSID, no BSSID, no
+      location. Android blanks those fields for an app without location
+      access, and this app requests none.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
       QUERY_ALL_PACKAGES: needed for the "these apps could have their own EQ"
       check, which has to look at every installed app — an equaliser we have
       never heard of is exactly the one worth warning about, and a fixed

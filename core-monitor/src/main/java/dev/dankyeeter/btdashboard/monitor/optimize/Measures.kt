@@ -7,6 +7,9 @@ package dev.dankyeeter.btdashboard.monitor.optimize
  */
 enum class Condition(val stable: Boolean) {
     WIFI_RADIO(true),
+
+    /** "off", or the band of the active Wi-Fi network: "2.4 GHz", "5 GHz", "6 GHz" (AD-046). */
+    WIFI_BAND(true),
     WIFI_SCAN_ALWAYS(true),
     USB_POWER(true),
     OTHER_ACL_LINKS(true),
@@ -17,7 +20,7 @@ enum class Condition(val stable: Boolean) {
 
 /** One reading of a [Condition]. What could not be read says why, and nothing is derived from it. */
 sealed interface ConditionValue {
-    /** "on"/"off", "usb"/"other"/"none", "0".."n", "yes"/"no". */
+    /** "on"/"off", the Wi-Fi band, "usb"/"other"/"none", "0".."n", "yes"/"no". */
     data class Read(val value: String) : ConditionValue
 
     data class Unreadable(val reason: String) : ConditionValue
@@ -34,8 +37,8 @@ enum class Verification { VERIFIED, CONTRADICTED, NOT_VERIFIABLE }
  * a property of the pairing, not a setting. Identifiers only; the words for
  * the screen come from `UI_SPEC.md`.
  */
-enum class Measure(val r010: String, val condition: Condition?) {
-    NO_2_4_GHZ_WIFI("A2", Condition.WIFI_RADIO),
+enum class Measure(val r010: String, val condition: Condition?, private val alsoChanged: Condition? = null) {
+    NO_2_4_GHZ_WIFI("A2", Condition.WIFI_BAND, alsoChanged = Condition.WIFI_RADIO),
 
     /** An event; no reading can show it absent. */
     NO_DISCOVERY("A1", null),
@@ -45,15 +48,22 @@ enum class Measure(val r010: String, val condition: Condition?) {
     SINK_ALLOWS_LDAC("A7", null),
     ;
 
+    /** What carrying this measure out changes; a change of these between the arms is the measure itself. */
+    val governs: Set<Condition> get() = setOfNotNull(condition, alsoChanged)
+
     /**
      * Whether [value], a reading of [condition], shows this measure carried
-     * out. Wi-Fi "on" is not a contradiction: the radio may be on a 5 GHz
-     * network, and `wifi_on` does not say the band.
+     * out. Only 2.4 GHz contradicts A2: whether 5 or 6 GHz matter has not been
+     * measured, the T-036 arm without 2.4 GHz had Wi-Fi off.
      */
     fun verify(value: ConditionValue?): Verification {
         val read = (value as? ConditionValue.Read)?.value ?: return Verification.NOT_VERIFIABLE
         return when (this) {
-            NO_2_4_GHZ_WIFI -> if (read == "off") Verification.VERIFIED else Verification.NOT_VERIFIABLE
+            NO_2_4_GHZ_WIFI -> when (read) {
+                "off" -> Verification.VERIFIED
+                "2.4 GHz" -> Verification.CONTRADICTED
+                else -> Verification.NOT_VERIFIABLE
+            }
             NO_SECOND_DEVICE -> if (read == "0") Verification.VERIFIED else Verification.CONTRADICTED
             USB_CABLE_OFF -> if (read == "none") Verification.VERIFIED else Verification.CONTRADICTED
             NO_DISCOVERY, BODY_OUT_OF_PATH, SINK_ALLOWS_LDAC -> Verification.NOT_VERIFIABLE
