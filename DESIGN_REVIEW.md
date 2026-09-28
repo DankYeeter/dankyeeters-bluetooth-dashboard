@@ -1,5 +1,101 @@
 # Design & UX Review
 
+## Review vom 2026-09-29 (T-063b)
+
+**Methode:** Code-Analyse (kein Geraet, Auftragsgrenze T-063b, eingefrorener
+Stand `483d78b`) — `PrivilegedClient.kt`, `ARCHITECTURE.md` (AD-048),
+`LdacTuning.kt` (`tuningSentence`), `SettingsRestore.kt`,
+`ComparisonSection.kt`, `DeviceProfilesScreen.kt`,
+`MeasureStatusSection.kt` gelesen; `LdacTuningTest.kt` (Klasse
+`LdacTuningSentenceTest`), `PrivilegedTimeoutTest.kt`, `BitrateSectionTest.kt`,
+`MacRedactionInvariantTest.kt` gelesen (Testinhalte — welche Zeichenketten
+sie binden — abgeglichen, nicht ausgefuehrt) — Testergebnisse selbst
+**unverifiziert (Code-Analyse)**. Keine Screenshots (kein Geraet in diesem
+Lauf, kein Robolectric-Screenshot-Pfad im Projekt). `26f7442` als Ancestor
+von `483d78b` per `git merge-base --is-ancestor` bestaetigt.
+
+**Geprueft gegen:** die zwei vom architect (AD-048) gesetzten Nutzersaetze in
+`PrivilegedClient.kt:779-787` (`Bounded.Unanswered.reason`) — behalten oder
+Ersatztext woertlich, wie in `docs/tasks/T-063.md` T-063b beauftragt; dazu
+DR-007-Nachpruefung.
+
+**Gesamturteil: die zwei Saetze selbst sind ehrlich und werden behalten. Eine
+bestehende Verwendungsstelle verfaelscht einen davon bei der Zusammensetzung
+(neuer Befund DR-008, Wichtig) — das ist kein Fehler am AD-048-Wortlaut
+selbst, sondern am Rahmensatz, in den er eingebettet wird.** DR-007 ist am
+eingefrorenen Stand behoben (siehe oben, in der T-059b-Sektion vermerkt).
+
+### Die zwei Saetze — Urteil je Satz
+
+1. **Busy — „the privileged helper has not answered an earlier request yet —
+   nothing was sent"** (`PrivilegedClient.kt:781`) — **behalten**. Gleiche
+   Wortfamilie wie die uebrigen `Unavailable`-Gruende in derselben Datei
+   ("the privileged helper is not running", "the helper returned nothing"),
+   nennt Ursache und Konsequenz in einem Satz. Ueberall dort, wo ich die
+   Verwendungsstellen gelesen habe, wird er unverfaelscht angehaengt:
+   `SettingsRestore.kt:130/159` zeigt ihn als alleinstehende Berichtzeile,
+   `ComparisonSection.kt:139` haengt ihn in „Could not pin to {S} kbps:
+   {reason}. Nothing was measured." an. Die zwei "nothing"/"Nothing" in
+   letzterem Satz sind keine Wiederholung derselben Aussage, sondern zwei
+   verschiedene Nichts-Ereignisse (der Helfer hat nichts geschickt / der
+   Vergleich hat nichts gemessen) — liest sich beim ersten Lesen etwas
+   dicht, aber nicht falsch; kein eigener Befund.
+2. **TimedOut+changes — „the privileged helper did not answer within 15 s —
+   whether the change took effect is unknown"** (`PrivilegedClient.kt:783-786`)
+   — **behalten als Fragment**. Als alleinstehende Berichtzeile
+   (`SettingsRestore.kt:130/159`, Rueckweg-Bericht) ist er klar und ehrlich:
+   er benennt Ursache und die tatsaechliche Unsicherheit, ohne ein Urteil
+   vorwegzunehmen. Fuer Lesungen (`changes = false`, z. B.
+   `DeviceProfilesScreen.kt:1081` „Cannot be read: …") entfaellt der
+   Halbsatz ohnehin (`PrivilegedClient.kt:786`) — dort besteht das Problem
+   unten gar nicht. Eine Verwendungsstelle verfaelscht ihn aber, siehe DR-008.
+
+### Wichtig
+
+- **DR-008 [`LdacTuning.kt:395-400`, `tuningSentence()`]** Der zweite
+  AD-048-Satz wird hier in einen Rahmensatz eingebettet, der dem Ergebnis
+  bereits ein definitives Urteil vorwegnimmt: „LDAC quality was not changed
+  — ${outcome.reason}." (nicht gespeichert) bzw. „It was not changed on the
+  link right now — ${outcome.reason}." (gespeichert). Trifft der Grund
+  TimedOut mit `changes = true` (Pin-Anfrage, Helfer haengt 15 s), ergibt das
+  am Bildschirm woertlich: **„LDAC quality was not changed — the privileged
+  helper did not answer within 15 s — whether the change took effect is
+  unknown."** Der Rahmen behauptet "was not changed" als Tatsache, der
+  eingebettete AD-048-Satz sagt im selben Atemzug das Gegenteil — "unknown"
+  statt "not changed". Genau das vermeidet die App an anderer Stelle bewusst
+  (R-A, "keine Behauptung ueber unbeobachteten Zustand", `GOAL.md` AK-8): der
+  Nutzer liest hier einen Widerspruch statt einer Unsicherheit, und genau der
+  Zustand, den AD-048 fuer AK-11 als "pending, mit einem zweiten Tipp
+  nachholbar" definiert (`ARCHITECTURE.md:3188-3196`), wird durch den Rahmen
+  als abgeschlossenes "nicht geaendert" hingestellt. Betrifft nur den einen
+  Pfad TimedOut+changes=true — die zwei bislang getesteten Gruende
+  ("the privileged helper is not running", "there is no live link to
+  change", `LdacTuningTest.kt:239-259`, Klasse `LdacTuningSentenceTest`) sind
+  tatsaechlich definitive Nicht-Aenderungen, dort passt der Rahmen. Kein Test
+  deckt die neue Kombination ab. **Richtung:** in `tuningSentence()` den
+  Rahmensatz fuer den TimedOut-Fall nicht als "was/is not changed"
+  formulieren, sondern die Unsicherheit offen lassen — am naechstliegenden
+  Vorbild orientiert, das `SettingsRestore.kt:130/159` bereits so haelt (dort
+  steht `outcome.reason` ohne einen "not changed"-Rahmen). Wortlautentscheidung
+  beim developer/architect; der AD-048-Satz selbst bleibt unveraendert.
+
+### Positiv / beibehalten
+
+- Beide AD-048-Saetze halten die etablierte Wortfamilie und den ehrlichen
+  Rahmen des privilegierten Kanals durch (kein "failed", kein "error", eine
+  Ursache und, wo zutreffend, eine Unsicherheitsfolge statt eines Urteils) —
+  Massstab fuer kuenftige `PrivilegedCallGuard`-Saetze.
+- `changes`-Parameter korrekt an der Quelle entschieden (`read()` = false,
+  `request()`/`apply()` = true, `PrivilegedClient.kt:591/602/691/706`) — der
+  Unsicherheitshalbsatz erscheint nur dort, wo er sachlich zutrifft
+  (Schreibungen), nicht bei Lesungen.
+
+### Offene Fragen an den App Designer
+
+Keine.
+
+---
+
 ## Review vom 2026-09-29 (T-059b)
 
 **Methode:** Code-Analyse (kein Geraet, kein Emulator, eingefrorener Stand
@@ -36,7 +132,8 @@ Keine.
 
 ### Wichtig
 
-- **DR-007 [`MeasureStatusSection.kt:29-48`, `MeasureStatusPanel`, ⚠
+- **DR-007 ✔ (behoben, bestaetigt T-063b 2026-09-29, `26f7442`, Ancestor von
+  `483d78b`) [`MeasureStatusSection.kt:29-48`, `MeasureStatusPanel`, ⚠
   unverifiziert (Code-Analyse, kein Screenshot)]** Das neue "Measures"-Panel
   (P-001, AK-18) rendert alle sechs Massnahmen als direkte Kinder der einen
   `Panel`-`Column`, deren `verticalArrangement = Arrangement.spacedBy(12.dp)`
@@ -60,7 +157,10 @@ Keine.
   aeussere 12dp-Distanz weiterhin die Massnahmen trennt und eine engere
   innere Distanz sie zusammenhaelt. `UI_SPEC.md` legt fuer P-001 keine
   konkrete Verschachtelung fest, das ist also ein Layout-Nachtrag, kein
-  Wortlaut- oder Verhaltensfehler.
+  Wortlaut- oder Verhaltensfehler. **Nachtrag T-063b (2026-09-29):**
+  `MeasureStatusSection.kt:41` verschachtelt am eingefrorenen Stand `483d78b`
+  jede Massnahme jetzt in eine eigene `Column(spacedBy(2.dp))` als Kind der
+  Panel-`Column`, exakt wie empfohlen — kein Nacharbeitsbedarf.
 
 ### Nice-to-have
 
