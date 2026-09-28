@@ -2,15 +2,18 @@ package dev.dankyeeter.btdashboard.ui.screens.devices
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ComparisonPhase
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
@@ -52,6 +55,7 @@ class BitrateSectionTest {
         enabled: Boolean = true,
         sampleRateHz: Int? = 96_000,
         measuredKbps: Int? = null,
+        comparisonPhase: ComparisonPhase? = null,
     ) {
         composeRule.setContent {
             BtDashboardTheme {
@@ -64,6 +68,7 @@ class BitrateSectionTest {
                     enabled = enabled,
                     sampleRateHz = sampleRateHz,
                     measuredKbps = measuredKbps,
+                    comparisonPhase = comparisonPhase,
                 )
             }
         }
@@ -135,6 +140,23 @@ class BitrateSectionTest {
         render(tuning = LdacTuningState(busy = true))
 
         composeRule.onNodeWithText("990 kbps").assertIsNotEnabled()
+    }
+
+    /** AD-040 / UI_SPEC F-019: both chip rows lock with the comparison, and this one says where it runs. */
+    @Test
+    fun `a running comparison locks the chips on this tab too`() {
+        render(comparisonPhase = ComparisonPhase.ARM_A)
+        composeRule.onNodeWithText("990 kbps").assertIsNotEnabled()
+        composeRule.onNodeWithContentDescription("What is Bitrate?").performClick()
+        assertShows("Locked while a comparison is running on the Monitoring tab")
+    }
+
+    @Test
+    fun `a comparison that has not started leaves the chips free`() {
+        render(comparisonPhase = ComparisonPhase.CHOOSE)
+        composeRule.onNodeWithText("990 kbps").assertIsEnabled()
+        composeRule.onNodeWithContentDescription("What is Bitrate?").performClick()
+        assertHides("Locked while")
     }
 
     @Test

@@ -1,15 +1,20 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
@@ -113,6 +118,47 @@ class LiveLinkPanelScreenTest {
             )
         }
         return trace
+    }
+
+    /** AK-T054-4: the chips lock from the comparison's pin to the end of arm B, and the second layer says why. */
+    @Test
+    fun `the LDAC chips are locked exactly while a comparison runs`() {
+        val locked = "Locked while a comparison is running below — changing it now would make the two arms not the " +
+            "same measurement."
+        var phase by mutableStateOf<ComparisonPhase?>(null)
+        composeRule.setContent {
+            BtDashboardTheme {
+                LiveLinkPanel(
+                    snapshot = snapshot(codecSpecific1 = 1000L, measuredKbps = 990),
+                    intervalMs = 2_000L,
+                    onIntervalChange = {},
+                    ldacTuning = LdacTuningState(),
+                    onLdacQuality = {},
+                    onDismissLdacMessage = {},
+                    comparisonPhase = phase,
+                )
+            }
+        }
+        openExplanation("LDAC quality")
+
+        val lockedIn = setOf(
+            ComparisonPhase.PIN_AND_CHECK,
+            ComparisonPhase.ARM_A,
+            ComparisonPhase.INSTRUCT,
+            ComparisonPhase.ARM_B,
+        )
+        (ComparisonPhase.entries + null).forEach { shownPhase ->
+            phase = shownPhase
+            composeRule.waitForIdle()
+            val chip = composeRule.onNodeWithText("330 kbps")
+            if (shownPhase in lockedIn) {
+                chip.assertIsNotEnabled()
+                assertShows(locked)
+            } else {
+                chip.assertIsEnabled()
+                assertHides("Locked while")
+            }
+        }
     }
 
     /** Opens the second layer of the row labelled [label]. */
