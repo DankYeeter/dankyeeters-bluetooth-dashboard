@@ -1,5 +1,151 @@
 # Design & UX Review
 
+## Review vom 2026-09-29 (T-059b)
+
+**Methode:** Code-Analyse (kein Geraet, kein Emulator, eingefrorener Stand
+`d6d1890` laut Auftrag) — `ComparisonSection.kt`, `ConditionStatus.kt`,
+`MeasureStatusSection.kt`, `EnvironmentConditions.kt`, `MeasurementService.kt`,
+`MonitorScreen.kt`, `LiveLinkPanel.kt`, `BitrateSection.kt`,
+`DeviceProfilesScreen.kt`/`-ViewModel.kt`, `Panel.kt`, `Explainer.kt`,
+`Measures.kt` gelesen. Existierende Tests gelesen, nicht ausgefuehrt
+(`SettingsJumpsTest.kt`, `ConditionStatusTest.kt`, `ComparisonSectionTest.kt`,
+`MeasuresTest.kt`, `EnvironmentConditionsTest.kt`) — Testinhalte (welche
+Strings/Zahlen sie binden) gegen den Code abgeglichen; Testergebnisse selbst
+sind **unverifiziert (Code-Analyse)**. `ARCHITECTURE.md` (AD-044..046)
+gegengelesen. Keine Screenshots moeglich (kein Geraet/Emulator in diesem
+Lauf, kein Robolectric-Screenshot-Pfad im Projekt).
+
+**Geprueft gegen:** `UI_SPEC.md` Abschnitt "Saeule 3 — Pruefstand, Umgebung,
+Sprung, Band (T-057b)" (P-001/P-002/P-003/P-004, AK-T057-1..10) und die in
+`docs/tasks/T-059.md` T-059b genannten, selbst gesetzten Wortlaute aus
+T-055b/c/d und T-058a/b/c.
+
+**Gesamturteil: ship-ready, mit einer Layout-Praezisierung.** Alle geprueften
+Wortlaute sind ehrlich, in der etablierten Wortfamilie der App und frei von
+den verbotenen Woertern; die Wiederverwendungsdisziplin (eine
+`SettingsJump`-Komponente, eine `readBackSentence`-Funktion, ein
+`timeFormat`, ein `Condition.displayName` fuer alle Renderorte) ist stark.
+Vier Stellen in `UI_SPEC.md` waren durch AD-046 und die tatsaechliche
+Implementierung ueberholt und sind in diesem Lauf korrigiert (siehe unten,
+kein Verhaltensfindling). Ein neues Layout-Finding (DR-007) am neuen
+P-001-Panel.
+
+### Kritisch
+
+Keine.
+
+### Wichtig
+
+- **DR-007 [`MeasureStatusSection.kt:29-48`, `MeasureStatusPanel`, ⚠
+  unverifiziert (Code-Analyse, kein Screenshot)]** Das neue "Measures"-Panel
+  (P-001, AK-18) rendert alle sechs Massnahmen als direkte Kinder der einen
+  `Panel`-`Column`, deren `verticalArrangement = Arrangement.spacedBy(12.dp)`
+  **jeden** Zeilenabstand gleich behandelt (`Panel.kt:87-91`) — den Abstand
+  zwischen `measure.displayName` und der zugehoerigen `readBackSentence`-
+  Zeile genauso wie den Abstand zwischen dem Ende einer Massnahme und dem
+  Namen der naechsten. Bei sechs Massnahmen mit je zwei bis drei Zeilen
+  (Name, Ruecklesesatz, optional ein `SettingsJump`-Knopf) ergeben sich bis
+  zu 16 Zeilen mit identischem 12dp-Abstand, ohne dass eine engere
+  Innerhalb-Massnahme-Distanz gegenueber der Zwischen-Massnahmen-Distanz das
+  Auge fuehrt. Das widerspricht dem eigenen Zweck des Panels ("Auf einen
+  Blick sehen, ob die Bedingungen ... gegeben sind", `UI_SPEC.md` P-001) —
+  ein Panel, das man auf einen Blick lesen soll, aber dessen Gruppierung nur
+  durch mitzaehlende Aufmerksamkeit erkennbar ist, verfehlt genau das.
+  Andere Mehrfach-Eintrag-Stellen der App umgehen das, weil sie pro Eintrag
+  nur eine Zeile brauchen (`Choose()`s Radiozeilen, `ComparisonSection.kt:98-
+  110`) — P-001 ist die erste Stelle mit mehrzeiligen Bloecken pro Eintrag,
+  ohne dass ein bestehendes Gruppierungsmuster dafuer wiederverwendet wurde.
+  **Richtung:** je Massnahme eine eigene `Column` (z. B. `spacedBy(2.dp)`
+  fuer Name/Satz/Knopf) als ein Kind der Panel-`Column`, damit die
+  aeussere 12dp-Distanz weiterhin die Massnahmen trennt und eine engere
+  innere Distanz sie zusammenhaelt. `UI_SPEC.md` legt fuer P-001 keine
+  konkrete Verschachtelung fest, das ist also ein Layout-Nachtrag, kein
+  Wortlaut- oder Verhaltensfehler.
+
+### Nice-to-have
+
+- **[`EventLog.kt:184-188`, `EventRow`, ⚠ unverifiziert (Code-Analyse)]**
+  Der P-004-Block (Kopfzeile "Conditions when this episode was first read:"
+  plus bis zu sechs Bedingungszeilen) wird als **ein** `Text()` mit
+  eingebetteten Zeilenumbruechen gerendert, in derselben `bodySmall`/
+  `onSurfaceVariant`-Formatierung wie `event.detail` selbst — die Kopfzeile
+  hat kein optisches Gewicht (kein `titleSmall`, kein Fettdruck) gegenueber
+  den Datenzeilen darunter. Bei einer bereits aufgeklappten, dichten
+  Protokollzeile (Basissatz + Kopfzeile + bis zu sechs Bedingungen +
+  `payloadLine()`) fehlt ein Ankerpunkt fuer das Auge. Geringe Prioritaet,
+  da `UI_SPEC.md` P-004 genau diese Formatierung ("als weitere Text-Zeilen
+  in bodySmall/onSurfaceVariant") vorgibt und ich das beim Schreiben von
+  T-057b nicht anders spezifiziert habe — eher eine gestalterische
+  Nachbesserung als ein Fehler gegen die eigene Vorgabe.
+
+### Spec-Korrekturen (kein Verhaltensfindling, `UI_SPEC.md` berichtigt)
+
+Vier Stellen im Abschnitt "Saeule 3 — Pruefstand, Umgebung, Sprung, Band
+(T-057b)" waren durch AD-046 (T-058c) und die tatsaechliche Implementierung
+ueberholt; alle vier direkt in `UI_SPEC.md` korrigiert, mit datierter
+Korrekturnotiz, kein Verhaltensunterschied zum Code:
+
+1. **P-002 zweiter Renderort:** Spec nannte `Choose()`
+   (`ComparisonSection.kt:91-122`); gebaut ist `Instruct()`
+   (`ComparisonSection.kt:178`). `Choose()` hat pro Massnahme nur eine
+   Radiozeile ohne Platz fuer einen Zweitknopf — `Instruct()` ist der
+   Ort, an dem die Massnahme bereits feststeht und der Nutzer handeln soll.
+   Wortlaut/Verhalten unveraendert, nur der Ort berichtigt (AK-T057-7 mit).
+2. **AK-T057-4/P-004-Reihenfolge:** "genau fuenf Zeilen" und die feste
+   Reihenfolge-Liste ohne `WIFI_BAND` waren seit AD-046 (sechster
+   `Condition`-Eintrag) veraltet; auf `Condition.entries.size` und die
+   vollstaendige Sechserliste umgestellt — Test
+   (`ConditionStatusTest.kt:70,84`) prueft bereits dynamisch.
+3. **`UI_SPEC.md`-Zeile 3311** ("does not say which band it used") ist durch
+   AD-046 sachlich falsch geworden — die App liest das Band jetzt und A2
+   widerspricht bei 2,4 GHz. Zeile als historischer Beleg stehen gelassen,
+   mit Korrekturhinweis zur aktuell gueltigen Aufteilung.
+4. **P-003/AK-T057-10 vierter Zweig** ("Berechtigung fehlt ... needs
+   location access") gestrichen — AD-046 waehlte den Leseweg
+   (`ConnectivityManager`, `ACCESS_NETWORK_STATE`) bewusst so, dass dieser
+   Fall nie eintritt (`EnvironmentConditionsTest.kt:189-191`); ein Satz fuer
+   einen unerreichbaren Fall waere selbst eine kleine Unehrlichkeit. P-003
+   gilt jetzt unbedingt (AD-046: "P-003 baubar: ja"), die "(AK-21, bedingt)"-
+   Klammer ist entfernt.
+
+### Positiv / beibehalten
+
+- **DR-006 behoben:** Der Rueckweg-Bericht-Dialog heisst jetzt "Settings put
+  back" statt "Back to before" (`DeviceProfilesScreen.kt:1497`) — Ersatztext
+  aus der T-051a-Empfehlung woertlich uebernommen.
+- Starke Wiederverwendungsdisziplin bei allen neuen T-057b/T-058-Texten: ein
+  `SettingsJump`-Composable fuer beide Renderorte, eine `readBackSentence`-
+  Funktion fuer P-001 und Instruct-Ruecklese, ein geteiltes `timeFormat`
+  (`EventLog.kt:32`, in `MeasureStatusSection.kt` importiert statt
+  dupliziert), ein `Condition.displayName` fuer P-001 und P-004. Kein
+  sechstes Wording fuer dieselbe Sache gefunden.
+- Die neuen Fehl-/Ausweichsaetze ("Could not open {page} on this phone —
+  nothing changed.", "Android did not let this comparison run in the
+  background — keep this screen open until this arm ends.") liegen
+  zeichennah in derselben Formel wie ihre jeweiligen Vorbilder
+  (`PinAndCheck`, Deep-Capture-Ausweichsatz) — konsistente Wortfamilie statt
+  einer zweiten Formulierung fuer denselben Fehlerfall.
+- Die Benachrichtigungstexte (`MeasurementService.kt`) sind sichtbar, nennen
+  Dauer und Stop-Weg, ohne Geraeteinformationen (V19) — entspricht der
+  R-013-Anforderung an eine neue, zeitbegrenzte FGS-Ankuendigung (im
+  Unterschied zur bewusst stillen `EqForegroundService`).
+- "MEASURES" als Panel-Ueberschrift ist keine neue Grossschreibungs-
+  Konvention, sondern `PanelHeader`s bestehendes `.uppercase()` auf
+  `EyebrowStyle` (`Panel.kt:110-111`) — dieselbe Mechanik wie jeder andere
+  Panel-Titel der App.
+- Kein Icon, keine Verification-Farbe, kein Zaehler im neuen Measures-Panel
+  — AK-T057-3 sichtbar eingehalten.
+
+### Offene Fragen an den App Designer
+
+Keine neuen. Die im Auftrag genannten, bereits im Lauf entschiedenen Punkte
+(Sprungknoepfe an beiden Renderorten, P-001-Panel nicht einklappbar) sind nur
+bewertet, nicht neu aufgeworfen — beide Umsetzungen entsprechen der
+`UI_SPEC.md`-Empfehlung und werden hier nicht erneut infrage gestellt
+(Stabilitaetsregel).
+
+---
+
 ## Review vom 2026-09-28 (T-051a)
 
 **Methode:** Code-Analyse (kein Geraet, kein Emulator laut Auftrag) —
@@ -72,7 +218,8 @@ Keine.
 
 ### Wichtig
 
-- **DR-006 [`DeviceProfilesScreen.kt:1457`, `SettingsRestoreBannerContent`]**
+- **DR-006 ✔ (behoben, bestaetigt T-059b 2026-09-29)
+  [`DeviceProfilesScreen.kt:1457`, `SettingsRestoreBannerContent`]**
   Der Bericht-Dialog, der nach dem Rueckweg die Ergebniszeilen zeigt, tragt
   denselben Titel "Back to before" wie der Knopf, der ihn ausgeloest hat
   (Banner-Knopf `:1425`, Bestaetigungs-`confirmButton` `:1446`) — derselbe

@@ -3312,6 +3312,16 @@ Ausnahme A2 beachtet):**
 | `NOT_VERIFIABLE` | Massnahme ohne `Condition` (A1, A4, A7) | `"Not checkable from this phone."` |
 | `NOT_VERIFIABLE`/`Unreadable` | Bedingung nicht lesbar | `"Not checkable: {reason}."` |
 
+**Korrektur (T-059b, 2026-09-29):** Die `WIFI_RADIO`=on-Zeile oben ist durch
+AD-046 (Saeule 3, T-057b/T-058c) ueberholt — der Satz behauptet, ein
+eingeschaltetes Wi-Fi sage nichts ueber das Band, aber die App liest das
+Band inzwischen (`ConnectivityManager`, ohne Standortrecht) und A2
+**widerspricht** jetzt bei 2,4 GHz (`CONTRADICTED`, entgegen dem "nie
+CONTRADICTED" der Klammer). Der Satz bleibt hier nur als Beleg, was vor
+AD-046 galt; die aktuell gueltige Aufteilung nach Band steht unten im
+Abschnitt "Saeule 3 — P-003 (AK-21)" und in `Measures.kt::verify`,
+`ConditionStatus.kt::readBackSentence` (`Condition.WIFI_BAND`-Zweige).
+
 `CONTRADICTED` startet Arm B **nicht**: `"Arm B has not started — the
 condition above still holds."`, Knopf `"Check again"`. `VERIFIED` und
 `NOT_VERIFIABLE` starten Arm B.
@@ -3990,8 +4000,9 @@ Aufklapp-Mechanik, kein zweiter Tap-Ort.
 
 Kopfzeile: `"Conditions when this episode was first read:"`
 
-Je `Condition` (feste Reihenfolge: `WIFI_RADIO`, `WIFI_SCAN_ALWAYS`,
-`USB_POWER`, `OTHER_ACL_LINKS`, `DISCOVERY_SEEN`), eine Zeile:
+Je `Condition` (feste Reihenfolge: `WIFI_RADIO`, `WIFI_BAND`,
+`WIFI_SCAN_ALWAYS`, `USB_POWER`, `OTHER_ACL_LINKS`, `DISCOVERY_SEEN`), eine
+Zeile:
 - Gelesen: `"{displayName}: {value}, read."` — z. B. `"Wi-Fi power: on, read."`
 - Nicht lesbar: `"{displayName}: not readable — {reason}."` — `{reason}` ist
   `ConditionValue.Unreadable.reason` zeichengenau, wie an anderen Stellen
@@ -4024,13 +4035,27 @@ nie ein Knopf, der schweigend nichts tut.
 
 **Aufbau:** Zusaetzlicher `GoldOutlinedButton` unter der bestehenden
 `instruction`-Zeile jedes Eintrags — an beiden Stellen, an denen die zehn
-Eintraege heute schon einzeln mit Text stehen: der Massnahmen-/Ausweichen-
-Liste in `Choose()` (`ComparisonSection.kt:91-122`) **und** dem neuen
-P-001-Panel oben (dieselbe `onClick`-Funktion an beiden Stellen verdrahtet —
-Funktionsidentitaet, kein zweiter Pfad). Welcher der zehn Eintraege einen
-Knopf bekommt und wohin er fuehrt, legt `ARCHITECTURE.md` (T-057a Punkt 2)
-fest; diese Vorgabe legt nur die **Worte und das Verhalten** fest, nicht die
-Zuordnung.
+Eintraege heute schon einzeln mit Text stehen: der `Instruct`-Phase
+(`ComparisonSection.kt:170-178`, Anleitungssatz zwischen Arm A und Arm B)
+**und** dem neuen P-001-Panel oben (dieselbe `onClick`-Funktion an beiden
+Stellen verdrahtet — Funktionsidentitaet, kein zweiter Pfad). Welcher der
+zehn Eintraege einen Knopf bekommt und wohin er fuehrt, legt
+`ARCHITECTURE.md` (T-057a Punkt 2) fest; diese Vorgabe legt nur die **Worte
+und das Verhalten** fest, nicht die Zuordnung.
+
+**Korrektur (T-059b, 2026-09-29):** Hier stand urspruenglich `Choose()`
+(`ComparisonSection.kt:91-122`, die Massnahmen-Auswahlliste vor Arm A) als
+zweiter Renderort. Gebaut wurde stattdessen `Instruct()`
+(`ComparisonSection.kt:178`, `SettingsJump(measure)`) — dort steht die
+Massnahme schon fest, und der Nutzer soll genau dort handeln, wo er "diese
+Bedingung jetzt herstellen" liest, nicht schon in der Auswahlliste, in der
+noch keine Massnahme gewaehlt ist. `Choose()` rendert die zehn Eintraege nur
+als Radio-Zeilen ohne Platz fuer einen Zweitknopf je Zeile
+(`ComparisonSection.kt:98-110`) — ein Knopf dort haette die Auswahlliste nur
+verlaengert, ohne einen Mehrwert gegenueber dem Panel oben zu bieten. Wortlaut
+und Verhalten des Knopfs bleiben unveraendert, nur der zweite Ort ist
+berichtigt; `SettingsJumpsTest.kt` und die AK-T057-6/7-Pruefung greifen davon
+unberuehrt an derselben Funktion an.
 
 **Beschriftung, wo ein Ziel existiert:** `"Open {Ziel-Name}"` — dasselbe
 Muster wie die bestehenden Knoepfe `"Open Wi-Fi settings"`/`"Open wireless
@@ -4065,32 +4090,48 @@ Mechanik (T-057a); die Anforderung ist die *sofortige* Neulesung, weil sonst
 die Zeile aus P-001 fuer die Dauer eines ganzen Takts sichtbar veraltet
 bliebe, direkt nachdem der Nutzer genau diese Einstellung geaendert hat.
 
-### P-003 (AK-21, bedingt) — WLAN-Band im Pruefstand von A2
+### P-003 (AK-21) — WLAN-Band im Pruefstand von A2
 
-**Nur einbauen, wenn `ARCHITECTURE.md` (T-057a Punkt 3) P-003 unter der
-Nutzerbedingung (keine Standortberechtigung, keine SSID/BSSID) als baubar
-bestaetigt.** Sonst bleibt der bestehende Satz `"Not checkable: Wi-Fi being
-on here does not say which band it used."` unveraendert, dieser Unterabschnitt
-ruht, und AK-21/AK-T057-9 gelten nicht.
+**Korrektur (T-059b, 2026-09-29):** Diese Unterueberschrift hiess zuerst
+"(AK-21, bedingt)" mit einer Bedingungsklausel darunter — `ARCHITECTURE.md`
+hat P-003 seither entschieden: AD-046 (28.09.2026, Status aktiv) bestaetigt
+"P-003 baubar: ja" und ist gebaut (`EnvironmentConditions.kt::bandValue`,
+`Condition.WIFI_BAND`). Der Abschnitt gilt damit **unbedingt**, nicht mehr
+konjunktivisch; die alte "Falls baubar"-Formulierung unten ist entsprechend
+durch die tatsaechlichen drei Zweige (nicht vier, siehe Korrektur nach der
+Liste) ersetzt.
 
-Falls baubar: vier neue Zweige in derselben Familie wie die bestehenden
+Drei Zweige in derselben Familie wie die bestehenden
 `Verification`/`Condition.WIFI_RADIO`-Zeilen in `readBackSentence`
-(`ComparisonSection.kt:293-305`), wortgleich in der P-001-Zeile und im
+(`ConditionStatus.kt:65-84`), wortgleich in der P-001-Zeile und im
 Rueckleseergebnis der Instruct-Phase (dieselbe Funktion):
 
 - 2,4 GHz, verbunden: `"Contradicts what this run needs: Wi-Fi here is on a
   2.4 GHz network."`
 - 5 GHz, verbunden: `"Not checkable: whether 5 GHz Wi-Fi affects this
   pairing has not been measured."`
+- 6 GHz, verbunden: dieselbe Formel mit `"6 GHz"` statt `"5 GHz"` — kein
+  eigener Satz, derselbe generische Zweig (`ConditionStatus.kt:65-84`, ueber
+  `book.shown(condition)`).
 - Band nicht lesbar (Lesung schlaegt fehl, Grund vorhanden):
-  `"Not checkable: {reason}."` — `{reason}` aus der neuen Lesefunktion,
-  gleiche Formel wie der bestehende `Unreadable`-Zweig.
-- Berechtigung fehlt (Android verlangt sie auf diesem Geraet trotz des
-  gewaehlten Lesewegs): `"Not checkable: reading the Wi-Fi band on this
-  phone needs location access this app does not request."`
+  `"Not checkable: {reason}."` — `{reason}` aus der Lesefunktion
+  (`EnvironmentConditions.kt::bandValue`), gleiche Formel wie der bestehende
+  `Unreadable`-Zweig.
 
-Keine dieser vier Zeilen behauptet, 5-GHz-WLAN sei unbedenklich — das ist
+Keine dieser Zeilen behauptet, 5- oder 6-GHz-WLAN sei unbedenklich — das ist
 laut `docs/perf/T-036-trennmessung.md` nicht gemessen und bleibt es.
+
+**Korrektur (T-059b, 2026-09-29):** Der vierte, urspruenglich hier
+aufgefuehrte Zweig ("Berechtigung fehlt ... needs location access this app
+does not request") ist gestrichen. AD-046 hat den Leseweg bewusst so gewaehlt
+(`ConnectivityManager`/`WifiInfo`, `ACCESS_NETWORK_STATE` statt
+Standortrecht), dass dieser Fall nicht eintreten kann — bestaetigt durch
+`EnvironmentConditionsTest.kt:189-191` ("the app asks for network state and
+for no location or Wi-Fi permission") und dadurch, dass kein
+`Unreadable`-Grund im Code je "location" nennt. Ein Satz fuer einen Fall, der
+per Konstruktion nie auftritt, waere selbst eine kleine Unehrlichkeit
+(ungenutzter Zweig, der eine Moeglichkeit suggeriert, die es nicht gibt) —
+gestrichen statt behalten.
 
 ### Ausdruecklich nicht Teil dieser Vorgabe
 
@@ -4128,10 +4169,16 @@ laut `docs/perf/T-036-trennmessung.md` nicht gemessen und bleibt es.
   `\d+\s*(of|von)\s*6`). Grep-Test.
 - **AK-T057-4** Der `LossDetected`-Eintrag, der die erste Lesung einer
   Episode traegt, zeigt beim Aufklappen zusaetzlich die Kopfzeile und genau
-  fuenf Zeilen in der festen `Condition`-Reihenfolge oben, jede endend auf
-  `", read."` oder `"not readable — {reason}."`; jeder andere `LossDetected`-
-  Eintrag zeigt diesen Block nicht. Unit-Test mit einer Fixture-Episode aus
-  mehreren Fenstern.
+  `Condition.entries.size` Zeilen in der festen `Condition`-Reihenfolge oben,
+  jede endend auf `", read."` oder `"not readable — {reason}."`; jeder andere
+  `LossDetected`-Eintrag zeigt diesen Block nicht. Unit-Test mit einer
+  Fixture-Episode aus mehreren Fenstern.
+  **Korrektur (T-059b, 2026-09-29):** stand hier zuerst als `"genau fuenf
+  Zeilen"` — `Condition` hatte beim Schreiben von T-057b fuenf Eintraege;
+  AD-046 (T-058c) hat `WIFI_BAND` als sechsten ergaenzt. Eine hartcodierte
+  Zahl wuerde beim naechsten neuen `Condition`-Eintrag wieder veralten; der
+  Test (`ConditionStatusTest.kt:70,84`) prueft bereits gegen
+  `Condition.entries.size` statt gegen eine Zahl, dieser Text zieht nur nach.
 - **AK-T057-5** Keine der fuenf Zeilen, der Kopfzeile oder eines Satzes in
   diesem Abschnitt enthaelt eines der Fragmente *because, cause, causes,
   caused, due to, leads to, trigger, triggers, correlat, explains, result
@@ -4142,9 +4189,10 @@ laut `docs/perf/T-036-trennmessung.md` nicht gemessen und bleibt es.
   Eintrag ohne Knopf zeigt nie einen deaktivierten/leeren Knopf, nur den
   bestehenden Instruktionssatz. Unit-Test, der `Measure.entries +
   Fallback.entries` gegen die Tabelle prueft (Vollstaendigkeit, AK-20).
-- **AK-T057-7** Jeder Knopf mit Ziel ist an beiden Renderorten (Choose-Liste,
-  P-001-Panel) mit derselben Callback-Referenz verdrahtet. Compose-Test oder
-  Referenzgleichheits-Unit-Test.
+- **AK-T057-7** Jeder Knopf mit Ziel ist an beiden Renderorten (`Instruct`-
+  Phase, P-001-Panel — **Korrektur T-059b, 2026-09-29:** nicht Choose-Liste,
+  siehe P-002-Korrektur oben) mit derselben Callback-Referenz verdrahtet.
+  Compose-Test oder Referenzgleichheits-Unit-Test.
 - **AK-T057-8** Schlaegt die Navigation fehl, ersetzt der Satz `"Could not
   open {Ziel-Name} on this phone — nothing changed."` den Knopf an Ort und
   Stelle; kein `Log`-only-Pfad ohne Nutzertext fuer einen der neuen Knoepfe.
@@ -4153,13 +4201,17 @@ laut `docs/perf/T-036-trennmessung.md` nicht gemessen und bleibt es.
   das Zustandsbuch spaetestens im naechsten Rendering neu gelesen, ohne auf
   den naechsten regulaeren Poll-Takt zu warten. Unit-Test auf den
   Lifecycle-Hook.
-- **AK-T057-10 (nur falls P-003 laut `ARCHITECTURE.md` baubar ist)** Bei
-  2,4-GHz-Verbindung liefert die A2-Zeile zeichengenau den Contradicts-Satz
-  oben; bei 5 GHz, nicht lesbarem Band und fehlender Berechtigung die
-  passende Not-checkable-Zeile mit Grund; keiner der vier Saetze behauptet,
-  5 GHz sei unbedenklich. Unit-Test ueber alle vier Faelle. Ist P-003 laut
-  `ARCHITECTURE.md` nicht baubar, entfaellt dieses Kriterium ersatzlos und
-  der bestehende Satz bleibt durch einen Regressionstest abgesichert.
+- **AK-T057-10** Bei 2,4-GHz-Verbindung liefert die A2-Zeile zeichengenau
+  den Contradicts-Satz oben; bei 5 GHz, 6 GHz und nicht lesbarem Band die
+  passende Not-checkable-Zeile mit Grund; keiner der Saetze behauptet, 5-
+  oder 6-GHz-WLAN sei unbedenklich. Unit-Test ueber alle Faelle
+  (`MeasuresTest.kt`, `ComparisonSectionTest.kt`).
+  **Korrektur (T-059b, 2026-09-29):** Klammer "(nur falls P-003 ... baubar
+  ist)" und der vierte Fall "fehlende Berechtigung" entfernt — AD-046
+  bestaetigt P-003 als gebaut (siehe P-003-Korrektur oben), und der
+  Berechtigungs-Fall tritt per Konstruktion nie ein (siehe dortige
+  Korrektur). Der Ist-nicht-baubar-Ausweichsatz danach ist damit
+  gegenstandslos und ebenfalls entfernt.
 
 ### Offene Fragen an den App Designer
 
