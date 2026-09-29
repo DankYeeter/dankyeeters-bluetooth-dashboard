@@ -4260,3 +4260,529 @@ NÄCHSTER: developer-Laeufe gegen ARCHITECTURE.md (T-057a) + UI_SPEC.md
   falls a von einer hier getroffenen Wortlaut-Annahme abweicht.
 BLOCKIERT DURCH: nichts.
 ```
+
+
+---
+
+## T-074 Play-Stufe — Wortlaute AK-22/AK-24, Offenlegungsdialog AD-051, Einstieg Recht und Daten AD-052 (T-074b) — 2026-09-29
+
+Vorgabe zu `GOAL.md` AK-22..AK-26 (`docs/tasks/T-074.md`, `ARCHITECTURE.md`
+AD-050/AD-051/AD-052/AD-054, `docs/legal/C-002.md` Befunde 1 und 8). **Unverifiziert:
+Spezifikation ohne Geraet und ohne laufende App; Code gelesen (Stand `e32505b`),
+nichts ausgefuehrt.** Gelesen: `CompensationSection.kt`, `HearingTestScreen.kt`,
+`DeviceProfilesScreen.kt`, `DeviceProfilesViewModel.kt`, `BluetoothSection.kt`,
+`ActivateScreen.kt`, `ActivateViewModel.kt`, `SystemAccessScreen.kt`,
+`SettingsScreen.kt`, `BtDashboardApp.kt`, `PrivilegedProtocol.kt`,
+`NalRCompensationCalculator.kt`, `ClinicalAudiogram.kt`. Parallel lief T-074a
+(technical-writer): die Saetze von `HelperDisclosure` und die Asset-Texte liegen
+dort; diese Vorgabe legt **Aufbau, Ueberschriften, Knoepfe und Verhalten** fest,
+nicht die Saetze der Offenlegung. Alles, was hier nicht geaendert wird, gilt
+unveraendert (Sprache Englisch, Erklaertexte hoechstens zwei Saetze,
+Woerterverbote aus T-039).
+
+### Bestand statt Neuerfindung
+
+| Neu gebraucht fuer | Wiederverwendet | Beleg |
+|---|---|---|
+| Offenlegungsdialog | `AlertDialog` mit `TextButton`-Knoepfen, Zustand `ActivateState.Disclosure`, Flag `isLocalConnectionAccepted` | `ActivateScreen.kt:487-509`, `ActivateViewModel.kt:107-146` |
+| Bestaetigungsdialog "Verlauf loeschen" | Muster "Frage als Titel / ein Satz, was passiert / Verb-Knopf + Cancel" | `HearingTestScreen.kt:1384-1402`, `CompensationSection.kt:787-806` |
+| Ergebniszeile nach dem Loeschen | Muster `message` + `Dismiss` des `BackupPanel` (Fehler in `colorScheme.error`) | `SettingsScreen.kt:449-461` |
+| Einstellungs-Abschnitt | `Panel`, `PanelHeader`, `PanelDivider`, `GoldOutlinedButton` | `SettingsScreen.kt:157-214` |
+| Knopfbeschriftung "Open {Ziel}" | bestehendes Muster | `SettingsScreen.kt:212`, `ActivateScreen.kt:472` |
+| Zurueck-Knopf oben auf einer Unterseite | `TextButton("Back to ...")` | `DeviceProfilesScreen.kt:114` |
+
+Kein neues Token, keine neue Farbe, kein neuer Dialogtyp. Neu sind zwei Bausteine
+ohne Vorbild im Bestand: die Textseite (`AssetTextScreen`) und die Bullet-Liste im
+Dialog; beide aus vorhandenen Typografie-Rollen gebaut (`displayMedium`,
+`titleSmall`, `bodyMedium`, `bodySmall`).
+
+### 1. AK-24 — Ersatzwortlaut fuer die 19 nutzersichtbaren Zeilen
+
+Gezaehlt am Stand `e32505b` mit der Wortliste aus C-002 Befund 8 (String-Literale
+in `app/src/main`, `core-hearing/src/main`, `core-audio/src/main`): dieselben 19
+Zeilen wie im Befund; **eine Verschiebung:** `DeviceProfilesViewModel.kt` steht
+heute auf **645** (Befund: 641). Die Zeilen sind zu zusammenhaengenden Literalen
+gruppiert; die Klammer nennt die gezaehlten Zeilen, die das Literal abdeckt
+(Summe 12 + 3 + 3 + 1 = 19).
+
+**Regel fuer den Umbau:** Jedes Literal wird als Ganzes ersetzt. Keine
+Wortlisten-Wendung darf ueber einen `" +"`-Umbruch verteilt entstehen (der Test
+sieht sie dann nicht, ein Nutzer aber schon). KDoc und Kommentare bleiben
+unangetastet (nicht Teil der Pruefung); Bezeichner (`CompensationSection`,
+`severeLossWarning`, `SevereLossNotice`, ...) bleiben. Die Beschriftung
+"Correction strength" und der Panelname "Tuned to your hearing" bleiben
+unveraendert (C-002 erlaubt beide; ein Wechsel waere Churn).
+
+#### `CompensationSection.kt` (12 Zeilen)
+
+| Zeilen | Alt | Neu |
+|---|---|---|
+| 166 | `"Beyond what an EQ can fix"` | `"Large boosts are capped"` |
+| 167-172 (167, 169) | `"Correcting a loss this large needs gain that would clip the music long before it restored the detail, and level alone does not bring back clarity once the sensory cells are gone. A fitted hearing aid compresses loudness rather than just raising it, which is the part missing here. What this app can still do is make the quietest detail audible: keep the strength low and judge it by ear."` | `"Your thresholds ask for more lift than a headphone EQ can apply cleanly. Boosts this large would clip the music, so every band is capped, and more level alone does not make quiet detail clearer. What this app can still do is lift the quietest detail a little: keep the strength low and judge it by ear.\n\nIf you are concerned about your hearing, ask a hearing professional."` |
+| 175-176 (175) | `"Your thresholds are past what an EQ can correct. What is applied below still helps, but only partly."` | `"Your thresholds are high, so the curve below is capped and follows them only in part."` |
+| 266-271 (267) | erster Absatz: `"Anything up to 20 dB HL is normal hearing, and your audiogram is flat inside that. NAL-R is a prescription for hearing loss: with no loss and no tilt, the honest output is a flat correction. What the formula would still return at that level is its own speech-spectrum weighting, the same constant for every listener, and applying that would be inventing a correction.\n\n"` | `"Every value in your audiogram is at or below 20 dB HL, where NAL-R adds no boost. With nothing above that line and no tilt, the honest output is a flat correction. What the formula would still return at that level is its own speech-spectrum weighting, the same constant for every listener, and applying that would be inventing a correction.\n\n"` — der zweite Absatz (Zeilen 272-274, "Loudness restoration ...") bleibt |
+| 357-361 (357, 358, 360) | `"100 % is the whole correction this app prescribes for your ears — not the whole size of your hearing loss. The rule it follows (NAL-R) asks for about half a decibel of lift per decibel of measured loss, so 100 % here makes up roughly 46 % of what you measured, and the 60 % it starts at lands near 28 %.\n\n"` | `"100 % is the whole correction this app calculates for your ears — not the full size of your thresholds. The rule it follows (NAL-R) asks for about half a decibel of lift per decibel of measured threshold, so 100 % here makes up roughly 46 % of what you measured, and the 60 % it starts at lands near 28 %.\n\n"` |
+| 362-366 (362, 364) | `"That gap is the point: restoring a loss in full over-lifts everything that was already audible, and real listeners tested against the prescription wanted less gain, not more. Judge it with \"Compare with EQ off\" rather than by the number, and give a change a few days."` | `"That gap is the point: lifting by the full threshold over-lifts everything that was already audible, and real listeners tested against the rule wanted less gain, not more. Judge it with \"Compare with EQ off\" rather than by the number, and give a change a few days."` |
+| 443-449 (443) | `"Your measured threshold there is high enough that the sensory cells may no longer be working. Where that is the case, lifting the band adds loudness and roughness rather than detail — but this app cannot find out which: the test for it needs calibrated equipment, and a Bluetooth headphone is not that. The correction is applied unchanged; turn the strength down if those frequencies sound coarse rather than clearer."` | `"Your measured threshold there is high. At very high thresholds, lifting a band can add loudness and roughness rather than detail, and this app cannot tell whether that applies to you: that needs calibrated equipment, and a Bluetooth headphone is not that. The correction is applied unchanged; turn the strength down if those frequencies sound coarse rather than clearer. For questions about your hearing, ask a hearing professional."` |
+| 585 | `"Asymmetry is normal and the ears are compensated independently."` | `"Each ear gets its own curve, so a difference between them is expected."` |
+
+Die zwei neuen Verweise "ask a hearing professional" (166-172 und 443-449)
+tragen die Fachpraxis-Linie der Play-Richtlinie in die App; "professional" ist laut
+C-002 ausdruecklich nicht verboten.
+
+#### `HearingTestScreen.kt` (3 Zeilen)
+
+| Zeile | Alt | Neu |
+|---|---|---|
+| 347 | `"All values are inside normal limits — there is no loss to correct."` | `"All values are at or below 20 dB HL — NAL-R adds no boost for them."` (die 20 darf aus `ClinicalAudiogram.NORMAL_LIMIT_DB` interpoliert werden) |
+| 888-889 (888) | `"therefore misses real changes a clinic would catch, and it never diagnoses " + "or notifies."` | `"therefore misses real changes a clinic would catch. It never says whether your hearing is healthy, " + "and it never notifies."` — umformuliert, **nicht** allowgelistet (C-002) |
+| 1251 | `"either one raises 250 and 500 Hz and looks like a low-frequency loss."` | `"either one raises your 250 and 500 Hz thresholds and makes your low-frequency hearing look weaker than it is."` |
+
+#### `DeviceProfilesScreen.kt` (3 Zeilen) und `DeviceProfilesViewModel.kt` (1 Zeile)
+
+| Datei:Zeile | Alt | Neu |
+|---|---|---|
+| `DeviceProfilesScreen.kt:118` | `"A profile can set the compensation curve, media volume, "` | `"A profile can set the EQ preset, media volume, "` (Rest des Literals unveraendert) |
+| `DeviceProfilesScreen.kt:409` | `add("compensation")` | `add("EQ preset")` |
+| `DeviceProfilesScreen.kt:581` | `"A preset is a named compensation curve saved on the EQ "` | `"A preset is a named EQ curve saved on the EQ "` (Rest unveraendert) |
+| `DeviceProfilesViewModel.kt:645` (Befund: 641) | `"Compensation profile applied."` | `"EQ preset applied."` |
+
+Begruendung "EQ preset": so heisst dasselbe Ding schon im Auswahlfeld
+(`DeviceProfilesScreen.kt:574`, `label = "EQ preset"`); der Wortwechsel macht die
+vier Stellen einheitlich statt neu.
+
+#### Zusatzzeile ausserhalb der 19 (von mir gefunden, gleiche Klasse)
+
+| Datei:Zeile | Alt | Neu |
+|---|---|---|
+| `CompensationSection.kt:89-90` | `"Your sound profile shows which frequencies you hear less well, and this lifts exactly those. It is built from your test automatically"` | `"Your sound profile shows the level at which you first hear each frequency, and this lifts the frequencies that needed more level. It is built from your test automatically"` (Rest des Literals unveraendert) |
+
+Grund: die Alt-Fassung ist kein Listenwort, verspricht aber im Klartext den
+Ausgleich eines schwaecheren Hoerens — genau das schliesst AK-24 aus. Die
+Neu-Fassung beschreibt den Mechanismus (Pegel je Frequenz), nicht ein Ergebnis.
+
+#### Persistenzschluessel und Allowlist
+
+Die drei Schluessel bleiben **buchstabengleich** (sonst Datenverlust):
+`"compensation_profiles"` (`CompensationProfileStore.kt:26`, DataStore-Name),
+`"compensation_profiles_json"` (`:200`), `"compensation_source"`
+(`AudiogramStore.kt:550`). Die Allowlist im `PurposeWordingTest` gilt **nach
+Literalwert, nicht nach Datei oder Zeile**: ein neues nutzersichtbares Literal in
+derselben Datei faellt weiter durch. Zu den zwei uebrigen technischen Literalen
+(TAG `:198` "CompensationProfileStore", Log `:144` "Dropping unreadable
+compensation profiles ...") entscheidet der developer; Empfehlung: umbenennen
+(TAG `"EqPresetStore"`, Log `"Dropping unreadable EQ preset data (...)"`) — ein
+Log-Tag ist keine Persistenz, und es sind zwei Allowlist-Eintraege weniger.
+
+#### Zwei Fehler in der Wortliste (C-002 Befund 8) — vor dem Test-Bau zu klaeren
+
+Am Stand `e32505b` gezaehlt (Muster `"[^"]*<wort>`, case-insensitive, nur
+Literalzeilen, ohne Kommentarzeilen, ueber die drei Module):
+- **`cure` als Teilzeichenfolge trifft 13 Literalzeilen** ("secure settings",
+  `WRITE_SECURE_SETTINGS`, u. a. `SystemAccessScreen.kt:303`,
+  `DeviceProfilesViewModel.kt:353/560`, `SettingsRestore.kt:116`); als Wort
+  (`\bcure\b`) 0 Treffer. Die neue Offenlegung nennt `WRITE_SECURE_SETTINGS`
+  zwingend — der Riegel waere von Anfang an rot. **`cure` nur mit Wortgrenze.**
+- **`diagnos` trifft `EventLog.kt:90` und `:103`** ("Diagnostics", Filterknopf des
+  Ereignisprotokolls, kein medizinischer Sinn). Empfehlung: Muster
+  `diagnos(e|es|ed|ing|is)\b` (laesst "diagnostic/diagnostics" durch) oder
+  Datei-Ausnahme fuer `EventLog.kt`. Die einzige medizinische Fundstelle
+  (`HearingTestScreen.kt:888`) ist mit dem Ersatz oben weg.
+
+Alle Neu-Strings dieses Abschnitts sind gegen die volle Liste **einschliesslich**
+der blanken Woerter `loss` und `restor` geprueft: 0 Treffer (Teilzeichenfolge,
+case-insensitive; `cure` sowohl als Teilzeichenfolge als auch mit Wortgrenze;
+Pruefdatei im Scratchpad von T-074b, 2026-09-29).
+
+#### Akzeptanzkriterien AK-24
+
+- **AK-T074-1** Nach dem Umbau kommt keiner der Alt-Strings aus den Tabellen
+  mehr in `app/src/main`, `core-hearing/src/main`, `core-audio/src/main` vor; je
+  Zeile ein Suchmuster (erstes eindeutiges Wort, z. B. `Beyond what an EQ`,
+  `sensory cells`, `never diagnoses`, `compensation curve`, `Compensation profile
+  applied`, `low-frequency loss`) mit Trefferzahl 0 im Bericht.
+- **AK-T074-2** Jeder Neu-String steht zeichengenau wie oben (Literalvergleich
+  oder `onNodeWithText`; mindestens 166, 175-176, 443-449, 585, 888-889, 645).
+- **AK-T074-3** `PurposeWordingTest` traegt die Liste aus C-002 Befund 8 mit den
+  zwei Berichtigungen (`cure` mit Wortgrenze, `diagnos` ohne "diagnostic"); die
+  Allowlist besteht aus genau den drei Schluessel-Literalen (plus die zwei
+  technischen, falls nicht umbenannt); **jeder Allowlist-Eintrag muss im
+  Quelltext genau einmal vorkommen** (ein veralteter Eintrag darf nichts
+  durchwinken).
+- **AK-T074-4** Der Test beweist sich selbst: eine Fixture-Zeile mit einer
+  Listenwendung (z. B. `"hearing loss"`) macht seinen Pruefer rot, gemessen im
+  selben Lauf; die Erwartung steht als Literal, nicht aus der Liste gerechnet.
+- **AK-T074-5** Die drei Persistenzschluessel sind buchstabengleich (Test liest
+  sie als Literal).
+
+### 2. AK-22 — Satz "nur bekannte EQ-Apps"
+
+**Bestaetigt, und aus dem Fragezeichen herausgeholt.** Der Satz
+`"Only known EQ apps are recognized: apps that declare an equalizer panel, and ${VendorEqApps.known.size} headphone companion apps."`
+(`BluetoothSection.kt:530-531`) ist sachlich richtig und bleibt **wortgleich**
+(AD-050 schreibt "recognised", der Code "recognized"; der Code gilt, US-Schreibweise
+wie im uebrigen Text). Aber er steht heute hinter dem Fragezeichen der
+Ueberschrift; AK-22 verlangt "sagt sichtbar". Ein zugeklappter Satz sagt es nur
+dem, der fragt.
+
+Aenderungen in `BluetoothSection.kt`, Panel "Apps that might have an equalizer":
+
+| Zeile | Alt | Neu |
+|---|---|---|
+| 447 | `ExplainedHeader("Apps that might have an equalizer", candidateExplanation(scan))` | `ExplainedHeader("Known equalizer apps", candidateExplanation(scan))` — "might have" sagt etwas ueber eine unbekannte Menge, die App kennt nur die bekannten |
+| direkt unter 447, in **jedem** Zustand | — | `Text("Only known EQ apps are recognized: apps that declare an equalizer panel, and ${VendorEqApps.known.size} headphone companion apps.", labelSmall, colorScheme.outline)` |
+| 529-532 | zweiter Absatz in `candidateExplanation` | **entfaellt** (ein Satz, ein Ort — zwei Wortlaute driften auseinander); der erste Absatz ("This is a hint, not a verdict ...") und die Dauerzeile "Checked in N ms" bleiben |
+| 451 | `"Checking installed apps…"` | `"Checking for known EQ apps…"` |
+| 459 und `EqCandidateScanner.kt:115`, `:145` | `"Cannot check which apps might have an equalizer."` (in `:145` mit angehaengtem `— ${read.reason}.`) | `"Cannot check for known EQ apps."` (in `:145` mit demselben Anhang) |
+| 467 | `"No installed app declares an equalizer."` | `"No known equalizer app found."` |
+| 511 | `"Check installed apps"` | `"Check for known EQ apps"` |
+
+**Warum 467 und 511 zwingend sind (Befund, nicht Geschmack):** Ohne
+`QUERY_ALL_PACKAGES` (AD-050) sieht die App nur die in `<queries>` genannten
+Pakete. "No installed app declares an equalizer" behauptet etwas ueber **alle**
+installierten Apps und ist damit ein stiller Freispruch (AK-3); "Check installed
+apps" verspricht dieselbe Reichweite. "No known equalizer app found." sagt nur,
+was gemessen wurde. Suchmuster `might have an equalizer` ueber `app/src` und
+`core-*/src`, `*.kt`: 4 Treffer (447, 459, `EqCandidateScanner.kt:115`, `:145`).
+
+**Nebenfund fuer den developer (kein Vorgabetext):** Nach AD-050 behaelt der
+Filter nur Apps mit Panel oder aus `VendorEqApps`; der Zweig "Weaker matches"
+(`BluetoothSection.kt:491-493` und sein `ExplainedBlock`) zeigt Apps, die nur eine
+Berechtigung anfragen — er kann dann nie befuellt sein. Toter Zweig oder
+Zaehlfehler; H-1 prueft und entfernt ihn oder belegt ihn.
+
+#### Akzeptanzkriterien AK-22
+
+- **AK-T074-6** Der Satz steht **ohne Tippen auf das Fragezeichen** auf dem
+  Bildschirm, in allen fuenf Zustaenden des Panels (nicht geprueft, wird
+  geprueft, nicht pruefbar, leer, Liste). Compose-Test je Zustand mit
+  `onNodeWithText(<Satz>)`, kein Klick zuvor.
+- **AK-T074-7** Der Satz kommt in `BluetoothSection.kt` genau einmal als Literal
+  vor (Suchmuster `Only known EQ apps are recognized`, Trefferzahl 1 im
+  Bericht); `candidateExplanation` enthaelt ihn nicht.
+- **AK-T074-8** In keinem Literal von `BluetoothSection.kt`,
+  `EqCandidateScanner.kt`, `AndroidEqCandidateSources.kt` steht "installed app"
+  (Muster `installed app`, Kommentare ausgenommen, Trefferzahl 0), und kein
+  Zustand sagt "No installed app ...".
+- **AK-T074-9** Im leeren Zustand stehen der Satz aus AK-T074-6 **und**
+  `"No known equalizer app found."` — nie eine Leermeldung ohne den Bezug auf
+  "known".
+
+### 3. AD-051 — Offenlegungsdialog (`ActivateScreen`) und PC-Weg
+
+**Zweck & Nutzerziel:** Wer den Helfer startet, soll **vor** der ersten
+Verbindung lesen und bewusst zustimmen, was der Helfer tut und was die App
+schreibt (C-001 Auflagen 1, 3, 8) — und es danach wiederfinden koennen, vor allem
+den Widerruf.
+
+#### 3a. Der Dialog
+
+Ein Baustein `HelperDisclosureDialog(mode, onConfirm, onDismiss)` in
+`ActivateScreen.kt` (heute privat `LocalConnectionDisclosure`), `internal`, damit
+`SystemAccessScreen` denselben aufruft. Er rendert **ausschliesslich** aus
+`HelperDisclosure`; kein Satz der Offenlegung steht im Compose-Code. Heutige
+Aufrufer bleiben (Gate, Zeile 98; `ActivateStep`, Zeile 397 — der auch im Wizard
+und in System access erscheint); neu ruft ihn `SystemAccessScreen` fuer die Modi
+`ConsentForCommand` und `ReadOnly`. Keine zweite Kopie.
+
+**Aufbau (Reihenfolge fest; Ueberschriften `titleSmall`, Fliesstext `bodyMedium`):**
+
+1. Titel: **`What starting the helper does`** (ersetzt "The app will talk to your
+   phone's own debugging service").
+2. Einleitung, **ohne Ueberschrift**: `HelperDisclosure.intro`, die vier Absaetze
+   aus `docs/release/HELPER_DISCLOSURE.md` Abschnitt 1 (was der Helfer ist,
+   Wireless debugging, Verbindung zu `127.0.0.1` und `INTERNET`, "nur was hier
+   steht"). Der Netz-Absatz ist damit Teil der Einleitung, kein eigener Block.
+3. **`What it changes`** — Bullet-Liste: zuerst die Werte von `helperActions` (**5**,
+   in `PrivilegedOperation.entries`-Reihenfolge; die Aufzaehlung hat fuenf
+   `mutates = true`-Eintraege, AD-051 nennt vier), dann die Werte von
+   `writtenSettings` (6, in Map-Reihenfolge). Ein Satz je Bullet. Die automatische
+   Vergabe von `WRITE_SECURE_SETTINGS` bei jeder Helfer-Ankunft (Vorgabe D1) steht
+   im Bullet `GRANT_SECURE_SETTINGS`; ein eigener Block waere doppelt.
+4. **`What it only reads`** — Bullet-Liste der Werte von `readCommands` (4, in
+   `PrivilegedProtocol.ALLOWED`-Reihenfolge; Vorgabe D1). Je Bullet der Befehl und
+   ein Satz, wozu.
+5. **`How long it runs`** — `HelperDisclosure.lifecycle`: bis zum Neustart; startet nach
+   dem Neustart selbst wieder (`BootReceiver.kt:113`).
+6. **`How to undo it`** — `HelperDisclosure.revoke`: gekoppeltes Geraet unter
+   "Wireless debugging" entfernen; nach Deinstallation neu starten (die drei
+   Absaetze aus Abschnitt 6 der Datei).
+
+Die Feldnamen sind Vorschlag; bindend sind **Reihenfolge und Rolle**, nicht der
+Bezeichner. Liefert T-074a die Saetze anders geschnitten, passt sich der
+Feldschnitt an, nicht die Ueberschriftenfolge. **Abweichung von
+`HELPER_DISCLOSURE.md` Abschnitt 7 (bewusst):** Dort steht der PC-Weg als Liste
+inline auf dem Bildschirm; hier laeuft er ueber **denselben Dialog** (3b) — ein
+Baustein, ein Text, ein Flag. Der eine Zusatzsatz aus Abschnitt 7 bleibt, mit
+angepasstem Bezug (3b).
+
+**Knoepfe** (`TextButton`, wie im Bestand): links Ablehnen, rechts Bestaetigen.
+
+| Modus | Bestaetigen | Ablehnen | Wirkung von Bestaetigen |
+|---|---|---|---|
+| `Consent` (Telefon-Weg: Gate, Setup-Schritt, System access) | **`Agree and continue`** | **`Not now`** | Flag setzen, danach `attempt()` wie heute |
+| `ConsentForCommand` (PC-Weg, 3b) | **`Agree and show command`** | **`Not now`** | Flag setzen, Befehl einblenden, **kein** `attempt()` |
+| `ReadOnly` (Nachlesen, 3c) | **`Close`** | — (kein zweiter Knopf) | nichts |
+
+"Continue" wird zu "Agree and continue": auf dem Knopf steht, dass hier zugestimmt
+wird. Ablehnen (Knopf, Zurueck-Geste, Tippen ausserhalb) setzt **nie** das Flag
+und startet **nie** eine Verbindung; der Zustand geht auf `Idle`
+(`dismissDisclosure`, `ActivateViewModel.kt:125`, unveraendert).
+
+**Bedienung und Lesbarkeit:**
+- Der Textteil scrollt (`verticalScroll`); die beiden Knoepfe bleiben unten fest
+  sichtbar. Der Dialog wird lang (mindestens 5 + 6 + 4 Bullets), ein nicht
+  scrollbarer `AlertDialog` schnitte den Widerruf ab.
+- Kein erzwungenes "erst bis unten lesen": entschieden gegen ein Scroll-Gate
+  (fuer Screenreader unzugaenglich, ein Wischen weg von "gelesen"). Die Reihenfolge
+  traegt stattdessen: das Wichtigste (was sich aendert) steht oben, der Widerruf am
+  Ende, die Ueberschriften machen es ueberfliegbar.
+- Bullets als `Row(Text("•"), Text(satz))`, der Punkt fuer Screenreader ausgeblendet
+  (`clearAndSetSemantics {}`); Abstand zwischen Bullets 6 dp, zwischen Bloecken
+  16 dp. Ueberschriften mit `heading()`-Semantik.
+- Lesbar bis 200 % Schriftskala; Knoepfe >= 48 dp hoch (Standard `TextButton`).
+
+**Zustaende:** Die Inhalte sind statisch (kein leer, kein Laden, kein Fehler);
+lang: scrollt. Die Vollstaendigkeit gegen den Code sichert `HelperDisclosureTest`
+(Vorgabe D1), nicht der Dialog.
+
+#### 3b. PC-Weg: Offenlegung vor dem Befehl (Vorgabe D3)
+
+Heute zeigt die App den ADB-Befehl an **drei** Stellen ohne Zustimmung (Suchmuster
+`CopyableCommand(`, 3 Aufrufe am Stand `e32505b`): `SystemAccessScreen.kt:161`
+(Befehl mit Token), `SystemAccessScreen.kt:326` (`gate.adbGrantCommand()`),
+`DeviceProfilesScreen.kt:1215` (`status.adbCommand`, Absolute Volume).
+
+**Vorgabe:** ein Baustein `ConsentGatedCommand(command: () -> String)` ersetzt alle
+drei Aufrufe; `CopyableCommand` wird nur noch von ihm gerufen.
+
+- **Flag false:** an der Stelle des Befehls steht bei `SystemAccessScreen.kt:161`
+  der Satz `"The command starts the helper from a computer. Read what the helper does first."`
+  (`bodySmall`) und darunter ein `GoldOutlinedButton` **`Show the command`**; an
+  den beiden anderen Stellen nur der Knopf. Der Knopf oeffnet den Dialog im Modus
+  `ConsentForCommand`. Kein Knoten mit Befehlstext, kein Token-Erklaersatz ("The
+  command carries a token ..."), keine Zeile "Replace the command" (sie mintet
+  ein Token).
+- **Das Token wird nie vorher gemintet:** `bootstrap.adbCommand()`
+  (`SystemAccessScreen.kt:77-79`) wird nicht mehr beim Aufbau des Bildschirms
+  gerufen, sondern erst, wenn das Flag true ist (`command: () -> String` wird erst
+  dann ausgewertet). Sonst liegt das Token im Speicher, bevor jemand zugestimmt hat.
+- **Flag true** (auch durch fruehere Zustimmung ueber den Telefon-Weg — es ist
+  **dasselbe** Flag): der Befehl steht sofort, ohne Extra-Knopf, wie heute. Der
+  Knopf `Show the command` wird an derselben Stelle vom Befehl ersetzt. Bei
+  `SystemAccessScreen.kt:161` steht darueber (an der Stelle des Vor-Zustimmung-Satzes)
+  der Zusatzsatz aus `HELPER_DISCLOSURE.md` Abschnitt 7 mit angepasstem Bezug:
+  `"This command starts the same helper from a computer. It does exactly what the list you agreed to says, and nothing else."`
+  (`bodySmall`; die Datei sagt "the list above", weil sie den PC-Weg inline
+  vorsah — bei einem Dialog steht keine Liste "oberhalb").
+- Der Bildschirm beobachtet das Flag als Flow, damit eine Zustimmung aus dem
+  Telefon-Weg (`ActivateStep` im selben Bildschirm) den Befehl sofort freigibt.
+- Bestaetigen im PC-Weg setzt das Flag und blendet den Befehl ein; es startet
+  **keine** Verbindung von der App aus (der Nutzer hat den Computer gewaehlt).
+
+**Am Motor, nicht in der Oberflaeche** (D3, hier nur zur Vollstaendigkeit):
+`HelperAutoStart.attempt()` und `pairThenStart()` enden ohne Verbindung, wenn das
+Flag false ist. Die Oberflaeche verlaesst sich nicht darauf, sie zeigt vorher den
+Dialog.
+
+#### 3c. Nachlesen
+
+`SystemAccessScreen`, Panel "App helper" (`HelperPanel`): unter der Pill-Zeile ein
+`TextButton` **`What the helper does`**, der den Dialog im Modus `ReadOnly` oeffnet.
+Grund: nach der einmaligen Zustimmung waere die Offenlegung — und mit ihr der
+Widerruf — sonst nie wieder erreichbar (toter Weg). Kein neuer Screen.
+
+#### 3d. Weiterer Wortlaut AK-23 / Auflage 6
+
+| Datei:Zeile | Alt | Neu |
+|---|---|---|
+| `SystemAccessScreen.kt:232-234` | `"Android reports the negotiated codec only to apps holding BLUETOOTH_PRIVILEGED, which no sideloaded app has. The fallback reads it out of the Bluetooth stack's dump, which needs the shell."` | `"Android reports the negotiated codec only to privileged system apps that hold BLUETOOTH_PRIVILEGED. The fallback reads it out of the Bluetooth stack's dump, which needs the shell."` |
+
+Gezaehlt (Auflage 6, Suchmuster `sideload|play store|google play`, case-insensitive,
+ueber `app/src` und `core-*/src`, `*.kt` und `*.xml`, Stand `e32505b`): **3** Treffer
+— in Nutzertexten 1 (die obige Zeile), dazu 2 Kommentarzeilen in
+`core-audio/src/androidTest/.../AcousticEqTest.kt:206-207` (Sache von H-3).
+Der Manifest-Kommentar traegt das Muster nicht mehr. Der About-Absatz "Network
+access" (`SettingsScreen.kt:550-555`) bleibt wortgleich; er muss dem Abschnitt
+`Network` im Dialog entsprechen (bei jeder Aenderung des einen den anderen
+mitziehen).
+
+#### Akzeptanzkriterien AD-051
+
+- **AK-T074-10** Dialog `Consent`: Titel, Einleitung ohne Ueberschrift und vier
+  Bloecke in der Reihenfolge aus 3a, Ueberschriften zeichengenau (`What it
+  changes`, `What it only reads`, `How long it runs`, `How to undo it`); der Test
+  liest die Ueberschriften per Semantik in Reihenfolge.
+- **AK-T074-11** Bullet-Zahl unter `What it changes` = **11** (heute 5 + 6), unter
+  `What it only reads` = 4; die Erwartung steht als Literal, nicht aus den Maps
+  gerechnet. (Vorgabe D1 und `HELPER_DISCLOSURE.md` zaehlen 5 mutierende
+  Operationen; ein Test gegen die 4 aus AD-051 waere rot.)
+- **AK-T074-12** Knoepfe je Modus wie in der Tabelle 3a; `Continue` kommt im
+  Dialog nicht mehr vor. (`ActivateStrandedStateTest` prueft "Continue" im Zustand
+  `Done`, `ActivateScreen.kt:259` — das ist ein anderer Knopf und bleibt.)
+- **AK-T074-13** Ablehnen (Knopf, Zurueck, Tippen ausserhalb): Flag bleibt false,
+  keine Verbindung wird begonnen, Zustand `Idle`. Bestaetigen im Modus `Consent`:
+  Flag true, danach genau ein `attempt()`.
+- **AK-T074-14** Der Textteil scrollt; bei 360 x 640 dp und Schriftskala 1,3 sowie
+  2,0 sind beide Knoepfe **ohne Scrollen** sichtbar und erreichbar (Compose-Test,
+  `assertIsDisplayed`).
+- **AK-T074-15** Kein Satz der Offenlegung steht als Literal im Compose-Code
+  (`ActivateScreen.kt`, `SystemAccessScreen.kt`): das Suchmuster
+  `WRITE_SECURE_SETTINGS` liefert dort nur die Panel-Ueberschrift
+  (`SystemAccessScreen.kt:303`), keinen Dialogsatz.
+- **AK-T074-16** `SystemAccessScreenTest`, Flag false: **kein** Knoten mit dem
+  ADB-Befehl (Teilzeichenfolge `adb`), keiner mit `pm grant`, keiner mit "carries a
+  token", keine Zeile "Replace the command"; `Show the command` ist vorhanden,
+  mindestens ein Knopf je Stelle. Dazu: `bootstrap.adbCommand()` wird bei Flag false
+  **nicht** gerufen (Fake zaehlt 0).
+- **AK-T074-17** Flag false, Tipp auf `Show the command`: Dialog im Modus
+  `ConsentForCommand`; `Not now` -> Befehl bleibt verborgen, Flag false;
+  `Agree and show command` -> Flag true, Befehl sichtbar, `attempt()` nicht
+  gerufen.
+- **AK-T074-18** Flag true beim Betreten: Befehl sofort sichtbar, kein
+  Zwischenschritt, darueber der Zusatzsatz aus 3b; `CopyableCommand(` hat im
+  Quelltext genau **1** Aufrufer (Suchmuster, Trefferzahl im Bericht).
+- **AK-T074-19** `HelperPanel` zeigt `What the helper does`; Tipp oeffnet den Dialog
+  im Modus `ReadOnly` mit genau einem Knopf `Close`; das Flag aendert sich nicht.
+- **AK-T074-20** `ActivateViewModel` mit Flag false: `activate()` fuehrt in
+  `Disclosure` (Vorgabe-D3-Test, unveraendert).
+
+### 4. AD-052 — Einstieg zu Datenschutz, Impressum, Lizenzen, "Verlauf loeschen"
+
+**Zweck & Nutzerziel:** Der Nutzer findet die rechtlichen Texte dort, wo er
+Einstellungen sucht, und kann den Messverlauf mit einem bewussten Schritt und einer
+ehrlichen Rueckmeldung loeschen.
+
+#### 4a. Ort in den Einstellungen
+
+Neues `Panel` **`Privacy and legal`** in `SettingsScreen`, **zwischen** `BackupPanel`
+(Zeile 118) und `HowToPanel` (Zeile 119): Daten-Themen liegen nebeneinander (Backup,
+dann Datenschutz und Loeschen), "How it works" und "About" bleiben am Ende.
+Aufbau von oben nach unten:
+
+1. `PanelHeader("Privacy and legal")`
+2. Drei Zeilen, je ein `GoldOutlinedButton` ueber die volle Breite, 8 dp Abstand,
+   Beschriftung nach dem Bestandsmuster "Open {Ziel}": **`Open privacy policy`** ->
+   `ROUTE_PRIVACY`, **`Open imprint`** -> `ROUTE_IMPRINT`, **`Open licenses`** ->
+   `ROUTE_LICENSES`.
+3. `PanelDivider()`
+4. Block "Monitoring history":
+   - `Text("Monitoring history", titleSmall)`
+   - `Text("The history records your headphones by name and address, with link samples and events. Deleting it does not touch device profiles, hearing data, EQ presets, setup, the list of changed settings or the helper's pairing key.", bodySmall, onSurfaceVariant)` — zwei Saetze; nennt Namen und Adressen (E5) und die Speicher, die "Verlauf loeschen" **nicht** erfasst.
+   - `GoldOutlinedButton` **`Delete monitoring history`**; waehrend der Loeschung
+     deaktiviert, Beschriftung `Deleting…`.
+   - Ergebniszeile (Muster `BackupPanel`): erst nach Abschluss, `bodySmall`, Erfolg
+     in `onSurface`, Fehler in `colorScheme.error`, darunter `TextButton("Dismiss")`.
+
+Die destruktive Aktion steht **sichtbar getrennt** von den drei Lese-Einstiegen
+(Trennlinie, eigene Ueberschrift), damit ein Tipp daneben nicht in den Dialog
+fuehrt.
+
+#### 4b. Bestaetigungsdialog (Vorgabe E2)
+
+Muster wie `HearingTestScreen.kt:1384`:
+- Titel **`Delete monitoring history?`**
+- Text **`Every stored link sample and event, including the device names and addresses in them, is removed. This cannot be undone. Nothing else in the app is touched.`**
+- Bestaetigen `TextButton` **`Delete history`**, Ablehnen `TextButton` **`Cancel`**.
+- Ablehnen, Zurueck-Geste, Tippen ausserhalb: keine Loeschung.
+- Geloescht wird **nur** im `onClick` von `Delete history`. Es gibt **keine Route
+  und keinen Intent-Extra**, die loeschen (`MainActivity` ist exportiert und
+  navigiert zu jedem Routen-String, Vorgabe E2).
+
+#### 4c. Rueckmeldung (Vorgabe E3)
+
+| Ergebnis von `purgeOlderThan(Long.MAX_VALUE)` | Zeile | Farbe |
+|---|---|---|
+| `true` | **`Monitoring history deleted.`** | `onSurface` |
+| `false` | **`Could not delete the monitoring history. It may still be on this phone — try again.`** | `error` |
+
+"Geloescht" steht **nur** bei `true`. Der Fehlersatz behauptet nicht "nichts wurde
+geloescht": die Zusage der einen Transaktion gehoert in `MonitorRepository`, die
+Oberflaeche sagt, was sie weiss (AK-3). Die Zeile bleibt bis "Dismiss" oder bis zur
+naechsten Loeschung stehen; eine neue Loeschung ersetzt sie.
+
+#### 4d. Die Textseite (`AssetTextScreen`)
+
+Eine Seite fuer alle drei Assets; Parameter `(asset: String, title: String, onBack:
+() -> Unit)`, keine Routen-Argumente. Die Route steht **nicht** in
+`FULL_SCREEN_ROUTES` (Bottom-Bar sichtbar, wie `ROUTE_DEVICE_PROFILES`); Zurueck
+kehrt zur unveraenderten Einstellungsseite (`popBackStack`).
+
+- **Kopf:** `TextButton("Back to settings")` (Muster `Back to Bluetooth`), darunter
+  der Seitentitel in `displayMedium`: **`Privacy policy`**, **`Imprint`**,
+  **`Open-source licenses`**.
+- **Inhalt:** `LazyColumn` mit 16 dp Rand, 12 dp Absatzabstand, `bodyMedium`, in
+  `SelectionContainer` (E-Mail-Adresse und Pfade sollen sich kopieren lassen). Ein
+  Absatz je Textblock, damit die Apache-Lizenz (rund 11 000 Zeichen) nicht als ein
+  Text-Knoten gesetzt wird.
+- **Lesevertrag mit den Asset-Dateien (T-074a):** Absaetze durch eine Leerzeile
+  getrennt; eine Zeile `# Ueberschrift` wird als `titleSmall` ohne das `#` gesetzt;
+  Zeilen mit `- ` beginnen einen Bullet (gleiche Bullet-Form wie im Dialog);
+  **Zeilenumbrueche innerhalb eines Absatzes werden zu Leerzeichen (Umbruch neu
+  berechnet)**, ausser die Folgezeile beginnt mit einem Einzug, `-` oder `*`.
+  Grund: die Apache-Lizenz kommt hart bei etwa 80 Spalten umbrochen; auf 360 dp
+  zerfiele sie in Zeilenreste. Dieselbe Datei bleibt als Rohtext auf der Pages-Seite
+  lesbar (`#` und `-` sind dort Klartext).
+- **Fehler:** Laesst sich das Asset nicht lesen, steht statt einer leeren Seite
+  `"Could not open this page. Go back and try again."` (`bodyMedium`); nie eine
+  leere Flaeche (wirkt wie ein Bug, und bei "Privacy policy" wie ein fehlender
+  Pflichttext).
+- **Leer:** nicht vorgesehen; ein leeres Asset wird wie ein Lesefehler behandelt.
+- **Bedienung:** Fokus beim Oeffnen auf den Titel; `Back to settings` per Tab
+  erreichbar; Titel mit `heading()`-Semantik.
+
+#### Akzeptanzkriterien AD-052
+
+- **AK-T074-21** `SettingsScreen` zeigt zwischen "Backup" und "How it works" das
+  Panel `Privacy and legal` mit den drei Knoepfen `Open privacy policy`, `Open
+  imprint`, `Open licenses` in dieser Reihenfolge; jeder oeffnet seine Route, Titel
+  wie in 4d, Zurueck landet auf den Einstellungen (Scrollstand erhalten).
+- **AK-T074-22** Alle drei Seiten sind ohne Netz lesbar und zeigen den Inhalt der
+  jeweiligen Asset-Datei; kein Absatz fehlt (Test: Anzahl Absatz-Knoten = Anzahl
+  der durch Leerzeilen getrennten Absaetze im Asset, Literal je Datei).
+- **AK-T074-23** Lesevertrag: ein Fixture-Text mit hart umbrochenem Absatz erscheint
+  als **ein** Knoten ohne eingebettete Umbrueche; ein `- `-Absatz wird zu Bullets;
+  `# X` zu einer Ueberschrift ohne `#`.
+- **AK-T074-24** Lesefehler (Asset fehlt, Fake): der Satz aus 4d steht, `Back to
+  settings` funktioniert; kein leerer Bildschirm.
+- **AK-T074-25** Tipp auf `Delete monitoring history` oeffnet den Dialog und ruft
+  die Loeschung **0** Mal; `Cancel` ruft sie 0 Mal; `Delete history` ruft sie
+  **genau 1** Mal (Vorgabe E2, Test mit Zaehler).
+- **AK-T074-26** Kein Routenstring, kein Intent-Extra und kein `ROUTE_*` loest die
+  Loeschung aus: Suchmuster auf den Namen der Loesch-Funktion in `MainActivity.kt`
+  und `BtDashboardApp.kt`, Trefferzahl 0.
+- **AK-T074-27** Ergebnis `true` -> `Monitoring history deleted.`; `false` -> der
+  Fehlersatz aus 4c in `error`-Farbe und **nicht** der Erfolgssatz (ViewModel-Test
+  mit Fake `false`, Vorgabe E3). Waehrend der Loeschung ist der Knopf deaktiviert
+  (kein Doppelaufruf).
+- **AK-T074-28** Der Block "Monitoring history" nennt, dass Namen und Adressen im
+  Verlauf stehen, und die Speicher, die **nicht** erfasst werden (Literaltest auf
+  `name and address`, `pairing key`, `list of changed settings`).
+- **AK-T074-29** Alle Tap-Ziele der neuen Bereiche >= 48 dp hoch; Farben
+  ausschliesslich aus `MaterialTheme.colorScheme`, wie im `BackupPanel`
+  (Kontrast der neuen Flaechen nicht neu gemessen).
+
+### Explizit nicht Teil dieser Vorgabe
+
+- Die **Saetze** der Offenlegung (`HelperDisclosure`), der Store-Text, `privacy.txt`,
+  `imprint.txt`, `licenses.txt` — T-074a. Die Platzhalter `<NAME>`, `<ANSCHRIFT>`,
+  `<TELEFON>`, `<E-MAIL>`, `<PRIVACY_URL>` erscheinen nur dort; im UI-Code steht
+  keiner davon.
+- Zustimmung zu einer Datenschutzerklaerung beim ersten Start: nicht verlangt, die
+  App erhebt nichts.
+- Loeschen des Verlaufs aus dem Monitoring-Bildschirm: bewusst nur in den
+  Einstellungen (E2: eine Stelle, ein Dialog).
+- Umbenennung von "Loudness restoration" (`EqScreen.kt:141`): kein Listenwort, aber
+  Hoergeraete-Vokabular; Beobachtung fuer den compliance-agent, keine Aenderung hier.
+- Versionierung des Flags: es bleibt "einmal je Installation" (AD-051).
+
+### Offene Fragen an den App Designer
+
+1. **Soll die App ihre Zweckbestimmung an einer Stelle in einem Satz sagen?**
+   Vorschlag: ein Satz im "About"-Panel (`SettingsScreen.kt`, ueber "Nothing you
+   measure leaves the phone."): `"An equalizer for Bluetooth headphones that shapes
+   the sound to your personal hearing profile. It says nothing about your health."`
+   Kein Listenwort. Ohne ihn stehen Zweck und Haftungsgrenze nur im Store-Text und in
+   den Verneinungen einzelner Bildschirme; mit ihm auch dort, wo der Nutzer die App
+   schon hat. Preis: eine Zeile mehr in einem ohnehin dichten Panel.
+   **Empfehlung: ja.**

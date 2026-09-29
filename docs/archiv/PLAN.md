@@ -4,6 +4,11 @@ Android app (Kotlin + Jetpack Compose, Oboe/NDK, Shizuku). English-only code,
 UI, and docs. Local git only for now — public GitHub push happens later after
 Daniel reviews. No `INTERNET` permission, no analytics, fully self-contained.
 
+**[Archived plan of 2026-08-18. Statements that no longer hold, as of
+2026-09-29: Shizuku was replaced by the app's own helper; the app declares
+`INTERNET` (loopback only, to start the helper); the app is planned for Google
+Play. Current state: README.md, GOAL.md, ARCHITECTURE.md.]**
+
 ## Decisions (confirmed 2026-08-18)
 
 - Test device: Google Pixel (recent Android). Code defensively anyway for
@@ -182,6 +187,10 @@ in DESIGN.md.
   audio (`getActivePlaybackConfigurations`) sort to the top as *context*, not
   as evidence. Needs `QUERY_ALL_PACKAGES`, which is acceptable only because
   this app never goes to the Play Store; nothing leaves the device.
+  **[Superseded 2026-09-29: the app is now planned for Google Play (EU/EEA,
+  one-time purchase; GOAL.md AK-22..AK-27). `QUERY_ALL_PACKAGES` was removed
+  (AD-050) and the check uses the `<queries>` list, so only known equalizer
+  apps are recognized. Nothing leaves the device still holds.]**
   Explicitly **not** attempted: dex/APK scanning for `audiofx` references
   (obfuscation + native DSP make it unreliable and slow) and any claim about
   apps filtering in their own code — the Focal case is exactly that, and
@@ -216,3 +225,7 @@ in DESIGN.md.
 No Play Store, no cloud, no medical diagnostic claims, never touch the
 Focal & Naim / Noble FoKus apps' stored settings (v1 documents "set their
 EQ to Flat" instead).
+
+**[Superseded 2026-09-29: "No Play Store" no longer applies; a Google Play
+release is planned (GOAL.md AK-22..AK-27). "No medical diagnostic claims" and
+"no cloud" stand.]**

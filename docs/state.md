@@ -43,9 +43,18 @@ die Einreichung** wegen SR-001 (hoch) auf Kaeufergeraeten → **T-006 (Transport
 ohne Dateisystem) ist Vorbedingung der Einreichung** (Director 21:55, kein
 WAIVED). Vorgaben A1..C4 in `docs/berichte/T-070a-security-reviewer.md`
 (D1–D4, E1–E5 fuer H-3 offen). C-002 (Kaufpreis EU/EWR): GELB, A-021..A-030.
-Naechste Laeufe: T-W (technical-writer + ui-ux: privacy.txt, Impressum,
-Lizenzen, Store-Text, AK-24-Wortliste aus C-002 Befund 8, 19 Zeilen), dann H-3
-(AD-051/052 Code + D/E-Vorgaben), dann T-006, dann QA.
+T-074 (Texte) erledigt 23:04: Assets `privacy.txt`, `imprint.txt`,
+`licenses.txt` (Platzhalter `<NAME>` usw., `<PRIVACY_URL>`),
+`docs/release/STORE_TEXT.md`, `HELPER_DISCLOSURE.md`; UI_SPEC Abschnitt T-074
+(AK-T074-1..29, ab Z. 4267). Director: Wortliste als Muster `\bcure\b`,
+`diagnos(e|es|ed|ing|is)\b`. **Naechste Laeufe:** H-3 developer (AD-051/052
+gegen UI_SPEC T-074, Vorgaben D1–D4/E1–E5 woertlich; Code-Stellen aus T-074a:
+`SystemAccessScreen.kt:233`, `AcousticEqTest.kt:206-207`, KDoc
+`WirelessDebuggingSwitch.kt`; `licenses.txt` statt zwei Assets; 5 mutierende
+Ops statt 4), parallel compliance-agent `pruefen` (Texte, BoringSSL-Volltext,
+C-002 9a GitHub Pages), dann T-006, dann QA. Bindung offen: Absatz
+"Known issue"/privacy §7 faellt mit T-006 weg. Kein aktuelles APK (Release
+v0.2.0 ist Shizuku-Stand).
 
 **Nutzerentscheide 29.09. abends:** Google Play (Vollfassung mit Helfer, nur
 EU/EWR, **Kaufpreis im Store**), Datenschutzerklaerung in **eigenem
@@ -58,7 +67,9 @@ nach gruener Geraeteabnahme.
 
 **Beim Nutzer — offen:**
 1. Geraet: WLAN auf 5 GHz, danach Vergleich auf Akku (Handgriffe kommen gebuendelt).
-2. Oeffentliche Anschrift fuer Impressum/Traderstatus (C-002 Befund 1/2) — haelt nur die Einreichung.
+2. Oeffentliche Anschrift fuer Impressum/Traderstatus (C-002 Befund 1/2) — haelt nur die Einreichung;
+   Name des Mini-Repos (`<PRIVACY_URL>`); Zweckbestimmungssatz im About-Panel
+   (ui-ux-Vorschlag, Empfehlung ja); App-Titel 32 Zeichen vs. Play-Grenze.
 3. UI-Entscheide am Geraet (Sprungknoepfe, P-001-Panel, Rueckweg-Banner); Wortlaut
    "Only known EQ apps are recognized …" (T-072).
 4. AK-7 nach G0–G4; AK-T009-41 (`adaptiveBitrateAdjustments` ohne Leser) umsetzen

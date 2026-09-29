@@ -1,0 +1,89 @@
+Last updated: 2026-09-29. This policy covers DankYeeter's Bluetooth Dashboard (the app) and the web page that shows this text.
+
+The short version: the app does not send your data to the developer or to anyone else. What it stores stays on your phone. Sections 6 and 7 name the two places where that is not the whole story.
+
+# 1. Who is responsible
+
+<NAME>
+
+<ANSCHRIFT>
+
+E-mail: <E-MAIL>
+
+The developer does not receive data from the app. This section names who to ask about this text, about purchases, and about the web page in section 10.
+
+# 2. What the app does not do
+
+- It has no account, no sign-in, no advertising, no analytics, no crash reporting and no update check.
+- It contains no code that talks to a server on the internet.
+- It does not use your location. Bluetooth scanning is declared as "never for location", and the app does not ask for the location permission.
+
+# 3. The internet permission
+
+The app declares the internet permission, and it is not used for the internet. Android requires that permission for any network connection, including a connection from the phone to itself. The app needs one connection like that: to the debugging service on this same phone, at the address 127.0.0.1, to start its helper without a computer (see the setup text in the app). The connection always goes to 127.0.0.1, never to an address announced by the network.
+
+To learn the port number of that debugging service, the app uses Android's service discovery on the local network (mDNS). Android may send discovery queries on your Wi-Fi network for this. Only the port number is taken from the answer.
+
+# 4. What the app stores on your phone
+
+All of this is stored in the app's private storage.
+
+- Monitoring history: time, name and Bluetooth address of headphones and other Bluetooth devices, connection events, codec, bitrate, signal strength and packet statistics. It is stored as device_address and device_name, so the history contains the real Bluetooth address and name of each device. Entries older than 24 hours are removed each time the monitor starts.
+- Hearing data: results of hearing tests (levels per ear and frequency), an audiogram if you type one in, an age reference if you enter one, results of the listening-preference test, and the sound-adjustment profiles derived from them. This is information about your hearing. It is not sent anywhere.
+- Equalizer settings and profiles.
+- Device profiles: a name you give, a hashed key of the device's Bluetooth address (not the address itself), and the settings you chose for that device.
+- Setup state and appearance settings.
+- The list of changed settings: the previous values of Android settings that the app changed (see the setup text), so that they can be put back. It is not copied to backups (section 6).
+- The app's pairing key for the phone's own debugging service: a key pair in private storage. It identifies the app to the debugging service of this phone and is used for nothing else.
+- A random token that lets the app and its helper recognise each other.
+
+If you use "Export" in the settings, the app writes a file to a place you choose. That file is yours; the app does not read it again except when you import it.
+
+# 5. What the app reads without storing it
+
+- Microphone: before a hearing test the app listens to the room to warn you if it is too noisy. The audio is analysed in memory and is neither recorded nor stored nor sent.
+- Bluetooth advertisements: the app reads the public Bluetooth Low Energy advertisements of some earbuds to show battery and wear state. Nothing is stored.
+- Installed apps: the app can see whether apps that declare an equalizer panel, and 12 named headphone companion apps, are installed. It cannot see any other app. The result is shown on screen and is gone when the app closes.
+- Wi-Fi band: whether the phone is on a 2.4 GHz or 5 GHz Wi-Fi. Not the name of the network, not its address, not your location.
+- System information through the helper: reports of the Bluetooth service and the audio service, and the list of running processes, to read the link state, the playing audio session and equalizer effects of other apps. Of the playback report, only session numbers are kept. What of this is stored is the monitoring history in section 4.
+
+# 6. Backup
+
+The app allows Android backup. Android's own backup can therefore copy the files in the app's "datastore" folder - hearing data, equalizer settings, device profiles, setup state and appearance - to your Google account, if backup is switched on on your phone, and to a new phone during device transfer. It does not copy the monitoring history, the pairing key, the token or the list of changed settings. What Google does with a backup is governed by Google's terms, not by this text. To keep this data out of a Google backup, switch off backup in Android's settings.
+
+# 7. What stays on your phone after you uninstall - known issue
+
+The helper is a process on your phone that runs until the phone restarts. It starts itself again after a restart while the equalizer is switched on. Two things follow from how it is built today, and they are not yet fixed:
+
+- Files that the helper writes to the folder /data/local/tmp (a log and temporary result files) can contain names and Bluetooth addresses of devices. They can be read by other apps on the phone.
+- Uninstalling the app does not remove these files, and it does not stop a running helper.
+
+To stop a helper that is still running after you uninstalled the app, restart the phone. The files in /data/local/tmp can be removed with the Android debugging tool (adb) from a computer.
+
+# 8. Deleting your data
+
+- "Delete monitoring history" in the settings removes the monitoring history.
+- Hearing test runs, the typed-in audiogram, profiles and device profiles can be deleted one by one in their screens.
+- "Delete monitoring history" does not remove: device profiles, hearing data, equalizer settings, setup state, the list of changed settings, and the pairing key. These are removed when you uninstall the app or clear its storage in Android's settings.
+- Copies in a Google backup (section 6) are deleted through your Google account.
+- The files described in section 7 are not removed by any of the above.
+
+To take the app's access to your phone back, open Android's "Wireless debugging" settings and remove the paired device you added for this app. After uninstalling the app, restart the phone (section 7).
+
+# 9. Purchases
+
+The app is sold through Google Play. Google handles the payment and is responsible for the payment data. Google tells the developer about orders and refunds as far as its terms provide. The developer uses this information only for accounting and refunds and keeps it for as long as tax law requires.
+
+# 10. This web page
+
+This page is hosted by GitHub Pages (GitHub Inc., USA). According to GitHub, the IP address of every visitor is logged and stored for security purposes, whether or not the visitor is signed in to GitHub. Details: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+
+Contact: <E-MAIL>. The developer's legal notice (Impressum) belongs to this page as it does to the app.
+
+# 11. Your rights
+
+Under the General Data Protection Regulation you can ask for information about personal data held about you, and for its correction, deletion or restriction, and you can object to its use. The developer holds personal data about you only where section 9 or section 10 apply. Ask at <E-MAIL>. You can also complain to a data protection supervisory authority.
+
+# 12. Changes
+
+If the app starts to send data anywhere, this text is changed first and the change is named in the release notes.
