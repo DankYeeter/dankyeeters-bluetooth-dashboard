@@ -3113,7 +3113,7 @@ falsch); AK-20 `SettingsJumpsTest` (zehn Eintraege) und `MonitorViewModel`-Rueck
 
 ---
 
-### AD-048 — Codec- und HD-Audio-Aufrufe an den Helfer enden nach 15 s; ein unbeantworteter Aufruf sperrt die naechsten, nicht das Ledger (2026-09-29, Status: aktiv — B6 aus T-055s)
+### AD-048 — Codec- und HD-Audio-Aufrufe an den Helfer enden nach 15 s; ein unbeantworteter Aufruf sperrt die naechsten, nicht das Ledger (2026-09-29, Status: aktiv — B6 aus T-055s; Punkt „Weggelassen: `exec`" **abgeloest durch AD-053** am 2026-09-29)
 
 **Kontext:** B6: Die Ledger-Sperre wird ueber Helferaufrufe gehalten, die kein Ende haben.
 Unter der Sperre laufen genau zwei Arten Helferaufruf: `PrivilegedCodecController.call`
@@ -3334,6 +3334,376 @@ eine Implementierung, die nie funktioniert hat.
 
 ---
 
+### AD-050 — Eine Fassung fuer alle: `QUERY_ALL_PACKAGES` und `BLUETOOTH_PRIVILEGED` fallen aus dem Manifest, die EQ-Erkennung laeuft ueber `<queries>` (2026-09-29, Status: aktiv — AK-22, C-001 Auflagen 4, 5)
+
+**Kontext:** AK-22 verlangt einen Store-Build ohne beide Berechtigungen. Frage 1 aus T-067: zweiter
+Build (Flavor) oder eine Fassung? Am Bestand gelesen (29.09.):
+- `PackageManagerAppSource.read` (`AndroidEqCandidateSources.kt:39-73`) behaelt von der vollen
+  Paketliste **nur** Apps, die `DISPLAY_AUDIO_EFFECT_CONTROL_PANEL` deklarieren oder in `VendorEqApps`
+  stehen (`if (!declares && !vendor) return@mapNotNull null`). Beides macht die `<queries>`-Liste
+  sichtbar: das `<intent>`-Element und 12 `<package>`-Eintraege. `VendorEqApps` enthaelt dieselben 12
+  Pakete (Diff der beiden sortierten Listen: identisch, 29.09.). **Randbedingung:** gilt fuer den
+  Filter von heute; bekommt die Erkennung je eine Stufe „irgendeine App mit
+  `MODIFY_AUDIO_SETTINGS`" zurueck, braucht sie wieder die volle Liste.
+- Was die volle Liste heute sonst traegt: (a) die Zahl `scannedPackages` in „N apps checked"
+  (`BluetoothSection.kt:526-527`) — ohne QAP zaehlt sie nur noch sichtbare Pakete und wuerde eine
+  Vollpruefung vortaeuschen; (b) Uid→Name fuer spielende Apps: `getPackagesForUid` liefert fuer eine
+  unsichtbare App `null`. `LiveLinkPanel.appLabel` (`:724`) faellt dann ehrlich auf „uid N" zurueck;
+  `EqScreen.kt:488` und `PreferenceTestViewModel.kt:579` verwerfen den Eintrag per `mapNotNull` —
+  eine spielende, unsichtbare App verschwaende aus der Liste (stiller Freispruch, AK-3).
+  Suchmuster `getPackagesForUid|getApplicationLabel|loadLabel|getApplicationInfo|getPackageInfo\(`
+  ueber `*/src/main/*.kt` (29.09.): 4 Uid→Paket-Stellen — die 3 genannten plus
+  `AndroidEqCandidateSources.kt:141` (Abgleich spielender Apps mit den Kandidaten, die ohnehin
+  sichtbar sind: unberuehrt); 3 Stellen, die Pakete nach Namen aufloesen (`MonitorGraph.kt:336`,
+  `BluetoothSection.kt:384`, `AndroidEqCandidateSources.kt:63`) und ohne QAP wie heute arbeiten bzw.
+  schon auf den Paketnamen zurueckfallen; 2 lesen das eigene Paket (`BackupRepository.kt:189`,
+  `SettingsScreen.kt:524`). „Mindestens" — eine Aufloesung ueber andere APIs deckt das Muster nicht.
+- `BLUETOOTH_PRIVILEGED` (`core-monitor/src/main/AndroidManifest.xml:17`) wird der App-Uid nie
+  gewaehrt; der Helfer laeuft mit Attribution `com.android.shell` (AD-049), die App-Deklaration
+  beruehrt ihn nicht.
+
+**Optionen:**
+- **A. Im Bestand bleiben.** Konsequenz: Einreichung scheitert sicher an der Package-Visibility-Policy
+  (C-001 Befund 2, ROT).
+- **B. Zwei Flavors** (`store` ohne, `sideload` mit QAP). Konsequenz: zwei Manifeste, zwei
+  Testmatrizen, und die private Fassung gewinnt nichts, weil der Filter nur `<queries>`-sichtbare
+  Apps behaelt.
+- **C. Eine Fassung ohne beide Berechtigungen.**
+
+**Entscheidung:** C. Ein zweiter Build haette keinen Grund, den man in einem Satz nennen kann.
+1. Beide `<uses-permission>` samt Kommentar entfallen (`app/.../AndroidManifest.xml:39-57`,
+   `core-monitor/.../AndroidManifest.xml:10-18`); der `<queries>`-Kommentar (`:59-68`) sagt, dass
+   `<queries>` jetzt die einzige Sicht ist.
+2. „N apps checked" wird ein fester Satz ohne Zahl, sinngemaess „Only known EQ apps are recognised:
+   apps that declare an equaliser panel, and 12 headphone companion apps." (Wortlaut ui-ux). Das
+   Feld `scannedPackages` faellt mit (ohne Verbraucher waere es QA-005-Klasse): `EqCandidates.kt:133`,
+   `EqCandidateScanner.kt:17/125/152`, `AndroidEqCandidateSources.kt:73`.
+3. `LiveLinkPanel.appLabel` zieht in eine eigene Datei `app/.../ui/AppLabel.kt` und ist die **eine**
+   Uid→Name-Funktion; `EqScreen.kt:480-495` und `PreferenceTestViewModel.kt:576-584` rufen sie, statt
+   zu verwerfen. Drei Kopien derselben Logik werden eine.
+4. KDoc/Kommentare, die QAP voraussetzen: `MonitorGraph.kt:323-330`,
+   `AndroidEqCandidateSources.kt:74-77` („a revoked QUERY_ALL_PACKAGES").
+
+**Berührt Dateien:** `app/src/main/AndroidManifest.xml`, `core-monitor/src/main/AndroidManifest.xml`,
+`BluetoothSection.kt`, `EqCandidates.kt`, `EqCandidateScanner.kt`, `AndroidEqCandidateSources.kt`,
+`MonitorGraph.kt` (nur KDoc), `LiveLinkPanel.kt`, `EqScreen.kt`, `PreferenceTestViewModel.kt`, neu
+`app/.../ui/AppLabel.kt`; Tests, die `scannedPackages` setzen.
+
+**Tests, die den Bau binden:**
+- `app/src/test/.../StoreManifestTest.kt` (Robolectric, Muster
+  `EnvironmentConditionsTest.kt:188-201`): (1) `requestedPermissions` des gemergten Manifests enthaelt
+  weder `QUERY_ALL_PACKAGES` noch `BLUETOOTH_PRIVILEGED` — rot heute; (2) jede Paketkennung aus
+  `VendorEqApps.known` steht als `<package>` in `src/main/AndroidManifest.xml` und das
+  Panel-`<intent>` ist da (Textlesung der Quelldatei; Erwartung zusaetzlich als Literal: 12 Pakete).
+  Faellt (2), ist eine Hersteller-App ohne QAP unsichtbar — genau der stille Freispruch.
+- `app/src/test/.../ui/AppLabelTest.kt`: eine Uid ohne Paket ergibt „uid 12345", nicht nichts; rot
+  gegen die heutige `EqScreen`-Variante (die Liste waere leer).
+
+**Konsequenzen:** Die Erkennung sagt ueber unbekannte EQ-Apps nichts mehr und sagt das. Eine
+spielende unbekannte App erscheint als Uid statt als Name. Die Gegenrichtung (wieder volle Liste)
+ist ein Manifest-Eintrag plus Policy-Konflikt.
+
+**Umkehrbarkeit:** leicht — Manifest und ein Satz.
+
+---
+
+### AD-051 — Offenlegung ueber den vorhandenen Zustimmungsdialog; ein Text, zwei Orte, ein Waechter gegen Luecken (2026-09-29, Status: aktiv — AK-23, AK-24, C-001 Auflagen 1, 3, 6, 8, 16)
+
+**Kontext:** Auflage 1 verlangt vor der ersten Verbindung, mit Zustimmung, die vollstaendige Liste:
+Entwickleroptionen, Wireless Debugging, Prozess mit Shell-Rechten, Vergabe von
+`WRITE_SECURE_SETTINGS`, jede geschriebene Einstellung, das selbsttaetige Oeffnen/Schliessen von
+Wireless Debugging nach Neustart. Bestand: `ActivateViewModel` zeigt vor dem ersten Versuch
+**einmal je Installation** den Dialog `LocalConnectionDisclosure` (`ActivateScreen.kt:~488-508`,
+Zustaende `ActivateState.Disclosure`, `onDisclosureAccepted`) — heute zwei Saetze nur ueber
+`127.0.0.1`. Der PC-Weg (`SystemAccessScreen.kt`) startet den Helfer ohne diesen Dialog.
+Was die App schreibt, am Code gezaehlt (Muster `Settings\.(Global|Secure|System)\.put` ueber
+`*/src/main/*.kt`, 29.09.): 6 `Settings.Global`-Schluessel — die 4 aus
+`BluetoothDeveloperOptions.all` (`bluetooth_avrcp_version`, `bluetooth_map_version`,
+`bluetooth_pbap_client_version`, `bluetooth_show_devices_without_names`),
+`bluetooth_disable_absolute_volume` (`AbsoluteVolumeGate`), `adb_wifi_enabled`
+(`WirelessDebuggingSwitch`); dazu 4 mutierende Helfer-Operationen (`PrivilegedOperation` mit
+`mutates = true`: `setCodecPreference`, `setOptionalCodecs`, `restartBluetooth`,
+`grantSecureSettings`).
+
+**Optionen:**
+- **A. Im Bestand bleiben** (zwei Saetze). Konsequenz: Auflage 1 verfehlt.
+- **B. Neuer Zustimmungsschritt im Setup mit eigenem gespeicherten Flag.** Konsequenz: zweiter
+  Mechanismus neben `ActivateState.Disclosure` fuer denselben Zweck.
+- **C. Den vorhandenen Dialog fuellen**, Inhalt aus einer Quelle, die auch der PC-Weg zeigt, und
+  ein Test, der die Liste gegen den Code haelt.
+
+**Entscheidung:** C.
+- Neu `app/.../privileged/HelperDisclosure.kt`: ein `object` mit dem Einleitungssatz,
+  `helperActions: Map<PrivilegedOperation, String>` (je mutierende Operation ein Satz) und
+  `writtenSettings: Map<String, String>` (Schluessel → Satz). Kein Compose darin.
+- `LocalConnectionDisclosure` rendert daraus (Titel/Aufbau ui-ux; die Begruendung „zwei Saetze,
+  sonst ungelesen" im Code-Kommentar wird durch Auflage 1 ueberholt — Liste statt Fliesstext).
+  `SystemAccessScreen` zeigt denselben Inhalt vor dem Befehl. Das „einmal je Installation"-Flag
+  bleibt unversioniert: der einzige Nutzer, der die alte Fassung bestaetigt hat, ist der Entwickler.
+- Texte: `technical-writer` liefert die Saetze (Deutsch/Englisch nach App-Sprache), Store-Text mit
+  jeder Berechtigung und Funktion (Auflage 8, `INTERNET` „nur zum eigenen Geraet") und
+  Health-Disclaimer (Auflage 17). Ablage des Store-Texts bestimmt der `director`.
+- Auflage 6, gezaehlt mit zwei Masken (`play store|google play|sideload` +
+  `never|nie|not going|no store` / `no store|no distribution|never (be )?(published|distributed)`,
+  `git grep` ohne `docs/legal`, `.claude`, 29.09.): 4 Stellen — `app/.../AndroidManifest.xml:44-49`
+  (faellt mit AD-050), `docs/archiv/PLAN.md:184` und `:216` (Archiv: datierter Zusatz „bis
+  29.09.2026", nicht umschreiben), `SystemAccessScreen.kt:233` („no sideloaded app" → „no app").
+- **AK-24** ist reiner Text (`CompensationSection.kt:87-179`, `ClinicalAudiogram.kt:162-205`,
+  Hoertest-Texte): `technical-writer` + `ui-ux-designer`, Zweckbestimmung „Klang nach persoenlichem
+  Hoerprofil". Keine Code-Struktur aendert sich; NAL-R und die Audiogramm-Eingabe bleiben.
+
+**Berührt Dateien:** neu `HelperDisclosure.kt`; `ActivateScreen.kt`, `SystemAccessScreen.kt`,
+`docs/archiv/PLAN.md`, `CompensationSection.kt`, `ClinicalAudiogram.kt`, Hoertest-Texte.
+
+**Tests, die den Bau binden:**
+- `app/src/test/.../privileged/HelperDisclosureTest.kt`: (1) `writtenSettings.keys` gleich dem
+  Literal der 6 Schluessel oben **und** enthaelt jeden Schluessel aus `BluetoothDeveloperOptions.all`
+  (eine neue Option ohne Satz macht ihn rot); (2) `helperActions.keys` gleich
+  `PrivilegedOperation.entries.filter { it.mutates }`, Literal 4; (3) kein Satz leer.
+- `app/src/test/.../PurposeWordingTest.kt` (AK-24): durchsucht String-Literale in
+  `app/src/main`, `core-hearing/src/main`, `core-audio/src/main` nach einer Literal-Liste verbotener
+  Wendungen, die `technical-writer` mit dem `compliance-agent` festlegt (Kandidaten laut C-001:
+  „hearing loss", „hearing aid", „diagnos", „past what an EQ can correct"). **Grenze:** ueber zwei
+  Literale verteilte Wendungen (`"hearing " + "loss"`) sieht der Test nicht — er ist ein Riegel gegen
+  Rueckfall, kein Beweis; die Pruefung des Wortlauts bleibt beim `compliance-agent`.
+
+**Konsequenzen:** Jede neue geschriebene Einstellung oder mutierende Helfer-Operation braucht ab
+jetzt einen Offenlegungssatz, sonst ist die Suite rot — AK-10 und Auflage 3 bekommen einen Waechter.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-052 — Datenschutz und Lizenzen als Asset-Text auf einer Textseite; Verlauf loeschen ueber das vorhandene `purgeOlderThan` (2026-09-29, Status: aktiv — AK-25, AK-26, C-001 Auflagen 10, 12, 14)
+
+**Kontext:** Frage 2 aus T-067 — was gibt es zum Loeschen? Am Bestand (Muster
+`fun (delete|clear|remove|forget|wipe|reset)[A-Za-z]*\(` ueber `*/src/main/*.kt`, 29.09., mit
+UI-Aufrufer geprueft):
+| Daten | Loeschen in der App |
+|---|---|
+| Hoertest-Laeufe | `AudiogramStore.deleteRun/deleteAllRuns`, UI `HearingTestScreen.kt:1360/1398` |
+| Klinisches Audiogramm, Altersreferenz, abgeleitete Kalibrierung | `clearClinicalAudiogram`, `clearAgeReference`, `clearDerivedCalibration`, UI ueber `HearingTestViewModel` |
+| Kompensationsprofile | `CompensationProfileStore.delete`, UI `CompensationSection.kt:800` |
+| Praeferenzprofil und -laeufe | `PreferenceTestViewModel.deleteProfile/removeRun`, UI `PreferenceTestScreen.kt:508/522` |
+| Geraeteprofile, EQ-Profile | `DeviceProfilesViewModel.delete`, `EqViewModel.deleteProfile` |
+| **Messverlauf** (Room: `monitor_events`, `link_samples`, `encoder_starvation_events`) | **fehlt** — nur Alterung ueber `MonitorRepository.purgeOlderThan(cutoff)` |
+
+Lizenzen: `THIRD_PARTY_LICENSES.md` liegt im Repo-Root, ohne Conscrypt; der Release-Bau entfernt
+`/META-INF/{AL2.0,LGPL2.1}` (`app/build.gradle.kts:69`). Ausgeliefert (`implementation`/`api`,
+29.09.): Conscrypt, Oboe (`core-audio`, bis AD-025 W-8), AndroidX Core/Lifecycle/Activity/
+Navigation/Compose/DataStore/Room, kotlinx.coroutines, kotlinx.serialization, Kotlin; kopierte
+Material-Icon-Pfade. Kein `assets/`-Verzeichnis existiert.
+
+**Optionen (Lizenzseite):**
+- **A. Google `oss-licenses-plugin`** — neue Abhaengigkeit plus Gradle-Plugin; liest nur
+  Maven-POM-Lizenzen, deckt weder Conscrypts BSD/NIST-Teile noch die Icon-Pfade.
+- **B. HTML in einer `WebView`** — eine Engine fuer eine Textseite.
+- **C. Klartext-Assets, eine Compose-Textseite.** Keine Abhaengigkeit.
+
+**Optionen (Datenschutzerklaerung in der App):** Link auf die URL (haengt an Hosting und Browser)
+oder derselbe Text als Asset. **Entscheidung:** Asset — liest sich offline und im Review; die URL
+zeigt dieselbe Datei.
+
+**Entscheidung:** C.
+- `app/src/main/assets/` neu mit `privacy.txt`, `THIRD_PARTY_LICENSES.md` (per `git mv` aus dem
+  Root — **eine** Quelle; README und `AppIcons.kt:14` verweisen auf den neuen Pfad),
+  `LICENSE-Apache-2.0.txt` (Volltext). Klartext ohne Markdown-Tabellen; die Seite zeigt ihn roh.
+- Neu `app/.../ui/screens/settings/AssetTextScreen.kt`: `(asset: String, onBack)`, liest einmal,
+  scrollt. Zwei Routen `ROUTE_PRIVACY`, `ROUTE_LICENSES` nach dem Muster der `ROUTE_*` in
+  `BtDashboardApp.kt:313-316`; kein Routen-Argument. Kaeme ein Impressum aus C-002 dazu: dritte
+  Route, dieselbe Seite.
+- `SettingsScreen` bekommt einen Abschnitt mit drei Eintraegen: Datenschutz, Open-Source-Lizenzen,
+  Messverlauf loeschen (mit Bestaetigungsdialog).
+- Loeschen: `MonitorRepository.purgeOlderThan` gibt `Boolean` zurueck (heute `Unit`, Fehler werden
+  verschluckt — ein Loeschknopf darf nicht „geloescht" sagen, wenn es scheiterte; AK-3). Der Knopf
+  ruft `purgeOlderThan(Long.MAX_VALUE)`; keine neue DAO-Abfrage. Der bestehende Alterungs-Aufrufer
+  ignoriert den Rueckgabewert.
+- Die oeffentliche URL ist eine Veroeffentlichung **dieser** Datei; der `release-manager` prueft vor
+  der Einreichung Gleichheit (Hash). Wo sie liegt, ist offen (Repo ist privat, `docs/state.md`
+  „Zurueckgestellt": LAN-IP in der Historie).
+- **Rueckfall Data Safety:** Verlangt die Formularpraxis, dass Googles Android-Backup der
+  Hoerdaten deklariert wird (C-001 Befund 4, offen), ist der Ausweg eine Zeile in
+  `data_extraction_rules.xml` (`datastore/` der Hoerdaten aus `cloud-backup`); der manuelle Export
+  in den Einstellungen bleibt. Erst nach dem Formularbefund entscheiden.
+
+**Berührt Dateien:** neu `app/src/main/assets/{privacy.txt,THIRD_PARTY_LICENSES.md,LICENSE-Apache-2.0.txt}`,
+neu `AssetTextScreen.kt`; `BtDashboardApp.kt`, `SettingsScreen.kt`, `SettingsViewModel.kt`,
+`MonitorRepository.kt` (Interface, Room- und In-Memory-Implementierung), `README.md`, `AppIcons.kt`
+(Kommentar); geloescht Root-`THIRD_PARTY_LICENSES.md`.
+
+**Tests, die den Bau binden:**
+- `app/src/test/.../settings/LegalAssetsTest.kt` (Robolectric, `context.assets`): alle drei Dateien
+  oeffnen sich; die Lizenzdatei nennt jedes Literal aus `Conscrypt`, `BSD`, `NIST`, `Oboe`,
+  `AndroidX`, `Compose`, `Room`, `DataStore`, `kotlinx.coroutines`, `kotlinx.serialization`,
+  `Kotlin`, `Material`; der Apache-Text enthaelt `TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND
+  DISTRIBUTION`. Rot heute (kein `assets/`).
+- `core-monitor/src/test/.../MonitorHistoryDeleteTest.kt` (Robolectric, In-Memory-Room): je Tabelle
+  eine Zeile, `purgeOlderThan(Long.MAX_VALUE)` → `true`, alle drei Tabellen leer; auf geschlossener
+  Datenbank → `false`. Rot heute (Rueckgabe `Unit`).
+
+**Konsequenzen:** Jede neue ausgelieferte Abhaengigkeit verlangt einen Eintrag in der Asset-Datei;
+der Literal-Test faengt nur Streichungen, nicht Zugaenge — das bleibt Auflage 15
+(`release-manager`, `gradlew :app:dependencies --configuration releaseRuntimeClasspath` vor jedem
+Release).
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-053 — `exec` endet an beiden Enden: der Helfer schneidet nach 15 s auch bei offenem stdout, der Client wartet hoechstens 20 s und sendet danach nichts, bis der alte Aufruf endet (2026-09-29, Status: aktiv — F-025; loest den Punkt „Weggelassen: `exec`" aus AD-048 ab)
+
+**Kontext:** F-025: `LdacTuning.readAtMost` (`:309`) bricht die Vorwertlesung nach 15 s ab, aber
+der `exec` darunter steckt in `PrivilegedShellRunner.run` in einem nicht abbrechbaren
+Binder-Aufruf innerhalb von `EXEC_LOCK.withLock` (`PrivilegedClient.kt:369`) — die Sperre bleibt
+gehalten, bis der Helfer antwortet; Monitor, `ForeignEqScanner`, `A2dpTxProbe` warten. Zwei
+Tatsachen, am Code gelesen:
+1. **Die Helfergrenze gilt nicht fuer stdout.** `PrivilegedServer.execute` (`:737-771`) liest
+   stdout mit `readText()` **vor** `waitFor(15 s)`. Ein Kind, das stdout offen haelt (oder ein
+   Enkel, der es erbt), haelt den Binder-Thread des Helfers unbegrenzt. Die 15 s aus AD-048
+   („`exec` endet im Helfer nach 15 s") galten nur bei geschlossenem stdout.
+2. **Tatsache 1 aus AD-048 gilt auch hier:** ein `withTimeout` um den Binder-Aufruf beendet nichts;
+   der Aufruf muss zurueckgelassen werden.
+Zusaetzlich traegt `EXEC_LOCK` laut KDoc (`PrivilegedClient.kt:449-456`) die Einzelbelegung von `ExecSpill`
+(ein wiederverwendeter Dateiname) und des 1-MB-Binder-Puffers: **kein zweiter `exec` darf laufen,
+solange ein zurueckgelassener noch laeuft.**
+
+**Optionen:**
+- **A. Im Bestand bleiben.** F-025 bleibt; ein haengender `exec` blockiert alle Lesungen.
+- **B. Nur der Server.** Loest den haengenden Kindprozess, nicht den verkeilten Helfer (ein
+  Binder-Thread, der aus anderem Grund nicht antwortet) und nicht einen alten Helfer, der noch mit
+  dem heutigen Code laeuft.
+- **C. Nur der Client, mit Sperre freigeben.** Der naechste `exec` liefe neben dem alten — bricht
+  `ExecSpill` und den Pufferschutz.
+- **D. Beide, Client mit eigenem Einzelplatz nach AD-048.** Der Server schneidet jeden Prozess nach
+  15 s ab; der Client laesst den Aufruf nach hoechstens 20 s zurueck und gibt `EXEC_LOCK` frei;
+  solange der zurueckgelassene Aufruf laeuft, kehrt jeder weitere `exec` sofort mit „earlier
+  request" zurueck, ohne den Helfer zu erreichen.
+
+**Entscheidung:** D.
+
+*Server* (`PrivilegedServer.kt`): stdout wird wie stderr auf eigenem Future gelesen; **eine**
+Frist von `TIMEOUT_SECONDS` (15 s) ab Start gilt fuer `waitFor` und beide Futures. Laeuft sie ab:
+`destroyForcibly()`, Antwort `encodeError("timed out after 15 s")`. Das Warten zieht in eine
+`internal`-Funktion auf Dateiebene (Illustration, Namen frei):
+
+```kotlin
+/** Output of [process], or null when it did not finish, and close its output, within [timeoutMs]. */
+internal fun awaitOutput(process: Process, timeoutMs: Long): Pair<String, String>? {
+    val deadline = System.nanoTime() + timeoutMs * 1_000_000
+    fun left() = maxOf(0, (deadline - System.nanoTime()) / 1_000_000)
+    val out = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().use { it.readText() } }
+    val err = CompletableFuture.supplyAsync { runCatching { process.errorStream.bufferedReader().use { it.readText() } }.getOrDefault("") }
+    return runCatching {
+        check(process.waitFor(left(), TimeUnit.MILLISECONDS))
+        out.get(left(), TimeUnit.MILLISECONDS) to err.get(left(), TimeUnit.MILLISECONDS)
+    }.getOrElse { process.destroyForcibly(); null }
+}
+```
+Gilt auch fuer `restartBluetooth`/`grantSecureSettings` (dieselbe `execute`); deren Obergrenze war
+schon 15 s ueber `waitFor`, sie aendert sich nur fuer den Fall „stdout bleibt offen".
+**Grenze** (`ponytail:`-Kommentar): haelt ein Enkel die Pipe nach dem Tod des Kindes, bleibt ein
+Lesethread des Common-Pools blockiert, bis der Enkel endet — die Antwort kommt trotzdem nach 15 s.
+**Keine Helferversion +1:** kein neues Kommando; ein alter Helfer mit dem heutigen Code wird durch
+die Clientgrenze harmlos und beim naechsten Neustart ersetzt. (Damit bleibt auch die Nummernfolge
+aus AD-013 unberuehrt.)
+
+*Client* (`PrivilegedFailure.kt`, `PrivilegedClient.kt`): `PrivilegedCallGuard` bekommt einen
+zweiten Einzelplatz; der Rumpf von `bounded` wird privat mit Platz und Frist als Parameter:
+
+```kotlin
+private val writeSlot = AtomicReference<Deferred<*>?>(null)   // today's inFlight, AD-048
+private val execSlot = AtomicReference<Deferred<*>?>(null)
+suspend fun <T> bounded(block: () -> T) = bounded(writeSlot, callTimeoutMs, block)        // unchanged callers
+suspend fun <T> boundedExec(block: () -> T) = bounded(execSlot, execTimeoutMs, block)     // EXEC_CALL_TIMEOUT_MS = 20_000
+```
+`PrivilegedShellRunner.run` behaelt `EXEC_LOCK` (Aufrufer sollen bei normalem Betrieb warten, nicht
+„busy" lesen) und ruft darin `guard.boundedExec { service.exec(token, command) → succeeded() →
+decode(...) }`. **Dekodieren im Block**, damit ein spaet eintreffender Aufruf seine gestagte Datei
+noch einsammelt und freigibt — die `ExecSpill`-Einzelbelegung haelt ab jetzt der Platz, nicht die
+Sperre; der KDoc von `EXEC_LOCK` sagt das. `BUSY`/`TIMED_OUT` → `ShellResult(-1, "", Satz)` mit
+den Saetzen aus AD-048 („did not answer within 20 s", „has not answered an earlier request yet —
+nothing was sent"); nachgelagert wird daraus „cannot check" (AK-3). Ausnahmen aus dem Block laufen
+wie heute in `guard.failed`; ein Timeout ruft `failed()` nicht (Ping haengt am selben Helfer).
+
+**Warum F-025 damit weg ist:** Das `await` in `bounded` ist abbrechbar. Bricht `readAtMost` ab,
+endet `withLock` sofort und `EXEC_LOCK` ist frei; der Binder-Aufruf laeuft im `CALLS`-Scope weiter,
+der naechste `exec` bekommt `BUSY` statt zu warten. `LdacTuning.kt` bleibt unberuehrt.
+
+**20 s:** Serverfrist 15 s plus 5 s fuer Staging (bis 444 KB, KDoc `EXEC_LOCK`) und Transaktion —
+abgeleitet, nicht gemessen. Damit antwortet ein gesunder Helfer mit langsamem Kind immer zuerst
+mit seinem eigenen, genaueren Satz; die Clientgrenze greift nur, wenn der Helfer selbst nicht
+antwortet. Wechselwirkung mit AD-048: getrennte Plaetze — ein haengender `exec` sperrt weder Pinnen
+noch Rueckweg, ein haengender Codec-Aufruf nicht die Monitor-Lesungen; je Platz hoechstens ein
+zurueckgelassener IO-Thread. `readAtMost` (15 s) endet vor der Clientgrenze und gibt die Sperre
+ueber den Abbruch frei.
+
+**Berührt Dateien:** `app/.../privileged/PrivilegedServer.kt` (`execute`, neue `awaitOutput`),
+`PrivilegedFailure.kt` (`PrivilegedCallGuard`: `execSlot`, `boundedExec`, `execTimeoutMs`,
+`EXEC_CALL_TIMEOUT_MS`), `PrivilegedClient.kt` (`PrivilegedShellRunner.run`, KDoc `EXEC_LOCK`).
+Nicht: `LdacTuning.kt`, `ExecSpill.kt`, AIDL.
+
+**Tests, die den Bau binden** (rot heute; wie in AD-048 nie den Aufruf direkt in `withTimeout`
+legen, sonst haengt die Suite statt rot zu werden):
+- `PrivilegedTimeoutTest.kt` (bestehend, Fake nach `PrivilegedTransportTest.kt:375`, Guard mit
+  `execTimeoutMs = 200`, Fake-`exec` blockiert an einem Latch):
+  1. *Ein nie antwortender `exec` kehrt innerhalb der Grenze zurueck:* `withTimeoutOrNull(5_000)`
+     um `async(Dispatchers.IO) { runner.run(dumpsys) }` ist nicht null, `exitCode == -1`, Satz „did
+     not answer".
+  2. *F-025:* ein `exec`, dessen Aufrufer nach 50 ms abgebrochen wird, gibt die Sperre frei — ein
+     zweiter `run` kehrt binnen 1 s mit „earlier request" zurueck, Aufrufzaehler des Fakes bleibt 1;
+     Latch frei, auf das Ende warten, dritter `run` erreicht den Fake (Zaehler 2).
+- neu `app/src/test/.../privileged/ExecDeadlineTest.kt` (JUnit, `@Test(timeout = 5_000)`, Frist
+  200 ms, Fake-`Process` mit nie endendem stdout):
+  1. `waitFor` liefert `false` → `awaitOutput` gibt `null`, `destroyForcibly` gerufen;
+  2. `waitFor` liefert `true`, stdout bleibt offen (Enkel) → `null`.
+
+**Konsequenzen:** Ein haengender Helfer kostet eine Lesung hoechstens 20 s, danach sagen alle
+Lesungen sofort „earlier request", bis er antwortet oder stirbt. Ein haengendes Kind kostet 15 s
+und eine Fehlermeldung. Der dritte Fix an `EXEC_LOCK` aendert die Klasse, nicht einen Aufrufer.
+
+**Umkehrbarkeit:** leicht — drei Dateien, keine Schnittstelle nach aussen, keine Persistenz.
+
+---
+
+### AD-054 — Bauschnitt fuer die Veroeffentlichungsstufe und F-025: vier Laeufe H-1..H-4 plus Texte, Recht und Formulare (2026-09-29, Status: aktiv)
+
+**Kontext:** T-067 Frage 3 — welche Teile sind Code, Text, Formular, Recht. Keine neue
+Abhaengigkeit in diesem Schnitt (Frage 4).
+
+| AK | Code (`developer`) | Text | Formular (`release-manager`) | Recht / Nutzer |
+|---|---|---|---|---|
+| AK-22 | AD-050 (H-1) | Satz „nur bekannte EQ-Apps": ui-ux | Paketliste in Data Safety: lokal, nicht erhoben | — |
+| AK-23 | AD-051: `HelperDisclosure`, Dialog, PC-Weg (H-3) | Offenlegung, Store-Text je Berechtigung, `PLAN.md`-Zusatz: technical-writer; Dialogaufbau: ui-ux | — | compliance-agent `pruefen` gegen Auflagen 1, 3, 8 |
+| AK-24 | `PurposeWordingTest` (H-3) | Zweckbestimmung, `CompensationSection.kt`, `ClinicalAudiogram.kt`, Hoertest: technical-writer + ui-ux | Health-Deklaration, Disclaimer | compliance-agent: Wortliste und Zweckbestimmung pruefen; MDR-Restrisiko traegt der Nutzer (29.09.) |
+| AK-25 | AD-052: Assets, `AssetTextScreen`, Loeschen (H-3) | `privacy.txt` nach Auflage 10 inkl. Backup-Verhalten: technical-writer | URL im Console-Feld; Hash-Gleichheit | Nutzer: Hosting der URL |
+| AK-26 | AD-052 (H-3) | `THIRD_PARTY_LICENSES.md` + Conscrypt/BSD/NIST, Robolectric berichtigt, Apache-Text: technical-writer | Auflage 15 vor jedem Release | — |
+| AK-27 | — | Store-Text (s. AK-23/24) | FGS-Deklaration fuer **zwei** Dienste mit Typ `connectedDevice` (`EqForegroundService`, `MeasurementService` aus AD-039) je mit Video (qa-engineer), Data Safety (Backup-Frage, AD-052 Rueckfall), Health | compliance-agent C-002: Impressum, Traderstatus (DSA Art. 30), Verbraucherrecht, BFSG neu, Nebentaetigkeit — EU/EWR mit Einnahmen; Nutzer: Monetarisierungsform, Freigabe der Einreichung |
+| F-025 | AD-053 (H-2) | — | — | — |
+
+**Monetarisierungsform und Architektur:** Ein **Kaufpreis** braucht keinen Code. **In-App-Kauf**
+braucht die Play-Billing-Bibliothek (neue Abhaengigkeit), echten Netzverkehr und damit die Schwelle
+„erste Datenuebertragung" (C-001 Befund 5, Auflage A-019) — eine eigene AD und eine eigene Klaerung.
+**Werbung** kollidiert mit dem Nicht-Ziel „keine neue Datensammlung".
+
+**Laeufe:**
+| Lauf | Rolle | Inhalt | Haengt ab von |
+|---|---|---|---|
+| H-1 | developer | AD-050 | — |
+| H-2 | developer | AD-053 | — (parallel zu H-1 moeglich: getrennte Dateien) |
+| T-W | technical-writer (+ ui-ux fuer Dialog, Satz AK-22, AK-24) | alle Texte der Tabelle, Asset-Inhalte als Dateien in `app/src/main/assets/` | — (parallel zu H-1/H-2) |
+| H-3 | developer | AD-051 (Code), AD-052, `PurposeWordingTest` mit der Wortliste aus T-W | T-W |
+| C-002 | compliance-agent | Einnahmen, EU/EWR | jederzeit |
+| H-4 | qa-engineer | Retest AK-22..26, F-025 am Quellstand; FGS-Videos am Geraet | H-1..H-3 |
+| R | release-manager | Entwuerfe AK-27 | T-W, C-002 |
+
+`security-reviewer`: nicht faellig — AD-050 und AD-053 verengen, keine Helfer-Erweiterung (AK-6).
+SR-040 (Nutzer: beheben mit der Play-Stufe) ist ein Fix in bestehender Struktur und kann an H-3
+haengen; kein Entwurf noetig.
+
+**Umkehrbarkeit:** leicht — ein Schnitt, keine Entscheidung.
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -3476,9 +3846,26 @@ eine Implementierung, die nie funktioniert hat.
 - **Timeout fuer `exec` und den Bluetooth-Neustart.** Nicht unter der Ledger-Sperre; `exec` endet
   im Helfer nach 15 s, die Neustartdauer ist ungemessen. Wieder interessant, wenn ein verkeilter
   Helfer die Monitor-Lesungen haengen laesst oder der Neustart unter die Sperre kommt. (AD-048)
+  — Nachtrag 29.09.: fuer `exec` eingetreten (F-025), und „endet im Helfer nach 15 s" galt nur bei
+  geschlossenem stdout; geloest in AD-053. Der Neustart bleibt draussen.
 - **Einen verkeilten, lebenden Helfer vergessen.** Der Ping waere selbst ein haengender
   Binder-Aufruf. Wieder interessant, wenn „earlier request" am Geraet dauerhaft stehen bleibt. (AD-048)
 - **BQR ueber rohe `IBluetooth`-AIDL oder mit Zustellung Helfer→App.** Bruechige versteckte
   Signaturen bzw. eine zweite Aufrufrichtung. Wieder interessant: AIDL, wenn G0/G1 am
   Adapter-Wrapper scheitern; Zustellung, wenn Berichte so dicht kommen, dass der Monitor-Takt sie
   verliert (Zaehler der verworfenen > 0). (AD-049)
+- **Zwei Builds (`store`/`sideload`).** Der EQ-Filter behaelt nur `<queries>`-sichtbare Apps; die
+  private Fassung gewaenne mit QAP nichts. Wieder interessant, wenn die Erkennung eine Stufe fuer
+  beliebige Apps zurueckbekommt oder Play den Helfer ablehnt (C-001 Befund 1, Alternative). (AD-050)
+- **Ein versioniertes Zustimmungs-Flag.** Die alte Kurzfassung hat nur der Entwickler bestaetigt.
+  Wieder interessant, sobald Fremdnutzer eine Fassung bestaetigt haben und die Offenlegung waechst.
+  (AD-051)
+- **`oss-licenses-plugin` oder eine `WebView` fuer die Lizenzseite.** Neue Abhaengigkeit bzw. eine
+  Engine fuer Klartext; das Plugin deckt Conscrypts BSD/NIST-Teile nicht. Wieder interessant, wenn
+  die Zahl der Abhaengigkeiten die Handpflege unzuverlaessig macht. (AD-052)
+- **Ein gemeinsamer Einzelplatz fuer `exec` und Codec-Aufrufe.** Ein haengender `dumpsys` sperrte
+  sonst den Rueckweg (AK-11). Wieder interessant, wenn sich zeigt, dass beide im Helfer denselben
+  Engpass teilen. (AD-053)
+- **Helferversion +1 fuer die Serverfrist.** Kein neues Kommando; die Clientgrenze macht einen
+  alten Helfer harmlos. Wieder interessant, wenn ein alter Helfer am Geraet dauerhaft „earlier
+  request" erzeugt. (AD-053)
