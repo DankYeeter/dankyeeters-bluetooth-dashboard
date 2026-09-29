@@ -80,8 +80,6 @@ data class CodecStatus(
     val channelMode: ChannelMode = ChannelMode.UNKNOWN,
     /** Only aptX Adaptive / LDAC report anything usable here; often null. */
     val bitrateKbps: Int? = null,
-    /** Codecs the remote device advertised as selectable, if readable. */
-    val selectableCodecs: List<CodecFamily> = emptyList(),
     /** Which mechanism produced these values. Never hidden from the user. */
     val readVia: CodecReadPath = CodecReadPath.SYSTEM_API,
 ) {

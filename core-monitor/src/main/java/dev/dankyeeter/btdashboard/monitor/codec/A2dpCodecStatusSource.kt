@@ -162,9 +162,7 @@ class A2dpCodecStatusSource(
                 ?: return CodecReadResult.Unsupported("getCodecStatus() returned null")
             val config = invokeOrNull(status, "getCodecConfig")
                 ?: return CodecReadResult.Unsupported("no codec config in status")
-            CodecReadResult.Available(
-                readConfig(config).copy(selectableCodecs = readSelectable(status)),
-            )
+            CodecReadResult.Available(readConfig(config))
         }.getOrElse { t ->
             Log.i(TAG, "getCodecStatus unavailable: ${t.javaClass.simpleName}")
             codecReadFailure(t)
@@ -200,14 +198,6 @@ class A2dpCodecStatusSource(
             bitrateKbps = bitrate,
         )
     }
-
-    private fun readSelectable(status: Any): List<CodecFamily> = runCatching {
-        @Suppress("UNCHECKED_CAST")
-        val list = invokeOrNull(status, "getCodecsSelectableCapabilities") as? List<Any> ?: return emptyList()
-        list.mapNotNull { CodecDecoding.codecFamily(invokeOrNull(it, "getCodecType") as? Int) }
-            .filter { it != CodecFamily.UNKNOWN }
-            .distinct()
-    }.getOrDefault(emptyList())
 
     private fun invokeOrNull(target: Any, method: String): Any? = runCatching {
         target.javaClass.getMethod(method).apply { isAccessible = true }.invoke(target)
