@@ -61,10 +61,6 @@ class HughsonWestlakeEngine(
     private var falsePositives = 0
     private var lastWasCatchTrial = false
 
-    /** Presentations issued so far across the whole run (catch trials included). */
-    var totalPresentations: Int = 0
-        private set
-
     /**
      * @return the next step. Calling [next] twice without a [record] in between
      *   returns the same pending presentation (idempotent for retry paths).
@@ -99,7 +95,6 @@ class HughsonWestlakeEngine(
     fun record(responded: Boolean) {
         val step = requireNotNull(pending) { "record() without a pending presentation" }
         pending = null
-        totalPresentations++
 
         if (step.catchTrial) {
             catchTrials++

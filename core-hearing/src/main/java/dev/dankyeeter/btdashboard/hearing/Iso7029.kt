@@ -1,7 +1,6 @@
 package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.audio.eq.Ear
-import kotlin.math.abs
 
 /**
  * Which column of the ISO 7029 coefficient table applies.
@@ -368,10 +367,7 @@ object Iso7029 {
     data class AgeGap(
         val frequenciesHz: List<Int>,
         val largestGapDb: Double,
-    ) {
-        /** True when the gap is large enough that the wording should not hedge. */
-        val pronounced: Boolean get() = abs(largestGapDb) >= NOTABLE_GAP_DB * 2
-    }
+    )
 }
 
 /**

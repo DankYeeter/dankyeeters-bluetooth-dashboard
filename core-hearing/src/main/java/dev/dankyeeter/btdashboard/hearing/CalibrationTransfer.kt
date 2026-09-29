@@ -46,8 +46,6 @@ object CalibrationTransfer {
      * @param responseDeviationDb aligned with [TEST_FREQUENCIES_HZ], rounded to
      *   0.5 dB like the bundled presets — pass straight into
      *   [CalibrationPreset.fromResponseDeviation]
-     * @param usedFrequenciesHz frequencies where both measurements overlapped;
-     *   everything else in the list is interpolated between them
      * @param earSpreadDb the largest per-frequency disagreement between the
      *   left-ear and right-ear estimates. The device response has no side, so
      *   this spread is a quality figure: fit asymmetry plus measurement noise.
@@ -55,7 +53,6 @@ object CalibrationTransfer {
      */
     data class Result(
         val responseDeviationDb: List<Double>,
-        val usedFrequenciesHz: List<Int>,
         val earSpreadDb: Double,
         val warnings: List<String>,
     )
@@ -137,7 +134,7 @@ object CalibrationTransfer {
                 )
             }
         }
-        return Result(aligned, frequencies, earSpread, warnings)
+        return Result(aligned, earSpread, warnings)
     }
 
     /** mean(D) − D(f) for one ear, over the frequencies both measurements share. */
