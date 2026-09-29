@@ -287,6 +287,68 @@ class LiveLinkParserTest {
     }
 
     /**
+     * D-11: the `LDAC adaptive bit rate adjustments` row, which this parser used
+     * to walk past.
+     *
+     * It is a figure all three measurement runs were evaluated on
+     * (`docs/perf/T-007-aufnahme.md`, `T-008-experimente.md`,
+     * `T-011-messung.md`), and the only one that reports a rung change that fell
+     * between two polls. Without it every change rate computed downstream
+     * undercounts, silently and by an unknown amount.
+     */
+    @Test
+    fun `reads the adaptive bitrate change count off a real Pixel 11 dump`() {
+        val stack = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
+        assertEquals(3L, stack.adaptiveBitrateAdjustments)
+        assertEquals(396, stack.transmissionKbps)
+    }
+
+    /**
+     * A build that does not print this row must read as absent. Zero is a count
+     * the encoder can genuinely have, so the two cases cannot share a value.
+     */
+    @Test
+    fun `a build without the adjustments row reports absence and not zero`() {
+        val older = withoutLabels(ldacState, "LDAC adaptive bit rate adjustments")
+        val stack = present(A2dpLinkDumpParser.parse(older).ldacStack, "LDAC state")
+        assertNull("a row that is not printed is not a count of 0", stack.adaptiveBitrateAdjustments)
+        // The rest of the block is unaffected: a shorter block is still a block.
+        assertEquals(396, stack.transmissionKbps)
+        assertEquals("ABR", stack.qualityMode)
+    }
+
+    /** The other half of the same distinction: a printed zero is a measurement. */
+    @Test
+    fun `a printed zero in the adjustments row is a value and not absence`() {
+        val untouched = rewriteLabel(ldacState, "LDAC adaptive bit rate adjustments", "0")
+        val stack = present(A2dpLinkDumpParser.parse(untouched).ldacStack, "LDAC state")
+        assertEquals(0L, stack.adaptiveBitrateAdjustments)
+    }
+
+    /**
+     * The limit of that distinction, pinned so it is not read as wider than it
+     * is: a printed value this cannot read comes back as null as well, and
+     * nothing downstream can tell it from a row that was never printed.
+     *
+     * Pinned rather than closed. Separating the two needs a state that says
+     * "printed, unreadable", and there is no reader that would do anything
+     * different with it — inventing one ahead of its consumer would be a guess
+     * about how it is meant to be used.
+     */
+    @Test
+    fun `a value too large to read comes back as null just like an absent row`() {
+        val huge = rewriteLabel(ldacState, "LDAC adaptive bit rate adjustments", "99999999999999999999")
+
+        val stack = present(A2dpLinkDumpParser.parse(huge).ldacStack, "LDAC state")
+
+        assertNull("a value out of Long range is not a count", stack.adaptiveBitrateAdjustments)
+        // The rest of the block still reads, so this is the value's doing and
+        // not a block that fell over.
+        assertEquals(396, stack.transmissionKbps)
+        assertEquals("ABR", stack.qualityMode)
+    }
+
+    /**
      * A reading of 990 kbps is a reading, not an event.
      *
      * The adaptive controller steers onto that rung by itself and leaves it

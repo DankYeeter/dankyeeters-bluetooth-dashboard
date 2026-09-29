@@ -139,6 +139,34 @@ class Ldac990LossGoldenTest {
     }
 
     /**
+     * The absence that is a fact about this phone, not a gap in the capture.
+     *
+     * The `LDAC adaptive bit rate` rows only print while the quality mode is
+     * `ABR`; a pinned tier prints none. T-022 could not find one dump that
+     * carried those rows and non-zero loss counters, and reported that as a
+     * requirement conflict rather than adding a line to the file. So the
+     * absence is pinned here from both ends: no such row exists in the text, and
+     * the parser answers null rather than a plausible count of 0.
+     */
+    @Test
+    fun `a pinned tier prints no adaptive bitrate rows and none are invented`() {
+        val abrRows = dumpText.lineSequence()
+            .filter { it.trim().startsWith("LDAC adaptive bit rate") }
+            .toList()
+        assertEquals(
+            "a fixed-tier capture carries no ABR rows; found ${abrRows.size}",
+            emptyList<String>(),
+            abrRows,
+        )
+
+        val stack = present(parsed.ldacStack, "the 'A2DP LDAC State:' block")
+        assertNull(
+            "no ABR adjustments row in the dump, so the count must be absent and not 0",
+            stack.adaptiveBitrateAdjustments,
+        )
+    }
+
+    /**
      * One step further along the path the display actually takes: the probe that
      * feeds the close-up graph, fed the real capture through the shell it would
      * use on the phone.

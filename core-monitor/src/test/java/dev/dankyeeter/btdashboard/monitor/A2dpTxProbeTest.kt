@@ -261,6 +261,21 @@ class A2dpTxProbeTest {
     }
 
     /**
+     * The stack's own count of rung changes travels with the reading, out of
+     * the same single dump (D-11).
+     *
+     * The count is what a sampled series cannot supply: at this channel's 500 ms
+     * cadence a rung the encoder held for less than one interval is invisible,
+     * and only the counter says how many were missed.
+     */
+    @Test
+    fun `the reading carries the count of rung changes`() = runTest {
+        val reading = probeOf(liveBt).readOnce()
+
+        assertEquals(3L, reading.ldacStack?.adaptiveBitrateAdjustments)
+    }
+
+    /**
      * A rate is a reading, not a difference — so unlike every counter here it is
      * on the very first sample of a run, and the graph draws a point instead of
      * waiting half a second for something to subtract from.

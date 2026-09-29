@@ -197,12 +197,40 @@ data class MixerOutputSnapshot(
  * `btif_a2dp_source`'s packet counters. That reconstruction is falsified — see
  * [Honesty.PROXY] — and this type is what replaced it.
  *
+ * ## The adjustments row, and why a reading is not enough
+ *
+ * [transmissionKbps] is a sample of a value that moves between polls.
+ * [adaptiveBitrateAdjustments] is the stack's own count of every move it made,
+ * so it also counts the changes that fell between two readings and that no
+ * sequence of samples can recover. Measured: run B of 2026-09-01 counted **nine**
+ * adjustments over 101 s at a 1.44 s cadence, while the sampled rates for the
+ * same window hold eight dwell segments and therefore at most seven visible
+ * changes (`docs/perf/T-007-aufnahme.md`, section 3.4). At least two changes
+ * happened where nobody was looking.
+ *
+ * Any change rate computed from the sampled rate alone therefore undercounts,
+ * by an amount only this counter can name.
+ *
  * ## Absent is a real answer
  *
  * Only some builds and only some codecs print a section like this. Nothing here
  * is defaulted or guessed: a missing section produces a null [LdacStackState],
  * and the panel then falls back to saying the rate is not observable, which on
  * such a build is the truth.
+ *
+ * ## What null does not distinguish
+ *
+ * On [adaptiveBitrateAdjustments], null is "the row was not printed" **and**
+ * "the row was printed but its value could not be read" — a digit string past
+ * `Long` range, or a truncated read that left no digits at all. Both arrive as
+ * null and cannot be told apart. This is stated rather than fixed because no
+ * reader exists that could act on the difference; a second state invented ahead
+ * of its consumer would be a guess about how it is meant to be used.
+ *
+ * A negative value, unlike a value out of range, is carried through as printed.
+ * The `takeIf { it > 0 }` that guards [transmissionKbps] and [effectiveMtu]
+ * cannot be copied here, because 0 is a legal count on this row; no stack has
+ * ever printed a negative one.
  */
 data class LdacStackState(
     /**
@@ -219,6 +247,17 @@ data class LdacStackState(
     val effectiveMtu: Int? = null,
     /** MEASURED: `LDAC saved transmit queue length`. Backlog, not throughput. */
     val savedTxQueueLength: Int? = null,
+    /**
+     * MEASURED: `LDAC adaptive bit rate adjustments` — how often the adaptive
+     * encoder has changed rung, cumulative since the stack started.
+     *
+     * Cumulative, so a window's worth of changes is the difference between two
+     * readings; a single reading says only how much the encoder has moved in
+     * this stack's lifetime. Zero is a real count — a link that has not moved —
+     * and a build that does not print the row reads as null, as does a printed
+     * value that could not be read. See "What null does not distinguish" above.
+     */
+    val adaptiveBitrateAdjustments: Long? = null,
 ) {
     /** True when the section was found but held nothing worth carrying. */
     val isEmpty: Boolean get() = qualityMode == null && transmissionKbps == null
