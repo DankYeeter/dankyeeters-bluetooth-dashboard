@@ -95,11 +95,11 @@ object PrivilegedContract {
      * 200 MB of flash writes per sweep window. For a phone that is a real cost
      * and it bought nothing.
      *
-     * One name is safe **only because `PrivilegedShellRunner.EXEC_LOCK`
-     * serialises exec calls**: at most one reply is being staged or read at any
-     * moment, and the client reads and releases inside the same serialised
+     * One name is safe **only because the exec slot of `PrivilegedCallGuard`
+     * serialises exec calls** (AD-053): at most one reply is being staged or read
+     * at any moment, and the client reads and releases inside the same slotted
      * call, so a write can never land under a reader. That coupling is the
-     * whole justification — if the mutex is ever removed, this has to go back to
+     * whole justification — if the slot is ever removed, this has to go back to
      * a unique name per call, and the size check on collect is what would
      * notice if it did not.
      */

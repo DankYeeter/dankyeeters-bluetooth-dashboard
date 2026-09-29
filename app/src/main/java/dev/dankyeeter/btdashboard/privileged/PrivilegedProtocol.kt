@@ -180,8 +180,9 @@ object PrivilegedProtocol {
     // reply carries the path and the length instead of the payload. The client
     // reads the file and deletes it.
     //
-    // [PrivilegedShellRunner] additionally serialises exec calls, so at most one
-    // reply is ever in the buffer. The two fixes are deliberately both present:
+    // [PrivilegedShellRunner] additionally serialises exec calls (its lock, and
+    // the guard's exec slot for a call left running), so at most one reply is
+    // ever in the buffer. The two fixes are deliberately both present:
     // serialising alone would still put a 444 KB reply through a 1 MB buffer
     // shared with the codec calls, and spilling alone would still let a burst of
     // small replies pile up.

@@ -23,10 +23,11 @@ import java.io.File
  * involved; a client from either build reads whatever path it is handed, as
  * long as it recognises the shape.
  *
- * The reuse is safe because `PrivilegedShellRunner.EXEC_LOCK` serialises exec
- * calls: one reply is staged and collected inside one serialised call, so a
- * write cannot land under a reader. **That mutex is load-bearing here.** If it
- * ever goes away, this must go back to a unique name per call.
+ * The reuse is safe because the exec slot of `PrivilegedCallGuard` lets one exec
+ * at a time reach the helper, and the reply is staged and collected inside that
+ * one call — even when it answers after its caller gave up — so a write cannot
+ * land under a reader. **That slot is load-bearing here** (AD-053). If it ever
+ * goes away, this must go back to a unique name per call.
  *
  * ## Why one class serves both processes
  *
@@ -74,7 +75,7 @@ internal class ExecSpill(
         if (!directory.isDirectory) return null
         // One fixed name, overwritten. writeBytes truncates, and the client
         // cannot be reading while this runs - see the class documentation for
-        // the mutex that guarantees it.
+        // the exec slot that guarantees it.
         val file = File(directory, PrivilegedContract.SPILL_NAME)
         file.writeBytes(payload.toByteArray(Charsets.UTF_8))
         // ownerOnly = false is the whole point; see the permissions note above.

@@ -365,16 +365,31 @@ class PrivilegedShellRunner internal constructor(
 
         EXEC_LOCK.withLock {
             runCatching {
-                val reply = service.exec(token, command)
-                // The transaction came back. Whatever the reply *says*, the
-                // transport worked, so any run of transient failures is over.
-                guard.succeeded()
-                if (reply == null) {
-                    ShellResult(-1, "", "helper returned nothing")
-                } else {
-                    decode(reply)
+                // Decoded inside the slot, so an answer that arrives after its
+                // caller gave up still collects and releases its staged file
+                // before the next exec may reach the helper (AD-053).
+                val outcome = guard.boundedExec {
+                    val reply = service.exec(token, command)
+                    // The transaction came back. Whatever the reply *says*, the
+                    // transport worked, so any run of transient failures is over.
+                    guard.succeeded()
+                    if (reply == null) {
+                        ShellResult(-1, "", "helper returned nothing")
+                    } else {
+                        decode(reply)
+                    }
+                }
+                when (outcome) {
+                    is Bounded.Done -> outcome.value
+                    is Bounded.Unanswered -> ShellResult(
+                        -1,
+                        "",
+                        outcome.reason(changes = false, timeoutMs = PrivilegedCallGuard.EXEC_CALL_TIMEOUT_MS),
+                    )
                 }
             }.getOrElse { error ->
+                // The caller leaving (a cancelled wait in boundedExec), not a failed call.
+                if (error is CancellationException) throw error
                 // NOT automatically a dead helper — that assumption is what put
                 // the activation screen in front of a user whose helper was
                 // running fine. [PrivilegedCallGuard] decides, and only
@@ -443,13 +458,18 @@ class PrivilegedShellRunner internal constructor(
          * buffer shared with the codec calls, and staging still lets a burst of
          * small replies pile up.
          *
-         * ## This lock is load-bearing for [ExecSpill]
+         * ## What keeps exec single for [ExecSpill]: the slot, not this lock
          *
          * The helper stages every large reply into **one reused filename**, and
-         * that is only safe while at most one exec is in flight: the reply is
-         * written, handed over, read and released inside a single turn of this
-         * lock, so a write can never land under a reader. Removing or narrowing
-         * the lock means giving the helper unique names again.
+         * that is only safe while at most one exec is in flight. Since AD-053 the
+         * guard's exec slot ([PrivilegedCallGuard.boundedExec]) holds that line:
+         * a caller that stops waiting releases this lock while its exec runs on,
+         * and the slot refuses every further exec until that one has been read
+         * and released. The slot is per guard, so this holds only while every
+         * runner shares one guard instance (today [PrivilegedCallGuard.SHARED],
+         * through the one runner `BtDashboardApplication` builds); a second
+         * instance means giving the helper unique names again. This lock stays so that callers queue in
+         * normal operation instead of reading "busy".
          */
         val EXEC_LOCK = Mutex()
     }
@@ -765,18 +785,21 @@ class PrivilegedHdAudioController internal constructor(
 }
 
 /**
- * The sentence for a codec or HD-audio call [PrivilegedCallGuard.bounded] did
- * not let finish (AD-048).
+ * The sentence for a call [PrivilegedCallGuard] did not let finish (AD-048, AD-053).
  *
  * @param changes whether the call writes: only then is its effect unknown.
+ * @param timeoutMs how long the caller waited.
  */
-private fun Bounded.Unanswered.reason(changes: Boolean): String = when (this) {
+private fun Bounded.Unanswered.reason(
+    changes: Boolean,
+    timeoutMs: Long = PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS,
+): String = when (this) {
     Bounded.Unanswered.BUSY ->
         "the privileged helper has not answered an earlier request yet — nothing was sent"
 
     Bounded.Unanswered.TIMED_OUT ->
         "the privileged helper did not answer within " +
-            "${PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS.milliseconds.inWholeSeconds} s" +
+            "${timeoutMs.milliseconds.inWholeSeconds} s" +
             if (changes) " — $EFFECT_UNKNOWN" else ""
 }
 
