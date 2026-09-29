@@ -13,63 +13,61 @@ melden. Wer einen Punkt abschliesst, loescht ihn hier im selben Zug.
 
 ## Hier geht es weiter
 
-**Autonomer Lauf 28.09. 22:51 – 29.09. (Obergrenze 05:30), ohne Geraet,
-Branch `auto/2026-09-23-saeule3`, endet pausiert mit PR, nie gemerged.**
-Gebaut und am Quellstand geprueft (Berichte `docs/berichte/T-05x/T-06x-*`,
-Register `qa/findings.md`, `security/findings.md`):
-- Pruefphase Saeule 3 (T-051) → Fixzyklus T-055 (AD-039..043): Messdienst bei
-  Display aus (AK-4-Ausnahme), LDAC-Sperre im Vergleich, Profil-Codec im
-  Rueckweg, Ausweg aus unlesbarem Ledger, F-011/F-014..F-021, SR-031..033.
-- Audit-Bereinigung T-056 (−268 Zeilen netto).
-- Features AK-18..AK-21 (P-001..P-004; T-058, AD-044..047): Pruefstand der
-  sechs Massnahmen, Umgebung am Verlustereignis, Sprung zu WLAN-/BT-
-  Einstellungen, WLAN-Band ohne Standortrecht (`ACCESS_NETWORK_STATE`).
-- T-060: SR-039 (Pairing-Log nur Debug), DR-007, falsche „no INTERNET“-Texte,
-  README berichtigt. T-061a/T-062: B5, B7, B6 (AD-048 Helfer-Timeout 15 s).
-- T-064: SR-041 (Frist fuer die Vorwertlesung), DR-008, Log-Haertung, SR-042
-  (Hoerdaten nicht mehr im Logcat). Retest T-065: Security PASS, Design PASS,
-  QA CONCERNS (F-025 → naechster Zyklus, architect: Zeitgrenze fuer `exec`).
-Suite **2743/0** (Director 29.09. 02:17, `9ae5bae`, `clean test --no-build-cache`).
-Lauf beendet 02:2x: `sync-out`, PR gegen `auto/2026-09-23` (gestapelt auf PR #1).
+**Session 29.09. abends (Nutzer anwesend, Geraet am Kabel).** Autonomer Lauf
+28./29.09. steht in PR #2 und `docs/archiv/state-verlauf-2026-09-28-zyklus5.md`.
 
-**Abgleich GOAL.md (29.09.):** AK-4, AK-11..AK-16, AK-18..AK-21 am Quellstand
-durch QA belegt (T-059a, T-063a); **Geraeteabnahme fehlt** fuer AK-4
-(Display aus, AD-039), AK-13/14 (Vergleich am Geraet), AK-20 (Landeort der
-Spruenge, W4), AK-21 (Frequenz ohne Standort am Pixel), AK-1 (Last der
-Zustandslesung je Takt, ungemessen). AK-7 zurueckgestellt; AK-17 offen M-16.
+**Geraeteabnahme T-066 (laeuft, qa-engineer, Berichte `docs/berichte/T-066a/c-*`):**
+PASS am Geraet: AK-20 (Landeort, Neulesen), AK-21 bei 2,4 GHz und bei
+getrenntem WLAN, AK-4 Leerlauf (kein `exec` ohne Monitor/Messung), Stop vom
+Sperrbildschirm, Log ohne MAC, W4/SR-037. Offen: AK-21 5 GHz (Handgriff
+Nutzer), Vergleich A2 auf Akku 2x15 min (AK-4/AD-039, AK-13, AK-14),
+FGS-Verweigerung, Retest F-026/SR-040/F-025 am neuen Stand, T-066b
+(G0–G4, AK-1-Last, T-048 3c/4/5b, T-008 E-1/E-3, SR-006, W-7..W-9), F-013-Dump.
+**Kein `dumpsys bluetooth_manager` zur Zwischenkontrolle — leert die
+BQR-Queue (R-011); App und Helfer vor jeder Messung beenden.** F-1 (Stop-Benachrichtigung auf dem
+Sperrbildschirm nur bei `lock_screen_show_silent_notifications`=1):
+Director 21:20 — AK-4 erfuellt, Nutzereinstellung.
+**Geraet vom Test veraendert:** Autoapply fuer Noble FoKus pausiert, LDAC-Stufe
+330, Pin 990 — Nutzer stellt Autoapply/Adaptive am Ende zurueck.
+adb-Freigabe fuer die Agenten: `.claude/settings.local.json` (lokal, nach dem
+Test loeschen).
 
-**Nutzerentscheide 29.09. abends (Reihenfolge: Geraet → Play-Stufe → P-005..7):**
-- **Google Play** als neue Stufe, GOAL.md AK-22..AK-27 (Vollfassung mit
-  Helfer, nur EU/EWR, Planung mit Einnahmen, Hoerfunktion bleibt mit ehrlichem
-  Wortlaut, keine anwaltliche MDR-Pruefung). AK-21 nicht mehr "bedingt"
-  (Streichvorschlag 2.3). Streichvorschlag 2.1 folgt aus AK-22.
-- P-005, P-006, P-007 freigegeben (Warteschlange, nach der Play-Stufe).
-- SR-040 **beheben** (developer, mit der Play-Stufe). Streichvorschlag 2.2
-  ohne Entscheid.
-- Retro BD-L-004, BD-L-005, BD-L-006 angenommen; Umsetzung in `_rahmen.md`,
-  `developer.md`, `director.md` offen (Agenten-Repo).
-- Draft-PRs #1/#2 merged der Nutzer nach gruener Geraeteabnahme.
+**Gebaut diese Session (gemergt, Suite 2712/0, Director 22:45, `3c14ad0`,
+`clean test --parallel`):** F-026 (T-068), SR-040 (T-069), Ponytail-Bereinigung
+T-071 (−1344 Zeilen Code, 23 Testmethoden mit weg), AD-050 Manifest ohne
+QAP/BLUETOOTH_PRIVILEGED (T-072), AD-053 exec-Frist/F-025 (T-073). Alles ohne
+Geraet; Retest am Geraet offen.
+
+**Play-Stufe (AK-22..27, Entwurf AD-050..054):** Vorlauf T-070a: **FAIL fuer
+die Einreichung** wegen SR-001 (hoch) auf Kaeufergeraeten → **T-006 (Transport
+ohne Dateisystem) ist Vorbedingung der Einreichung** (Director 21:55, kein
+WAIVED). Vorgaben A1..C4 in `docs/berichte/T-070a-security-reviewer.md`
+(D1–D4, E1–E5 fuer H-3 offen). C-002 (Kaufpreis EU/EWR): GELB, A-021..A-030.
+Naechste Laeufe: T-W (technical-writer + ui-ux: privacy.txt, Impressum,
+Lizenzen, Store-Text, AK-24-Wortliste aus C-002 Befund 8, 19 Zeilen), dann H-3
+(AD-051/052 Code + D/E-Vorgaben), dann T-006, dann QA.
+
+**Nutzerentscheide 29.09. abends:** Google Play (Vollfassung mit Helfer, nur
+EU/EWR, **Kaufpreis im Store**), Datenschutzerklaerung in **eigenem
+oeffentlichen Mini-Repo** (GitHub Pages, DankYeeter), Hoerfunktion bleibt,
+Texte auf "Klang nach Hoerprofil", **kein Anwalt**, MDR/HWG-Restrisiko traegt
+der Nutzer; **Pflegezusage 2 Jahre**; Nebentaetigkeit/Gewerbe/Steuer laut
+Nutzer geklaert. P-005..P-007 freigegeben (nach Play-Stufe). Retro BD-L-004..006
+angenommen, Umsetzung in Agenten-Repo offen. Draft-PRs #1/#2 merged der Nutzer
+nach gruener Geraeteabnahme.
 
 **Beim Nutzer — offen:**
-1. Geraetetermin (Pruefliste unten), zugesagt 29.09., volles Programm ca. 2 h.
-2. UI-Entscheide (Sprungknoepfe an beiden Orten, P-001-Panel nicht
-   einklappbar, Rueckweg-Banner) — Nutzer sieht sie am Geraet an.
-3. AK-7 nach bestandener Probe G0–G4 (AD-049) freigeben?
-4. Monetarisierung endgueltig (vor Einreichung, AK-27).
+1. Geraet: WLAN auf 5 GHz, danach Vergleich auf Akku (Handgriffe kommen gebuendelt).
+2. Oeffentliche Anschrift fuer Impressum/Traderstatus (C-002 Befund 1/2) — haelt nur die Einreichung.
+3. UI-Entscheide am Geraet (Sprungknoepfe, P-001-Panel, Rueckweg-Banner); Wortlaut
+   "Only known EQ apps are recognized …" (T-072).
+4. AK-7 nach G0–G4; AK-T009-41 (`adaptiveBitrateAdjustments` ohne Leser) umsetzen
+   oder aufgeben; Streichvorschlag 2.2.
 
-**Naechste Geraetesession (Pruefliste):** AD-039-Probe (Arm A 15 min Display
-aus auf Akku, Stop vom Sperrbildschirm, FGS-Verweigerung A17); W4/SR-037
-(`ScanMode|Discoverable|Discovering` bei offener BT-Seite, nicht waehrend
-Messung); AD-045 Landeort beider Spruenge; AD-046 Frequenz 2,4/5 GHz ohne
-Standort, `dumpsys package`; AD-049 Probe G0–G4 (T-037, passiv); F-013 Dump bei
-`cmd bluetooth_manager disable`; 0-Byte-Ledger mit echtem DataStore; SR-006;
-W-7..W-9 (AD-025); T-048 3c (Nutzer: Kopfhoerer aus/an), 4, 5b; T-008 E-1/E-3
-(von Hand); Log ohne MAC (`logcat -s DeviceConnectionWatcher`). **Kein
-`dumpsys bluetooth_manager` zur Zwischenkontrolle — leert die BQR-Queue
-(R-011); App und Helfer vor jeder Messung beenden.**
-
-**Beschlossen, nicht beauftragt:** F-025 (Zeitgrenze fuer `exec` Client+Server,
-erst architect), F-004, F-005, F-009 (QA-C), SR-023, SR-024,
+**Beschlossen, nicht beauftragt:** Klasse "Ausnahmetext in UI" (33 Kandidaten,
+`docs/berichte/T-068-developer.md`), `LiveCodecSnapshot.rawCodecName` ohne Leser,
+veraltete Stellen nach T-071 in ARCHITECTURE.md/UI_SPEC.md (Bericht T-071),
+SR-016-Hypothese Handover-Eigentuemer (T-070a), F-004, F-005, F-009 (QA-C), SR-023, SR-024,
 F-013 (Behebung nach Geraetedump), F-023 (Default von `loggingEnabled`
 strukturell nicht testbar), KDoc `MonitorDatabase.kt:58-59` („months later“
 gegen 24 h Aufbewahrung), README-Abschnitte „Wo die Daten liegen“/„Wenn etwas
