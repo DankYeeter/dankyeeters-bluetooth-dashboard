@@ -180,11 +180,6 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
      * cannot be re-timed — and `flatMapLatest` guarantees only one of the two is
      * ever collected, which matters: a pass is three `dumpsys` execs and two
      * loops would double that for one panel.
-     *
-     * Events are taken from this same collection rather than from
-     * `MonitorGraph.liveLinkEvents` for the same reason. That property is a
-     * second view on the shared default loop, so collecting it beside a
-     * non-default rate here would quietly start the polling twice over.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val liveUpdates: SharedFlow<LinkLiveUpdate> = _liveIntervalMs

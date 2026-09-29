@@ -185,7 +185,6 @@ class LiveLinkSource(
                 device = link.device,
                 codec = link.codec,
                 ldac = ldac,
-                modeInference = inferMode(link.codec, link.ldacStack, observability),
                 observability = observability,
                 tx = tx,
                 txDelta = delta,
@@ -196,36 +195,6 @@ class LiveLinkSource(
             ),
             flingerDump = flingerDump,
             audioDump = audioDump,
-        )
-    }
-
-    /**
-     * The rate the encoder is running at, from the stack's own fields.
-     *
-     * Available on the **first** poll, unlike the counter reconstruction this
-     * replaced: a printed bitrate is a reading, not a difference, so there is
-     * nothing to wait for.
-     *
-     * The offloaded case is still answered first. A controller-encoded codec
-     * prints no host-side state block either, and "this codec is not visible
-     * from here" is a sharper answer than "no section found".
-     */
-    private fun inferMode(
-        codec: LiveCodecSnapshot?,
-        ldacStack: LdacStackState?,
-        observability: LinkObservability,
-    ): ModeInference {
-        if (observability == LinkObservability.OFFLOADED) {
-            return ModeInference.unknown(
-                codec?.family,
-                "${codec?.family?.displayName} is ${observability.label}",
-            )
-        }
-        return CodecModeInference.infer(
-            codec = codec?.family,
-            sampleRateHz = codec?.sampleRateHz,
-            rawCodecName = codec?.rawCodecName,
-            stack = ldacStack,
         )
     }
 
@@ -337,14 +306,12 @@ class LiveLinkSource(
                 sampleRateHz = player.sampleRateHz,
                 channelCount = player.channelCount,
                 pcmFormat = track?.format,
-                trackSampleRateHz = track?.sampleRateHz,
                 isSpatialized = player.isSpatialized,
                 usage = player.usage,
                 contentType = player.contentType,
                 underrunCount = track?.underruns,
                 underrunDelta = increase(before?.underrunCount, track?.underruns),
                 flushedCount = track?.flushed,
-                flushedDelta = increase(before?.flushedCount, track?.flushed),
             )
         }
     }
@@ -516,9 +483,6 @@ class LiveLinkSource(
             mixerUnderruns = mixerUnderruns,
             txDropped = tx?.dropped ?: 0L,
             txDropouts = tx?.dropouts ?: 0L,
-            // Recorded, never named in [detail]: this event is the verdict, and
-            // underflow does not carry one — see [A2dpTxDelta.hasLoss].
-            txUnderflows = tx?.underflows ?: 0L,
             detail = "Audio loss: " + parts.joinToString(", "),
         )
     }

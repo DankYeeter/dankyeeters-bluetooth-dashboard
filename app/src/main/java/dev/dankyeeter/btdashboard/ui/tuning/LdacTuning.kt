@@ -369,7 +369,7 @@ object LdacTuning {
      * that rather than shown a control that silently did nothing.
      */
     internal suspend fun apply(address: String?, quality: Long): CodecApplyOutcome {
-        val controller = PrivilegedCodec.controller() as? CodecPreferenceController
+        val controller: CodecPreferenceController? = PrivilegedCodec.controller()
         return when {
             address == null -> CodecApplyOutcome.Unavailable(
                 "Android is not listing this headphone on the A2DP profile, so there is " +

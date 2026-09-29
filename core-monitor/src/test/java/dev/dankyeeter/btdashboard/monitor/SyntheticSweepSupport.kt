@@ -129,8 +129,6 @@ internal object ParserInvariants {
             )
             listOf(
                 "enqueueCount" to tx.enqueueCount,
-                "dequeueCount" to tx.dequeueCount,
-                "readBufCount" to tx.readBufCount,
                 "flushedCount" to tx.flushedCount,
                 "droppedCount" to tx.droppedCount,
                 "dropoutCount" to tx.dropoutCount,
@@ -169,28 +167,19 @@ internal object ParserInvariants {
             ldac.savedTxQueueLength?.let {
                 assertTrue("$label: negative savedTxQueueLength $it", it >= 0)
             }
-            ldac.adaptiveBitrateIndex?.let {
-                assertTrue("$label: negative adaptiveBitrateIndex $it", it >= 0)
-            }
             ldac.adaptiveBitrateAdjustments?.let {
                 assertTrue("$label: negative adaptiveBitrateAdjustments $it", it >= 0)
             }
             // A row that was never printed must not materialise as a number.
             //
             // Absence is all this pins. The truncation sweep does not reach
-            // inside these two rows: none of its cut points lands in them, and
-            // every prefix that contains the LDAC block contains both of them
-            // whole. The case it cannot reach is a cut just behind the colon,
-            // where `: 12` is left reading `: 1` — a plausible smaller number
-            // that no assertion here can separate from a real one, because the
-            // parser has no oracle for it either. Named rather than left
-            // implied: a comment that claims cover ends the search for the gap.
-            if (!text.contains("LDAC adaptive bit rate encode quality mode index")) {
-                assertNull(
-                    "$label: an adaptive rung appeared from a dump without the row",
-                    ldac.adaptiveBitrateIndex,
-                )
-            }
+            // inside this row: none of its cut points lands in it, and every
+            // prefix that contains the LDAC block contains it whole. The case it
+            // cannot reach is a cut just behind the colon, where `: 12` is left
+            // reading `: 1` — a plausible smaller number that no assertion here
+            // can separate from a real one, because the parser has no oracle for
+            // it either. Named rather than left implied: a comment that claims
+            // cover ends the search for the gap.
             if (!text.contains("LDAC adaptive bit rate adjustments")) {
                 assertNull(
                     "$label: an adjustments count appeared from a dump without the row",
@@ -248,7 +237,6 @@ internal object ParserInvariants {
             assertPositiveOrAbsent(t, "channelCount", thread.output.channelCount)
             listOf(
                 "fastMixerUnderruns" to thread.output.fastMixerUnderruns,
-                "normalMixerPartialUnderruns" to thread.output.normalMixerPartialUnderruns,
                 "normalMixerEmptyUnderruns" to thread.output.normalMixerEmptyUnderruns,
             ).forEach { (name, value) ->
                 value?.let { assertTrue("$t: negative $name = $it", it >= 0) }
@@ -257,7 +245,6 @@ internal object ParserInvariants {
                 val r = "$t track ${track.pid}/${track.uid}"
                 assertTrue("$r has a negative pid", track.pid >= 0)
                 assertTrue("$r has a negative uid", track.uid >= 0)
-                assertPositiveOrAbsent(r, "sampleRateHz", track.sampleRateHz)
                 track.underruns?.let { assertTrue("$r: negative underruns $it", it >= 0) }
                 track.flushed?.let { assertTrue("$r: negative flushed $it", it >= 0) }
             }

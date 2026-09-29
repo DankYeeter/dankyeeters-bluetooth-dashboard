@@ -77,7 +77,6 @@ data class HearingUiState(
      */
     val quietTest: Boolean = false,
     val presenting: HearingTestState.Presenting? = null,
-    val fitResult: FitCheckResult? = null,
     val fitCheckPassed: Boolean = false,
     val lastRun: AudiogramRun? = null,
     val lastReliability: RunReliability? = null,
@@ -376,7 +375,7 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
     val needsMicPermission: Boolean get() = !ambientCheck.hasPermission
 
     fun setFormFactor(formFactor: DeviceFormFactor) {
-        _state.value = _state.value.copy(formFactor = formFactor, fitCheckPassed = false, fitResult = null)
+        _state.value = _state.value.copy(formFactor = formFactor, fitCheckPassed = false)
     }
 
     fun dismissMessage() {
@@ -421,7 +420,6 @@ class HearingTestViewModel(application: Application) : AndroidViewModel(applicat
                 phase = HearingPhase.INTRO,
                 presenting = null,
                 busy = false,
-                fitResult = results.first().second,
                 fitCheckPassed = warning == null,
                 message = message,
             )

@@ -160,9 +160,9 @@ data class LinkQualitySample(
 )
 
 /** Which source produced a sample — surfaced in the UI, per PLAN's hierarchy. */
-enum class LinkDataSource(val displayName: String, val rank: Int) {
-    QUALITY_REPORT("Bluetooth Quality Report", 1),
-    CODEC_API("Codec status API", 2),
-    DUMPSYS("dumpsys fallback", 3),
-    NONE("no source", 4),
+enum class LinkDataSource(val displayName: String) {
+    QUALITY_REPORT("Bluetooth Quality Report"),
+    CODEC_API("Codec status API"),
+    DUMPSYS("dumpsys fallback"),
+    NONE("no source"),
 }

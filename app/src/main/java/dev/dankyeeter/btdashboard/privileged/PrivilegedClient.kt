@@ -4,14 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import dev.dankyeeter.btdashboard.privileged.adb.WirelessDebuggingSwitch
 import android.util.Log
-import dev.dankyeeter.btdashboard.monitor.codec.CodecController
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
-import dev.dankyeeter.btdashboard.monitor.codec.NoOpCodecController
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCallGuard.Bounded
 import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
-import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
 import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
@@ -466,10 +463,10 @@ class PrivilegedShellRunner internal constructor(
  * per call, never cached by the caller: the helper can connect or die at any
  * moment.
  *
- * [controller] deliberately falls back to [NoOpCodecController] rather than
- * returning a live controller that would answer "no codecs": from the stub an
- * empty list means "needs privileged access we do not have", which is the truth
- * when the helper is absent and a lie when it is present.
+ * [controller] deliberately answers null rather than a live controller that
+ * would answer "no codecs": callers word null as "needs privileged access we do
+ * not have", which is the truth when the helper is absent and a lie when it is
+ * present.
  */
 object PrivilegedCodec {
 
@@ -480,9 +477,9 @@ object PrivilegedCodec {
         installed = controller
     }
 
-    /** The real controller while the helper is answering, the honest stub otherwise. */
-    fun controller(): CodecController =
-        installed?.takeIf { it.isAvailable() } ?: NoOpCodecController
+    /** The real controller while the helper is answering, null otherwise. */
+    fun controller(): PrivilegedCodecController? =
+        installed?.takeIf { it.isAvailable() }
 }
 
 /** Where a codec answer came from, and what it actually said. */
@@ -496,15 +493,12 @@ sealed interface CodecCallResult {
 /**
  * Codec control through the privileged helper.
  *
- * ## Why one class implements two interfaces
+ * ## Why the capability read lives here
  *
- * `CodecController` lives in `:core-monitor` (the Devices tab reads codec
- * capabilities through it) and `CodecPreferenceController` lives in
- * `:core-system` (the profile applier uses it). `:core-system` does not depend on `:core-monitor` and should not start
- * now — the two modules are deliberately unaware of each other. `:app` sees
- * both, so the one place that can satisfy both contracts is here, and doing it
- * with one object is what keeps a single codec request from having two
- * different code paths.
+ * `CodecPreferenceController` lives in `:core-system` (the profile applier uses
+ * it), and the Devices tab reads codec capabilities through [availableCodecs]
+ * on this same object. Doing both with one object is what keeps a single codec
+ * request from having two different code paths.
  *
  * ## What it will and will not claim
  *
@@ -518,7 +512,7 @@ class PrivilegedCodecController internal constructor(
     private val bootstrap: PrivilegedBootstrap,
     /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
     private val guard: PrivilegedCallGuard,
-) : CodecController, CodecPreferenceController {
+) : CodecPreferenceController {
 
     constructor(
         context: Context,
@@ -529,7 +523,7 @@ class PrivilegedCodecController internal constructor(
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
     /** What the headphone advertised, narrowed to what this app can request. */
-    override suspend fun availableCodecs(address: String): List<CodecFamily> =
+    suspend fun availableCodecs(address: String): List<CodecFamily> =
         when (val result = read(address)) {
             is CodecCallResult.Observed ->
                 result.observation.selectableFamilies
@@ -803,19 +797,26 @@ private sealed interface HdAudioCallResult {
  * version does nothing until the radio is cycled. The instruction was correct
  * and was still a dead end: the app knew what had to happen and made the user
  * go and do it.
+ *
+ * `BluetoothAdapter.disable()` was removed for ordinary apps; what remains is
+ * `cmd bluetooth_manager disable` / `enable`, which needs shell. It is not a
+ * whitelist entry in the helper: it changes the state of the phone, and the
+ * whitelist is classified read-only, so this travels as its own typed,
+ * explicitly-mutating operation.
  */
 class PrivilegedBluetoothRestartController(
     context: Context,
     private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
-) : BluetoothRestartController {
+) {
 
     /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
     private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
 
-    override fun isAvailable(): Boolean =
+    /** False when the helper is not running. */
+    fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
-    override suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
+    suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
             ?: return@withContext BluetoothRestartOutcome.Unavailable(
                 "the privileged helper is not running, so Bluetooth cannot be restarted from here",

@@ -65,22 +65,11 @@ class AdbKeyStore(context: Context) {
     }
 
     /**
-     * The public key in the format `adbd` writes into its trusted list.
-     *
-     * Kept because a human comparing this against `/data/misc/adb/adb_keys` is
-     * the fastest way to answer "is this app actually trusted", which is the
-     * first question when a connection is refused.
-     */
-    fun publicKeyBase64(): String =
-        Base64.encodeToString(keyPair().public.encoded, Base64.NO_WRAP)
-
-    /**
      * The public key in the shape `adbd` stores in its trusted list.
      *
-     * **Not** the standard `SubjectPublicKeyInfo` that [publicKeyBase64]
-     * returns. adb carries its own packed structure, inherited from a
-     * bootloader-era Montgomery implementation, and stores base64 of *that*
-     * followed by a space and a name:
+     * **Not** the standard `SubjectPublicKeyInfo`. adb carries its own packed
+     * structure, inherited from a bootloader-era Montgomery implementation, and
+     * stores base64 of *that* followed by a space and a name:
      *
      * ```
      * uint32  len       modulus length in 32-bit words (64 for RSA-2048)

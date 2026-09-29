@@ -24,8 +24,6 @@ import dev.dankyeeter.btdashboard.monitor.link.BluetoothBroadcastSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 import dev.dankyeeter.btdashboard.monitor.link.ReflectiveQualityReportSource
-import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
-import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
@@ -36,16 +34,12 @@ import dev.dankyeeter.btdashboard.monitor.shell.UnavailableShellRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.flow.transform
 
 /**
  * Process-wide wiring for the monitor, in the same hand-rolled style as
@@ -177,16 +171,9 @@ object MonitorGraph {
     // ---- live link view ------------------------------------------------------
     //
     // The API a screen showing "what is happening on the link right now" builds
-    // against. Three properties, and which one to use is decided by what the
-    // screen draws:
-    //
-    //   liveLinkUpdates   one poll: the reading and the changes together.
-    //                     Use this when a panel shows both.
-    //   liveLinkSnapshots just the readings — the numbers panel.
-    //   liveLinkEvents    just the changes — the timeline.
-    //
-    // All three are views on one shared poll loop. Collecting all three costs
-    // the same as collecting one; collecting none costs nothing, which is the
+    // against: liveLinkUpdates, one poll with the reading and the changes
+    // together, on one shared poll loop. Collecting it twice costs the same as
+    // collecting it once; collecting it not at all costs nothing, which is the
     // important half (see LiveLinkSource for what a pass actually runs).
     //
     // ### Honesty contract, in one place
@@ -246,19 +233,6 @@ object MonitorGraph {
             replay = 1,
         )
     }
-
-    /** The readings alone. */
-    val liveLinkSnapshots: Flow<LinkLiveSnapshot>
-        get() = liveLinkUpdates.map { it.snapshot }
-
-    /**
-     * The changes alone, flattened so a timeline can collect events rather than
-     * lists of them. Polls that changed nothing emit nothing.
-     */
-    val liveLinkEvents: Flow<LinkEvent>
-        get() = liveLinkUpdates
-            .filter { it.events.isNotEmpty() }
-            .transform { update -> update.events.forEach { emit(it) } }
 
     val foreignEqScanner: ForeignEqScanner by lazy {
         ForeignEqScanner(

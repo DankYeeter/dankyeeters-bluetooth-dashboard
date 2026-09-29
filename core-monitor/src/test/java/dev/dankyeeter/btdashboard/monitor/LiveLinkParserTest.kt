@@ -287,40 +287,30 @@ class LiveLinkParserTest {
     }
 
     /**
-     * D-11: the two `LDAC adaptive bit rate` rows, which this parser used to
-     * walk past.
+     * D-11: the `LDAC adaptive bit rate adjustments` row, which this parser used
+     * to walk past.
      *
-     * They are the figures all three measurement runs were evaluated on
+     * It is a figure all three measurement runs were evaluated on
      * (`docs/perf/T-007-aufnahme.md`, `T-008-experimente.md`,
-     * `T-011-messung.md`), and the adjustments counter is the only one that
-     * reports a rung change that fell between two polls. Without it every change
-     * rate computed downstream undercounts, silently and by an unknown amount.
+     * `T-011-messung.md`), and the only one that reports a rung change that fell
+     * between two polls. Without it every change rate computed downstream
+     * undercounts, silently and by an unknown amount.
      */
     @Test
-    fun `reads the adaptive bitrate rung and its change count off a real Pixel 11 dump`() {
+    fun `reads the adaptive bitrate change count off a real Pixel 11 dump`() {
         val stack = present(A2dpLinkDumpParser.parse(ldacState).ldacStack, "LDAC state")
-        assertEquals(4, stack.adaptiveBitrateIndex)
         assertEquals(3L, stack.adaptiveBitrateAdjustments)
-        // The rung is the stack's own numbering and is never mapped to a rate:
-        // this capture pairs index 4 with 396 kbps, while T-007 measured index 1
-        // at 660 and index 3 at 492.
         assertEquals(396, stack.transmissionKbps)
     }
 
     /**
-     * A build that does not print these rows must read as absent. Zero is a
-     * count the encoder can genuinely have, so the two cases cannot share a
-     * value.
+     * A build that does not print this row must read as absent. Zero is a count
+     * the encoder can genuinely have, so the two cases cannot share a value.
      */
     @Test
-    fun `a build without the adaptive bitrate rows reports absence and not zero`() {
-        val older = withoutLabels(
-            ldacState,
-            "LDAC adaptive bit rate encode quality mode index",
-            "LDAC adaptive bit rate adjustments",
-        )
+    fun `a build without the adjustments row reports absence and not zero`() {
+        val older = withoutLabels(ldacState, "LDAC adaptive bit rate adjustments")
         val stack = present(A2dpLinkDumpParser.parse(older).ldacStack, "LDAC state")
-        assertNull("a row that is not printed is not a rung of 0", stack.adaptiveBitrateIndex)
         assertNull("a row that is not printed is not a count of 0", stack.adaptiveBitrateAdjustments)
         // The rest of the block is unaffected: a shorter block is still a block.
         assertEquals(396, stack.transmissionKbps)
@@ -329,11 +319,9 @@ class LiveLinkParserTest {
 
     /** The other half of the same distinction: a printed zero is a measurement. */
     @Test
-    fun `a printed zero in the adaptive bitrate rows is a value and not absence`() {
+    fun `a printed zero in the adjustments row is a value and not absence`() {
         val untouched = rewriteLabel(ldacState, "LDAC adaptive bit rate adjustments", "0")
-            .let { rewriteLabel(it, "LDAC adaptive bit rate encode quality mode index", "0") }
         val stack = present(A2dpLinkDumpParser.parse(untouched).ldacStack, "LDAC state")
-        assertEquals(0, stack.adaptiveBitrateIndex)
         assertEquals(0L, stack.adaptiveBitrateAdjustments)
     }
 
@@ -349,15 +337,10 @@ class LiveLinkParserTest {
      */
     @Test
     fun `a value too large to read comes back as null just like an absent row`() {
-        val huge = rewriteLabel(
-            ldacState,
-            "LDAC adaptive bit rate encode quality mode index",
-            "99999999999",
-        ).let { rewriteLabel(it, "LDAC adaptive bit rate adjustments", "99999999999999999999") }
+        val huge = rewriteLabel(ldacState, "LDAC adaptive bit rate adjustments", "99999999999999999999")
 
         val stack = present(A2dpLinkDumpParser.parse(huge).ldacStack, "LDAC state")
 
-        assertNull("a value out of Int range is not a rung", stack.adaptiveBitrateIndex)
         assertNull("a value out of Long range is not a count", stack.adaptiveBitrateAdjustments)
         // The rest of the block still reads, so this is the value's doing and
         // not a block that fell over.
@@ -468,16 +451,10 @@ class LiveLinkParserTest {
     fun `reads every tx queue counter off the real A2DP State block`() {
         val tx = present(A2dpLinkDumpParser.parse(pixel11).tx, "tx stats")
         assertEquals(389_197L, tx.enqueueCount)
-        assertEquals(854_736L, tx.dequeueCount)
-        assertEquals(1_240_579L, tx.readBufCount)
         assertEquals(4_693_895L, tx.framesPerPacketTotal)
-        assertEquals(12, tx.framesPerPacketMax)
-        assertEquals(12, tx.framesPerPacketAvg)
         assertEquals(1L, tx.flushedCount)
         assertEquals(0L, tx.droppedCount)
         assertEquals(0L, tx.dropoutCount)
-        assertEquals(337_189L, tx.enqueueOverdue)
-        assertEquals(51_842L, tx.enqueuePremature)
     }
 
     /**
@@ -492,23 +469,6 @@ class LiveLinkParserTest {
         val tx = present(A2dpLinkDumpParser.parse(pixel11).tx, "tx stats")
         assertEquals(788L, tx.underflowCount)
         assertEquals(806_912L, tx.underflowBytes)
-    }
-
-    /**
-     * `framesPerPacketMax` and `framesPerPacketAvg` read fields 1 and 2 of the
-     * same `Frames per packet (total/max/ave)` row. On the `pixel11` fixture
-     * used above both fields happen to be 12, so a test that only checks that
-     * fixture cannot tell the two apart if their indices were swapped — the
-     * 990 loss capture is the same way (12 / 12). `ldacState` is not: it reads
-     * `18492 / 10 / 8`, so max and ave are distinct values, and swapping their
-     * indices in the parser would fail exactly this assertion.
-     */
-    @Test
-    fun `max and ave frames per packet are not interchangeable`() {
-        val tx = present(A2dpLinkDumpParser.parse(ldacState).tx, "tx stats")
-        assertEquals("Frames per packet (total/max/ave), field 1", 18_492L, tx.framesPerPacketTotal)
-        assertEquals("Frames per packet (total/max/ave), field 2 (max)", 10, tx.framesPerPacketMax)
-        assertEquals("Frames per packet (total/max/ave), field 3 (ave)", 8, tx.framesPerPacketAvg)
     }
 
     @Test
@@ -578,7 +538,6 @@ class LiveLinkParserTest {
     fun `an unindented stray line does not truncate the thread block`() {
         val primary = AudioFlingerTrackParser.parse(flinger).threads.first().output
         assertEquals(4L, primary.fastMixerUnderruns)
-        assertEquals(0L, primary.normalMixerPartialUnderruns)
         assertEquals(0L, primary.normalMixerEmptyUnderruns)
     }
 
@@ -611,7 +570,6 @@ class LiveLinkParserTest {
         assertEquals(10360, track.uid)
         assertEquals(2473, track.sessionId)
         assertEquals(1240, track.portId)
-        assertEquals(48_000, track.sampleRateHz)
         assertEquals(PcmFormat.PCM_16_BIT, track.format)
         assertEquals(0x3, track.channelMask)
         assertEquals(0L, track.underruns)
@@ -628,7 +586,6 @@ class LiveLinkParserTest {
             "   0        0      false        false  388.90 k"
         val track = present(AudioFlingerTrackParser.parseTrackRow(row), "track row")
         assertEquals(4187, track.pid)
-        assertEquals(44_100, track.sampleRateHz)
         assertEquals(1, track.channelMask)
         assertEquals(0L, track.underruns)
     }

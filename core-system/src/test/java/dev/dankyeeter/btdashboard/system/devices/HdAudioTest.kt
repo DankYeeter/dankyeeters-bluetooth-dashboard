@@ -389,12 +389,5 @@ class BluetoothSystemControlsTest {
             UnavailableHdAudioController.apply("AC:DE:48:00:11:22", HdAudioPreference.ENABLE)
                 is HdAudioOutcome.Unavailable,
         )
-
-        assertFalse(UnavailableBluetoothRestartController.isAvailable())
-        assertTrue(
-            UnavailableBluetoothRestartController.restart() is BluetoothRestartOutcome.Unavailable,
-        )
-
-        assertNull(NoSystemPropertyReader.read("persist.bluetooth.a2dp_offload.disabled"))
     }
 }

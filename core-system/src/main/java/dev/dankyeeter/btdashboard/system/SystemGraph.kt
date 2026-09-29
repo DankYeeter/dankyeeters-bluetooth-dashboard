@@ -16,14 +16,10 @@ import kotlinx.coroutines.CoroutineScope
 import dev.dankyeeter.btdashboard.system.attach.PlaybackSessionHarvester
 import dev.dankyeeter.btdashboard.system.attach.SessionAttachmentStrategy
 import dev.dankyeeter.btdashboard.system.devices.AbsoluteVolumeGate
-import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
-import dev.dankyeeter.btdashboard.system.devices.NoSystemPropertyReader
-import dev.dankyeeter.btdashboard.system.devices.SystemPropertyReader
-import dev.dankyeeter.btdashboard.system.devices.UnavailableBluetoothRestartController
 import dev.dankyeeter.btdashboard.system.devices.UnavailableHdAudioController
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
@@ -236,33 +232,6 @@ object SystemGraph {
 
     /** What the profile editor reads HD audio through. Same object as the applier's. */
     val hdAudio: HdAudioController get() = hdAudioControl
-
-    @Volatile
-    private var installedRestart: BluetoothRestartController? = null
-
-    fun installBluetoothRestartController(controller: BluetoothRestartController) {
-        installedRestart = controller
-    }
-
-    /**
-     * Cycles the Bluetooth radio, when a helper is there to do it.
-     *
-     * Not a dependency of the applier: restarting Bluetooth is something the
-     * *user* asks for after seeing "stored, but not in force yet", never
-     * something a profile does on connect. A profile that cycled the radio on
-     * connect would disconnect the device that triggered it.
-     */
-    val bluetoothRestart: BluetoothRestartController
-        get() = installedRestart ?: UnavailableBluetoothRestartController
-
-    /** Live values for the read-only rows. Answers "unset" until `:app` installs one. */
-    @Volatile
-    var systemProperties: SystemPropertyReader = NoSystemPropertyReader
-        private set
-
-    fun installSystemPropertyReader(reader: SystemPropertyReader) {
-        systemProperties = reader
-    }
 
     /**
      * Also what the profile editor reads live values through. Cached like every
