@@ -527,7 +527,7 @@ private fun candidateExplanation(scan: EqCandidateScan?): String = buildString {
             "be detected at all.",
     )
     append(
-        "\n\nOnly known EQ apps are recognised: apps that declare an equaliser panel, " +
+        "\n\nOnly known EQ apps are recognized: apps that declare an equalizer panel, " +
             "and ${VendorEqApps.known.size} headphone companion apps.",
     )
     scan?.takeIf { it.available }?.let {
