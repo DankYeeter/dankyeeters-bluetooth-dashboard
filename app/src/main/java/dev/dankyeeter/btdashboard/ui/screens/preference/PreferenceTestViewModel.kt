@@ -20,6 +20,7 @@ import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.attach.PlayingApps
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
+import dev.dankyeeter.btdashboard.ui.appLabel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -573,14 +574,8 @@ class PreferenceTestViewModel(application: Application) : AndroidViewModel(appli
      * only use for the name is to put words on a screen.
      */
     private fun playingAppNames(): List<String> {
-        val packages = getApplication<Application>().packageManager
-        return PlayingApps.uids.value.mapNotNull { uid ->
-            runCatching {
-                packages.getPackagesForUid(uid)?.firstNotNullOfOrNull { name ->
-                    packages.getApplicationLabel(packages.getApplicationInfo(name, 0)).toString()
-                }
-            }.getOrNull()
-        }.distinct().sorted()
+        val context = getApplication<Application>()
+        return PlayingApps.uids.value.map { appLabel(context, it) }.distinct().sorted()
     }
 
     override fun onCleared() {

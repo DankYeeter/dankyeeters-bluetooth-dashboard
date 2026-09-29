@@ -42,6 +42,7 @@ import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.VolumeAwareTilt
 import dev.dankyeeter.btdashboard.hearing.AdjustedReference
+import dev.dankyeeter.btdashboard.ui.appLabel
 import dev.dankyeeter.btdashboard.ui.common.describeWithApps
 import dev.dankyeeter.btdashboard.ui.theme.Panel
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
@@ -474,22 +475,13 @@ private fun Float.labelHz(): String =
  * screen. Everything below this layer works in session ids, which is what an
  * audio effect actually attaches to.
  *
- * A uid can hold several packages; the first one that has a label is close
- * enough, because the alternative is a list nobody asked for.
+ * Every playing uid stays in the list, by name or as its number (AK-3).
  */
 @Composable
 private fun rememberPlayingAppNames(): List<String> {
     val context = LocalContext.current
     val uids by PlayingApps.uids.collectAsStateWithLifecycle()
     return remember(uids) {
-        val packages = context.packageManager
-        uids.mapNotNull { uid ->
-            runCatching {
-                packages.getPackagesForUid(uid)
-                    ?.firstNotNullOfOrNull { name ->
-                        packages.getApplicationLabel(packages.getApplicationInfo(name, 0)).toString()
-                    }
-            }.getOrNull()
-        }.distinct().sorted()
+        uids.map { appLabel(context, it) }.distinct().sorted()
     }
 }
