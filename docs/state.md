@@ -26,9 +26,11 @@ Register `qa/findings.md`, `security/findings.md`):
   Einstellungen, WLAN-Band ohne Standortrecht (`ACCESS_NETWORK_STATE`).
 - T-060: SR-039 (Pairing-Log nur Debug), DR-007, falsche „no INTERNET“-Texte,
   README berichtigt. T-061a/T-062: B5, B7, B6 (AD-048 Helfer-Timeout 15 s).
-- **Laeuft:** T-064 (SR-041, DR-008, Log-Haertung, F-024-Test), danach ein
-  Retest; dann `sync-out` und PR.
-Suite **2735/0** (Director 29.09. 01:27, `483d78b`, `clean test --no-build-cache`).
+- T-064: SR-041 (Frist fuer die Vorwertlesung), DR-008, Log-Haertung, SR-042
+  (Hoerdaten nicht mehr im Logcat). Retest T-065: Security PASS, Design PASS,
+  QA CONCERNS (F-025 → naechster Zyklus, architect: Zeitgrenze fuer `exec`).
+Suite **2743/0** (Director 29.09. 02:17, `9ae5bae`, `clean test --no-build-cache`).
+Lauf beendet 02:2x: `sync-out`, PR gegen `auto/2026-09-23` (gestapelt auf PR #1).
 
 **Abgleich GOAL.md (29.09.):** AK-4, AK-11..AK-16, AK-18..AK-21 am Quellstand
 durch QA belegt (T-059a, T-063a); **Geraeteabnahme fehlt** fuer AK-4
@@ -62,7 +64,8 @@ W-7..W-9 (AD-025); T-048 3c (Nutzer: Kopfhoerer aus/an), 4, 5b; T-008 E-1/E-3
 `dumpsys bluetooth_manager` zur Zwischenkontrolle — leert die BQR-Queue
 (R-011); App und Helfer vor jeder Messung beenden.**
 
-**Beschlossen, nicht beauftragt:** F-004, F-005, F-009 (QA-C), SR-023, SR-024,
+**Beschlossen, nicht beauftragt:** F-025 (Zeitgrenze fuer `exec` Client+Server,
+erst architect), F-004, F-005, F-009 (QA-C), SR-023, SR-024,
 F-013 (Behebung nach Geraetedump), F-023 (Default von `loggingEnabled`
 strukturell nicht testbar), KDoc `MonitorDatabase.kt:58-59` („months later“
 gegen 24 h Aufbewahrung), README-Abschnitte „Wo die Daten liegen“/„Wenn etwas
@@ -79,7 +82,7 @@ Sample-Rate-Wechsel beendet den Lauf (Nutzerentscheid).
 
 ## Stand des Codes
 
-`gradlew test`: **2735 Tests, 0 Failures** (Director, 29.09. 01:27, `483d78b`,
+`gradlew test`: **2743 Tests, 0 Failures** (Director, 29.09. 02:17, `9ae5bae`,
 `clean test --no-build-cache`; F-006 Flaky offen).
 
 **Lehren, die weiter gelten** (`qa/findings.md`): (1) Ein Kommentar- oder
@@ -117,13 +120,12 @@ prueft **AK-T009-24 nicht** (Verlust-Verdikt-Pfad).
 **SR-001 und SR-009** — weltles- und -schreibbare Dumps bzw. Helper-Log in
 `/data/local/tmp`, **ueberleben die Deinstallation**. Behebung ist T-006/U-0..U-6,
 braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen.
-SR-037 (Geraet), SR-040 (Nutzer), SR-041 (T-064 laeuft).
+SR-037 (Geraet), SR-040 (Nutzer).
 
 ## Laufende und offene Auftraege
 
 | ID | Rolle | Thema | Status |
 |---|---|---|---|
-| T-064 | developer | SR-041, DR-008, Log-Haertung, F-024-Test | laeuft |
 | T-036 | performance-tuner | Doppelaufnahme AK-T009-24 | offen, braucht Verlustphase am Geraet |
 | T-037 | performance-tuner | Callback-Probe G0–G4 nach AD-049 (Messschritt, nicht Bau) | offen, Geraet |
 | T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
