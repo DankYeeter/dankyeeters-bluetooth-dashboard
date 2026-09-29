@@ -8,7 +8,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Process
 import dev.dankyeeter.btdashboard.privileged.PrivilegedProtocol.PrivilegedOperation
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * The app's own privileged helper — what replaces the dependency on Shizuku.
@@ -736,24 +738,10 @@ private class PrivilegedService(
      */
     private fun execute(command: List<String>, mayStage: Boolean = false): String = runCatching {
         val process = ProcessBuilder(command).redirectErrorStream(false).start()
-        // stderr is drained on its own thread, in parallel with stdout. Reading
-        // them in sequence can deadlock outright: a child that fills the 64 KB
-        // stderr pipe blocks writing, stdout never reaches EOF, readText()
-        // hangs — and the timeout below is never reached, because it sits
-        // *after* the reads. One wedged binder thread in the helper, forever.
-        val stderrReader = java.util.concurrent.CompletableFuture.supplyAsync {
-            runCatching { process.errorStream.bufferedReader().use { it.readText() } }
-                .getOrDefault("")
-        }
-        val stdout = process.inputStream.bufferedReader().use { it.readText() }
-        val stderr = runCatching {
-            stderrReader.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        }.getOrDefault("")
-        // A dumpsys that never returns must not wedge the helper for good.
-        if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            return PrivilegedProtocol.encodeError("timed out after $TIMEOUT_SECONDS s")
-        }
+        // A dumpsys that never returns, or never closes its output, must not
+        // wedge the helper's binder thread for good (AD-053).
+        val (stdout, stderr) = awaitOutput(process, TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS))
+            ?: return PrivilegedProtocol.encodeError("timed out after $TIMEOUT_SECONDS s")
         val exit = process.exitValue()
         if (!mayStage) {
             PrivilegedProtocol.encodeResult(exit, stdout, stderr)
@@ -770,5 +758,34 @@ private class PrivilegedService(
 
     private companion object {
         const val TIMEOUT_SECONDS = 15L
+    }
+}
+
+/**
+ * The stdout and stderr of [process], or null — after killing it — when it did
+ * not exit and close both within [timeoutMs] (AD-053).
+ *
+ * One deadline for all three waits, and stdout read on its own thread like
+ * stderr: reading either in sequence lets a child that fills one pipe, or keeps
+ * stdout open, hold the caller past any time-out that sits after the read.
+ *
+ * ponytail: a grandchild that inherited a pipe and outlives the child keeps one
+ * reader thread of the common pool blocked until it ends; the reply still comes
+ * after [timeoutMs]. Killing the whole process group is the upgrade if that
+ * ever piles up.
+ */
+internal fun awaitOutput(process: java.lang.Process, timeoutMs: Long): Pair<String, String>? {
+    val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+    fun left() = maxOf(0L, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()))
+    val stdout = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().use { it.readText() } }
+    val stderr = CompletableFuture.supplyAsync {
+        runCatching { process.errorStream.bufferedReader().use { it.readText() } }.getOrDefault("")
+    }
+    return try {
+        if (!process.waitFor(left(), TimeUnit.MILLISECONDS)) throw TimeoutException()
+        stdout.get(left(), TimeUnit.MILLISECONDS) to stderr.get(left(), TimeUnit.MILLISECONDS)
+    } catch (late: TimeoutException) {
+        process.destroyForcibly()
+        null
     }
 }
