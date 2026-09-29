@@ -470,8 +470,8 @@ class PrivilegedShellRunner internal constructor(
          * and the slot refuses every further exec until that one has been read
          * and released. The slot is per guard, so this holds only while every
          * runner shares one guard instance (today [PrivilegedCallGuard.SHARED],
-         * built in `BtDashboardApplication`); a second instance means giving the
-         * helper unique names again. This lock stays so that callers queue in
+         * through the one runner `BtDashboardApplication` builds); a second
+         * instance means giving the helper unique names again. This lock stays so that callers queue in
          * normal operation instead of reading "busy".
          */
         val EXEC_LOCK = Mutex()
