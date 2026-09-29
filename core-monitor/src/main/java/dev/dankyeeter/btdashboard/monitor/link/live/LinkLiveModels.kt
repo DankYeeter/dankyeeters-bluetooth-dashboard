@@ -43,8 +43,9 @@ enum class Honesty(val label: String) {
      *
      * Nothing carries this today, and the reason is worth keeping: the one value
      * that did — frames per packet, offered as a stand-in for the LDAC rate —
-     * turned out not to correlate with the rate at all (see
-     * [A2dpTxDelta.framesPerEnqueue]), and the rate itself turned out to be
+     * turned out not to correlate with the rate at all (frames per enqueue tick
+     * measured 13.5 at pinned 990 and 10.5 at pinned 330: the duty cycle, not
+     * the mode), and the rate itself turned out to be
      * directly readable. Both halves of that are a warning about this category:
      * a proxy is a claim that something tracks something else, and it needs the
      * same evidence as any other claim here.
@@ -200,7 +201,7 @@ data class MixerOutputSnapshot(
  *
  * Before this section was found, the module tried to reconstruct the rate from
  * `btif_a2dp_source`'s packet counters. That reconstruction is falsified — see
- * [A2dpTxDelta.framesPerEnqueue] — and this type is what replaced it.
+ * [Honesty.PROXY] — and this type is what replaced it.
  *
  * ## Absent is a real answer
  *
@@ -629,24 +630,6 @@ data class A2dpTxDelta(
      */
     val framesPerSecond: Double?
         get() = if (windowMs > 0) framesEncoded * 1000.0 / windowMs else null
-
-    /**
-     * DERIVED encoder-duty diagnostic. **Not** a packing and not a rate.
-     *
-     * Frames encoded divided by enqueue ticks. It was built as
-     * "frames per packet" — the inverse-monotone stand-in for the LDAC rate the
-     * whole old inference rested on — and the device falsified that: enqueues
-     * are 20 ms media-timer ticks, not radio packets, so this ratio is
-     * `playing duty cycle x 15`. Pinned 990 measured 13.5 and pinned 330
-     * measured 10.5, i.e. both runs reported their duty cycle and neither
-     * reported its mode.
-     *
-     * Renamed rather than deleted so that nothing can read it as packing by
-     * accident, and so the old graphs' series has a name that says what it is.
-     * The rate lives in [LdacStackState.transmissionKbps].
-     */
-    val framesPerEnqueue: Double?
-        get() = if (enqueued > 0) framesEncoded.toDouble() / enqueued else null
 }
 
 /**
