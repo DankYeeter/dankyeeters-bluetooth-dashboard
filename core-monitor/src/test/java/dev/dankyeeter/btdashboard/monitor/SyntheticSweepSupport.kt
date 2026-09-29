@@ -218,7 +218,6 @@ internal object ParserInvariants {
             assertPositiveOrAbsent(t, "channelCount", thread.output.channelCount)
             listOf(
                 "fastMixerUnderruns" to thread.output.fastMixerUnderruns,
-                "normalMixerPartialUnderruns" to thread.output.normalMixerPartialUnderruns,
                 "normalMixerEmptyUnderruns" to thread.output.normalMixerEmptyUnderruns,
             ).forEach { (name, value) ->
                 value?.let { assertTrue("$t: negative $name = $it", it >= 0) }
@@ -227,7 +226,6 @@ internal object ParserInvariants {
                 val r = "$t track ${track.pid}/${track.uid}"
                 assertTrue("$r has a negative pid", track.pid >= 0)
                 assertTrue("$r has a negative uid", track.uid >= 0)
-                assertPositiveOrAbsent(r, "sampleRateHz", track.sampleRateHz)
                 track.underruns?.let { assertTrue("$r: negative underruns $it", it >= 0) }
                 track.flushed?.let { assertTrue("$r: negative flushed $it", it >= 0) }
             }

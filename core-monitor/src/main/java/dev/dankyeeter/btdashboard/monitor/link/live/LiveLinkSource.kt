@@ -306,14 +306,12 @@ class LiveLinkSource(
                 sampleRateHz = player.sampleRateHz,
                 channelCount = player.channelCount,
                 pcmFormat = track?.format,
-                trackSampleRateHz = track?.sampleRateHz,
                 isSpatialized = player.isSpatialized,
                 usage = player.usage,
                 contentType = player.contentType,
                 underrunCount = track?.underruns,
                 underrunDelta = increase(before?.underrunCount, track?.underruns),
                 flushedCount = track?.flushed,
-                flushedDelta = increase(before?.flushedCount, track?.flushed),
             )
         }
     }
@@ -485,9 +483,6 @@ class LiveLinkSource(
             mixerUnderruns = mixerUnderruns,
             txDropped = tx?.dropped ?: 0L,
             txDropouts = tx?.dropouts ?: 0L,
-            // Recorded, never named in [detail]: this event is the verdict, and
-            // underflow does not carry one — see [A2dpTxDelta.hasLoss].
-            txUnderflows = tx?.underflows ?: 0L,
             detail = "Audio loss: " + parts.joinToString(", "),
         )
     }

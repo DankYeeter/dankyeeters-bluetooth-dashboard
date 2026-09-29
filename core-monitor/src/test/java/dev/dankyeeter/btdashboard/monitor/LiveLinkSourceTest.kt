@@ -136,7 +136,6 @@ class LiveLinkSourceTest {
         val loss = events.filterIsInstance<LinkEvent.LossDetected>().single()
         assertEquals(7L, loss.txDropped)
         assertEquals(2L, loss.txDropouts)
-        assertEquals(3L, loss.txUnderflows)
         assertTrue(loss.detail.contains("dropped packet"))
     }
 
@@ -200,7 +199,6 @@ class LiveLinkSourceTest {
             .filterIsInstance<LinkEvent.LossDetected>()
             .single()
         assertEquals(21L, loss.txDropouts)
-        assertEquals("the counter is still carried", 12L, loss.txUnderflows)
         assertTrue(loss.detail, loss.detail.contains("21 stack dropout"))
         assertFalse(
             "a counter that cannot say loss must not be named in the loss sentence",
@@ -459,7 +457,6 @@ class LiveLinkSourceTest {
             mixerUnderruns = 0,
             txDropped = 0,
             txDropouts = 0,
-            txUnderflows = 0,
             detail = "Audio loss: 3 app underrun(s)",
         ).toMonitorEvent(null, null)
         assertEquals(MonitorEventType.DROPOUT, mapped.type)

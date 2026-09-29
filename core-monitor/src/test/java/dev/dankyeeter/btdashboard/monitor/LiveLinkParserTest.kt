@@ -476,7 +476,6 @@ class LiveLinkParserTest {
     fun `an unindented stray line does not truncate the thread block`() {
         val primary = AudioFlingerTrackParser.parse(flinger).threads.first().output
         assertEquals(4L, primary.fastMixerUnderruns)
-        assertEquals(0L, primary.normalMixerPartialUnderruns)
         assertEquals(0L, primary.normalMixerEmptyUnderruns)
     }
 
@@ -509,7 +508,6 @@ class LiveLinkParserTest {
         assertEquals(10360, track.uid)
         assertEquals(2473, track.sessionId)
         assertEquals(1240, track.portId)
-        assertEquals(48_000, track.sampleRateHz)
         assertEquals(PcmFormat.PCM_16_BIT, track.format)
         assertEquals(0x3, track.channelMask)
         assertEquals(0L, track.underruns)
@@ -526,7 +524,6 @@ class LiveLinkParserTest {
             "   0        0      false        false  388.90 k"
         val track = present(AudioFlingerTrackParser.parseTrackRow(row), "track row")
         assertEquals(4187, track.pid)
-        assertEquals(44_100, track.sampleRateHz)
         assertEquals(1, track.channelMask)
         assertEquals(0L, track.underruns)
     }

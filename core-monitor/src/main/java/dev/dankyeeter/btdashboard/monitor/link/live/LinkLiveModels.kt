@@ -97,8 +97,6 @@ data class InputStreamSnapshot(
     val channelCount: Int?,
     /** MEASURED: mixer-track PCM format. Null when no track could be matched. */
     val pcmFormat: PcmFormat? = null,
-    /** MEASURED: the sample rate of the mixer track, which may differ from [sampleRateHz]. */
-    val trackSampleRateHz: Int? = null,
     val isSpatialized: Boolean = false,
     /** MEASURED: `USAGE_MEDIA` and friends, verbatim. */
     val usage: String? = null,
@@ -115,8 +113,6 @@ data class InputStreamSnapshot(
     val underrunDelta: Long? = null,
     /** MEASURED: cumulative frames flushed on this track (seeks, stalls). */
     val flushedCount: Long? = null,
-    /** DERIVED: [flushedCount] minus the previous poll's. */
-    val flushedDelta: Long? = null,
 )
 
 /**
@@ -144,9 +140,7 @@ data class MixerOutputSnapshot(
     val fastMixerUnderruns: Long? = null,
     /** DERIVED: [fastMixerUnderruns] minus the previous poll's. */
     val fastMixerUnderrunDelta: Long? = null,
-    /** MEASURED: `Normal mixer raw underrun counters: partial=`, cumulative. */
-    val normalMixerPartialUnderruns: Long? = null,
-    /** MEASURED: `... empty=`, cumulative. The worse of the two. */
+    /** MEASURED: `Normal mixer raw underrun counters: ... empty=`, cumulative. */
     val normalMixerEmptyUnderruns: Long? = null,
     /** DERIVED: increase in [normalMixerEmptyUnderruns] since the previous poll. */
     val normalMixerEmptyDelta: Long? = null,
