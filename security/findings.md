@@ -328,3 +328,5 @@ nicht Teil von T-005.
 - 2026-09-29 · T-065c am Stand abe8953: PASS; SR-041 und SR-042 behoben, `AdbKeyStore.kt:60` in Ordnung, keine neuen SR.
 - 2026-09-29 · SR-040: Nutzerentscheid beheben statt Restrisiko; developer-Auftrag mit der Play-Stufe. Status offen.
 - 2026-09-29 · SR-040 am Geraet bestaetigt (T-066a): 0-Byte-Ledger mit echtem DataStore liest als nie geschrieben, Rueckweg meldet falschen Vorwert (1001 statt 1000). Behebung beauftragt mit der Play-Stufe.
+- 2026-09-29 · SR-040: behoben im Code (`76144d9`, gemergt `7b33795`): 0-Byte-Datei liest als unlesbar, verwerfbar; fehlende Datei bleibt leeres Ledger. Suite 2750/0 (Director 21:42). Geraete-Retest offen.
+- 2026-09-29 · T-070a Vorlauf AD-050..053: FAIL fuer die Veroeffentlichung (SR-001 hoch auf Kaeufergeraeten); Vorgaben A1-A2, D1-D4, E1-E5, C1-C4 (`docs/berichte/T-070a-security-reviewer.md`). SR-001: Vorbedingung der Einreichung. SR-016: Handover ohne Eigentuemerpruefung (Hypothese), mittel, offen.
