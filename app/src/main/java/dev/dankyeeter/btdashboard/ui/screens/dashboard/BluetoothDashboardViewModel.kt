@@ -7,8 +7,10 @@ import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
+import dev.dankyeeter.btdashboard.monitor.codec.CodecStatusSource
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidateScan
 import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqScanResult
+import dev.dankyeeter.btdashboard.monitor.link.BroadcastConnectionTicks
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
@@ -17,9 +19,12 @@ import dev.dankyeeter.btdashboard.hearing.PresetMatching
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsBeacon
 import dev.dankyeeter.btdashboard.system.airpods.AirPodsScanState
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 /**
@@ -85,7 +90,11 @@ class BluetoothDashboardViewModel(application: Application) : AndroidViewModel(a
      */
     private fun observeConnections() {
         viewModelScope.launch {
-            MonitorGraph.codecSource.connectedDevicesFlow().collect(::render)
+            devicesToRead(
+                source = MonitorGraph.codecSource,
+                broadcasts = BroadcastConnectionTicks(getApplication()).ticks(),
+                dropHeldDump = MonitorGraph.dumpsysSource::invalidate,
+            ).collect(::render)
         }
     }
 
@@ -226,3 +235,29 @@ class BluetoothDashboardViewModel(application: Application) : AndroidViewModel(a
         MeasurementService.start(getApplication())
     }
 }
+
+/**
+ * When the dashboard reads its devices and their codecs.
+ *
+ * On every device-list change, and again after every Bluetooth broadcast.
+ * [CodecStatusSource.connectedDevicesFlow] stays silent while the list is the
+ * same, but a device's codec can become readable only after the device
+ * appeared: after a reconnect the list changes on the A2DP connection, and the
+ * codec config broadcast that follows changes nothing in the list. Reading on
+ * list changes alone left the row at "Unknown" until the app restarted.
+ *
+ * On stock Android the codec comes out of `dumpsys`, which is held for a few
+ * seconds; [dropHeldDump] runs before each broadcast read, because a dump held
+ * from before the broadcast would give the old answer again.
+ */
+internal fun devicesToRead(
+    source: CodecStatusSource,
+    broadcasts: Flow<Unit>,
+    dropHeldDump: () -> Unit,
+): Flow<List<BtAudioDevice>> = merge(
+    source.connectedDevicesFlow(),
+    broadcasts.map {
+        dropHeldDump()
+        source.connectedDevices()
+    },
+)

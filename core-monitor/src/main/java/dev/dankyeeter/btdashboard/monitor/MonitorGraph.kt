@@ -13,7 +13,6 @@ import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.MonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
-import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.ShellDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.effects.AudioManagerPlayingAppsSource
 import dev.dankyeeter.btdashboard.monitor.effects.AudioPlaybackWatcher
@@ -155,7 +154,7 @@ object MonitorGraph {
      * separately constructed `ShellDumpsysLinkSource` used to mean another
      * exec-plus-parse. See [CachedDumpsysLinkSource] for what one costs.
      */
-    val dumpsysSource: DumpsysLinkSource by lazy {
+    val dumpsysSource: CachedDumpsysLinkSource by lazy {
         CachedDumpsysLinkSource(ShellDumpsysLinkSource(shell))
     }
 
