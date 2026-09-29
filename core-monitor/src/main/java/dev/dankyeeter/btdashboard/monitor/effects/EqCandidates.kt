@@ -129,8 +129,6 @@ data class EqCandidateScan(
     val candidates: List<EqCandidate> = emptyList(),
     val available: Boolean = true,
     val unavailableReason: String? = null,
-    /** How many installed packages the last full pass looked at. */
-    val scannedPackages: Int = 0,
     /** Wall-clock cost of the last *full* pass, so the UI can show the price. */
     val durationMs: Long = 0,
     /** True when this scan reused the cached package pass. */

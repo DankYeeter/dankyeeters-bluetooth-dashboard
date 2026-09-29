@@ -69,8 +69,8 @@ class EqCandidateScannerTest {
         clock: () -> Long = { 0L },
     ) = EqCandidateScanner(apps, playing, own, clock)
 
-    private fun available(vararg apps: InstalledApp, scanned: Int = apps.size) =
-        InstalledAppReadResult.Available(apps.toList(), scanned)
+    private fun available(vararg apps: InstalledApp) =
+        InstalledAppReadResult.Available(apps.toList())
 
     // ---- tiering ------------------------------------------------------------
 
@@ -132,12 +132,11 @@ class EqCandidateScannerTest {
 
     @Test
     fun `apps with no signal at all are not listed`() = runTest {
-        val source = FakeAppSource(available(app("com.example.notes"), scanned = 300))
+        val source = FakeAppSource(available(app("com.example.notes")))
         val scan = scanner(source).scan()
 
         assertTrue(scan.isEmpty)
         assertTrue(scan.available)
-        assertEquals(300, scan.scannedPackages)
     }
 
     @Test
@@ -288,12 +287,11 @@ class EqCandidateScannerTest {
 
     @Test
     fun `the cost of the pass is measured and reported`() = runTest {
-        val source = FakeAppSource(available(app("com.example.player", permission = true), scanned = 412))
+        val source = FakeAppSource(available(app("com.example.player", permission = true)))
         var now = 100L
         val scanner = scanner(source, clock = { now.also { now += 37 } })
 
         val scan = scanner.scan()
-        assertEquals(412, scan.scannedPackages)
         assertEquals(37, scan.durationMs)
         // The reused scan reports the same measured cost, not a fresh zero.
         assertEquals(37, scanner.scan().durationMs)
@@ -303,14 +301,14 @@ class EqCandidateScannerTest {
 
     @Test
     fun `an unreadable package list reports cannot-check, never an all-clear`() = runTest {
-        val source = FakeAppSource(InstalledAppReadResult.Unavailable("QUERY_ALL_PACKAGES revoked"))
+        val source = FakeAppSource(InstalledAppReadResult.Unavailable("package manager died"))
         val scan = scanner(source).scan()
 
         assertFalse(scan.available)
         assertTrue(scan.isEmpty)
         assertTrue(
             "the reason has to reach the user",
-            scan.unavailableReason.orEmpty().contains("QUERY_ALL_PACKAGES revoked"),
+            scan.unavailableReason.orEmpty().contains("package manager died"),
         )
         assertTrue(scan.unavailableReason.orEmpty().startsWith("Cannot check"))
     }

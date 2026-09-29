@@ -192,12 +192,12 @@ class BluetoothDashboardViewModel(application: Application) : AndroidViewModel(a
     }
 
     /**
-     * Tier every installed app by how likely it is to carry its own EQ.
+     * Tier every visible app by how likely it is to carry its own EQ.
      *
      * Called when the section becomes visible and when the user taps "check
      * again" — never on a timer and never from the device-list flow. The first call pays
-     * for one pass over the package list (a few hundred milliseconds on a
-     * background dispatcher, measured and shown in the UI); every later call
+     * for one pass over the package list (on a background dispatcher, measured
+     * and shown in the UI); every later call
      * reuses the cached pass and only re-reads what is currently playing, which
      * is a single cheap query.
      *

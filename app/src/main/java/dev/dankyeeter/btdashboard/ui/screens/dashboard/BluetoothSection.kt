@@ -38,6 +38,7 @@ import dev.dankyeeter.btdashboard.ui.icons.AppIcons
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidate
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidateScan
 import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqWarning
+import dev.dankyeeter.btdashboard.monitor.effects.VendorEqApps
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -401,7 +402,7 @@ private fun listSentence(names: List<String>): String = when (names.size) {
 }
 
 /**
- * The wider, honest net: every installed app that *could* carry an equalizer.
+ * The wider, honest net: every known app that *could* carry an equalizer.
  *
  * Deliberately worded as a prompt rather than a finding. The strongest tier
  * here is still only "this app says it has an equalizer panel", and the case
@@ -514,8 +515,10 @@ private fun EqCandidateList(viewModel: BluetoothDashboardViewModel) {
 /**
  * What the list is worth, and what it cost.
  *
- * The disclaimer is fixed text; the numbers are the claim "this runs once, not
- * on a timer" made checkable, which is why they are still here at all.
+ * The disclaimers are fixed text. The second replaces the count of checked
+ * apps: without QUERY_ALL_PACKAGES (AD-050) that count would only cover the
+ * apps named in the manifest and pass for a full check. The duration is the
+ * claim "this runs once, not on a timer" made checkable.
  */
 private fun candidateExplanation(scan: EqCandidateScan?): String = buildString {
     append(
@@ -523,8 +526,12 @@ private fun candidateExplanation(scan: EqCandidateScan?): String = buildString {
             "an app that filters audio in its own code, or in the headphones, cannot " +
             "be detected at all.",
     )
-    scan?.takeIf { it.available && it.scannedPackages > 0 }?.let {
-        append("\n\n${it.scannedPackages} apps checked in ${it.durationMs} ms")
+    append(
+        "\n\nOnly known EQ apps are recognised: apps that declare an equaliser panel, " +
+            "and ${VendorEqApps.known.size} headphone companion apps.",
+    )
+    scan?.takeIf { it.available }?.let {
+        append("\n\nChecked in ${it.durationMs} ms")
         append(if (it.fromCache) ", reused since." else ".")
     }
 }
