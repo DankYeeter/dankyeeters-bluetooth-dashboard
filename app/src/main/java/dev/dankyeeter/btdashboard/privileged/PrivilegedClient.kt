@@ -9,7 +9,6 @@ import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCallGuard.Bounded
 import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
-import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
 import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
@@ -798,19 +797,26 @@ private sealed interface HdAudioCallResult {
  * version does nothing until the radio is cycled. The instruction was correct
  * and was still a dead end: the app knew what had to happen and made the user
  * go and do it.
+ *
+ * `BluetoothAdapter.disable()` was removed for ordinary apps; what remains is
+ * `cmd bluetooth_manager disable` / `enable`, which needs shell. It is not a
+ * whitelist entry in the helper: it changes the state of the phone, and the
+ * whitelist is classified read-only, so this travels as its own typed,
+ * explicitly-mutating operation.
  */
 class PrivilegedBluetoothRestartController(
     context: Context,
     private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
-) : BluetoothRestartController {
+) {
 
     /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
     private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
 
-    override fun isAvailable(): Boolean =
+    /** False when the helper is not running. */
+    fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
-    override suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
+    suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
             ?: return@withContext BluetoothRestartOutcome.Unavailable(
                 "the privileged helper is not running, so Bluetooth cannot be restarted from here",

@@ -1,7 +1,6 @@
 package dev.dankyeeter.btdashboard.privileged
 
 import android.util.Log
-import dev.dankyeeter.btdashboard.system.devices.SystemPropertyReader
 
 /**
  * Reads system properties through the hidden `android.os.SystemProperties`.
@@ -29,7 +28,7 @@ import dev.dankyeeter.btdashboard.system.devices.SystemPropertyReader
  * reported as null and worded as "not set" one layer up, never as "off" — those
  * are different, and for the offload switch they are opposites.
  */
-object AndroidSystemProperties : SystemPropertyReader {
+object AndroidSystemProperties {
 
     private val getter: java.lang.reflect.Method? by lazy {
         runCatching {
@@ -39,7 +38,7 @@ object AndroidSystemProperties : SystemPropertyReader {
             .getOrNull()
     }
 
-    override fun read(key: String): String? = runCatching {
+    fun read(key: String): String? = runCatching {
         // The platform returns "" for an unset property, not null. Collapsing
         // the two here keeps the distinction the caller cares about — set to
         // something versus never set — instead of passing an empty string up

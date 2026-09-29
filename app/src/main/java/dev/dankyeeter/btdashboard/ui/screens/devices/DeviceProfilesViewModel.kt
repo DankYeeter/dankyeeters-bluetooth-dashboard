@@ -16,6 +16,8 @@ import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
+import dev.dankyeeter.btdashboard.privileged.AndroidSystemProperties
+import dev.dankyeeter.btdashboard.privileged.PrivilegedBluetoothRestartController
 import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
@@ -293,12 +295,14 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
      * helper connects, and a value read at compose time would still say "no"
      * afterwards.
      */
+    private val bluetoothRestart = PrivilegedBluetoothRestartController(application)
+
     val canRestartBluetooth: StateFlow<Boolean> = PrivilegedConnection.service
-        .map { SystemGraph.bluetoothRestart.isAvailable() }
+        .map { bluetoothRestart.isAvailable() }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            SystemGraph.bluetoothRestart.isAvailable(),
+            bluetoothRestart.isAvailable(),
         )
 
     /** True only while a restart is in flight, so the button cannot be double-tapped. */
@@ -325,7 +329,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
             it.key to SystemGraph.globalSettings.read(it.key)
         }
         _readOnlySettings.value = BluetoothReadOnlySettings.all.associate {
-            it.liveValueKey to SystemGraph.systemProperties.read(it.liveValueKey)
+            it.liveValueKey to AndroidSystemProperties.read(it.liveValueKey)
         }
     }
 
@@ -399,7 +403,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         if (_restarting.value) return
         _restarting.value = true
         viewModelScope.launch {
-            val outcome = runCatching { SystemGraph.bluetoothRestart.restart() }
+            val outcome = runCatching { bluetoothRestart.restart() }
                 .getOrElse {
                     BluetoothRestartOutcome.Failed(it.message ?: "the restart threw")
                 }

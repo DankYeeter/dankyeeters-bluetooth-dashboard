@@ -125,17 +125,6 @@ object BluetoothReadOnlySettings {
         listOf(a2dpHardwareOffload, maxConnectedAudioDevices, hciSnoopLog)
 }
 
-/** Reads system properties. Trivial on Android, and untestable without a port. */
-interface SystemPropertyReader {
-    /** Null when the property is unset — the normal state, not a failure. */
-    fun read(key: String): String?
-}
-
-/** Answers "unset" for everything, so tests need no Android. */
-object NoSystemPropertyReader : SystemPropertyReader {
-    override fun read(key: String): String? = null
-}
-
 // ---- restarting the stack ---------------------------------------------------
 
 /** What happened when Bluetooth was cycled. */
@@ -153,48 +142,4 @@ sealed interface BluetoothRestartOutcome {
 
     /** No helper. Nothing was attempted, so the radio is untouched. */
     data class Unavailable(val reason: String) : BluetoothRestartOutcome
-}
-
-/**
- * Turns Bluetooth off and on again.
- *
- * ## Why the app offers this at all
- *
- * Because [DeveloperOption.needsBluetoothRestart] has been telling users to do
- * it by hand since the option registry existed. "Stored. Turn Bluetooth off and
- * on for it to take effect." is honest and is also a dead end in a project that
- * does not allow them: the app knows exactly what needs to happen, can do it,
- * and was sending the user to the quick settings panel instead.
- *
- * ## Why it needs the privileged helper
- *
- * `BluetoothAdapter.disable()` was removed for ordinary apps; what remains is
- * `cmd bluetooth_manager disable` / `enable`, which needs shell. Verified on
- * the device: as uid 2000 both return `Success`, and `wait-for-state:STATE_OFF`
- * / `STATE_ON` confirm the transition rather than leaving it to a sleep.
- *
- * ## Why it is not a whitelist entry in the helper
- *
- * It changes the state of the phone. The helper's whitelist is classified
- * read-only, and putting a mutating command behind that door is the confusion
- * the operation enum exists to prevent — so this travels as its own typed,
- * explicitly-mutating operation, exactly like granting the settings permission
- * does.
- */
-interface BluetoothRestartController {
-
-    /** False when the helper is not running. */
-    fun isAvailable(): Boolean
-
-    suspend fun restart(): BluetoothRestartOutcome
-}
-
-/** Stands in when the helper is absent. Never claims a restart happened. */
-object UnavailableBluetoothRestartController : BluetoothRestartController {
-    override fun isAvailable(): Boolean = false
-
-    override suspend fun restart(): BluetoothRestartOutcome =
-        BluetoothRestartOutcome.Unavailable(
-            "the privileged helper is not running, so Bluetooth cannot be restarted from here",
-        )
 }
