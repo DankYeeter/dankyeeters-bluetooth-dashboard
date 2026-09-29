@@ -322,3 +322,7 @@ nicht Teil von T-005.
 
 - 2026-09-29 · T-063c am Stand 483d78b: CONCERNS. B5, B7 wirksam; K-2-Rest `PrivilegedClient.kt:540` behoben. B6 fuer Codec/HD-Audio und Ping wirksam, beim Pinnen nicht (SR-041). Beobachtung: `DeviceConnectionWatcher.kt:94` loggt namenloses Geraet mit `DeviceKey` (rueckrechenbar) → fester Text.
 | SR-042 | Rohe JSONException-Meldungen tragen gespeicherte Hoer-/Gesundheitsdaten ins Logcat (`AudiogramStore.kt:344/389/411/427`, `CompensationProfileStore.kt:144`) sowie Profilspeicher mit Key/Name (`DeviceProfileStore.kt:145`); gefunden vom developer in T-064 (Klasse V12/SR-033) | mittel | behoben (`8130e44`, `abe8953`, Test `HearingStoreLogTest` Rot-vorher), Retest offen | 2026-09-29 |
+| SR-041 | (Bestand) | mittel | behoben (`fe0c0f9`, `readAtMost` `LdacTuning.kt:315`; Randbedingung: Lesung wartet, blockiert nicht — im Produktivpfad erfuellt) | 2026-09-29 |
+| SR-042 | (Bestand) | mittel | behoben (Retest T-065c; V12 projektweit, 56 Throwable-Logs ohne Personendaten) | 2026-09-29 |
+
+- 2026-09-29 · T-065c am Stand abe8953: PASS; SR-041 und SR-042 behoben, `AdbKeyStore.kt:60` in Ordnung, keine neuen SR.
