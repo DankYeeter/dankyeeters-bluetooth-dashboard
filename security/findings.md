@@ -327,3 +327,4 @@ nicht Teil von T-005.
 
 - 2026-09-29 · T-065c am Stand abe8953: PASS; SR-041 und SR-042 behoben, `AdbKeyStore.kt:60` in Ordnung, keine neuen SR.
 - 2026-09-29 · SR-040: Nutzerentscheid beheben statt Restrisiko; developer-Auftrag mit der Play-Stufe. Status offen.
+- 2026-09-29 · SR-040 am Geraet bestaetigt (T-066a): 0-Byte-Ledger mit echtem DataStore liest als nie geschrieben, Rueckweg meldet falschen Vorwert (1001 statt 1000). Behebung beauftragt mit der Play-Stufe.
