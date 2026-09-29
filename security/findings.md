@@ -326,3 +326,4 @@ nicht Teil von T-005.
 | SR-042 | (Bestand) | mittel | behoben (Retest T-065c; V12 projektweit, 56 Throwable-Logs ohne Personendaten) | 2026-09-29 |
 
 - 2026-09-29 · T-065c am Stand abe8953: PASS; SR-041 und SR-042 behoben, `AdbKeyStore.kt:60` in Ordnung, keine neuen SR.
+- 2026-09-29 · SR-040: Nutzerentscheid beheben statt Restrisiko; developer-Auftrag mit der Play-Stufe. Status offen.

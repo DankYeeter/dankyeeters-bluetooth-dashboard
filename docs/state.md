@@ -38,20 +38,24 @@ durch QA belegt (T-059a, T-063a); **Geraeteabnahme fehlt** fuer AK-4
 Spruenge, W4), AK-21 (Frequenz ohne Standort am Pixel), AK-1 (Last der
 Zustandslesung je Takt, ungemessen). AK-7 zurueckgestellt; AK-17 offen M-16.
 
-**Beim Nutzer — offen (naechste Session):**
-1. Gerätetermin (Pruefliste unten).
-2. Backlog Lauf 2: P-005..P-007 freigeben? Streichvorschlaege 2.1
-   (`QUERY_ALL_PACKAGES` auch privat streichen), 2.2 (Starvation-Tabelle),
-   2.3 (AK-21-Bedingungsklausel streichen — GOAL-Aenderung).
-3. SR-040 Restrisiko annehmen (0-Byte-Ledger, nur bei Dateischaden)?
-4. AK-7 nach bestandener Probe G0–G4 (AD-049) freigeben?
-5. Play-Store-Vorlage C-001 (Monetarisierung, Fassung, EU, Helfer-Risiko,
-   MDR/Hoerkompensation anwaltlich); A-008/A-010 um `ACCESS_NETWORK_STATE` und
-   WLAN-Band ergaenzen.
-6. Nachtraeglich bestaetigen: Sprungknoepfe an beiden Orten, P-001-Panel nicht
-   einklappbar; UI_SPEC T-047 Frage 3 (Rueckweg-Banner, Empfehlung lassen).
-7. Drei Retrospektive-Vorschlaege (`docs/lessons.md`); Merge Draft-PR
-   `auto/2026-09-23` und des neuen PR.
+**Nutzerentscheide 29.09. abends (Reihenfolge: Geraet → Play-Stufe → P-005..7):**
+- **Google Play** als neue Stufe, GOAL.md AK-22..AK-27 (Vollfassung mit
+  Helfer, nur EU/EWR, Planung mit Einnahmen, Hoerfunktion bleibt mit ehrlichem
+  Wortlaut, keine anwaltliche MDR-Pruefung). AK-21 nicht mehr "bedingt"
+  (Streichvorschlag 2.3). Streichvorschlag 2.1 folgt aus AK-22.
+- P-005, P-006, P-007 freigegeben (Warteschlange, nach der Play-Stufe).
+- SR-040 **beheben** (developer, mit der Play-Stufe). Streichvorschlag 2.2
+  ohne Entscheid.
+- Retro BD-L-004, BD-L-005, BD-L-006 angenommen; Umsetzung in `_rahmen.md`,
+  `developer.md`, `director.md` offen (Agenten-Repo).
+- Draft-PRs #1/#2 merged der Nutzer nach gruener Geraeteabnahme.
+
+**Beim Nutzer — offen:**
+1. Geraetetermin (Pruefliste unten), zugesagt 29.09., volles Programm ca. 2 h.
+2. UI-Entscheide (Sprungknoepfe an beiden Orten, P-001-Panel nicht
+   einklappbar, Rueckweg-Banner) — Nutzer sieht sie am Geraet an.
+3. AK-7 nach bestandener Probe G0–G4 (AD-049) freigeben?
+4. Monetarisierung endgueltig (vor Einreichung, AK-27).
 
 **Naechste Geraetesession (Pruefliste):** AD-039-Probe (Arm A 15 min Display
 aus auf Akku, Stop vom Sperrbildschirm, FGS-Verweigerung A17); W4/SR-037
