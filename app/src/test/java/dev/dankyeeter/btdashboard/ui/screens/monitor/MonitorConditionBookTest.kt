@@ -145,7 +145,7 @@ class MonitorConditionBookTest {
 
     private fun reading(at: Long, loss: Boolean = false) = LinkLiveUpdate(
         snapshot = LinkLiveSnapshot(timestampMs = at),
-        events = if (loss) listOf(LinkEvent.LossDetected(at, 2_000L, 1L, 0L, 0L, 0L, 0L, "Audio loss")) else emptyList(),
+        events = if (loss) listOf(LinkEvent.LossDetected(at, 2_000L, 1L, 0L, 0L, 0L, "Audio loss")) else emptyList(),
     )
 
     private companion object {
