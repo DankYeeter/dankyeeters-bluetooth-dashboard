@@ -29,4 +29,16 @@ Pflicht ab: **V** = vor Veroeffentlichung (Play oder erste Weitergabe) ·
 | A-017 | Play-Health-Deklaration; Disclaimer "not a medical device …" und Hinweis auf aerztlichen Rat im Store-Text | Play Health-Policy (C-001 Nr. 8) | release-manager, technical-writer | P | offen | 2026-09-28 |
 | A-018 | Anwaltliche/regulatorische Pruefung der MDR-Frage vor erster Weitergabe einer Fassung mit Hoerkompensation | MDR Art. 2 Nr. 1 (nicht verifiziert) (C-001 Nr. 8) | Nutzer | V | offen | 2026-09-28 |
 | A-019 | Neue Klaerung vor erster Datenuebertragung vom Geraet (Crash-Reporter, Analytik, Sync) | DSGVO Art. 4 Nr. 7, 13, 9 (C-001 Nr. 5) | director | D | — | 2026-09-28 |
-| A-020 | Neue Klaerung vor erster Monetarisierung (Impressum, Traderstatus, Verbraucherrecht) | § 5 DDG, DSA Art. 30 (C-001 Nr. 6) | director | G | — | 2026-09-28 |
+| A-020 | Neue Klaerung vor erster Monetarisierung (Impressum, Traderstatus, Verbraucherrecht) | § 5 DDG, DSA Art. 30 (C-001 Nr. 6) | director | G | — (C-002 liegt vor, 29.09.) | 2026-09-29 |
+| A-021 | Impressum als dritte Asset-Route in der App (Name, Anschrift, E-Mail, Telefon, USt-IdNr. soweit vorhanden) | § 5 Abs. 1 DDG (C-002 Nr. 1) | technical-writer, developer | G | offen | 2026-09-29 |
+| A-022 | Impressum auf der GitHub-Pages-Seite | § 5 Abs. 1 DDG (C-002 Nr. 1) | technical-writer | G | offen | 2026-09-29 |
+| A-023 | Traderstatus "Unternehmer" in der Play Console; Anschrift/Telefon fuer die oeffentliche Anzeige vorher festlegen; ersetzt A-013 | DSA Art. 3 lit. f, Art. 30 Abs. 1, 7 (C-002 Nr. 2) | Nutzer, release-manager | G | offen | 2026-09-29 |
+| A-024 | Store-Text als ehrliche Beschaffenheitsangabe: Voraussetzungen, Helfer-Abhaengigkeit, Grenzen der EQ-Erkennung und des Hoertests, moegliches Ende des Helfer-Wegs | §§ 327e Abs. 2, 327h BGB, § 5 UWG (C-002 Nr. 4) | technical-writer | G | offen | 2026-09-29 |
+| A-025 | Pflegezusage: Sicherheits-/Kompatibilitaetsupdates mind. 2 Jahre nach letztem Verkauf; bei Aufgabe zuerst aus dem Verkauf nehmen | §§ 327f Abs. 1, 327j BGB, DDA 8.2 (C-002 Nr. 4) | Nutzer, release-manager | G | offen | 2026-09-29 |
+| A-026 | Vor erstem Verkauf: Arbeitsvertrag (Nebentaetigkeit, Wettbewerb, Rechte), Entstehung ausserhalb der Arbeitsaufgabe festhalten, Gewerbeanzeige, Steuerfrage | § 60 HGB, § 69b UrhG, § 14 GewO (C-002 Nr. 7) | Nutzer | G | offen | 2026-09-29 |
+| A-027 | Wortliste C-002 Nr. 8 als Literal-Liste in `PurposeWordingTest`, Allowlist fuer die fuenf technischen `compensat`-Literale, `loss`-Regel | MDR Art. 2 Nr. 1, 12; § 1 Abs. 1 Nr. 2 HWG; Play Health (C-002 Nr. 8) | developer, technical-writer | V | offen | 2026-09-29 |
+| A-028 | 19 gezaehlte Textzeilen umschreiben; Zweckbestimmungssatz in Store-Text und Hilfe; Disclaimer nur im Store-Text oder Asset; konkretisiert A-016 | wie A-027 (C-002 Nr. 8) | technical-writer, ui-ux-designer | V | offen | 2026-09-29 |
+| A-029 | Absatz "Diese Website" (GitHub-Hosting, IP-Log, USA) in der oeffentlichen Datenschutzerklaerung | Art. 13 DSGVO (Kenntnisstand), GitHub Pages Docs (C-002 Nr. 9) | technical-writer | V (Seite) | offen | 2026-09-29 |
+| A-030 | Kaeuferdaten in der Play Console pruefen; bei Personenbezug Absatz in der Datenschutzerklaerung | Art. 4 Nr. 7, 13 DSGVO (C-002 Nr. 9) | release-manager, technical-writer | G | offen | 2026-09-29 |
+
+Hinweise aus C-002 (29.09., Status setzt der Director): A-013 durch Nutzerentscheid "Kaufpreis" gegenstandslos, Ersatz A-023 · A-016 durch A-027/A-028 konkretisiert · A-018 bleibt offen als vom Nutzer getragenes Restrisiko (Entscheid 29.09.).
