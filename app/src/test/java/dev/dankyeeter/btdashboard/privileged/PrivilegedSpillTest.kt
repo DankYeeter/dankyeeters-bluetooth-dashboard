@@ -76,8 +76,8 @@ class PrivilegedSpillTest {
     fun `staging reuses one file rather than making a new one each time`() {
         // Measured on the device: a name per call put ~470 files in
         // /data/local/tmp inside a two-minute session, about 3.5 a second. The
-        // reuse is safe because PrivilegedShellRunner.EXEC_LOCK means one reply
-        // is staged and collected at a time.
+        // reuse is safe because the guard's exec slot means one reply is staged
+        // and collected at a time (AD-053).
         val spill = spill()
         val first = spill.stage("one")!!
         val second = spill.stage("two")!!
