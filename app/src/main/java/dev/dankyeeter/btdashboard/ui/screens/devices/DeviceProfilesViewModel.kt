@@ -442,7 +442,7 @@ class DeviceProfilesViewModel(application: Application) : AndroidViewModel(appli
         // would be a claim about a link that no longer exists.
             ?: return CodecInfo()
 
-        val families = runCatching { PrivilegedCodec.controller().availableCodecs(address) }
+        val families = runCatching { PrivilegedCodec.controller()?.availableCodecs(address).orEmpty() }
             .getOrDefault(emptyList())
 
         val status = runCatching {
