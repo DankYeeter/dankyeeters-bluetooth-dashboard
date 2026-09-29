@@ -111,7 +111,6 @@ class Ldac990LossGoldenTest {
         assertEquals("Counts (flushed/dropped/dropouts), field 1", 0L, tx.flushedCount)
         assertEquals("Counts (flushed/dropped/dropouts), field 2", 1851L, tx.droppedCount)
         assertEquals("Counts (flushed/dropped/dropouts), field 3", 74L, tx.dropoutCount)
-        assertEquals("Counts (max dropped)", 26L, tx.maxDroppedCount)
 
         // Three subsystems print `Counts (underflow)` in this one dump — A2DP at
         // line 2317, the Hearing Aid HAL at 2663 and the LE Audio HAL client at
@@ -122,11 +121,7 @@ class Ldac990LossGoldenTest {
         assertEquals("Bytes (underflow)", 637_952L, tx.underflowBytes)
 
         assertEquals("Counts (enqueue/dequeue/readbuf), field 1", 229_391L, tx.enqueueCount)
-        assertEquals("Counts (enqueue/dequeue/readbuf), field 2", 532_363L, tx.dequeueCount)
-        assertEquals("Counts (enqueue/dequeue/readbuf), field 3", 740_475L, tx.readBufCount)
         assertEquals("Frames per packet (total/max/ave), field 1", 2_763_962L, tx.framesPerPacketTotal)
-        assertEquals("Frames per packet (total/max/ave), field 2", 12, tx.framesPerPacketMax)
-        assertEquals("Frames per packet (total/max/ave), field 3", 12, tx.framesPerPacketAvg)
     }
 
     @Test
@@ -141,38 +136,6 @@ class Ldac990LossGoldenTest {
         assertEquals("Effective MTU", 883, stack.effectiveMtu)
         assertEquals("LDAC saved transmit queue length", 11, stack.savedTxQueueLength)
         assertEquals("HIGH is a fixed tier, not adaptive", false, stack.isAdaptive)
-    }
-
-    /**
-     * The absence that is a fact about this phone, not a gap in the capture.
-     *
-     * The two `LDAC adaptive bit rate` rows only print while the quality mode is
-     * `ABR`; a pinned tier prints neither. T-022 could not find one dump that
-     * carried both those rows and non-zero loss counters, and reported that as a
-     * requirement conflict rather than adding a line to the file. So the
-     * absence is pinned here from both ends: no such row exists in the text, and
-     * the parser answers null rather than a plausible index of 0.
-     */
-    @Test
-    fun `a pinned tier prints no adaptive bitrate rows and none are invented`() {
-        val abrRows = dumpText.lineSequence()
-            .filter { it.trim().startsWith("LDAC adaptive bit rate") }
-            .toList()
-        assertEquals(
-            "a fixed-tier capture carries no ABR rows; found ${abrRows.size}",
-            emptyList<String>(),
-            abrRows,
-        )
-
-        val stack = present(parsed.ldacStack, "the 'A2DP LDAC State:' block")
-        assertNull(
-            "no ABR index row in the dump, so the index must be absent and not 0",
-            stack.adaptiveBitrateIndex,
-        )
-        assertNull(
-            "no ABR adjustments row in the dump, so the count must be absent and not 0",
-            stack.adaptiveBitrateAdjustments,
-        )
     }
 
     /**

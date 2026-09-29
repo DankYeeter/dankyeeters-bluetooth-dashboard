@@ -202,41 +202,12 @@ data class MixerOutputSnapshot(
  * `btif_a2dp_source`'s packet counters. That reconstruction is falsified — see
  * [A2dpTxDelta.framesPerEnqueue] — and this type is what replaced it.
  *
- * ## The two adaptive-bitrate rows, and why a reading is not enough
- *
- * [transmissionKbps] is a sample of a value that moves between polls.
- * [adaptiveBitrateAdjustments] is the stack's own count of every move it made,
- * so it also counts the changes that fell between two readings and that no
- * sequence of samples can recover. Measured: run B of 2026-09-01 counted **nine**
- * adjustments over 101 s at a 1.44 s cadence, while the sampled rates for the
- * same window hold eight dwell segments and therefore at most seven visible
- * changes (`docs/perf/T-007-aufnahme.md`, section 3.4). At least two changes
- * happened where nobody was looking.
- *
- * Any change rate computed from the sampled rate alone therefore undercounts,
- * by an amount only this counter can name.
- *
  * ## Absent is a real answer
  *
  * Only some builds and only some codecs print a section like this. Nothing here
  * is defaulted or guessed: a missing section produces a null [LdacStackState],
  * and the panel then falls back to saying the rate is not observable, which on
  * such a build is the truth.
- *
- * ## What null does not distinguish
- *
- * On [adaptiveBitrateIndex] and [adaptiveBitrateAdjustments], null is "the row
- * was not printed" **and** "the row was printed but its value could not be
- * read" — a digit string past `Int`/`Long` range, or a truncated read that left
- * no digits at all. Both arrive as null and cannot be told apart. This is
- * stated rather than fixed because no reader exists that could act on the
- * difference; a second state invented ahead of its consumer would be a guess
- * about how it is meant to be used.
- *
- * A negative value, unlike a value out of range, is carried through as printed.
- * The `takeIf { it > 0 }` that guards [transmissionKbps] and [effectiveMtu]
- * cannot be copied here, because 0 is a legal rung and a legal count on these
- * two rows; no stack has ever printed a negative one.
  */
 data class LdacStackState(
     /**
@@ -253,33 +224,6 @@ data class LdacStackState(
     val effectiveMtu: Int? = null,
     /** MEASURED: `LDAC saved transmit queue length`. Backlog, not throughput. */
     val savedTxQueueLength: Int? = null,
-    /**
-     * MEASURED, verbatim: `LDAC adaptive bit rate encode quality mode index` —
-     * the rung the adaptive encoder stands on, as the stack numbers it.
-     *
-     * Carried as the stack's own number and **never** mapped to a bitrate. The
-     * measured pairs are 660 kbps at index 1, 492 kbps at index 3
-     * (`docs/perf/T-007-aufnahme.md`, section 3.4) and 396 kbps at index 4 in
-     * the capture this parser is pinned to — so the index does not order the
-     * ladder the way a reader would guess, and only three of its rungs have ever
-     * been seen. [transmissionKbps] is the rate; this is the rung.
-     *
-     * A value of 0 is a rung, not a missing row: absence is null — and so is a
-     * value that could not be read, which null does not distinguish from
-     * absence. See "What null does not distinguish" above.
-     */
-    val adaptiveBitrateIndex: Int? = null,
-    /**
-     * MEASURED: `LDAC adaptive bit rate adjustments` — how often the adaptive
-     * encoder has changed rung, cumulative since the stack started.
-     *
-     * Cumulative, so a window's worth of changes is the difference between two
-     * readings; a single reading says only how much the encoder has moved in
-     * this stack's lifetime. Zero is a real count — a link that has not moved —
-     * and a build that does not print the row reads as null, as does a printed
-     * value that could not be read. See "What null does not distinguish" above.
-     */
-    val adaptiveBitrateAdjustments: Long? = null,
 ) {
     /** True when the section was found but held nothing worth carrying. */
     val isEmpty: Boolean get() = qualityMode == null && transmissionKbps == null
@@ -545,43 +489,16 @@ data class A2dpTxStats(
      * duty-cycle signal and it is not a throughput signal.
      */
     val enqueueCount: Long? = null,
-    /** Packets the L2CAP layer took off it. */
-    val dequeueCount: Long? = null,
-    /** PCM buffer reads from the audio HAL. */
-    val readBufCount: Long? = null,
     val framesPerPacketTotal: Long? = null,
-    val framesPerPacketMax: Int? = null,
-    /**
-     * MEASURED, and **not** a rate indicator. Never render this.
-     *
-     * `btif_a2dp_source` labels it "frames per packet", which invites reading it
-     * as the encoder's packing and therefore as an inverse stand-in for the
-     * bitrate. It is not. Because [enqueueCount] counts 20 ms timer ticks rather
-     * than radio packets, frames-divided-by-enqueues is
-     * `playing duty cycle x 15` and carries no mode information at all: on the
-     * device, pinned 990 gave 13.5 and pinned 330 gave 10.5, which is the duty
-     * cycle of those two runs and nothing else.
-     *
-     * Kept only because it is what the dump says. The live rate comes from
-     * [LdacStackState.transmissionKbps].
-     */
-    val framesPerPacketAvg: Int? = null,
     /** Queue flushes — the stack threw away buffered audio to catch up. */
     val flushedCount: Long? = null,
     /** Packets dropped because the queue was full. Audible. */
     val droppedCount: Long? = null,
     /** Distinct dropout episodes, as the stack counts them. Audible. */
     val dropoutCount: Long? = null,
-    /** Largest single drop burst. */
-    val maxDroppedCount: Long? = null,
     /** Times the encoder had no PCM ready — the source starved, not the radio. */
     val underflowCount: Long? = null,
     val underflowBytes: Long? = null,
-    /** Media-timer ticks that ran late; a scheduling-pressure signal. */
-    val enqueueOverdue: Long? = null,
-    val enqueuePremature: Long? = null,
-    val dequeueOverdue: Long? = null,
-    val dequeuePremature: Long? = null,
 ) {
     /** True when the block was found but held nothing readable. */
     val isEmpty: Boolean get() = enqueueCount == null && underflowCount == null

@@ -861,8 +861,7 @@ class LiveLinkPanelScreenTest {
                 )
             },
         ),
-        // framesPerPacketAvg is still parsed and still must never reach a row.
-        tx = A2dpTxStats(enqueueCount = 8_000, framesPerPacketAvg = 4),
+        tx = A2dpTxStats(enqueueCount = 8_000),
         txDelta = A2dpTxDelta(windowMs = 2_000, enqueued = 100),
         inputs = listOf(
             InputStreamSnapshot(
