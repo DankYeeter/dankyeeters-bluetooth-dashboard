@@ -178,6 +178,8 @@ class SettingsLedgerStoreTest {
         val dataStore = dataStore()
         val store = SettingsLedgerStore(dataStore)
 
+        assertFalse(file.exists())
+        assertEquals(Result.success(emptyList<LedgerEntry>()), store.entries())
         assertFalse(store.discardUnreadable())
 
         assertTrue("the key stays absent", dataStore.data.first().asMap().isEmpty())
@@ -198,12 +200,15 @@ class SettingsLedgerStoreTest {
         assertFalse(SettingsLedgerStore.CORRUPT_MARKER.trimStart().startsWith("["))
     }
 
-    /** V10: documents what DataStore makes of an empty file; not a choice of this app. */
+    /** SR-040: an empty file is damage, not a fresh install — only a missing file is. */
     @Test
-    fun `a zero-byte file reads as a ledger never written`() = runTest {
+    fun `a zero-byte file reads as unreadable and can then be discarded (SR-040, V10)`() = runTest {
         file.writeBytes(ByteArray(0))
+        val store = SettingsLedgerStore(dataStore())
 
-        assertEquals(Result.success(emptyList<LedgerEntry>()), SettingsLedgerStore(dataStore()).entries())
+        assertTrue("never an empty list in disguise", store.entries().isFailure)
+        assertTrue(store.discardUnreadable())
+        assertEquals(Result.success(emptyList<LedgerEntry>()), store.entries())
     }
 
     @Test

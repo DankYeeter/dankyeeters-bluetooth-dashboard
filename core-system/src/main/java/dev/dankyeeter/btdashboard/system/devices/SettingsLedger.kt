@@ -1,10 +1,14 @@
 package dev.dankyeeter.btdashboard.system.devices
 
 import android.util.Log
+import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.core.okio.OkioSerializer
+import androidx.datastore.core.okio.OkioStorage
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.PreferencesSerializer
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.preferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -15,6 +19,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okio.BufferedSource
+import okio.FileSystem
+import okio.Path.Companion.toOkioPath
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -267,12 +274,24 @@ class SettingsLedgerStore(private val dataStore: DataStore<Preferences>) : Setti
         /** The only way the ledger's DataStore is built: once in `SystemGraph` (M6), and by the tests. */
         fun createDataStore(produceFile: () -> File): DataStore<Preferences> =
             PreferenceDataStoreFactory.create(
+                storage = OkioStorage(FileSystem.SYSTEM, EmptyFileIsCorrupt) { produceFile().absoluteFile.toOkioPath() },
                 corruptionHandler = ReplaceFileCorruptionHandler { e ->
                     Log.w(TAG, "ledger file corrupt, marked unreadable (${e.javaClass.simpleName})")
                     preferencesOf(KEY_ENTRIES to CORRUPT_MARKER)
                 },
-                produceFile = produceFile,
             )
+
+        /**
+         * A missing file is a ledger never written; an empty one is damage (SR-040).
+         * DataStore itself reads both as empty, which would lose the way back. The
+         * store never writes an empty file: every write sets [KEY_ENTRIES].
+         */
+        private object EmptyFileIsCorrupt : OkioSerializer<Preferences> by PreferencesSerializer {
+            override suspend fun readFrom(source: BufferedSource): Preferences {
+                if (source.exhausted()) throw CorruptionException("empty ledger file")
+                return PreferencesSerializer.readFrom(source)
+            }
+        }
 
         private const val TAG = "SettingsLedger"
         private const val TYPE_GLOBAL = "global"
