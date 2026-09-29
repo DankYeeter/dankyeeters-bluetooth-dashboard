@@ -497,7 +497,7 @@ data class LiveCodecSnapshot(
      * [family] is now decided by this name first, so the two no longer
      * disagree — but the name still says more than the family can. [CodecFamily]
      * has one entry per codec this app can badge, while the name distinguishes
-     * codecs it cannot, which is what [CodecModeSignatureRegistry] matches on.
+     * codecs it cannot.
      */
     val rawCodecName: String? = null,
     /**
@@ -813,12 +813,6 @@ data class LinkLiveSnapshot(
      * right now, where the build prints it.
      */
     val ldac: LdacState? = null,
-    /**
-     * What the encoder is **running** at, from the stack's own fields. Never
-     * null: when no build field carries it, it holds
-     * [InferenceConfidence.UNKNOWN] and the reason why.
-     */
-    val modeInference: ModeInference = ModeInference.unknown(null, "no reading yet"),
     /** Whether any of the throughput and loss figures below apply at all. */
     val observability: LinkObservability = LinkObservability.UNKNOWN,
     val tx: A2dpTxStats? = null,
