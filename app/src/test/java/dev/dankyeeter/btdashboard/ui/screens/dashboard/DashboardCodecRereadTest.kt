@@ -60,8 +60,8 @@ class DashboardCodecRereadTest {
     fun `after Bluetooth off and on the next read finds the codec again`() = runTest {
         val proxy = ProxyFake()
         val dump = DumpFake()
-        // A clock that never moves: the held dump never expires on its own.
-        val heldDump = CachedDumpsysLinkSource(dump, clock = { 0L })
+        var nowMs = 0L
+        val heldDump = CachedDumpsysLinkSource(dump, clock = { nowMs })
         val source = FallbackCodecStatusSource(proxy, heldDump)
         val broadcasts = MutableSharedFlow<Unit>()
         proxy.devices.value = listOf(focus)
@@ -77,13 +77,16 @@ class DashboardCodecRereadTest {
         assertEquals(CodecFamily.LDAC, (readings.last() as? CodecReadResult.Available)?.status?.family)
 
         // Bluetooth off: the proxy loses the device, the dump is empty.
+        nowMs = 10_000L
         dump.current = DumpsysSnapshot()
         proxy.devices.value = emptyList()
         broadcasts.emit(Unit)
         // Bluetooth on, headphone reconnects: A2DP is up, the codec not yet.
+        nowMs = 20_000L
         dump.current = dumpWith(codec = null)
         proxy.devices.value = listOf(focus)
-        // The codec is negotiated and announced.
+        // The codec is negotiated and announced, well inside the dump's hold time.
+        nowMs = 20_500L
         dump.current = dumpWith(codec = CodecFamily.LDAC)
         broadcasts.emit(Unit)
         advanceUntilIdle()
