@@ -296,11 +296,8 @@ object MonitorGraph {
     /**
      * Only the vendor EQ apps are looked up, one `getPackageInfo` each.
      *
-     * The app now holds QUERY_ALL_PACKAGES for the candidate scan, so a full
-     * enumeration would work here too — it just costs a hundred times more for
-     * a list of twelve packages we already know by name. It also keeps working
-     * if the broad permission is ever taken away, since the `<queries>` block
-     * still names each package explicitly.
+     * Each is named in the `<queries>` block, which is what makes it visible
+     * at all: the app holds no QUERY_ALL_PACKAGES (AD-050).
      */
     private fun installedPackageNames(): Set<String> {
         val pm = ctx().packageManager

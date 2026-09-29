@@ -274,7 +274,7 @@ class MeasurementServiceTest {
         val permissions = document.getElementsByTagName("uses-permission")
         val declared = (0 until permissions.length).map { (permissions.item(it) as org.w3c.dom.Element).getAttributeNS(ANDROID, "name") }
         assertEquals(
-            listOf("android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE", "android.permission.QUERY_ALL_PACKAGES"),
+            listOf("android.permission.INTERNET", "android.permission.ACCESS_NETWORK_STATE"),
             declared,
         )
 

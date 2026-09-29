@@ -1,6 +1,5 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,6 +23,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.TxLossChannel
+import dev.dankyeeter.btdashboard.ui.appLabel
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
@@ -711,23 +711,6 @@ private fun LdacState.rateLine(): String {
  */
 private fun List<InputStreamSnapshot>.topPlaying(): InputStreamSnapshot? =
     firstOrNull { it.usage?.contains("MEDIA", ignoreCase = true) == true } ?: firstOrNull()
-
-/**
- * The app's own name for its uid, falling back to the number.
- *
- * A uid is what the dump provides and a name is what the user recognises, so it
- * is resolved here rather than shown raw. When the lookup fails the number is
- * kept as-is — inventing "Unknown app" would hide that there really is a process
- * playing, which is the fact the line is making.
- */
-private fun appLabel(context: Context, uid: Int): String {
-    val pm = context.packageManager
-    val packages = runCatching { pm.getPackagesForUid(uid) }.getOrNull().orEmpty()
-    val label = packages.firstNotNullOfOrNull { name ->
-        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(name, 0)).toString() }.getOrNull()
-    }
-    return label?.takeIf { it.isNotBlank() } ?: packages.firstOrNull() ?: "uid $uid"
-}
 
 /** "44.1 kHz" / "96 kHz" — US formatting, so a German locale cannot print "44,1". */
 private fun formatKhz(hz: Int): String {
