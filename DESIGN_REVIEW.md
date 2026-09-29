@@ -1,5 +1,63 @@
 # Design & UX Review
 
+## Review vom 2026-09-29 (T-065b, Retest)
+
+**Methode:** Code-Analyse (kein Geraet, eingefrorener Stand `abe8953`) —
+`LdacTuning.kt:406-430` (`tuningSentence`), `ComparisonSection.kt:134-153`
+(`PinAndCheck`), `PrivilegedClient.kt:786-790` (`EFFECT_UNKNOWN`),
+`DeviceConnectionWatcher.kt:84-114` gelesen; `LdacTuningTest.kt`
+(`LdacTuningSentenceTest`, Test „an unanswered pin is reported as unknown,
+not as unchanged"), `ComparisonSectionTest.kt` (Test „an unanswered pin is
+reported as unknown, not as not pinned" — echter Compose-Render-Test,
+`composeRule.onNodeWithText` gegen den woertlichen Satz),
+`DeviceConnectionWatcherLogTest.kt` gelesen (Testinhalte abgeglichen, nicht
+ausgefuehrt) — Testergebnisse selbst **unverifiziert (Code-Analyse)**.
+`git diff --stat abe8953 12ffcd7` zeigt fuer diesen Stand nur
+Doku-/Sicherheitsdateien, keine der hier gepruften Quelldateien.
+
+**Geprueft gegen:** DR-008 (Wortlaut-Widerspruch bei TimedOut+changes=true,
+siehe unten in der T-063b-Sektion), plus „unnamed device" auf UI-Sichtbarkeit.
+
+**Gesamturteil: DR-008 ist behoben, exakt in der im Befund vorgeschlagenen
+Richtung, und an beiden Fundstellen gleich — ship-ready fuer diesen
+Scope.**
+
+### DR-008 — Retest
+
+Beide Aufrufstellen pruefen jetzt zuerst `outcome.reason.endsWith(EFFECT_UNKNOWN)`
+und lassen bei Treffer den bisherigen „not changed"/„Could not pin"-Rahmen
+weg — der Satz besteht dann nur aus dem grossgeschriebenen AD-048-Fragment
+selbst, ohne widersprechende Behauptung:
+
+- `LdacTuning.tuningSentence()` (`LdacTuning.kt:421-427`): fuer
+  TimedOut+changes=true liefert der Test (`LdacTuningTest.kt:263-278`)
+  woertlich „The privileged helper did not answer within 15 s — whether the
+  change took effect is unknown." (nicht gespeichert) bzw. mit vorangestelltem
+  „Stored for this headphone and asked for again on every connect. "
+  (gespeichert) — kein "not changed" mehr im selben Satz wie "unknown".
+- `ComparisonSection.kt` `PinAndCheck()` (Zeile 142, nicht mehr 139 — durch
+  die DR-008-Kommentarzeile um drei verschoben, keine inhaltliche Abweichung):
+  derselbe Fruehausstieg, Test `ComparisonSectionTest.kt:266-280` rendert
+  „The privileged helper did not answer within 15 s — whether the change
+  took effect is unknown. Nothing was measured." — ebenfalls kein "Could not
+  pin"-Rahmen mehr fuer diesen Grund.
+- Beide bisherigen, tatsaechlich definitiven Gruende („the privileged helper
+  is not running", „there is no live link to change") behalten ihren
+  „not changed"-Rahmen unverandert (`LdacTuningTest.kt:239-260`) — die
+  Unterscheidung trifft nur den einen Pfad, der vorher falsch lag.
+- „unnamed device" (`DeviceConnectionWatcher.kt:95`) bleibt, wie im Auftrag
+  vorausgesetzt, ausschliesslich in zwei `Log.i`-Aufrufen (Zeile 96, 110) —
+  `logLabel` fliesst nirgends in `store.noteSeen()`, einen State oder eine
+  Composable; `DeviceConnectionWatcherLogTest.kt` prueft nur `ShadowLog`.
+  Nicht sichtbar, daher kein UI-Befund.
+
+Keine neuen Befunde in diesem Scope; keine Regression gegenueber dem
+2026-09-29-T-063b-Review gefunden.
+
+### Offene Fragen an den App Designer
+
+Keine neuen.
+
 ## Review vom 2026-09-29 (T-063b)
 
 **Methode:** Code-Analyse (kein Geraet, Auftragsgrenze T-063b, eingefrorener
@@ -52,7 +110,7 @@ eingefrorenen Stand behoben (siehe oben, in der T-059b-Sektion vermerkt).
 
 ### Wichtig
 
-- **DR-008 [`LdacTuning.kt:395-400`, `tuningSentence()`]** Der zweite
+- **DR-008 ✔ (behoben, bestaetigt T-065b 2026-09-29, `abe8953`) [`LdacTuning.kt:395-400`, `tuningSentence()`]** Der zweite
   AD-048-Satz wird hier in einen Rahmensatz eingebettet, der dem Ergebnis
   bereits ein definitives Urteil vorwegnimmt: „LDAC quality was not changed
   — ${outcome.reason}." (nicht gespeichert) bzw. „It was not changed on the
