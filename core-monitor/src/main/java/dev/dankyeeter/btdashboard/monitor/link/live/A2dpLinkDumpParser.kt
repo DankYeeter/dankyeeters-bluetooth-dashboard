@@ -348,13 +348,13 @@ object A2dpLinkDumpParser {
      *
      * ## No verdicts
      *
-     * Every row is carried as read and nothing here decides what it means —
-     * in particular a reading of 990 kbps is a reading and not an event. The adaptive controller
-     * tries that rung on its own and leaves it again within a single sample: 31
-     * times in one 39-minute run, 30 of them for exactly one sample and none of
-     * them with any loss (`docs/perf/T-011-messung.md`). A parser that treated
-     * each such reading as something worth reporting would have raised 31 false
-     * alarms in that run.
+     * Every row is carried as read and nothing here decides what it means — in
+     * particular a reading of 990 kbps is a reading and not an event. The adaptive
+     * controller tries that rung on its own and leaves it again within a single
+     * sample: 31 times in one 39-minute run, 30 of them for exactly one sample and
+     * none of them with any loss (`docs/perf/T-011-messung.md`). A parser that
+     * treated each such reading as something worth reporting would have raised 31
+     * false alarms in that run.
      */
     private fun readLdacStackState(dump: String): LdacStackState? {
         var inBlock = false
