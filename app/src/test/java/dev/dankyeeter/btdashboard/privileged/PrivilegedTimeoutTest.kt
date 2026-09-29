@@ -9,6 +9,8 @@ import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
+import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +29,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -40,6 +44,8 @@ private val LDAC_990 = CodecPreference(codec = "LDAC", ldacQuality = 1000L)
 
 /** Far above the test guard's time-out, far below "the suite hangs". */
 private const val TEST_BOUND_MS = 5_000L
+
+private val DUMP = listOf("dumpsys", "bluetooth_manager")
 
 private fun context(): Context = ApplicationProvider.getApplicationContext()
 
@@ -63,9 +69,12 @@ private fun seedToken() {
 class PrivilegedTimeoutTest {
 
     private val helper = UnansweringHelper()
-    private val guard = PrivilegedCallGuard(callTimeoutMs = 200)
+    private val guard = PrivilegedCallGuard(callTimeoutMs = 200, execTimeoutMs = 200)
     private val ledgerLock = Mutex()
     private val outside = CoroutineScope(Dispatchers.IO)
+
+    @get:Rule
+    val temp: TemporaryFolder = TemporaryFolder()
 
     @Before
     fun connect() {
@@ -147,6 +156,65 @@ class PrivilegedTimeoutTest {
         assertEquals("a read reached a helper that has not answered the write", 0, helper.reads.get())
     }
 
+    /** AD-053: an exec the helper never answers ends within the exec time-out. */
+    @Test
+    fun `an exec the helper never answers returns within the time-out`() = runBlocking {
+        val runner = PrivilegedShellRunner(PrivilegedBootstrap(context()), guard, ExecSpill(directory = temp.root))
+
+        val result = withTimeoutOrNull(TEST_BOUND_MS) { outside.async { runner.run(DUMP) }.await() }
+
+        assertNotNull("the exec was still waited for after $TEST_BOUND_MS ms", result)
+        assertEquals(-1, result!!.exitCode)
+        assertTrue(result.stderr, result.stderr.contains("did not answer"))
+    }
+
+    /**
+     * F-025: a caller that gives up on an exec frees the lock at once, and the
+     * exec left running keeps every further exec away from the helper until it
+     * has answered and its staged reply has been collected (AD-053, C2).
+     */
+    @Test
+    fun `an exec whose caller gave up frees the lock and holds the helper until its reply is collected`() = runBlocking {
+        val spill = ExecSpill(directory = temp.root)
+        val staged = File(temp.root, PrivilegedContract.SPILL_NAME)
+        val large = "x".repeat(PrivilegedProtocol.INLINE_LIMIT_BYTES + 1)
+        val execHelper = UnansweringHelper(
+            execReply = { PrivilegedProtocol.encodeExecResult(0, large, "") { spill.stage(it)?.path } },
+            stagedAtExec = staged,
+        )
+        PrivilegedConnection.accept(execHelper)
+        try {
+            val runner = PrivilegedShellRunner(PrivilegedBootstrap(context()), guard, spill)
+            val first = outside.async { runner.run(DUMP) }
+            withTimeout(TEST_BOUND_MS) { while (execHelper.execs.get() == 0) delay(10) }
+            first.cancel()
+
+            val second = withTimeoutOrNull(1_000) { outside.async { runner.run(DUMP) }.await() }
+            assertNotNull("the lock was still held after the caller gave up", second)
+            assertTrue(second!!.stderr, second.stderr.contains("earlier request"))
+            assertEquals("a second exec reached a helper that has not answered the first", 1, execHelper.execs.get())
+
+            execHelper.release.countDown()
+            val third = withTimeout(TEST_BOUND_MS) {
+                var result = runner.run(DUMP)
+                while (result.stderr.contains("earlier request")) {
+                    delay(10)
+                    result = runner.run(DUMP)
+                }
+                result
+            }
+            assertEquals("once the first exec ended, the next one must reach the helper", 2, execHelper.execs.get())
+            assertEquals(
+                "the next exec reached the helper before the late reply was collected",
+                listOf(false, false),
+                execHelper.stagedAtEntry,
+            )
+            assertEquals(large, third.stdout)
+        } finally {
+            execHelper.release.countDown()
+        }
+    }
+
     private fun CodecApplyOutcome.isBusy(): Boolean =
         this is CodecApplyOutcome.Unavailable && reason.contains("earlier request")
 }
@@ -190,20 +258,26 @@ class PrivilegedCodecLogTest {
 }
 
 /**
- * Blocks every codec and HD-audio write until [release]; answers everything else at once.
+ * Blocks every codec and HD-audio write and every exec until [release]; answers everything else at once.
  *
  * @param writeError thrown by every write instead of blocking.
  * @param wedgedPing blocks `version()` until [release] as well.
+ * @param execReply what an exec answers once released.
+ * @param stagedAtExec a file whose presence each exec records on entry, in [stagedAtEntry].
  */
 private class UnansweringHelper(
     private val codecStatusReply: String = NOT_UNDER_TEST,
     private val writeError: Exception? = null,
     private val wedgedPing: Boolean = false,
+    private val execReply: () -> String = { NOT_UNDER_TEST },
+    private val stagedAtExec: File? = null,
 ) : IPrivilegedService.Stub() {
 
     val release = CountDownLatch(1)
     val writes = AtomicInteger()
     val reads = AtomicInteger()
+    val execs = AtomicInteger()
+    val stagedAtEntry = CopyOnWriteArrayList<Boolean>()
 
     private fun hang(): String {
         writes.incrementAndGet()
@@ -217,7 +291,12 @@ private class UnansweringHelper(
         return PrivilegedServer.VERSION
     }
 
-    override fun exec(token: String?, command: MutableList<String>?): String = NOT_UNDER_TEST
+    override fun exec(token: String?, command: MutableList<String>?): String {
+        stagedAtExec?.let { stagedAtEntry.add(it.exists()) }
+        execs.incrementAndGet()
+        release.await()
+        return execReply()
+    }
 
     override fun codecStatus(token: String?, address: String?): String = codecStatusReply.also { reads.incrementAndGet() }
 

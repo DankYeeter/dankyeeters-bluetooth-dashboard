@@ -138,6 +138,7 @@ internal class PrivilegedCallGuard(
     private val threshold: Int = FAILURES_BEFORE_PING,
     private val forget: () -> Unit = PrivilegedConnection::forget,
     private val callTimeoutMs: Long = HELPER_CALL_TIMEOUT_MS,
+    private val execTimeoutMs: Long = EXEC_CALL_TIMEOUT_MS,
 ) {
 
     /** What the caller should do and what it should say. */
@@ -159,11 +160,14 @@ internal class PrivilegedCallGuard(
     @Volatile
     private var consecutiveFailures: Int = 0
 
-    /** The one call left running after its caller stopped waiting, if any. */
-    private val inFlight = AtomicReference<Deferred<*>?>(null)
+    /** The one codec or HD-audio call left running after its caller stopped waiting, if any. */
+    private val callSlot = AtomicReference<Deferred<*>?>(null)
+
+    /** The one exec left running after its caller stopped waiting, if any (AD-053). */
+    private val execSlot = AtomicReference<Deferred<*>?>(null)
 
     /**
-     * Runs a blocking helper call, but waits for it at most [callTimeoutMs] (AD-048).
+     * Runs a blocking codec or HD-audio call, but waits for it at most [callTimeoutMs] (AD-048).
      *
      * WHY it is left running rather than cancelled: a Binder transaction cannot
      * be interrupted, so a cancelled coroutine would still wait for it — and the
@@ -175,19 +179,33 @@ internal class PrivilegedCallGuard(
      * deliberately does not count as a failure: the liveness ping would be one
      * more call into the same unanswering helper.
      */
-    suspend fun <T> bounded(block: () -> T): Bounded<T> {
+    suspend fun <T> bounded(block: () -> T): Bounded<T> = bounded(callSlot, callTimeoutMs, block)
+
+    /**
+     * [bounded] for `exec`, with its own slot and [execTimeoutMs] (AD-053).
+     *
+     * WHY its own slot: a hanging exec must not lock out the codec calls, nor a
+     * hanging codec call the monitor's reads. WHY one slot all the same: every
+     * exec stages its large reply into one reused file and shares the 1 MB Binder
+     * buffer, so nothing else is sent while an exec left running may still
+     * answer. [block] should therefore include reading the staged reply back,
+     * so a late answer still collects and releases its file before the slot frees.
+     */
+    suspend fun <T> boundedExec(block: () -> T): Bounded<T> = bounded(execSlot, execTimeoutMs, block)
+
+    private suspend fun <T> bounded(slot: AtomicReference<Deferred<*>?>, timeoutMs: Long, block: () -> T): Bounded<T> {
         val call = CALLS.async(start = CoroutineStart.LAZY) { block() }
         // isCompleted, not isActive: a call claimed but not yet started is not
         // active either, and must still count as occupying the slot.
-        val free = inFlight.get()?.takeIf { it.isCompleted }
-        if (!inFlight.compareAndSet(free, call)) {
+        val free = slot.get()?.takeIf { it.isCompleted }
+        if (!slot.compareAndSet(free, call)) {
             call.cancel()
             return Bounded.Unanswered.BUSY
         }
         call.start()
-        return withTimeoutOrNull(callTimeoutMs) { Bounded.Done(call.await()) }
+        return withTimeoutOrNull(timeoutMs) { Bounded.Done(call.await()) }
             ?: Bounded.Unanswered.TIMED_OUT.also {
-                Log.w(TAG, "a helper call did not answer within $callTimeoutMs ms and is left running")
+                Log.w(TAG, "a helper call did not answer within $timeoutMs ms and is left running")
             }
     }
 
@@ -283,6 +301,16 @@ internal class PrivilegedCallGuard(
          * but healthy helper as "unknown".
          */
         const val HELPER_CALL_TIMEOUT_MS: Long = 15_000
+
+        /**
+         * How long a caller waits for an exec (AD-053).
+         *
+         * The helper's own exec time-out, `PrivilegedServer.TIMEOUT_SECONDS`
+         * (15 s), plus 5 s for staging a reply of up to 444 KB and the
+         * transaction — derived, not measured. So a healthy helper with a slow
+         * child always answers first, with its own and more precise sentence.
+         */
+        const val EXEC_CALL_TIMEOUT_MS: Long = 20_000
 
         private const val TAG = "PrivilegedCallGuard"
 
