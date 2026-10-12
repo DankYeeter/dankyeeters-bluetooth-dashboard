@@ -41,6 +41,9 @@ jobs:
             "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" > /dev/null
       - name: Unit and Robolectric suite
         run: ./gradlew --continue test
+      - name: Room schema (to commit)
+        if: always()
+        run: cat core-monitor/schemas/*/4.json || true
       - name: Count tests
         if: always()
         run: |
@@ -64,8 +67,6 @@ jobs:
         with:
           name: test-results
           path: "**/build/test-results/**/*.xml"
-      - name: Room schema (to commit)
-        run: cat core-monitor/schemas/*/4.json
       - uses: actions/upload-artifact@v4
         with:
           name: room-schemas
