@@ -10,7 +10,7 @@ name: synthetic-tests
 
 on:
   push:
-    branches: [master, "claude/**"]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -60,6 +60,8 @@ jobs:
         with:
           name: test-results
           path: "**/build/test-results/**/*.xml"
+      - name: Room schema (to commit)
+        run: cat core-monitor/schemas/*/4.json
       - uses: actions/upload-artifact@v4
         with:
           name: room-schemas
@@ -100,14 +102,20 @@ jobs:
         run: |
           "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
             -gpu swiftshader_indirect -no-snapshot -camera-back none > emulator.log 2>&1 &
+          EMU=$!
           ADB="$ANDROID_HOME/platform-tools/adb"
-          "$ADB" wait-for-device
-          for i in $(seq 1 180); do
-            [ "$("$ADB" shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break
+          booted=0
+          for i in $(seq 1 300); do
+            kill -0 $EMU 2>/dev/null || { echo "emulator exited"; break; }
+            [ "$(timeout 5 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && { booted=1; break; }
             sleep 2
           done
+          if [ $booted != 1 ]; then tail -80 emulator.log; exit 1; fi
           "$ADB" shell getprop ro.build.version.release
           "$ADB" shell getprop ro.build.version.sdk
+      - name: Emulator log
+        if: failure()
+        run: tail -200 emulator.log || true
       - name: Probes
         run: bash ci/emulator-probe.sh apks/debug/app-debug.apk apks/androidTest/debug/app-debug-androidTest.apk probe-out
       - name: Summary
