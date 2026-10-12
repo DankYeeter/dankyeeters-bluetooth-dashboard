@@ -95,7 +95,7 @@ jobs:
           test -n "$IMG" || { echo "no API 37 image listed"; exit 1; }
           echo "IMG=$IMG" >> "$GITHUB_ENV"
           "$SDKM" emulator platform-tools "$IMG" > /dev/null
-          echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" -d pixel_9 --force
+          echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
       - name: Boot
         run: |
           "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
