@@ -82,6 +82,9 @@ jobs:
     needs: suite
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # avdmanager and the emulator disagree on the default AVD directory.
+      ANDROID_AVD_HOME: ${{ github.workspace }}/avd
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -101,6 +104,7 @@ jobs:
           IMG=$(grep -E 'android-37' images.txt | sort -V | tail -1)
           test -n "$IMG" || { echo "no API 37 image listed"; exit 1; }
           echo "IMG=$IMG" >> "$GITHUB_ENV"
+          mkdir -p "$ANDROID_AVD_HOME"
           "$SDKM" emulator platform-tools "$IMG" > /dev/null
           echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
       - name: Boot
