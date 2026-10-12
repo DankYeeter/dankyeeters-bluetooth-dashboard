@@ -132,8 +132,23 @@ jobs:
             tail -80 emulator.log
             exit 1
           fi
+          # sys.boot_completed can come before the first-boot restart of
+          # system_server; probing then hits a dying package manager. Wait for
+          # one system_server that answers pm and stays up for 30 s.
+          stable=0; last=""
+          for i in $(seq 1 60); do
+            pid=$(timeout 5 "$ADB" shell pidof system_server 2>/dev/null | tr -d '\r')
+            if [ -n "$pid" ] && [ "$pid" = "$last" ] && timeout 10 "$ADB" shell pm path android > /dev/null 2>&1; then
+              stable=$((stable + 1)); [ $stable -ge 3 ] && break
+            else
+              stable=0
+            fi
+            last=$pid; sleep 10
+          done
+          [ $stable -ge 3 ] || { echo "system_server never settled"; "$ADB" logcat -b crash -d | tail -60; exit 1; }
           "$ADB" shell getprop ro.build.version.release
           "$ADB" shell getprop ro.build.version.sdk
+          "$ADB" logcat -b crash -d | head -40
       - name: Emulator log
         if: failure()
         run: tail -200 emulator.log || true
