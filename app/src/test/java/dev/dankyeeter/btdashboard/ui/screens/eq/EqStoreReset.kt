@@ -47,3 +47,30 @@ private fun drainUntil(failure: String, done: () -> Boolean) {
         Thread.sleep(5)
     }
 }
+
+/**
+ * Waits until the store holds what this ViewModel shows, and its echo is in.
+ *
+ * Every save comes back through the store's flow. An echo of an earlier save
+ * that lands after a later edit puts the earlier curve back on screen until the
+ * newer echo follows, so a test asserting straight after a save could read
+ * the stale one.
+ */
+internal fun EqViewModel.awaitSaved() {
+    val shown = settings.value
+    drainUntil("the EQ was not saved") {
+        val stored = readStore()
+        stored.leftGainsDb == shown.leftGainsDb &&
+            stored.rightGainsDb == shown.rightGainsDb &&
+            stored.preGainDb == shown.preGainDb &&
+            stored.volumeAwareTilt == shown.volumeAwareTilt
+    }
+    shadowOf(Looper.getMainLooper()).idle()
+}
+
+private fun readStore(): EqSettings {
+    var stored: EqSettings? = null
+    val read = CoroutineScope(Dispatchers.IO).launch { stored = SystemGraph.settingsStore.current() }
+    drainUntil("the EQ store did not answer") { read.isCompleted }
+    return checkNotNull(stored)
+}

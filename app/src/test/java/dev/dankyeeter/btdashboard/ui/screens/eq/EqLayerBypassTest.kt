@@ -148,6 +148,7 @@ class EqLayerBypassTest {
         idle()
         viewModel.setVolumeAwareTilt(true)
         idle()
+        viewModel.awaitSaved()
 
         val before = viewModel.settings.value
         assertTrue(before.tiltGainsDb.any { it > 0f })

@@ -61,6 +61,7 @@ class EqHeadroomRecoveryTest {
         through.forEach { setLinkedBandGain(band, it) }
         persist()
         idle()
+        awaitSaved()
     }
 
     @Test
@@ -103,6 +104,8 @@ class EqHeadroomRecoveryTest {
 
         viewModel.persist()
         idle()
+
+        viewModel.awaitSaved()
         assertEquals(0f, viewModel.settings.value.preGainDb)
     }
 
@@ -130,6 +133,7 @@ class EqHeadroomRecoveryTest {
         // cannot become a second edit.
         viewModel.persist()
         idle()
+        viewModel.awaitSaved()
         assertEquals(settled, viewModel.settings.value)
     }
 
@@ -141,12 +145,16 @@ class EqHeadroomRecoveryTest {
 
         viewModel.setVolumeAwareTilt(true)
         idle()
+
+        viewModel.awaitSaved()
         val quiet = viewModel.settings.value
         assertTrue("expected a tilt at a tenth of the volume", quiet.tiltGainsDb.any { it > 0f })
         assertEquals(-quiet.tiltGainsDb.max(), quiet.preGainDb)
 
         viewModel.setVolumeAwareTilt(false)
         idle()
+
+        viewModel.awaitSaved()
         assertEquals(
             "the music stayed down with nothing boosted to justify it",
             0f,
@@ -166,9 +174,11 @@ class EqHeadroomRecoveryTest {
         idle()
         viewModel.setVolumeAwareTilt(true)
         idle()
+        viewModel.awaitSaved()
 
         viewModel.setVolumeAwareTilt(false)
         idle()
+        viewModel.awaitSaved()
         assertEquals(
             "the band is still boosted, so its headroom is still owed",
             -6f,
