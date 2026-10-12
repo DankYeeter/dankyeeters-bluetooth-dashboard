@@ -30,8 +30,16 @@ internal fun resetEqStore() {
     }
     val deadline = System.currentTimeMillis() + 10_000
     while (!reset.isCompleted) {
-        check(System.currentTimeMillis() < deadline) { "the EQ store did not reset within 10 s" }
+        check(System.currentTimeMillis() < deadline) { "the EQ store did not reset within 10 s\n" + storeThreads() }
         shadowOf(Looper.getMainLooper()).idle()
         Thread.sleep(5)
     }
 }
+
+/** Where the DataStore threads are stuck, for the failure message. */
+private fun storeThreads(): String =
+    Thread.getAllStackTraces().entries
+        .filter { (_, frames) -> frames.any { "datastore" in it.className } }
+        .joinToString("\n\n") { (thread, frames) ->
+            "${thread.name}:\n" + frames.take(25).joinToString("\n") { "  at $it" }
+        }
