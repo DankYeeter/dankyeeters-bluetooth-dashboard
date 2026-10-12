@@ -1,11 +1,6 @@
-# Synthetic test run without a phone.
-#
-# Job "suite": the JVM/Robolectric suite plus both APKs.
-# Job "android17": boots an Android 17 (API 37) emulator and runs the
-# device-side probes in ci/emulator-probe.sh against the debug build.
-#
-# What this cannot show: anything about the radio link (LDAC airtime, BQR
-# events, dropouts at 990 kbps). The emulator has no LDAC sink.
+# Synthetic test run without a phone: the JVM/Robolectric suite plus both
+# APKs. The Android 17 emulator probes live in android17-probes.yml and run
+# only on demand.
 name: synthetic-tests
 
 on:
@@ -41,9 +36,6 @@ jobs:
             "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" > /dev/null
       - name: Unit and Robolectric suite
         run: ./gradlew --continue test
-      - name: Room schema (to commit)
-        if: always()
-        run: cat core-monitor/schemas/*/4.json || true
       - name: Count tests
         if: always()
         run: |
@@ -67,103 +59,3 @@ jobs:
         with:
           name: test-results
           path: "**/build/test-results/**/*.xml"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: room-schemas
-          path: core-monitor/schemas/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-
-  android17:
-    needs: suite
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      # avdmanager and the emulator disagree on the default AVD directory.
-      ANDROID_AVD_HOME: ${{ github.workspace }}/avd
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: apks
-          path: apks
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Emulator image (API 37)
-        run: |
-          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" --list 2>/dev/null | grep -oE 'system-images;android-3[6-9][^ ]*;google_apis;x86_64' | sort -u | tee images.txt
-          IMG=$(grep -E 'android-37' images.txt | sort -V | tail -1)
-          test -n "$IMG" || { echo "no API 37 image listed"; exit 1; }
-          echo "IMG=$IMG" >> "$GITHUB_ENV"
-          mkdir -p "$ANDROID_AVD_HOME"
-          "$SDKM" emulator platform-tools "$IMG" > /dev/null
-          echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
-      - name: Boot
-        run: |
-          ADB="$ANDROID_HOME/platform-tools/adb"
-          # The emulator authorises adb with ~/.android/adbkey.pub; without the
-          # key the device stays "unauthorized" and never answers getprop.
-          mkdir -p ~/.android
-          "$ADB" start-server
-          ls -l /dev/kvm ~/.android/adbkey*
-          "$ANDROID_HOME/emulator/emulator" -accel-check
-          "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
-            -gpu swiftshader_indirect -no-snapshot -camera-back none \
-            -memory 4096 -cores 4 -feature -ReadColorBufferDma > emulator.log 2>&1 &
-          EMU=$!
-          booted=0
-          for i in $(seq 1 300); do
-            kill -0 $EMU 2>/dev/null || { echo "emulator exited"; break; }
-            [ "$(timeout 5 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && { booted=1; break; }
-            sleep 2
-          done
-          if [ $booted != 1 ]; then
-            "$ADB" devices -l
-            timeout 20 "$ADB" logcat -d 2>/dev/null | tail -60
-            tail -80 emulator.log
-            exit 1
-          fi
-          # -feature -ReadColorBufferDma: with it on, surfaceflinger in the
-          # API 37 image aborts in mapper.ranchu ("!hasReadColorBufferDma")
-          # and takes system_server down with it.
-          # sys.boot_completed can come before the first-boot restart of
-          # system_server; probing then hits a dying package manager. Wait for
-          # one system_server that answers pm and stays up for 30 s.
-          stable=0; last=""
-          for i in $(seq 1 60); do
-            pid=$(timeout 5 "$ADB" shell pidof system_server 2>/dev/null | tr -d '\r')
-            if [ -n "$pid" ] && [ "$pid" = "$last" ] && timeout 10 "$ADB" shell pm path android > /dev/null 2>&1; then
-              stable=$((stable + 1)); [ $stable -ge 3 ] && break
-            else
-              stable=0
-            fi
-            last=$pid; sleep 10
-          done
-          [ $stable -ge 3 ] || { echo "system_server never settled"; "$ADB" logcat -b crash -d | tail -60; exit 1; }
-          "$ADB" shell getprop ro.build.version.release
-          "$ADB" shell getprop ro.build.version.sdk
-          "$ADB" logcat -b crash -d | head -40
-      - name: Emulator log
-        if: failure()
-        run: tail -200 emulator.log || true
-      - name: Probes
-        run: bash ci/emulator-probe.sh apks/debug/app-debug.apk apks/androidTest/debug/app-debug-androidTest.apk probe-out
-      - name: Summary
-        if: always()
-        run: cat probe-out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: android17-probe
-          path: |
-            probe-out/
-            emulator.log
