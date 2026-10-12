@@ -36,7 +36,8 @@ note "- page size: $(sh_ getconf PAGE_SIZE)"
 
 section "Install"
 for apk in "$APP_APK" "$TEST_APK"; do
-    "$ADB" install -r -g "$apk" 2>&1 | tee -a "$SUMMARY" | grep '^Success' > /dev/null || { note "**install of $apk failed**"; exit 1; }
+    out=$("$ADB" install -r -g "$apk" 2>&1); echo "$out" | tee -a "$SUMMARY"
+    grep -q '^Success' <<< "$out" || { note "**install of $apk failed**"; exit 1; }
 done
 sh_ cmd bluetooth_manager enable > /dev/null; sleep 3
 note "- bluetooth: $(sh_ settings get global bluetooth_on)"

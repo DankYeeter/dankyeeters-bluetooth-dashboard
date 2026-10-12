@@ -118,7 +118,7 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -accel-check
           "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
             -gpu swiftshader_indirect -no-snapshot -camera-back none \
-            -memory 4096 -cores 4 > emulator.log 2>&1 &
+            -memory 4096 -cores 4 -feature -ReadColorBufferDma > emulator.log 2>&1 &
           EMU=$!
           booted=0
           for i in $(seq 1 300); do
@@ -132,6 +132,9 @@ jobs:
             tail -80 emulator.log
             exit 1
           fi
+          # -feature -ReadColorBufferDma: with it on, surfaceflinger in the
+          # API 37 image aborts in mapper.ranchu ("!hasReadColorBufferDma")
+          # and takes system_server down with it.
           # sys.boot_completed can come before the first-boot restart of
           # system_server; probing then hits a dying package manager. Wait for
           # one system_server that answers pm and stays up for 30 s.
