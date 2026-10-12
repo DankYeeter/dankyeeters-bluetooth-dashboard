@@ -37,7 +37,6 @@ jobs:
       matrix:
         include:
           - { api: "37.0", gpu: guest }
-          - { api: "37.0", gpu: swangle_indirect }
           - { api: "37.0", gpu: swiftshader_indirect }
           - { api: "36.1", gpu: swiftshader_indirect }
     timeout-minutes: 50
@@ -85,6 +84,9 @@ jobs:
         timeout-minutes: 25
         run: |
           ADB="$ANDROID_HOME/platform-tools/adb"
+          # -partition-size: with the default /data the image ran out of space
+          # ("Requested internal only, but not enough space", Bluetooth
+          # failing to save its config) and system_server kept restarting.
           # The emulator authorises adb with ~/.android/adbkey.pub; without the
           # key the device stays "unauthorized" and never answers getprop.
           mkdir -p ~/.android
@@ -93,7 +95,7 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -accel-check
           "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
             -gpu ${{ matrix.gpu }} -no-snapshot -camera-back none \
-            -memory 4096 -cores 4 > emulator.log 2>&1 &
+            -memory 4096 -cores 4 -partition-size 8192 > emulator.log 2>&1 &
           EMU=$!
           booted=0
           for i in $(seq 1 120); do
