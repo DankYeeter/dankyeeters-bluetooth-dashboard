@@ -60,6 +60,15 @@ jobs:
           mkdir -p apks
           cp app/build/outputs/apk/debug/app-debug.apk apks/
           cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk apks/
+      - name: Free runner disk
+        run: |
+          # The emulator's disk images live on the runner's disk; a full host
+          # disk shows up in the guest as failed writes and a crash-looping
+          # system_server.
+          ./gradlew --stop
+          rm -rf ~/.gradle/caches app/build/intermediates */build/intermediates
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk
+          df -h / | tail -1
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
@@ -120,7 +129,7 @@ jobs:
             else
               stable=0
             fi
-            echo "$(date +%T) system_server=${pid:-none} stable=$stable"
+            echo "$(date +%T) system_server=${pid:-none} stable=$stable data=$(timeout 5 "$ADB" shell df -h /data 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f2-5) host=$(df -h / | tail -1 | tr -s ' ' | cut -d' ' -f4)"
             last=$pid; sleep 10
           done
           [ $stable -ge 3 ] || { echo "system_server never settled"; timeout 20 "$ADB" logcat -b crash -d | tail -60; exit 1; }
