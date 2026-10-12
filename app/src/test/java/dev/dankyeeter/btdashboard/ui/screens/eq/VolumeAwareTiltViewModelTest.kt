@@ -126,14 +126,12 @@ class VolumeAwareTiltViewModelTest {
 
         viewModel.setVolumeAwareTilt(true)
         idle()
-
         viewModel.awaitSaved()
         assertTrue(viewModel.settings.value.tiltGainsDb.any { it > 0f })
         assertTrue(viewModel.settings.value.preGainDb < 0f)
 
         viewModel.setVolumeAwareTilt(false)
         idle()
-
         viewModel.awaitSaved()
 
         val off = viewModel.settings.value

@@ -104,7 +104,6 @@ class EqHeadroomRecoveryTest {
 
         viewModel.persist()
         idle()
-
         viewModel.awaitSaved()
         assertEquals(0f, viewModel.settings.value.preGainDb)
     }
@@ -145,7 +144,6 @@ class EqHeadroomRecoveryTest {
 
         viewModel.setVolumeAwareTilt(true)
         idle()
-
         viewModel.awaitSaved()
         val quiet = viewModel.settings.value
         assertTrue("expected a tilt at a tenth of the volume", quiet.tiltGainsDb.any { it > 0f })
@@ -153,7 +151,6 @@ class EqHeadroomRecoveryTest {
 
         viewModel.setVolumeAwareTilt(false)
         idle()
-
         viewModel.awaitSaved()
         assertEquals(
             "the music stayed down with nothing boosted to justify it",
