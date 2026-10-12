@@ -109,17 +109,29 @@ jobs:
           echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
       - name: Boot
         run: |
-          "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
-            -gpu swiftshader_indirect -no-snapshot -camera-back none > emulator.log 2>&1 &
-          EMU=$!
           ADB="$ANDROID_HOME/platform-tools/adb"
+          # The emulator authorises adb with ~/.android/adbkey.pub; without the
+          # key the device stays "unauthorized" and never answers getprop.
+          mkdir -p ~/.android
+          "$ADB" start-server
+          ls -l /dev/kvm ~/.android/adbkey*
+          "$ANDROID_HOME/emulator/emulator" -accel-check
+          "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
+            -gpu swiftshader_indirect -no-snapshot -camera-back none \
+            -memory 4096 -cores 4 > emulator.log 2>&1 &
+          EMU=$!
           booted=0
           for i in $(seq 1 300); do
             kill -0 $EMU 2>/dev/null || { echo "emulator exited"; break; }
             [ "$(timeout 5 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && { booted=1; break; }
             sleep 2
           done
-          if [ $booted != 1 ]; then tail -80 emulator.log; exit 1; fi
+          if [ $booted != 1 ]; then
+            "$ADB" devices -l
+            timeout 20 "$ADB" logcat -d 2>/dev/null | tail -60
+            tail -80 emulator.log
+            exit 1
+          fi
           "$ADB" shell getprop ro.build.version.release
           "$ADB" shell getprop ro.build.version.sdk
       - name: Emulator log
