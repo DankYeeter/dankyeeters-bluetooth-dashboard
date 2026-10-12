@@ -29,6 +29,17 @@ env:
 jobs:
   android17:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # The API 37 image's gralloc mapper aborts surfaceflinger under
+      # swiftshader_indirect ("!hasReadColorBufferDma"), so the GPU mode is
+      # part of the experiment. 36.1 is the reference that is known to boot.
+      matrix:
+        include:
+          - { api: "37.0", gpu: guest }
+          - { api: "37.0", gpu: swangle_indirect }
+          - { api: "37.0", gpu: swiftshader_indirect }
+          - { api: "36.1", gpu: swiftshader_indirect }
     timeout-minutes: 50
     env:
       # avdmanager and the emulator disagree on the default AVD directory.
@@ -60,7 +71,7 @@ jobs:
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" --list 2>/dev/null | grep -oE 'system-images;android-3[6-9][^ ]*;google_apis;x86_64' | sort -u | tee images.txt
-          IMG=$(grep -E 'android-37' images.txt | sort -V | tail -1)
+          IMG=$(grep -F 'android-${{ matrix.api }};' images.txt | tail -1)
           test -n "$IMG" || { echo "no API 37 image listed"; exit 1; }
           echo "IMG=$IMG" >> "$GITHUB_ENV"
           mkdir -p "$ANDROID_AVD_HOME"
@@ -81,8 +92,8 @@ jobs:
           ls -l /dev/kvm ~/.android/adbkey*
           "$ANDROID_HOME/emulator/emulator" -accel-check
           "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
-            -gpu swiftshader_indirect -no-snapshot -camera-back none \
-            -memory 4096 -cores 4 -feature -ReadColorBufferDma > emulator.log 2>&1 &
+            -gpu ${{ matrix.gpu }} -no-snapshot -camera-back none \
+            -memory 4096 -cores 4 > emulator.log 2>&1 &
           EMU=$!
           booted=0
           for i in $(seq 1 120); do
@@ -96,9 +107,6 @@ jobs:
             tail -80 emulator.log
             exit 1
           fi
-          # -feature -ReadColorBufferDma: with it on, surfaceflinger in the
-          # API 37 image aborts in mapper.ranchu ("!hasReadColorBufferDma")
-          # and takes system_server down with it.
           # sys.boot_completed can come before the first-boot restart of
           # system_server; probing then hits a dying package manager. Wait for
           # one system_server that answers pm and stays up for 30 s.
@@ -110,6 +118,7 @@ jobs:
             else
               stable=0
             fi
+            echo "$(date +%T) system_server=${pid:-none} stable=$stable"
             last=$pid; sleep 10
           done
           [ $stable -ge 3 ] || { echo "system_server never settled"; timeout 20 "$ADB" logcat -b crash -d | tail -60; exit 1; }
@@ -125,12 +134,12 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "boot: ${{ steps.boot.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### API ${{ matrix.api }}, gpu ${{ matrix.gpu }}: boot ${{ steps.boot.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           cat probe-out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android17-probe
+          name: probe-api${{ matrix.api }}-${{ matrix.gpu }}
           path: |
             probe-out/
             emulator.log
