@@ -1,12 +1,9 @@
 package dev.dankyeeter.btdashboard.ui.screens.eq
 
-import android.content.Context
 import android.os.Looper
-import androidx.test.core.app.ApplicationProvider
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeSource
 import dev.dankyeeter.btdashboard.audio.eq.VolumeAwareTilt
-import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,7 +47,7 @@ class EqHeadroomRecoveryTest {
 
     @Before
     fun setUp() {
-        SystemGraph.init(ApplicationProvider.getApplicationContext<Context>())
+        resetEqStore()
     }
 
     private fun idle() {

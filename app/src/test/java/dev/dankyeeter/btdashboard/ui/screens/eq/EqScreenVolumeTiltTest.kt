@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,6 +33,11 @@ class EqScreenVolumeTiltTest {
 
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Before
+    fun setUp() {
+        resetEqStore()
+    }
 
     private fun showScreen() {
         composeRule.setContent { BtDashboardTheme { EqScreen() } }
