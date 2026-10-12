@@ -633,7 +633,8 @@ class EqViewModel(
     private var compensationDrivesTheEq: Boolean = false
 
     /** True once the persisted EQ has arrived; see [syncGeneratedCurve]. */
-    private var settingsLoaded: Boolean = false
+    internal var settingsLoaded: Boolean = false
+        private set
 
     /** Writes the previewed curve into the live EQ and persists it. */
     fun applyCompensation() {

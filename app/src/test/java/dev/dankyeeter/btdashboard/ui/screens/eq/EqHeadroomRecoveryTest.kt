@@ -54,7 +54,7 @@ class EqHeadroomRecoveryTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    private fun viewModel(): EqViewModel = EqViewModel(volume).also { idle() }
+    private fun viewModel(): EqViewModel = EqViewModel(volume).awaitLoaded()
 
     /** One slider drag: a run of values, then the release. */
     private fun EqViewModel.drag(band: Int, through: List<Float>) {

@@ -57,7 +57,7 @@ class EqLayerBypassTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    private fun viewModel(): EqViewModel = EqViewModel(volume).also { idle() }
+    private fun viewModel(): EqViewModel = EqViewModel(volume).awaitLoaded()
 
     private fun curve(vararg gains: Float) = List(layout.bandCount) { gains.getOrElse(it) { 0f } }
 

@@ -60,7 +60,7 @@ class VolumeAwareTiltViewModelTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    private fun viewModel(): EqViewModel = EqViewModel(volume).also { idle() }
+    private fun viewModel(): EqViewModel = EqViewModel(volume).awaitLoaded()
 
     @Test
     fun `a volume change re-derives the band gains`() {
