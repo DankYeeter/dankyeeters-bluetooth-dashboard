@@ -3,7 +3,8 @@
 # Usage: emulator-probe.sh <app.apk> <androidTest.apk> <out-dir>
 #
 # Every probe records what it saw; none of them decides pass/fail on a finding.
-# The run fails only if the tooling itself breaks (install, instrumentation).
+# The run fails only if the install breaks; a failed instrumentation is
+# reported in the summary.
 set -uo pipefail
 
 APP_APK=$1
@@ -34,8 +35,9 @@ note "- release=$(sh_ getprop ro.build.version.release) sdk=$(sh_ getprop ro.bui
 note "- page size: $(sh_ getconf PAGE_SIZE)"
 
 section "Install"
-"$ADB" install -r -g "$APP_APK" | tee -a "$SUMMARY"
-"$ADB" install -r -g "$TEST_APK" | tee -a "$SUMMARY"
+for apk in "$APP_APK" "$TEST_APK"; do
+    "$ADB" install -r -g "$apk" 2>&1 | tee -a "$SUMMARY" | grep -q '^Success' || { note "**install of $apk failed**"; exit 1; }
+done
 sh_ cmd bluetooth_manager enable > /dev/null; sleep 3
 note "- bluetooth: $(sh_ settings get global bluetooth_on)"
 
