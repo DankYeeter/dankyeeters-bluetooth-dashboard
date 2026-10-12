@@ -2,9 +2,6 @@ package dev.dankyeeter.btdashboard.system.devices
 
 /** Media-stream volume, expressed in percent so the UI is device-independent. */
 interface MediaVolumeController {
-    /** Null when the audio service is unreachable. */
-    fun currentPercent(): Int?
-
     /** Returns false if the write was refused (e.g. DND / fixed-volume device). */
     fun setPercent(percent: Int): Boolean
 }

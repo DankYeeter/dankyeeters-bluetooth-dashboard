@@ -15,7 +15,6 @@ private class OneProfile(private val profile: DeviceProfile) : DeviceProfileSour
 }
 
 private class NoVolume : MediaVolumeController {
-    override fun currentPercent(): Int? = null
     override fun setPercent(percent: Int): Boolean = true
 }
 

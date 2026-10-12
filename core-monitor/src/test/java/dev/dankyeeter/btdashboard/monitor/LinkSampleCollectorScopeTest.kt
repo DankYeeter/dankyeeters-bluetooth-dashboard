@@ -8,7 +8,6 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.monitor.codec.CodecReadPath
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysDevice
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysSnapshot
-import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,7 +41,7 @@ class LinkSampleCollectorScopeTest {
         LinkSampleCollector(
             codecSource = FakeCodecStatusSource(devices = devices),
             dumpsysSource = FakeDumpsysLinkSource(dump),
-            qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+            qualityReportSource = FakeQualityReportSource("no BQR in tests"),
         )
 
     @Test
@@ -110,7 +109,7 @@ class RedactedAddressJoinTest {
                     ),
                 ),
             ),
-            qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+            qualityReportSource = FakeQualityReportSource("no BQR in tests"),
         )
 
         val samples = collector.collect()
@@ -139,7 +138,7 @@ class SampleProvenanceTest {
                 CodecStatus(family = CodecFamily.APTX, readVia = CodecReadPath.DUMPSYS),
             ),
             dumpsysSource = FakeDumpsysLinkSource(DumpsysSnapshot(), isAvailable = false),
-            qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+            qualityReportSource = FakeQualityReportSource("no BQR in tests"),
         )
 
         assertEquals(LinkDataSource.DUMPSYS, collector.collect().single().source)
@@ -155,7 +154,7 @@ class SampleProvenanceTest {
                 CodecStatus(family = CodecFamily.LDAC, readVia = CodecReadPath.SYSTEM_API),
             ),
             dumpsysSource = FakeDumpsysLinkSource(DumpsysSnapshot(), isAvailable = false),
-            qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+            qualityReportSource = FakeQualityReportSource("no BQR in tests"),
         )
 
         assertEquals(LinkDataSource.CODEC_API, collector.collect().single().source)

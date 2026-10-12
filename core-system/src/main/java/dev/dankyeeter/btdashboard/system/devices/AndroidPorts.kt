@@ -22,15 +22,6 @@ class SystemMediaVolumeController(context: Context) : MediaVolumeController {
     private val audio = context.applicationContext
         .getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
-    override fun currentPercent(): Int? {
-        val manager = audio ?: return null
-        return runCatching {
-            val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            if (max <= 0) return null
-            (manager.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max).roundToInt()
-        }.getOrNull()
-    }
-
     override fun setPercent(percent: Int): Boolean {
         val manager = audio ?: return false
         return runCatching {

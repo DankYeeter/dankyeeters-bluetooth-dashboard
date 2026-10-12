@@ -34,9 +34,6 @@ class HughsonWestlakeTestControllerTest {
         val activations = mutableListOf<Triple<ToneEar?, Double, Double>>()
         var respondCallback: (() -> Unit)? = null
 
-        override val isRunning: Boolean get() = startCalls > 0
-        override val sampleRate: Int get() = 48_000
-
         override fun start(): Boolean {
             startCalls++
             return startSucceeds
@@ -106,7 +103,7 @@ class HughsonWestlakeTestControllerTest {
         val completed = controller.state.first() as HearingTestState.Completed
         assertEquals(1, completed.run.left.size)
         assertEquals(1, completed.run.right.size)
-        assertTrue(tone.activations.none { it.first == ToneEar.BOTH })
+        assertTrue(tone.activations.all { it.first == ToneEar.LEFT || it.first == ToneEar.RIGHT })
         // Left is measured before right.
         assertEquals(ToneEar.LEFT, tone.activations.first().first)
         assertEquals(ToneEar.RIGHT, tone.activations.last().first)

@@ -68,21 +68,14 @@ class SpatializerRoutingProbeTest {
         try {
             track.play()
 
-            // Read the gains back *after* playback has started. Attaching
-            // happens while the speaker thread is still the active output;
-            // starting the track moves the whole chain to the A2DP/spatializer
-            // thread, and AudioFlinger re-creates the effect to do it. If that
-            // rebuild drops the configuration, the effect is present, enabled,
-            // and flat - which is exactly what "sounds identical" looks like.
+            // Attaching happens while the speaker thread is still the active
+            // output; starting the track moves the whole chain to the
+            // A2DP/spatializer thread, and AudioFlinger re-creates the effect to
+            // do it. If that rebuild drops the configuration, the effect is
+            // present, enabled, and flat - which is exactly what "sounds
+            // identical" looks like. So wait for the move, then re-apply now
+            // that the chain has settled on the real output.
             Thread.sleep(2500)
-            fun report(when_: String) {
-                val g = global?.readBandGain(Ear.LEFT, 8)
-                val se = session?.readBandGain(Ear.LEFT, 8)
-                println("PROBE $when_: band8 gain global=$g session=$se (expected -15.0)")
-            }
-            report("after playback started")
-
-            // Re-apply now that the chain has settled on the real output.
             listOfNotNull(global, session).forEach {
                 it.apply(
                     EqSettings(
@@ -95,7 +88,6 @@ class SpatializerRoutingProbeTest {
                     ),
                 )
             }
-            report("after re-apply")
 
             val chunk = ShortArray(sampleRate / 4 * 2)
             val rng = Random(7)

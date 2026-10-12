@@ -266,7 +266,6 @@ class EqCandidateScannerTest {
 
         scanner.scan()
         scanner.invalidate()
-        assertFalse(scanner.hasCachedPass)
         scanner.scan()
         assertEquals(2, source.reads)
 
@@ -334,7 +333,6 @@ class EqCandidateScannerTest {
         val scanner = scanner(source)
 
         assertFalse(scanner.scan().available)
-        assertFalse(scanner.hasCachedPass)
 
         source.result = available(app("com.example.player", permission = true))
         assertTrue(scanner.scan().available)

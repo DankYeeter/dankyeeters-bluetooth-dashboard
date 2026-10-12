@@ -66,8 +66,4 @@ object PlaybackSessionParser {
                 PlayingSession(session, UID.find(line)?.groupValues?.get(1)?.toIntOrNull() ?: -1)
             }
             .toSet()
-
-    /** Session ids of everything currently playing media. Never contains 0. */
-    fun activeMediaSessions(dumpsysAudio: String): Set<Int> =
-        activeMediaPlayers(dumpsysAudio).map { it.sessionId }.toSet()
 }

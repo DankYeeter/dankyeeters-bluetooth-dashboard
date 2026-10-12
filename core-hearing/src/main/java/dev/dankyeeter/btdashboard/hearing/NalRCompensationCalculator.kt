@@ -2,9 +2,7 @@ package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
-import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
-import kotlin.math.abs
 
 /**
  * The compensation pipeline of COMPENSATION.md section 3, implemented step for
@@ -27,26 +25,16 @@ import kotlin.math.abs
  */
 class NalRCompensationCalculator(
     private val presets: CalibrationPresetRepository = BundledCalibrationPresets,
-) : CompensationCalculator {
-
-    override fun compute(
-        audiogram: Audiogram,
-        calibrationPresetId: String,
-        intensity: Float,
-        partialFactor: Float,
-    ): EqSettings = compute(audiogram, calibrationPresetId, intensity, partialFactor, EqBandLayout.DEFAULT)
-
-    fun compute(
-        audiogram: Audiogram,
-        calibrationPresetId: String,
-        intensity: Float,
-        partialFactor: Float,
-        layout: EqBandLayout,
-    ): EqSettings = computeDetailed(audiogram, calibrationPresetId, intensity, partialFactor, layout).eq
+) {
 
     /**
-     * Same computation as [compute] but keeps the intermediate values the EQ
-     * screen shows (PTA, insertion gain before scaling, per-ear band gains).
+     * Turns an audiogram into per-ear band gains. [CompensationResult.eq] is
+     * sanitized and carries negative pre-gain headroom; the rest are the
+     * intermediate values the EQ screen shows (PTA, insertion gain before
+     * scaling, per-ear band gains).
+     *
+     * @param intensity 0.0..1.0 user slider
+     * @param partialFactor protocol partial compensation factor
      */
     fun computeDetailed(
         audiogram: Audiogram,
@@ -78,7 +66,6 @@ class NalRCompensationCalculator(
         return CompensationResult(
             eq = eq,
             preset = preset,
-            effectiveStrength = strength,
             left = left,
             right = right,
         )
@@ -271,10 +258,6 @@ class NalRCompensationCalculator(
                 MAX_SLOPE_DB_PER_OCTAVE * octaves
             }
         }
-
-        /** Largest absolute inter-band step; for tests and the UI's warnings. */
-        fun maxSlopeDbPerOctave(values: List<Double>): Double =
-            (1 until values.size).maxOfOrNull { abs(values[it] - values[it - 1]) } ?: 0.0
     }
 }
 
@@ -320,8 +303,6 @@ data class PeakBand(
 data class CompensationResult(
     val eq: EqSettings,
     val preset: CalibrationPreset,
-    /** `intensity * partialFactor`, clamped to 0..1. */
-    val effectiveStrength: Double,
     val left: EarCompensation,
     val right: EarCompensation,
 ) {

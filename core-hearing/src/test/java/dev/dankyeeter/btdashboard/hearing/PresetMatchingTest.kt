@@ -63,7 +63,7 @@ class PresetMatchingTest {
             "AirPods 3",
             "AirPods 2",
         ).forEach { name ->
-            val preset = PresetMatching.presetFor(name, repository)
+            val preset = PresetMatching.presetIdFor(name)?.let(repository::byId)
             assertEquals("no preset for $name", true, preset != null)
         }
     }

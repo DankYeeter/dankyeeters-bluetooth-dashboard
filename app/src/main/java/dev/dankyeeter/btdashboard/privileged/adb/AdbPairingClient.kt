@@ -76,18 +76,15 @@ internal class AdbPairingClient(
         )
 
         val ourSpake = AdbPairingPacket(AdbPairingPacket.TYPE_SPAKE2_MSG, spake2.myMessage)
-        PairingTrace.sent(ourSpake)
         ourSpake.writeTo(output)
 
         val theirSpake = AdbPairingPacket.readFrom(input)
-        PairingTrace.received(theirSpake)
         if (theirSpake.type != AdbPairingPacket.TYPE_SPAKE2_MSG) {
             return Result.Failed("expected SPAKE2_MSG, got $theirSpake")
         }
 
         val keyMaterial = spake2.computeKey(theirSpake.payload)
             ?: return Result.Failed("peer sent a SPAKE2 message that is not a curve point")
-        PairingTrace.keyDerived(keyMaterial)
         val cipher = AdbPairingCipher(keyMaterial)
 
         val ourInfo = AdbPeerInfo.encodeRsaPublicKey(keyStore.adbFormatPublicKey())
@@ -95,11 +92,9 @@ internal class AdbPairingClient(
             AdbPairingPacket.TYPE_PEER_INFO,
             cipher.encrypt(ourInfo),
         )
-        PairingTrace.sent(ourInfoPacket)
         ourInfoPacket.writeTo(output)
 
         val theirInfo = AdbPairingPacket.readFrom(input)
-        PairingTrace.received(theirInfo)
         if (theirInfo.type != AdbPairingPacket.TYPE_PEER_INFO) {
             return Result.Failed("expected PEER_INFO, got $theirInfo")
         }

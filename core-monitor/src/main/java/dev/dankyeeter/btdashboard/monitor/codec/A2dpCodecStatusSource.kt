@@ -15,7 +15,6 @@ import dev.dankyeeter.btdashboard.monitor.link.ConnectionTicks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 
@@ -161,9 +160,7 @@ class A2dpCodecStatusSource(
                 ?: return CodecReadResult.Unsupported("getCodecStatus() returned null")
             val config = invokeOrNull(status, "getCodecConfig")
                 ?: return CodecReadResult.Unsupported("no codec config in status")
-            CodecReadResult.Available(
-                readConfig(config).copy(selectableCodecs = readSelectable(status)),
-            )
+            CodecReadResult.Available(readConfig(config))
         }.getOrElse { t ->
             // NoSuchMethodException on OEM stubs, SecurityException without
             // BLUETOOTH_PRIVILEGED, anything else from a vendor implementation.
@@ -206,14 +203,6 @@ class A2dpCodecStatusSource(
         )
     }
 
-    private fun readSelectable(status: Any): List<CodecFamily> = runCatching {
-        @Suppress("UNCHECKED_CAST")
-        val list = invokeOrNull(status, "getCodecsSelectableCapabilities") as? List<Any> ?: return emptyList()
-        list.mapNotNull { CodecDecoding.codecFamily(invokeOrNull(it, "getCodecType") as? Int) }
-            .filter { it != CodecFamily.UNKNOWN }
-            .distinct()
-    }.getOrDefault(emptyList())
-
     private fun invokeOrNull(target: Any, method: String): Any? = runCatching {
         target.javaClass.getMethod(method).apply { isAccessible = true }.invoke(target)
     }.getOrNull()
@@ -221,13 +210,4 @@ class A2dpCodecStatusSource(
     private companion object {
         const val TAG = "A2dpCodecStatus"
     }
-}
-
-/** Used when Bluetooth itself is missing (emulator, disabled adapter). */
-object UnavailableCodecStatusSource : CodecStatusSource {
-    override suspend fun connectedDevices(): List<BtAudioDevice> = emptyList()
-    override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> = flowOf(emptyList())
-    override suspend fun codecStatus(address: String): CodecReadResult =
-        CodecReadResult.Unsupported("Bluetooth unavailable")
-    override val isProfileAvailable: Boolean get() = false
 }

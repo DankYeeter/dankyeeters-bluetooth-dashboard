@@ -65,14 +65,12 @@ object Iso226 {
     )
 
     /**
-     * The frequency the phon scale is defined at: there, and only there, a
-     * loudness level of N phon *is* N dB SPL. Every curve in here is
-     * normalised against this point rather than against a band average,
+     * Index of 1 kHz, the frequency the phon scale is defined at: there, and
+     * only there, a loudness level of N phon *is* N dB SPL. Every curve in here
+     * is normalised against this point rather than against a band average,
      * because that is the one place where "same number, same meaning" is a
      * definition instead of a choice.
      */
-    const val ANCHOR_HZ: Float = 1000f
-
     private const val ANCHOR_INDEX = 17
 
     /**
@@ -102,7 +100,7 @@ object Iso226 {
 
     /**
      * The **shape** difference between listening at [currentPhon] and at
-     * [referencePhon], anchored at [ANCHOR_HZ].
+     * [referencePhon], anchored at 1 kHz.
      *
      * Read it as: playing a programme mixed for the reference loudness at the
      * lower current loudness attenuates every frequency by the same physical

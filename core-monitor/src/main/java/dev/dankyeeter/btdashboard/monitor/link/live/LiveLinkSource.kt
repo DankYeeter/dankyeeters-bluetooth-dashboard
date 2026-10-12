@@ -87,12 +87,7 @@ class LiveLinkSource(
     /**
      * The encoder-starvation detector.
      *
-     * Fed from [updates] only, never from [readOnce]. That split is deliberate:
-     * `readOnce` is also used by `CodecModeCalibrator`, which *renegotiates the
-     * codec on purpose* and restarts the A2DP stream several times in a row —
-     * exactly the kind of burst the tripwire is built to ignore, and exactly the
-     * kind it would mistake for the real thing if it were advanced there.
-     * Detection belongs to the poll loop because only the poll loop is a series
+     * Fed from [updates] only, never from [readOnce]. Detection belongs to the poll loop because only the poll loop is a series
      * of comparable, evenly spaced observations of one link.
      */
     private val starvation = EncoderStarvationTripwire()

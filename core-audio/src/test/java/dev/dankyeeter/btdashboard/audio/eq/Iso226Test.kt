@@ -37,7 +37,7 @@ class Iso226Test {
      */
     @Test
     fun `the formula returns the phon it was given at one kilohertz`() {
-        val anchor = index(Iso226.ANCHOR_HZ)
+        val anchor = index(1000f)
         var phon = Iso226.MIN_PHON
         while (phon <= Iso226.MAX_PHON) {
             assertEquals(
@@ -78,7 +78,7 @@ class Iso226Test {
 
     @Test
     fun `levels outside the standard's range are clamped rather than extrapolated`() {
-        val anchor = index(Iso226.ANCHOR_HZ)
+        val anchor = index(1000f)
         assertEquals(
             Iso226.soundPressureLevelDb(anchor, Iso226.MIN_PHON),
             Iso226.soundPressureLevelDb(anchor, 0f),
@@ -102,7 +102,7 @@ class Iso226Test {
 
     @Test
     fun `the tilt is anchored at one kilohertz for every level`() {
-        val anchor = index(Iso226.ANCHOR_HZ)
+        val anchor = index(1000f)
         listOf(40f, 50f, 60f, 70f, 78f, 85f, 90f).forEach { level ->
             assertEquals(
                 "anchor at $level phon",

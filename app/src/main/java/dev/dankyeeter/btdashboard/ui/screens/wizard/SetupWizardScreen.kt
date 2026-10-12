@@ -43,7 +43,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateStep
-import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.setup.SetupStep
 import dev.dankyeeter.btdashboard.system.setup.SetupStepState
 import dev.dankyeeter.btdashboard.system.setup.SetupStepStatus

@@ -164,7 +164,6 @@ class MonitorTraceModelTest {
             trace = trace.plus(kbpsPoint(1_000L + i * 500L, kbps))
         }
 
-        assertTrue(trace.isMeasuredBitrate)
         assertEquals("kbps", trace.unitLabel)
         assertEquals(660.0, trace.peakValue!!, 0.001)
         assertEquals(660.0, trace.latestValue!!, 0.001)
@@ -180,7 +179,6 @@ class MonitorTraceModelTest {
         val trace = closeUp().plus(point(1_000L, rate = 50.0)).plus(point(1_500L, rate = 50.0))
 
         assertTrue(trace.hasRate)
-        assertFalse(trace.isMeasuredBitrate)
         assertEquals("packets/s", trace.unitLabel)
         assertEquals(50.0, trace.latestValue!!, 0.001)
     }

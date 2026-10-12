@@ -29,7 +29,6 @@ import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
@@ -164,10 +163,7 @@ class MonitorViewModel : ViewModel() {
      * ever collected, which matters: a pass is three `dumpsys` execs and two
      * loops would double that for one panel.
      *
-     * Events are taken from this same collection rather than from
-     * `MonitorGraph.liveLinkEvents` for the same reason. That property is a
-     * second view on the shared default loop, so collecting it beside a
-     * non-default rate here would quietly start the polling twice over.
+     * Events are taken from this same collection for the same reason.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val liveUpdates: SharedFlow<LinkLiveUpdate> = _liveIntervalMs

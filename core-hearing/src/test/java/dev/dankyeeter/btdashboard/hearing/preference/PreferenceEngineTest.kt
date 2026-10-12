@@ -324,22 +324,24 @@ class PreferenceEngineTest {
 
     @Test
     fun `repeats never move the estimate`() {
-        val engine = PreferenceEngine(random = Random(23))
-        var beforeValidation: PreferenceCandidate? = null
-        var guard = 0
-        while (true) {
-            when (val step = engine.next()) {
-                is PreferenceEngine.Step.Finished -> break
-                is PreferenceEngine.Step.Compare -> {
-                    if (step.repeat && beforeValidation == null) {
-                        beforeValidation = engine.currentEstimate
-                    }
-                    engine.record(PreferenceChoice.A)
-                }
+        // Two runs with the same seed and the same search answers; only the
+        // validation answers differ. If a repeat could move the estimate, the
+        // two results would part.
+        fun run(repeatChoice: PreferenceChoice): PreferenceCandidate {
+            val engine = PreferenceEngine(random = Random(23))
+            var step = engine.next()
+            var guard = 0
+            var repeats = 0
+            while (step is PreferenceEngine.Step.Compare) {
+                if (step.repeat) repeats++
+                engine.record(if (step.repeat) repeatChoice else PreferenceChoice.A)
+                step = engine.next()
+                check(guard++ < 100)
             }
-            check(guard++ < 100)
+            check(repeats > 0) { "the run asked no validation pair" }
+            return (step as PreferenceEngine.Step.Finished).result.candidate
         }
-        assertEquals(beforeValidation, engine.currentEstimate)
+        assertEquals(run(PreferenceChoice.A), run(PreferenceChoice.B))
     }
 
     // ---- carry-over ----------------------------------------------------------

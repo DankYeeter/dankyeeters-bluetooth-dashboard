@@ -36,17 +36,6 @@ interface QualityReportSource {
     fun samples(): Flow<LinkQualitySample>
 }
 
-/** Explicit "we have no BQR" implementation used below API 33 and in tests. */
-class UnavailableQualityReportSource(reason: String) : QualityReportSource {
-    private val state = MutableStateFlow<QualityReportAvailability>(
-        QualityReportAvailability.Unavailable(reason),
-    )
-    override val availability: StateFlow<QualityReportAvailability> = state
-    override suspend fun start() = state.value
-    override suspend fun stop() = Unit
-    override fun samples(): Flow<LinkQualitySample> = emptyFlow()
-}
-
 /**
  * Best-effort BQR registration, attempted reflectively from the app uid.
  *

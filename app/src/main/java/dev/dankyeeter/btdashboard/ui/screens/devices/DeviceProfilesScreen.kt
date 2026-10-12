@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,8 +61,6 @@ import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import kotlin.math.roundToInt
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
-import dev.dankyeeter.btdashboard.ui.theme.GoldCard
-import dev.dankyeeter.btdashboard.ui.theme.GoldTitle
 import dev.dankyeeter.btdashboard.ui.theme.GoldButton
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel

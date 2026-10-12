@@ -77,18 +77,6 @@ class PrivilegedProtocolTest {
     // ---- the wire format ----------------------------------------------------
 
     @Test
-    fun `auth survives a round trip`() {
-        val token = "6f5c1e8a-0b3d-4a71-9e2f-1c4d5b6a7f80"
-        assertEquals(token, PrivilegedProtocol.decodeAuth(PrivilegedProtocol.encodeAuth(token)))
-    }
-
-    @Test
-    fun `a command survives a round trip`() {
-        val command = listOf("ps", "-A", "-o", "PID,NAME")
-        assertEquals(command, PrivilegedProtocol.decodeRun(PrivilegedProtocol.encodeRun(command)))
-    }
-
-    @Test
     fun `output containing newlines survives, which is the point of the encoding`() {
         // Every dumpsys reply is full of newlines. A plain-text line protocol
         // would have the first one end the message and the rest be parsed as
@@ -123,19 +111,12 @@ class PrivilegedProtocolTest {
         // The helper reads from a socket anything on the device may connect to.
         // Malformed input has to be a refusable value, not a crash of a
         // privileged process.
-        listOf("", "RUN", "RUN !!!not base64!!!", "OK", "OK x y z", "NONSENSE").forEach {
-            assertNull("decodeRun($it)", PrivilegedProtocol.decodeRun(it))
+        listOf("", "OK", "OK x y z", "OK 0 !!! !!!", "ERR", "NONSENSE").forEach {
+            assertNull("decodeResult($it)", PrivilegedProtocol.decodeResult(it))
+            assertNull("decodeError($it)", PrivilegedProtocol.decodeError(it))
         }
-        assertNull(PrivilegedProtocol.decodeAuth("AUTH"))
         assertNull(PrivilegedProtocol.decodeResult("OK notanumber a b"))
         assertNull(PrivilegedProtocol.decodeError("OK 0 a b"))
-    }
-
-    @Test
-    fun `a result line is not mistaken for a command line`() {
-        val result = PrivilegedProtocol.encodeResult(0, "x", "")
-        assertNull(PrivilegedProtocol.decodeRun(result))
-        assertNull(PrivilegedProtocol.decodeAuth(result))
     }
 
     // ---- codec replies ------------------------------------------------------
@@ -193,7 +174,6 @@ class PrivilegedProtocolTest {
     fun `a codec line is not mistaken for anything else, and vice versa`() {
         val codec = PrivilegedProtocol.encodeCodec(CodecObservation(family = "SBC"))
         assertNull(PrivilegedProtocol.decodeResult(codec))
-        assertNull(PrivilegedProtocol.decodeRun(codec))
         assertNull(PrivilegedProtocol.decodeError(codec))
 
         assertNull(PrivilegedProtocol.decodeCodec(PrivilegedProtocol.encodeError("nope")))
@@ -248,7 +228,6 @@ class PrivilegedProtocolTest {
         assertNull(PrivilegedProtocol.decodeResult(staged))
         assertNull(PrivilegedProtocol.decodeError(staged))
         assertNull(PrivilegedProtocol.decodeCodec(staged))
-        assertNull(PrivilegedProtocol.decodeRun(staged))
 
         assertNull(PrivilegedProtocol.decodeFileResult(PrivilegedProtocol.encodeResult(0, "a", "b")))
         assertNull(PrivilegedProtocol.decodeFileResult(PrivilegedProtocol.encodeError("nope")))
@@ -389,11 +368,11 @@ class PrivilegedProtocolTest {
                 "setOptionalCodecs",
                 "shutdown",
             ),
-            PrivilegedProtocol.WRITE_OPERATIONS.map { it.aidlName }.sorted(),
+            PrivilegedProtocol.PrivilegedOperation.entries.filter { it.mutates }.map { it.aidlName }.sorted(),
         )
         assertEquals(
             listOf("codecStatus", "exec", "optionalCodecs", "version"),
-            PrivilegedProtocol.READ_OPERATIONS.map { it.aidlName }.sorted(),
+            PrivilegedProtocol.PrivilegedOperation.entries.filterNot { it.mutates }.map { it.aidlName }.sorted(),
         )
     }
 
@@ -438,14 +417,5 @@ class PrivilegedProtocolTest {
             PrivilegedProtocol.ALLOWED.all { it.first() == "dumpsys" || it.first() == "ps" },
         )
         assertFalse(PrivilegedProtocol.PrivilegedOperation.EXEC.mutates)
-    }
-
-    @Test
-    fun `operations can be found by their AIDL name`() {
-        assertEquals(
-            PrivilegedProtocol.PrivilegedOperation.SET_CODEC_PREFERENCE,
-            PrivilegedProtocol.PrivilegedOperation.byAidlName("setCodecPreference"),
-        )
-        assertNull(PrivilegedProtocol.PrivilegedOperation.byAidlName("nothingLikeThat"))
     }
 }

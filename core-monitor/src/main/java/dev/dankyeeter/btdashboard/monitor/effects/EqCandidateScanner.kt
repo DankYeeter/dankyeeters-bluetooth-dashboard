@@ -100,8 +100,6 @@ class EqCandidateScanner(
         cache = null
     }
 
-    val hasCachedPass: Boolean get() = cache != null
-
     /**
      * @param refresh forces a new package pass even when a cached one exists.
      *   Wired to the explicit "check again" button, never to anything periodic.

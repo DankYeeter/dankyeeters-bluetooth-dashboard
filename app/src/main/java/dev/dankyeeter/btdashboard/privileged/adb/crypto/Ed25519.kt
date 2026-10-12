@@ -196,16 +196,6 @@ internal object Ed25519 {
     }
 
     fun scalarMultiplyBase(scalar: BigInteger): Point = scalarMultiply(scalar, B)
-
-    /** Whether the point satisfies the curve equation. Used to reject peer input. */
-    fun isOnCurve(p: Point): Boolean {
-        val (x, y) = p.toAffine()
-        val x2 = x.multiply(x).mod(P)
-        val y2 = y.multiply(y).mod(P)
-        val left = (y2 - x2).mod(P)
-        val right = (BigInteger.ONE + D.multiply(x2).multiply(y2)).mod(P)
-        return left == right
-    }
 }
 
 /** Little-endian, fixed width, because every Ed25519 encoding is. */

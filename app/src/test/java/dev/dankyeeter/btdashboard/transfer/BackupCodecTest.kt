@@ -60,8 +60,8 @@ class BackupCodecTest {
 
     private fun eq(): EqSettings = EqSettings(
         enabled = true,
-        leftGainsDb = List(EqBands.COUNT) { it * 0.5f },
-        rightGainsDb = List(EqBands.COUNT) { it * 0.25f },
+        leftGainsDb = List(EqBandLayout.DEFAULT.bandCount) { it * 0.5f },
+        rightGainsDb = List(EqBandLayout.DEFAULT.bandCount) { it * 0.25f },
         preGainDb = -4.5f,
         limiterEnabled = true,
     ).sanitized()
@@ -394,8 +394,8 @@ class BackupCodecTest {
     fun `out of range imported gains are clamped by the mapper`() {
         val hostile = BackupEq(
             enabled = true,
-            leftGainsDb = List(EqBands.COUNT) { 99f },
-            rightGainsDb = List(EqBands.COUNT) { -99f },
+            leftGainsDb = List(EqBandLayout.DEFAULT.bandCount) { 99f },
+            rightGainsDb = List(EqBandLayout.DEFAULT.bandCount) { -99f },
             preGainDb = 40f,
             limiterEnabled = true,
         )

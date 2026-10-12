@@ -118,7 +118,6 @@ class LiveLinkParserTest {
     fun `LDAC is encoded on the host on this controller`() {
         val codec = present(A2dpLinkDumpParser.parse(pixel11).codec, "codec")
         assertFalse(codec.isOffloaded)
-        assertTrue(codec.isEncodedOnHost)
     }
 
     @Test

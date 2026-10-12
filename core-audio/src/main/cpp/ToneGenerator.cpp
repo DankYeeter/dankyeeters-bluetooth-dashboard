@@ -87,7 +87,6 @@ void ToneGenerator::setLevelDbFs(double db) {
     const double clamped = std::min(0.0, db);
     const double amplitude = std::pow(10.0, clamped / 20.0);
     mTargetAmplitude.store(amplitude, std::memory_order_relaxed);
-    mSettled.store(false, std::memory_order_relaxed);
 }
 
 void ToneGenerator::setChannel(ToneChannel channel) {
@@ -96,7 +95,6 @@ void ToneGenerator::setChannel(ToneChannel channel) {
 
 void ToneGenerator::setToneActive(bool active) {
     mActive.store(active, std::memory_order_relaxed);
-    mSettled.store(false, std::memory_order_relaxed);
 }
 
 void ToneGenerator::setRampMs(double ms) {
@@ -124,7 +122,6 @@ oboe::DataCallbackResult ToneGenerator::onAudioReady(oboe::AudioStream * /*strea
                 std::max(1.0, mRampMs.load(std::memory_order_relaxed) * 0.001 * mSampleRate);
         mRampPosition = 0.0;
         mRampArmed = true;
-        mSettled.store(false, std::memory_order_relaxed);
     }
 
     const bool leftOn = channel != static_cast<int32_t>(ToneChannel::Right);
@@ -151,15 +148,12 @@ oboe::DataCallbackResult ToneGenerator::onAudioReady(oboe::AudioStream * /*strea
         out[i * kChannelCount + 1] = rightOn ? sample : 0.0f;
     }
 
-    if (mRampPosition >= mRampLengthSamples) {
-        mSettled.store(true, std::memory_order_relaxed);
-    }
     return oboe::DataCallbackResult::Continue;
 }
 
 void ToneGenerator::onErrorAfterClose(oboe::AudioStream * /*stream*/, oboe::Result error) {
-    // Typical cause: the Bluetooth device disconnected mid-test. The Kotlin
-    // layer polls isRunning() and aborts the run; we just drop the stream here.
+    // Typical cause: the Bluetooth device disconnected mid-test. We just drop
+    // the stream here.
     LOGW("Stream closed with error: %s", oboe::convertToText(error));
     mStream.reset();
     mSampleRate = 0;

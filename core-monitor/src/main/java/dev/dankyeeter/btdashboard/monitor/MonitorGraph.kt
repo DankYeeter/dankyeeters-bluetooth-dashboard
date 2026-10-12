@@ -11,7 +11,6 @@ import dev.dankyeeter.btdashboard.monitor.codec.FallbackCodecStatusSource
 import dev.dankyeeter.btdashboard.monitor.data.InMemoryMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.MonitorRepository
-import dev.dankyeeter.btdashboard.monitor.data.RoomCodecModeSignatureStore
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
@@ -26,16 +25,8 @@ import dev.dankyeeter.btdashboard.monitor.link.BluetoothBroadcastSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportSource
 import dev.dankyeeter.btdashboard.monitor.link.ReflectiveQualityReportSource
-import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeCalibrator
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModePinner
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeSignatureStore
-import dev.dankyeeter.btdashboard.monitor.link.live.InMemoryCodecModeSignatureStore
-import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
-import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
-import dev.dankyeeter.btdashboard.monitor.link.live.NoOpCodecModePinner
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
@@ -44,15 +35,10 @@ import dev.dankyeeter.btdashboard.monitor.shell.UnavailableShellRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.flow.transform
 
 /**
  * Process-wide wiring for the monitor, in the same hand-rolled style as
@@ -66,7 +52,6 @@ object MonitorGraph {
     private var _db: MonitorDatabase? = null
     private var _repository: MonitorRepository? = null
     private var _codecSource: CodecStatusSource? = null
-    private var _a2dp: A2dpCodecStatusSource? = null
     private var _engine: MonitorEngine? = null
     private var _bqr: QualityReportSource? = null
     private var _scanner: ForeignEqScanner? = null
@@ -151,11 +136,6 @@ object MonitorGraph {
     /**
      * The one Room instance in the process.
      *
-     * Cached because two consumers now want it — the history repository and the
-     * calibration store — and building two `MonitorDatabase` handles onto the
-     * same file gives each its own connection pool and its own invalidation
-     * tracker for no benefit whatsoever.
-     *
      * Null only when construction itself throws. Note that Room opens the file
      * lazily, so an unopenable or un-migratable database does not fail here: it
      * fails on the first DAO call, which is why every consumer wraps its own
@@ -191,10 +171,8 @@ object MonitorGraph {
     val codecSource: CodecStatusSource
         get() = synchronized(lock) {
             _codecSource ?: run {
-                val a2dp = A2dpCodecStatusSource(ctx()).also { it.connect() }
-                _a2dp = a2dp
                 FallbackCodecStatusSource(
-                    primary = a2dp,
+                    primary = A2dpCodecStatusSource(ctx()).also { it.connect() },
                     dumpsys = cachedDumpsys(),
                 ).also { _codecSource = it }
             }
@@ -208,17 +186,11 @@ object MonitorGraph {
     // ---- live link view ------------------------------------------------------
     //
     // The API a screen showing "what is happening on the link right now" builds
-    // against. Three properties, and which one to use is decided by what the
-    // screen draws:
-    //
-    //   liveLinkUpdates   one poll: the reading and the changes together.
-    //                     Use this when a panel shows both.
-    //   liveLinkSnapshots just the readings — the numbers panel.
-    //   liveLinkEvents    just the changes — the timeline.
-    //
-    // All three are views on one shared poll loop. Collecting all three costs
-    // the same as collecting one; collecting none costs nothing, which is the
-    // important half (see LiveLinkSource for what a pass actually runs).
+    // against: `liveLinkUpdates`, one poll carrying the reading and the changes
+    // together. It is one shared poll loop; collecting it from several places
+    // costs the same as collecting it once, and collecting it from none costs
+    // nothing, which is the important half (see LiveLinkSource for what a pass
+    // actually runs).
     //
     // ### Honesty contract, in one place
     //
@@ -239,52 +211,9 @@ object MonitorGraph {
 
     private var _liveLink: LiveLinkSource? = null
     private var _liveLinkUpdates: SharedFlow<LinkLiveUpdate>? = null
-    private var _signatures: CodecModeSignatureStore? = null
-
-    @Volatile
-    private var installedPinner: CodecModePinner = NoOpCodecModePinner
-
-    /**
-     * Bitrate-mode signatures learned by [codecModeCalibrator].
-     *
-     * Persisted, so a calibration survives a restart and the UI may say it is
-     * saved. Reads stay in memory — the store hydrates itself from the table
-     * once, on [monitorScope], and writes through afterwards — because the live
-     * panel asks for these on every poll. See `RoomCodecModeSignatureStore`.
-     *
-     * Falls back to the volatile store when the database cannot be built, on
-     * the same principle as [buildRepository]: losing a calibration is a
-     * nuisance, refusing to run is not an option.
-     */
-    val codecModeSignatures: CodecModeSignatureStore
-        get() = synchronized(lock) {
-            _signatures ?: buildSignatureStore().also { _signatures = it }
-        }
-
-    private fun buildSignatureStore(): CodecModeSignatureStore =
-        database()?.codecModeSignatureDao()
-            ?.let { RoomCodecModeSignatureStore(it, monitorScope) }
-            ?: InMemoryCodecModeSignatureStore()
-
-    /**
-     * Installs the privileged path that can pin a codec's bitrate mode.
-     *
-     * Same shape and same reason as [installShellRunner]: this module cannot
-     * see `:app`'s helper Binder, and without it calibration must refuse rather
-     * than pretend. The default [NoOpCodecModePinner] does exactly that.
-     */
-    fun installCodecModePinner(pinner: CodecModePinner) {
-        installedPinner = pinner
-    }
-
     /** The poller itself. Screens normally want [liveLinkUpdates] instead. */
     val liveLink: LiveLinkSource
         get() = synchronized(lock) {
-            // No signature store here any more: the live reading comes from the
-            // stack's own bitrate field, and the learned bands it used to
-            // consult were measured off a counter that turned out not to be a
-            // packet counter. See CodecModeCalibrator.
-            //
             // The starvation sink resolves `repository` per call rather than
             // capturing it, for the reason [shell] documents at length: this
             // object is built lazily by whichever caller touches it first, and
@@ -294,27 +223,6 @@ object MonitorGraph {
                 onStarvationCaptured = { report -> repository.recordStarvation(report) },
             ).also { _liveLink = it }
         }
-
-    /**
-     * Learns what each bitrate mode looks like on the connected link.
-     *
-     * **Mutating.** Calling `calibrate` renegotiates the codec once per mode,
-     * each of which restarts the A2DP stream and is audible. It exists as a
-     * suspend function with no scheduling of its own so that the only thing
-     * that can start it is a user pressing a button.
-     */
-    val codecModeCalibrator: CodecModeCalibrator
-        get() = CodecModeCalibrator(
-            source = liveLink,
-            // Resolved per call, not captured: the helper is not running at app
-            // start, so a calibrator built once would hold the no-op forever.
-            // Same trap [shell] documents at length.
-            pinner = object : CodecModePinner {
-                override suspend fun pinMode(address: String, codec: CodecFamily, modeRawValue: Long) =
-                    installedPinner.pinMode(address, codec, modeRawValue)
-            },
-            store = codecModeSignatures,
-        )
 
     /**
      * One shared poll loop, started by the first collector and stopped shortly
@@ -338,19 +246,6 @@ object MonitorGraph {
                 )
                 .also { _liveLinkUpdates = it }
         }
-
-    /** The readings alone. */
-    val liveLinkSnapshots: Flow<LinkLiveSnapshot>
-        get() = liveLinkUpdates.map { it.snapshot }
-
-    /**
-     * The changes alone, flattened so a timeline can collect events rather than
-     * lists of them. Polls that changed nothing emit nothing.
-     */
-    val liveLinkEvents: Flow<LinkEvent>
-        get() = liveLinkUpdates
-            .filter { it.events.isNotEmpty() }
-            .transform { update -> update.events.forEach { emit(it) } }
 
     val foreignEqScanner: ForeignEqScanner
         get() = synchronized(lock) {
@@ -403,9 +298,6 @@ object MonitorGraph {
         }
         runCatching { ctx().registerReceiver(receiver, filter) }
     }
-
-    val screenOn: StateFlow<Boolean>
-        get() = synchronized(lock) { screenState() }
 
     private fun screenState(): MutableStateFlow<Boolean> =
         _screenOn ?: MutableStateFlow(isScreenCurrentlyOn()).also { state ->
