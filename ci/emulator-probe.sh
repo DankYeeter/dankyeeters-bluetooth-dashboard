@@ -6,6 +6,8 @@
 # The run fails only if the install breaks; a failed instrumentation is
 # reported in the summary.
 set -uo pipefail
+# Git Bash on Windows rewrites /data/... arguments into host paths; no-op elsewhere.
+export MSYS_NO_PATHCONV=1
 
 APP_APK=$1
 TEST_APK=$2
