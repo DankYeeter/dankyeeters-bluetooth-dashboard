@@ -150,8 +150,8 @@ gesetzt, nicht geschlossen.
 
 | ID | Titel | Prio | Adressat | Status |
 |---|---|---|---|---|
-| QA-012 | **`AK-T009-31` ist vakuum-gruen**: kein einziger `TODO(`-Marker im gescannten Baum, und als einzige der sechs Regeln **ohne** Vollstaendigkeits-Guard (die anderen nutzen `assertNone`, das `files.isNotEmpty()` erzwingt) | P3 Minor / Niedrig | developer | **offen** |
-| QA-013 | `AK-T009-29` zeigt auf einen T-018-Bestandstest mit zwei `assertHides`-Substrings ueber zwei Zustaende — **keine ContentDescription, kein Leer-Guard**. Ungleich robust zum AK-T002-12-Sweep, der acht Zustaende plus Semantik prueft | P3 Minor / Niedrig | developer | **offen** |
+| QA-012 | **`AK-T009-31` ist vakuum-gruen**: kein einziger `TODO(`-Marker im gescannten Baum, und als einzige der sechs Regeln **ohne** Vollstaendigkeits-Guard (die anderen nutzen `assertNone`, das `files.isNotEmpty()` erzwingt) | P3 Minor / Niedrig | developer | **behoben** 2026-10-13 (Leer-Guard in der Regel) |
+| QA-013 | `AK-T009-29` zeigt auf einen T-018-Bestandstest mit zwei `assertHides`-Substrings ueber zwei Zustaende — **keine ContentDescription, kein Leer-Guard**. Ungleich robust zum AK-T002-12-Sweep, der acht Zustaende plus Semantik prueft | P3 Minor / Niedrig | developer | **behoben** 2026-10-13 (liest Text und ContentDescription, mit Leer-Guard, in beiden Ebenen) |
 
 **Bestaetigt:** Sieben der acht Regeln fallen bei Verzeichnis- und
 Identifier-Umbenennung laut (`IllegalArgumentException`/`AssertionError`), nie

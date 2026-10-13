@@ -1249,7 +1249,7 @@ erfunden:
 
 **Konsequenzen:** Leicht wird AK-T009-31: ein Wert **kann** nicht ohne Herkunft
 angelegt werden, weil der Konstruktor sie verlangt — statt einer Grep-Regel, die
-heute vakuum-gruen ist (QA-012). Dauerhaft schwer wird, eine Schwelle mal eben
+bis 13.10. vakuum-gruen war und seitdem nur einen Leer-Guard hat (QA-012). Dauerhaft schwer wird, eine Schwelle mal eben
 zu setzen; das ist der Zweck.
 
 **Ein bewusster Widerspruch zu `UI_SPEC.md`, benannt:** Die T-009-Tabelle

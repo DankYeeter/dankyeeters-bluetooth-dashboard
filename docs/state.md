@@ -304,7 +304,7 @@ Deinstallation auf und endet. Emulator-Retest siehe PR; Geraete-Retest offen. `A
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
 | T-008 | performance-tuner | E-1/E-3 (Nearby-Scans, Spatializer aus) | offen, **kein Shell-Hebel**, nur von Hand |
 | SR-012 | performance-tuner | `umask 077` in `docs/perf/tools/*.sh` | zurueckgestellt bis Ende der Messreihe |
-| QA-012 / QA-013 | developer | vakuum-gruene Grep-Regel, schwacher Test | offen; QA-012 faellt in V-1 |
+| QA-012 / QA-013 | developer | vakuum-gruene Grep-Regel, schwacher Test | **erledigt** 13.10. |
 | T-005 | architect | Scan-Entwurf S-1..S-7 | **ruht** (Nutzer 02.09.) |
 
 ## Zwei offene Fixture-Luecken
