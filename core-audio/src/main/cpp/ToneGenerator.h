@@ -63,12 +63,6 @@ public:
     /** Ramp length applied on gate changes, in milliseconds. */
     void setRampMs(double ms);
 
-    /** Actual stream sample rate, or 0 if not started. */
-    int32_t sampleRate() const { return mSampleRate; }
-
-    /** True once the current ramp has fully settled at its target amplitude. */
-    bool isSettled() const { return mSettled.load(std::memory_order_relaxed); }
-
     // oboe callbacks
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream *stream,
                                           void *audioData,
@@ -85,7 +79,6 @@ private:
     std::atomic<double> mTargetAmplitude{0.0};
     std::atomic<int32_t> mChannel{static_cast<int32_t>(ToneChannel::Both)};
     std::atomic<double> mRampMs{30.0};
-    std::atomic<bool> mSettled{true};
     std::atomic<bool> mActive{false};
 
     // Audio-thread-only state.

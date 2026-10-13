@@ -5,7 +5,6 @@ import android.util.Log
 import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.privileged.PrivilegedContract
-import dev.dankyeeter.btdashboard.privileged.adb.crypto.Spake2
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers

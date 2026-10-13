@@ -100,7 +100,6 @@ class AppleProximityBeaconParserTest {
                 modelAndPreset.second,
                 parsed.model.calibrationPresetId,
             )
-            assertEquals(id, parsed.rawModelId)
         }
     }
 
@@ -108,15 +107,21 @@ class AppleProximityBeaconParserTest {
     fun `unknown model id degrades to UNKNOWN without a preset`() {
         val parsed = AppleProximityBeaconParser.parse(beacon(modelId = 0x2FFF))!!
         assertEquals(AirPodsModel.UNKNOWN, parsed.model)
-        assertEquals(0x2FFF, parsed.rawModelId)
         assertNull(parsed.model.calibrationPresetId)
     }
 
     @Test
     fun `model id is read big-endian across the byte boundary`() {
-        val parsed = AppleProximityBeaconParser.parse(beacon(modelId = 0x0120))!!
-        // 0x0120 must not be confused with the byte-swapped 0x2001.
-        assertEquals(0x0120, parsed.rawModelId)
+        // 0x1420 is 0x2014 (AirPods Pro 2) byte-swapped, so a little-endian
+        // read would recognise it.
+        assertEquals(
+            AirPodsModel.AIRPODS_PRO_2,
+            AppleProximityBeaconParser.parse(beacon(modelId = 0x2014))!!.model,
+        )
+        assertEquals(
+            AirPodsModel.UNKNOWN,
+            AppleProximityBeaconParser.parse(beacon(modelId = 0x1420))!!.model,
+        )
     }
 
     // ---- battery --------------------------------------------------------------
@@ -144,7 +149,6 @@ class AppleProximityBeaconParserTest {
         assertNull(parsed.leftBatteryPercent)
         assertNull(parsed.rightBatteryPercent)
         assertNull(parsed.caseBatteryPercent)
-        assertFalse(parsed.hasBudBattery)
     }
 
     @Test
@@ -162,7 +166,6 @@ class AppleProximityBeaconParserTest {
             beacon(status = 0x20, primaryBattery = 0x00),
         )!!
         assertEquals(0, parsed.leftBatteryPercent)
-        assertTrue(parsed.hasBudBattery)
     }
 
     // ---- primary/secondary side swap ------------------------------------------
@@ -227,13 +230,13 @@ class AppleProximityBeaconParserTest {
         )!!
         assertTrue(parsed.leftInEar)
         assertFalse(parsed.rightInEar)
-        assertFalse(parsed.bothInEar)
     }
 
     @Test
-    fun `both buds in ear sets bothInEar`() {
+    fun `both buds in ear sets both in-ear flags`() {
         val parsed = AppleProximityBeaconParser.parse(beacon(status = 0x02 or 0x08))!!
-        assertTrue(parsed.bothInEar)
+        assertTrue(parsed.leftInEar)
+        assertTrue(parsed.rightInEar)
     }
 
     @Test
@@ -243,21 +246,6 @@ class AppleProximityBeaconParserTest {
         )!!
         assertFalse(parsed.leftInEar)
         assertFalse(parsed.rightInEar)
-    }
-
-    // ---- lid ------------------------------------------------------------------
-
-    @Test
-    fun `lid closed bit is honoured`() {
-        assertFalse(AppleProximityBeaconParser.parse(beacon(lid = 0x08))!!.lidOpen)
-        assertTrue(AppleProximityBeaconParser.parse(beacon(lid = 0x00))!!.lidOpen)
-    }
-
-    @Test
-    fun `lid open counter is the low three bits`() {
-        val parsed = AppleProximityBeaconParser.parse(beacon(lid = 0x05))!!
-        assertEquals(5, parsed.lidOpenCounter)
-        assertTrue(parsed.lidOpen)
     }
 
     // ---- colour ---------------------------------------------------------------
@@ -292,10 +280,10 @@ class AppleProximityBeaconParserTest {
         assertEquals(70, parsed.leftBatteryPercent)
         assertEquals(60, parsed.rightBatteryPercent)
         assertEquals(90, parsed.caseBatteryPercent)
-        assertTrue(parsed.bothInEar)
+        assertTrue(parsed.leftInEar)
+        assertTrue(parsed.rightInEar)
         assertTrue(parsed.caseCharging)
         assertFalse(parsed.leftCharging)
-        assertFalse(parsed.lidOpen)
         assertEquals(AirPodsColor.WHITE, parsed.color)
     }
 

@@ -1,6 +1,5 @@
 package dev.dankyeeter.btdashboard.system.attach
 
-import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
@@ -415,9 +414,6 @@ class EqAttachmentLifecycleTest {
         override val isAlive: Boolean get() = alive && !closed
 
         override fun apply(settings: EqSettings) = Unit
-        override fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) = Unit
-        override fun setPreGain(db: Float) = Unit
-        override fun setEnabled(enabled: Boolean) = Unit
 
         override fun close() {
             closed = true

@@ -129,9 +129,6 @@ class DerivedCalibrationTest {
             calibration().toPreset().id,
             DerivedCalibration.presetIdFor("abc123"),
         )
-        assertTrue(DerivedCalibration.isDerivedId("derived_abc123"))
-        assertFalse(DerivedCalibration.isDerivedId(CalibrationPresetRepository.GENERIC_ID))
-        assertFalse(DerivedCalibration.isDerivedId(null))
     }
 
     /**
@@ -145,7 +142,6 @@ class DerivedCalibrationTest {
         val preset = calibration().toPreset()
 
         assertFalse(preset.approximate)
-        assertFalse(preset.provenanceLine().contains("APPROXIMATE"))
         assertTrue(preset.displayName.contains("Focal Bathys"))
         assertTrue(preset.notes.contains("not the model in general"))
         // No coupler was involved, so no coupler class is claimed.

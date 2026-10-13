@@ -64,10 +64,6 @@ object AppleProximityBeaconParser {
     private const val CHARGE_SECONDARY = 0x02
     private const val CHARGE_CASE = 0x04
 
-    // Lid byte (offset 8).
-    private const val LID_CLOSED = 0x08
-    private const val LID_COUNTER_MASK = 0x07
-
     /**
      * Decodes one advertisement.
      *
@@ -88,7 +84,6 @@ object AppleProximityBeaconParser {
         val status = data.u8(5)
         val batteryByte = data.u8(6)
         val chargeAndCase = data.u8(7)
-        val lidByte = data.u8(8)
 
         val leftIsPrimary = status and STATUS_LEFT_IS_PRIMARY != 0
 
@@ -108,7 +103,6 @@ object AppleProximityBeaconParser {
 
         return AirPodsBeacon(
             model = AirPodsModel.fromId(rawModelId),
-            rawModelId = rawModelId,
             leftBatteryPercent = if (leftIsPrimary) primaryBattery else secondaryBattery,
             rightBatteryPercent = if (leftIsPrimary) secondaryBattery else primaryBattery,
             caseBatteryPercent = battery(chargeAndCase and 0x0F),
@@ -117,8 +111,6 @@ object AppleProximityBeaconParser {
             caseCharging = chargeFlags and CHARGE_CASE != 0,
             leftInEar = !inCase && (if (leftIsPrimary) primaryInEar else secondaryInEar),
             rightInEar = !inCase && (if (leftIsPrimary) secondaryInEar else primaryInEar),
-            lidOpen = lidByte and LID_CLOSED == 0,
-            lidOpenCounter = lidByte and LID_COUNTER_MASK,
             color = AirPodsColor.fromByte(data.u8(9)),
         )
     }

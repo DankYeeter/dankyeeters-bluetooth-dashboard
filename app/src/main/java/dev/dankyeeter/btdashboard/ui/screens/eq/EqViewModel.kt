@@ -111,10 +111,6 @@ data class CompensationUiState(
     val preferenceActive: Boolean
         get() = PreferenceProfile.isPreferenceId(activeProfileId)
 
-    /** The id [preferenceForDevice] is selected under, or null when none is stored. */
-    val preferencePresetId: String?
-        get() = preferenceForDevice?.let { PreferenceProfile.presetIdFor(it.deviceKey) }
-
     val clinicalAvailable: Boolean get() = clinical?.isEmpty == false
 
     /**
@@ -637,7 +633,8 @@ class EqViewModel(
     private var compensationDrivesTheEq: Boolean = false
 
     /** True once the persisted EQ has arrived; see [syncGeneratedCurve]. */
-    private var settingsLoaded: Boolean = false
+    internal var settingsLoaded: Boolean = false
+        private set
 
     /** Writes the previewed curve into the live EQ and persists it. */
     fun applyCompensation() {

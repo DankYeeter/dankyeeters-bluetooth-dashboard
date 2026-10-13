@@ -6,7 +6,6 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
@@ -18,10 +17,7 @@ import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
-import dev.dankyeeter.btdashboard.monitor.link.live.CodecModeSignatureStore
-import dev.dankyeeter.btdashboard.monitor.link.live.EffectChainForensics
 import dev.dankyeeter.btdashboard.monitor.link.live.EncoderStarvationReport
-import dev.dankyeeter.btdashboard.monitor.link.live.ModeSignatureSample
 import dev.dankyeeter.btdashboard.monitor.link.live.SessionEffectCount
 import kotlinx.coroutines.flow.Flow
 
@@ -54,49 +50,6 @@ data class LinkSampleEntity(
 )
 
 /**
- * One bitrate-mode signature measured by `CodecModeCalibrator` on one link.
- *
- * The primary key is the same triple the store keys on — device, codec name,
- * mode value — so a recalibration *replaces* its predecessor instead of leaving
- * two bands that disagree about the same mode. That is the in-memory store's
- * documented rule, expressed here as a constraint the database enforces.
- *
- * [ModeSignatureSample]'s two ranges are spread over four `REAL` columns rather
- * than encoded into one. A band in a blob cannot be compared in SQL, and — the
- * reason that actually matters — cannot be read in a `sqlite3` dump when a user
- * reports the panel naming the wrong mode.
- *
- * The codec name is stored **uppercased**. SQLite compares `TEXT` keys
- * byte-for-byte while [CodecModeSignatureStore]'s lookup has always been
- * case-insensitive, and uppercase is the form this module already folds codec
- * names to when matching them against providers.
- */
-@Entity(
-    tableName = "codec_mode_signatures",
-    primaryKeys = ["device_key", "codec_name", "mode_raw_value"],
-)
-data class CodecModeSignatureEntity(
-    @ColumnInfo(name = "device_key") val deviceKey: String,
-    @ColumnInfo(name = "codec_name") val codecName: String,
-    @ColumnInfo(name = "mode_raw_value") val modeRawValue: Long,
-    @ColumnInfo(name = "sample_rate_hz") val sampleRateHz: Int,
-    @ColumnInfo(name = "frames_per_packet_min") val framesPerPacketMin: Double,
-    @ColumnInfo(name = "frames_per_packet_max") val framesPerPacketMax: Double,
-    @ColumnInfo(name = "packets_per_second_min") val packetsPerSecondMin: Double,
-    @ColumnInfo(name = "packets_per_second_max") val packetsPerSecondMax: Double,
-    /** MEASURED: when the calibrator took the reading, on the clock it was given. */
-    @ColumnInfo(name = "captured_at_ms") val capturedAtMs: Long,
-    /**
-     * When the row was written, on the wall clock.
-     *
-     * Deliberately not the same field as [capturedAtMs]: that one comes from a
-     * clock the caller injects — the calibration tests pin it to zero — so it
-     * cannot be trusted to order two runs or to age a stale band out later.
-     */
-    @ColumnInfo(name = "created_at_millis") val createdAtMillis: Long,
-)
-
-/**
  * One tripped encoder-starvation capture, flattened for storage.
  *
  * ## Why the shape is this shape
@@ -112,7 +65,7 @@ data class CodecModeSignatureEntity(
  * and are stored as short delimited text. That is a deliberate denormalisation:
  * three child tables would make a join out of something whose whole purpose is
  * to be readable in a dump, and these lists are a handful of entries each. The
- * formats are fixed and parsed back by [EncoderStarvationEntity.toReport] —
+ * formats are fixed and written by [EncoderStarvationReport.toEntity] —
  * `145:3,0:2` for the breakdown, `|`-separated for names, `,`-separated for ids.
  *
  * No foreign key to `monitor_events`. The event and the record are written by
@@ -154,18 +107,6 @@ interface MonitorDao {
     @Query("SELECT * FROM link_samples WHERE timestamp_ms >= :sinceMs ORDER BY timestamp_ms ASC")
     fun samples(sinceMs: Long): Flow<List<LinkSampleEntity>>
 
-    @Query(
-        "SELECT * FROM link_samples WHERE device_address = :address " +
-            "ORDER BY timestamp_ms DESC LIMIT 1",
-    )
-    suspend fun latestSample(address: String): LinkSampleEntity?
-
-    @Query(
-        "SELECT * FROM link_samples WHERE device_address = :address " +
-            "AND timestamp_ms BETWEEN :fromMs AND :toMs ORDER BY timestamp_ms ASC",
-    )
-    suspend fun samplesBetween(address: String, fromMs: Long, toMs: Long): List<LinkSampleEntity>
-
     @Query("DELETE FROM monitor_events WHERE timestamp_ms < :cutoffMs")
     suspend fun purgeEvents(cutoffMs: Long)
 
@@ -174,50 +115,12 @@ interface MonitorDao {
 
     @Insert suspend fun insertStarvation(record: EncoderStarvationEntity): Long
 
-    /**
-     * Newest first, and a plain suspend read rather than a [Flow].
-     *
-     * These are rare by construction — the tripwire's cooldown caps them at one
-     * per ten minutes of continuous starvation — so nothing needs to observe
-     * them continuously. They are looked at after the fact, which is a query.
-     */
-    @Query(
-        "SELECT * FROM encoder_starvation_events WHERE timestamp_ms >= :sinceMs " +
-            "ORDER BY timestamp_ms DESC",
-    )
-    suspend fun starvations(sinceMs: Long): List<EncoderStarvationEntity>
-
     @Query("DELETE FROM encoder_starvation_events WHERE timestamp_ms < :cutoffMs")
     suspend fun purgeStarvations(cutoffMs: Long)
 }
 
-@Dao
-interface CodecModeSignatureDao {
-
-    /**
-     * Every row, for the one-shot hydration of the in-memory snapshot.
-     *
-     * Not filtered by device on purpose: the table holds one row per
-     * (device, codec, mode) anyone ever calibrated — a handful, bounded by the
-     * paired-device list — so a single read at startup is cheaper than teaching
-     * the live path to query per poll.
-     */
-    @Query("SELECT * FROM codec_mode_signatures")
-    suspend fun all(): List<CodecModeSignatureEntity>
-
-    /** REPLACE, because recalibrating a mode supersedes the earlier band. */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(signature: CodecModeSignatureEntity)
-
-    @Query(
-        "DELETE FROM codec_mode_signatures WHERE device_key = :deviceKey " +
-            "AND codec_name = :codecName",
-    )
-    suspend fun clear(deviceKey: String, codecName: String)
-}
-
 /**
- * The monitor's history plus the calibrations learned from it.
+ * The monitor's history.
  *
  * ## Why `exportSchema` is on and destructive fallback is gone
  *
@@ -238,16 +141,13 @@ interface CodecModeSignatureDao {
     entities = [
         MonitorEventEntity::class,
         LinkSampleEntity::class,
-        CodecModeSignatureEntity::class,
         EncoderStarvationEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MonitorDatabase : RoomDatabase() {
     abstract fun monitorDao(): MonitorDao
-
-    abstract fun codecModeSignatureDao(): CodecModeSignatureDao
 
     companion object {
 
@@ -256,10 +156,8 @@ abstract class MonitorDatabase : RoomDatabase() {
          *
          * `monitor_events` and `link_samples` are deliberately absent from this
          * statement: the point of the migration is that the history already in
-         * them survives untouched. The DDL is written to match exactly what
-         * Room generates for [CodecModeSignatureEntity], because Room validates
-         * the two against each other on the next open and refuses to run on a
-         * mismatch — `MonitorDatabaseMigrationTest` pins that agreement.
+         * them survives untouched. The table is dropped again by [MIGRATION_3_4];
+         * this step stays so a version-1 file still walks every version in order.
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -326,12 +224,24 @@ abstract class MonitorDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Drops the calibration table added by [MIGRATION_1_2].
+         *
+         * The calibrator that wrote it was never wired to the app, so on every
+         * phone the table is empty. History tables are not touched.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `codec_mode_signatures`")
+            }
+        }
+
         fun create(context: Context): MonitorDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 MonitorDatabase::class.java,
                 "monitor.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     }
 }
 
@@ -370,47 +280,16 @@ internal fun LinkQualitySample.toEntity() = LinkSampleEntity(
     glitchCount = glitchCount,
 )
 
-/** @param createdAtMillis wall-clock write time; see [CodecModeSignatureEntity]. */
-internal fun ModeSignatureSample.toEntity(createdAtMillis: Long) = CodecModeSignatureEntity(
-    deviceKey = deviceKey,
-    codecName = codecName.uppercase(),
-    modeRawValue = modeRawValue,
-    sampleRateHz = sampleRateHz,
-    framesPerPacketMin = framesPerPacket.start,
-    framesPerPacketMax = framesPerPacket.endInclusive,
-    packetsPerSecondMin = packetsPerSecond.start,
-    packetsPerSecondMax = packetsPerSecond.endInclusive,
-    capturedAtMs = capturedAtMs,
-    createdAtMillis = createdAtMillis,
-)
-
-internal fun CodecModeSignatureEntity.toModel() = ModeSignatureSample(
-    deviceKey = deviceKey,
-    codecName = codecName,
-    modeRawValue = modeRawValue,
-    sampleRateHz = sampleRateHz,
-    framesPerPacket = framesPerPacketMin..framesPerPacketMax,
-    packetsPerSecond = packetsPerSecondMin..packetsPerSecondMax,
-    capturedAtMs = capturedAtMs,
-)
-
 // ---- encoder-starvation forensics -------------------------------------------
 //
-// The three delimited columns are written and read in exactly one place each,
-// right here, so the formats cannot drift apart. `EncoderStarvationRoundTripTest`
-// pins that they survive the trip; a lossy encoding here would turn the one
-// record that exists of an incident into a record of something else.
+// The three delimited columns are written in exactly one place, right here.
+// `MonitorDatabaseMigrationTest` pins the stored formats; a lossy encoding here
+// would turn the one record that exists of an incident into a record of
+// something else.
 
 /** `145:3,0:2` — heaviest session first, as the report already sorted them. */
 private fun List<SessionEffectCount>.encode(): String =
     joinToString(",") { "${it.sessionId}:${it.effectCount}" }
-
-private fun String.decodeSessionCounts(): List<SessionEffectCount> =
-    split(',').mapNotNull { pair ->
-        val session = pair.substringBefore(':', "").trim().toIntOrNull() ?: return@mapNotNull null
-        val count = pair.substringAfter(':', "").trim().toIntOrNull() ?: return@mapNotNull null
-        SessionEffectCount(session, count)
-    }
 
 internal fun EncoderStarvationReport.toEntity() = EncoderStarvationEntity(
     timestampMs = timestampMs,
@@ -428,23 +307,6 @@ internal fun EncoderStarvationReport.toEntity() = EncoderStarvationEntity(
     effectNames = forensics.effectNames.joinToString("|") { it.replace('|', '_') },
     playbackSessionIds = forensics.playbackSessionIds.joinToString(","),
     captureNote = forensics.note,
-)
-
-internal fun EncoderStarvationEntity.toReport() = EncoderStarvationReport(
-    timestampMs = timestampMs,
-    deviceAddress = deviceAddress,
-    deviceName = deviceName,
-    underflowsPerSecond = underflowsPerSecond,
-    windowMs = windowMs,
-    sustainedPasses = sustainedPasses,
-    forensics = EffectChainForensics(
-        effectInstances = effectInstances,
-        sessionsWithEffects = effectSessions,
-        effectsPerSession = effectsPerSession.decodeSessionCounts(),
-        effectNames = effectNames.split('|').filter { it.isNotBlank() },
-        playbackSessionIds = playbackSessionIds.split(',').mapNotNull { it.trim().toIntOrNull() },
-        note = captureNote,
-    ),
 )
 
 internal fun LinkSampleEntity.toModel() = LinkQualitySample(

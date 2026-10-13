@@ -65,10 +65,4 @@ Java_dev_dankyeeter_btdashboard_audio_tone_NativeToneGenerator_nativeSetRampMs(
     toGen(handle)->setRampMs(ms);
 }
 
-JNIEXPORT jint JNICALL
-Java_dev_dankyeeter_btdashboard_audio_tone_NativeToneGenerator_nativeSampleRate(
-        JNIEnv *, jobject, jlong handle) {
-    return toGen(handle)->sampleRate();
-}
-
 } // extern "C"

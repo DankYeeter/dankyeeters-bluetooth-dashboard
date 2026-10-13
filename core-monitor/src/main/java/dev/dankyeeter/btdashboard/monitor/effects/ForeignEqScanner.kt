@@ -15,9 +15,7 @@ data class ForeignEqScanResult(
      * package, never by effect chain — there is no effect chain to find.
      */
     val vendorApps: List<VendorEqApp> = emptyList(),
-) {
-    val hasForeignEq: Boolean get() = warnings.isNotEmpty()
-}
+)
 
 /**
  * Runs `dumpsys media.audio_flinger`, parses the effect chains and attributes

@@ -22,14 +22,6 @@ class LinkSampleCollector(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    /** The source currently in charge — shown as a badge on the Monitor screen. */
-    fun activeSource(): LinkDataSource = when {
-        qualityReportSource.availability.value.isActive -> LinkDataSource.QUALITY_REPORT
-        codecSource.isProfileAvailable -> LinkDataSource.CODEC_API
-        dumpsysSource.isAvailable -> LinkDataSource.DUMPSYS
-        else -> LinkDataSource.NONE
-    }
-
     suspend fun collect(): List<LinkQualitySample> {
         val now = clock()
         // Cheapest possible exit, taken before anything execs a shell command:

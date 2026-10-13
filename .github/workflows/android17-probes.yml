@@ -1,0 +1,159 @@
+# Android 17 (API 37) emulator probes, with API 35 as the reference that boots:
+# on demand (Actions tab, "Run workflow") and on pull requests that change the
+# probes themselves.
+#
+# Boots an emulator and runs ci/emulator-probe.sh against a debug build. The
+# result is in the run summary and the probe-* artifacts; the run stays
+# green when the emulator itself misbehaves, because that says nothing about
+# the app.
+#
+# What this cannot show: anything about the radio link (LDAC airtime, BQR
+# events, dropouts at 990 kbps). The emulator has no LDAC sink.
+name: android17-probes
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ci/emulator-probe.sh
+      - app/src/androidTest/java/dev/dankyeeter/btdashboard/probe/**
+      - .github/workflows/android17-probes.yml
+
+concurrency:
+  group: android17-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: "27.3.13750724"
+  CMAKE_VERSION: "3.22.1"
+
+jobs:
+  android17:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # On these GPU-less runners the 37.0 image crash-loops surfaceflinger
+      # (guest gralloc mapper asserts "!hasReadColorBufferDma") under every
+      # emulator build and GPU mode tried, 36.6.11 included. Android 17 ran
+      # cleanly only on a desktop with a host GPU and emulator 36.6.11. The
+      # 37.0 row shows when a fix lands; API 35 is the reference that runs.
+      matrix:
+        include:
+          - { api: "37.0", gpu: swiftshader_indirect }
+          - { api: "35", gpu: swiftshader_indirect }
+    timeout-minutes: 50
+    env:
+      # avdmanager and the emulator disagree on the default AVD directory.
+      ANDROID_AVD_HOME: ${{ github.workspace }}/avd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build APKs
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" "build-tools;35.0.0" \
+            "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" > /dev/null
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+          mkdir -p apks
+          cp app/build/outputs/apk/debug/app-debug.apk apks/
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk apks/
+      - name: Free runner disk
+        run: |
+          # The emulator's disk images live on the runner's disk; a full host
+          # disk shows up in the guest as failed writes and a crash-looping
+          # system_server.
+          ./gradlew --stop
+          rm -rf ~/.gradle/caches app/build/intermediates */build/intermediates
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk
+          df -h / | tail -1
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulator image
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --list 2>/dev/null | grep -oE 'system-images;android-3[5-9][^ ]*;google_apis;x86_64' | sort -u | tee images.txt
+          IMG=$(grep -F 'android-${{ matrix.api }};' images.txt | tail -1)
+          test -n "$IMG" || { echo "no API ${{ matrix.api }} image listed"; exit 1; }
+          echo "IMG=$IMG" >> "$GITHUB_ENV"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$SDKM" emulator platform-tools "$IMG" > /dev/null
+          echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
+          grep -m1 Revision "$ANDROID_HOME/emulator/source.properties" || true
+      # Boot and Probes report through the summary and the artifact; an
+      # emulator that will not come up must not turn the run red.
+      - name: Boot
+        id: boot
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          # -partition-size: with the default /data the image ran out of space
+          # ("Requested internal only, but not enough space", Bluetooth
+          # failing to save its config) and system_server kept restarting.
+          # The emulator authorises adb with ~/.android/adbkey.pub; without the
+          # key the device stays "unauthorized" and never answers getprop.
+          mkdir -p ~/.android
+          "$ADB" start-server
+          ls -l /dev/kvm ~/.android/adbkey*
+          "$ANDROID_HOME/emulator/emulator" -accel-check
+          "$ANDROID_HOME/emulator/emulator" -avd a17 -no-window -no-audio -no-boot-anim \
+            -gpu ${{ matrix.gpu }} -no-snapshot -camera-back none \
+            -memory 4096 -cores 4 -partition-size 8192 > emulator.log 2>&1 &
+          EMU=$!
+          booted=0
+          for i in $(seq 1 120); do
+            kill -0 $EMU 2>/dev/null || { echo "emulator exited"; break; }
+            [ "$(timeout 5 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && { booted=1; break; }
+            sleep 2
+          done
+          if [ $booted != 1 ]; then
+            "$ADB" devices -l
+            timeout 20 "$ADB" logcat -d 2>/dev/null | tail -60
+            tail -80 emulator.log
+            exit 1
+          fi
+          # sys.boot_completed can come before the first-boot restart of
+          # system_server; probing then hits a dying package manager. Wait for
+          # one system_server that answers pm and stays up for 30 s.
+          stable=0; last=""
+          for i in $(seq 1 30); do
+            pid=$(timeout 5 "$ADB" shell pidof system_server 2>/dev/null | tr -d '\r')
+            if [ -n "$pid" ] && [ "$pid" = "$last" ] && timeout 10 "$ADB" shell pm path android > /dev/null 2>&1; then
+              stable=$((stable + 1)); [ $stable -ge 3 ] && break
+            else
+              stable=0
+            fi
+            echo "$(date +%T) system_server=${pid:-none} stable=$stable data=$(timeout 5 "$ADB" shell df -h /data 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f2-5) host=$(df -h / | tail -1 | tr -s ' ' | cut -d' ' -f4)"
+            last=$pid; sleep 10
+          done
+          [ $stable -ge 3 ] || { echo "system_server never settled"; timeout 20 "$ADB" logcat -b crash -d | tail -60; exit 1; }
+          timeout 20 "$ADB" logcat -b crash -d | head -40
+      - name: Emulator log
+        if: steps.boot.outcome == 'failure'
+        run: tail -200 emulator.log || true
+      - name: Probes
+        if: steps.boot.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash ci/emulator-probe.sh apks/app-debug.apk apks/app-debug-androidTest.apk probe-out
+      - name: Summary
+        if: always()
+        run: |
+          echo "### API ${{ matrix.api }}, gpu ${{ matrix.gpu }}: boot ${{ steps.boot.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          cat probe-out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-api${{ matrix.api }}-${{ matrix.gpu }}
+          path: |
+            probe-out/
+            emulator.log

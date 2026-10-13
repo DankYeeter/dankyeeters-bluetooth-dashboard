@@ -246,8 +246,5 @@ class A2dpTxProbe(
 
         /** A floor, so a slow device cannot turn the loop into a busy spin. */
         const val MIN_INTERVAL_MS = 200L
-
-        /** Measured cost of the one dump this probe runs, on the Pixel 11 Pro. */
-        const val MEASURED_PASS_MS = 233L
     }
 }

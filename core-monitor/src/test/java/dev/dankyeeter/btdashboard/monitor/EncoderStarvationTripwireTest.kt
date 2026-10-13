@@ -300,7 +300,6 @@ class EncoderStarvationTripwireTest {
         assertEquals(1, drive(series, tripwire).size)
 
         tripwire.reset()
-        assertEquals(0, tripwire.consecutiveOverThreshold)
         // A fresh link: the run starts again, and the cooldown of the previous
         // link's capture does not carry over onto it.
         assertEquals(1, drive(series, tripwire).size)

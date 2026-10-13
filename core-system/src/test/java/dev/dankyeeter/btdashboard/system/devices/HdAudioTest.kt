@@ -15,7 +15,6 @@ private class HdProfiles(private val profile: DeviceProfile) : DeviceProfileSour
 }
 
 private class InertVolume : MediaVolumeController {
-    override fun currentPercent(): Int? = null
     override fun setPercent(percent: Int): Boolean = true
 }
 

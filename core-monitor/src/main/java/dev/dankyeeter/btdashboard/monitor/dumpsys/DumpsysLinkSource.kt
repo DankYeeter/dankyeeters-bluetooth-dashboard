@@ -27,9 +27,3 @@ class ShellDumpsysLinkSource(private val shell: ShellRunner) : DumpsysLinkSource
         return DumpsysBluetoothParser.parse(result.stdout)
     }
 }
-
-object UnavailableDumpsysLinkSource : DumpsysLinkSource {
-    override suspend fun snapshot() =
-        DumpsysSnapshot(warnings = listOf("dumpsys fallback disabled"))
-    override val isAvailable: Boolean get() = false
-}

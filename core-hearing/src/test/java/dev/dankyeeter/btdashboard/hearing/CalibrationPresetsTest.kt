@@ -35,8 +35,6 @@ class CalibrationPresetsTest {
         assertEquals(ids.size, ids.toSet().size)
         ids.forEach { assertNotNull(it, repo.byId(it)) }
         assertNull(repo.byId("nope"))
-        assertEquals(repo.generic, repo.byIdOrGeneric("nope"))
-        assertEquals(repo.generic, repo.byIdOrGeneric(null))
     }
 
     @Test
@@ -61,7 +59,6 @@ class CalibrationPresetsTest {
             assertTrue("${it.id} needs a rig", it.measurementRig.isNotBlank())
             assertTrue("${it.id} needs a target curve", it.targetCurve.isNotBlank())
             assertTrue("${it.id} needs notes", it.notes.isNotBlank())
-            assertTrue("${it.id} must say APPROXIMATE", it.provenanceLine().contains("APPROXIMATE"))
         }
     }
 
@@ -74,7 +71,7 @@ class CalibrationPresetsTest {
         repo.all().forEach {
             val expectIem = it.id in iems
             assertEquals(it.id, expectIem, it.formFactor == DeviceFormFactor.IN_EAR)
-            assertEquals(it.id, expectIem, it.requiresFitCheck)
+            assertEquals(it.id, expectIem, it.formFactor.fitCheckMandatory)
         }
         assertEquals(DeviceFormFactor.OVER_EAR, repo.focalBathys.formFactor)
         assertEquals(DeviceFormFactor.OVER_EAR, repo.sennheiserMomentum4.formFactor)
@@ -131,8 +128,8 @@ class CalibrationPresetsTest {
         val thresholds = TEST_FREQUENCIES_HZ.map { ThresholdPoint(it, 40.0) }
         val audiogram = Audiogram(listOf("r"), thresholds, thresholds)
         val calc = NalRCompensationCalculator(repo)
-        val generic = calc.compute(audiogram, CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
-        val bathys = calc.compute(audiogram, "focal_bathys", 0.6f, 1f)
+        val generic = calc.computeDetailed(audiogram, CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f).eq
+        val bathys = calc.computeDetailed(audiogram, "focal_bathys", 0.6f, 1f).eq
         assertTrue(generic.leftGainsDb != bathys.leftGainsDb)
     }
 }

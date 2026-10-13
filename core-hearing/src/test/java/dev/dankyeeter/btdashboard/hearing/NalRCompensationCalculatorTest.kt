@@ -1,12 +1,14 @@
 package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.audio.eq.Ear
+import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqBands
 import dev.dankyeeter.btdashboard.hearing.fit.DeviceFormFactor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 /**
  * The full pipeline of COMPENSATION.md section 3.
@@ -43,6 +45,10 @@ class NalRCompensationCalculatorTest {
         List(TEST_FREQUENCIES_HZ.size) { value },
     )
 
+    /** Largest absolute step between neighbouring bands. */
+    private fun maxStepDb(values: List<Double>): Double =
+        (1 until values.size).maxOfOrNull { abs(values[it] - values[it - 1]) } ?: 0.0
+
     // ---- worked NAL-R numbers -------------------------------------------------
 
     @Test
@@ -64,7 +70,7 @@ class NalRCompensationCalculatorTest {
 
         val r = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
         expected.forEachIndexed { i, e ->
-            assertEquals("band ${EqBands.CENTER_FREQUENCIES_HZ[i]}", e, r.left.bandGainsDb[i], eps)
+            assertEquals("band ${EqBandLayout.DEFAULT.centersHz[i]}", e, r.left.bandGainsDb[i], eps)
         }
         assertEquals(-9.01f, r.eq.preGainDb, 1e-3f)
     }
@@ -82,7 +88,7 @@ class NalRCompensationCalculatorTest {
 
     @Test
     fun `intensity zero yields a flat curve and zero pre-gain`() {
-        val r = calculator.compute(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0f, 1f)
+        val r = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0f, 1f).eq
         assertTrue(r.leftGainsDb.all { it == 0f })
         assertTrue(r.rightGainsDb.all { it == 0f })
         assertEquals(0f, r.preGainDb, 1e-6f)
@@ -92,7 +98,6 @@ class NalRCompensationCalculatorTest {
     fun `intensity and partial factor multiply`() {
         val a = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 1f, 0.6f)
         val b = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
-        assertEquals(0.6, a.effectiveStrength, eps)
         assertEquals(b.left.bandGainsDb, a.left.bandGainsDb)
     }
 
@@ -100,11 +105,10 @@ class NalRCompensationCalculatorTest {
     fun `strength is clamped into 0 to 1`() {
         val over = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 3f, 2f)
         val one = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 1f, 1f)
-        assertEquals(1.0, over.effectiveStrength, eps)
         assertEquals(one.left.bandGainsDb, over.left.bandGainsDb)
 
         val negative = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, -1f, 1f)
-        assertEquals(0.0, negative.effectiveStrength, eps)
+        assertTrue(negative.left.bandGainsDb.all { it == 0.0 })
     }
 
     @Test
@@ -132,7 +136,7 @@ class NalRCompensationCalculatorTest {
     fun `slope never exceeds 6 dB per octave`() {
         val brutal = listOf(0.0, 0.0, 0.0, 0.0, 0.0, 80.0, 80.0, 80.0)
         val r = calculator.computeDetailed(audiogram(brutal, brutal), CalibrationPresetRepository.GENERIC_ID, 1f, 1f)
-        val slope = NalRCompensationCalculator.maxSlopeDbPerOctave(r.left.bandGainsDb)
+        val slope = maxStepDb(r.left.bandGainsDb)
         assertTrue("slope $slope", slope <= NalRCompensationCalculator.MAX_SLOPE_DB_PER_OCTAVE + 1e-9)
     }
 
@@ -142,7 +146,7 @@ class NalRCompensationCalculatorTest {
         val limited = NalRCompensationCalculator.limitSlope(input)
         limited.forEachIndexed { i, v -> assertTrue(v <= input[i] + 1e-9) }
         assertEquals(6.0, limited[8], eps)
-        assertTrue(NalRCompensationCalculator.maxSlopeDbPerOctave(limited) <= 6.0 + 1e-9)
+        assertTrue(maxStepDb(limited) <= 6.0 + 1e-9)
     }
 
     @Test
@@ -174,7 +178,7 @@ class NalRCompensationCalculatorTest {
         assertTrue(r.left.bandGainsDb[9] < r.left.bandGainsDb[8])
         assertTrue(r.left.bandGainsDb[0] < scaled.first() + 1e-9)
         assertTrue("extrapolated bands must stay below the measured ones",
-            EqBands.EXTRAPOLATED_INDICES.all { i -> r.left.bandGainsDb[i] <= scaled.max() + 1e-9 })
+            EqBandLayout.DEFAULT.extrapolatedIndices.all { i -> r.left.bandGainsDb[i] <= scaled.max() + 1e-9 })
     }
 
     @Test
@@ -263,7 +267,7 @@ class NalRCompensationCalculatorTest {
     @Test
     fun `pre-gain is never positive`() {
         listOf(0f, 0.3f, 0.6f, 1f).forEach { s ->
-            val eq = calculator.compute(flatAudiogram(0.0), CalibrationPresetRepository.GENERIC_ID, s, 1f)
+            val eq = calculator.computeDetailed(flatAudiogram(0.0), CalibrationPresetRepository.GENERIC_ID, s, 1f).eq
             assertTrue(eq.preGainDb <= 0f)
         }
     }
@@ -287,16 +291,16 @@ class NalRCompensationCalculatorTest {
     @Test
     fun `an empty audiogram yields a flat curve`() {
         val a = Audiogram(emptyList(), emptyList(), emptyList())
-        val eq = calculator.compute(a, CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
+        val eq = calculator.computeDetailed(a, CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f).eq
         assertTrue(eq.leftGainsDb.all { it == 0f })
         assertTrue(eq.rightGainsDb.all { it == 0f })
     }
 
     @Test
     fun `result always has the expected shape and stays inside the EQ range`() {
-        val r = calculator.compute(flatAudiogram(70.0), "noble_encore", 1f, 1f)
-        assertEquals(EqBands.COUNT, r.leftGainsDb.size)
-        assertEquals(EqBands.COUNT, r.rightGainsDb.size)
+        val r = calculator.computeDetailed(flatAudiogram(70.0), "noble_encore", 1f, 1f).eq
+        assertEquals(EqBandLayout.DEFAULT.bandCount, r.leftGainsDb.size)
+        assertEquals(EqBandLayout.DEFAULT.bandCount, r.rightGainsDb.size)
         (r.leftGainsDb + r.rightGainsDb).forEach {
             assertTrue(it in EqBands.MIN_GAIN_DB..EqBands.MAX_GAIN_DB)
         }
@@ -317,7 +321,7 @@ class NalRCompensationCalculatorTest {
 
     @Test
     fun `compute leaves the master switch to the caller`() {
-        val eq = calculator.compute(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f)
+        val eq = calculator.computeDetailed(audiogram(), CalibrationPresetRepository.GENERIC_ID, 0.6f, 1f).eq
         assertTrue(!eq.enabled)
         assertTrue(eq.limiterEnabled)
     }

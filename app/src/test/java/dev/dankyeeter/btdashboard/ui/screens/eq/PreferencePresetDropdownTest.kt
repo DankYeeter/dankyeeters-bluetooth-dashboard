@@ -181,19 +181,6 @@ class PreferencePresetDropdownTest {
     }
 
     /**
-     * The id is a function of the device key rather than anything generated,
-     * so the selection survives a restart — the same rule the derived
-     * calibration's preset id follows.
-     */
-    @Test
-    fun `the preset id is derived from the headphone it belongs to`() {
-        val state = CompensationUiState(preferenceForDevice = profile(key = "abc123"))
-
-        assertEquals("preference_abc123", state.preferencePresetId)
-        assertEquals(null, CompensationUiState().preferencePresetId)
-    }
-
-    /**
      * Selecting is a selection, not an edit: what goes into the EQ is
      * [PreferenceProfile.toEqSettings], the same call the preference card's own
      * Save makes, and the hand adjustment it honours is still on the profile

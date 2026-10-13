@@ -20,13 +20,6 @@ object EqBands {
     /** Gain range the UI and the compensation math must stay inside. */
     const val MIN_GAIN_DB: Float = -15f
     const val MAX_GAIN_DB: Float = 15f
-
-    /** The default layout's centres, kept for callers that predate layouts. */
-    val CENTER_FREQUENCIES_HZ: List<Float> get() = EqBandLayout.DEFAULT.centersHz
-
-    val COUNT: Int get() = EqBandLayout.DEFAULT.bandCount
-
-    val EXTRAPOLATED_INDICES: Set<Int> get() = EqBandLayout.DEFAULT.extrapolatedIndices
 }
 
 /**
@@ -64,7 +57,7 @@ enum class HeadroomMode {
  *
  * @param enabled master on/off; when false the effect is detached, not zeroed
  * @param leftGainsDb 10 gains in dB for the left channel, index-aligned with
- *   [EqBands.CENTER_FREQUENCIES_HZ]
+ *   [EqBandLayout.centersHz]
  * @param rightGainsDb same for the right channel
  * @param preGainDb input gain applied before the bands. Should be negative
  *   headroom: roughly `-max(0, maxBandGain)` so boosted bands cannot clip.

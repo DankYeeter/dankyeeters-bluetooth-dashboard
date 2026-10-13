@@ -13,7 +13,6 @@ import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysDevice
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
-import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -24,7 +23,7 @@ import org.junit.Test
 class DeviceDiagnosticRunnerTest {
 
     private val address = "AA:BB:CC:DD:EE:FF"
-    private val bqr = UnavailableQualityReportSource("not available in tests")
+    private val bqr = FakeQualityReportSource("not available in tests")
 
     private fun runner(
         clock: TestClock,

@@ -8,7 +8,6 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecReadResult
 import dev.dankyeeter.btdashboard.monitor.codec.CodecStatus
 import dev.dankyeeter.btdashboard.monitor.effects.EqCandidateScan
 import dev.dankyeeter.btdashboard.monitor.effects.ForeignEqScanResult
-import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.ui.DetectedDeviceRepository
 import dev.dankyeeter.btdashboard.hearing.PresetMatching
@@ -49,7 +48,6 @@ data class BluetoothDashboardState(
     val loading: Boolean = true,
     val profileAvailable: Boolean = true,
     val rows: List<DeviceCodecRow> = emptyList(),
-    val dataSource: LinkDataSource = LinkDataSource.NONE,
     val foreignEq: ForeignEqScanResult? = null,
     /**
      * "These apps could have their own EQ." Separate from [foreignEq] because
@@ -127,11 +125,6 @@ class BluetoothDashboardViewModel : ViewModel() {
                 loading = false,
                 profileAvailable = source.isProfileAvailable,
                 rows = rows,
-                dataSource = if (source.isProfileAvailable) {
-                    LinkDataSource.CODEC_API
-                } else {
-                    LinkDataSource.NONE
-                },
             )
     }
 

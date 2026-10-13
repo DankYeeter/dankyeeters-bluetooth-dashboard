@@ -2,7 +2,6 @@ package dev.dankyeeter.btdashboard.audio.eq
 
 import android.media.audiofx.DynamicsProcessing
 import android.util.Log
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
 /**
@@ -37,9 +36,6 @@ internal interface DpEffect {
     fun setInputGainAllChannelsTo(db: Float)
 
     fun setLimiterEnabled(channelIndex: Int, enabled: Boolean)
-
-    /** Reads a pre-EQ gain back out of the framework. */
-    fun preEqBandGain(channelIndex: Int, bandIndex: Int): Float
 
     /** Unregisters the native effect from AudioFlinger. May throw. */
     fun release()
@@ -109,9 +105,6 @@ private class FrameworkDpEffect(private val effect: DynamicsProcessing) : DpEffe
         effect.setLimiterByChannelIndex(channelIndex, limiter)
     }
 
-    override fun preEqBandGain(channelIndex: Int, bandIndex: Int): Float =
-        effect.getPreEqBandByChannelIndex(channelIndex, bandIndex).gain
-
     override fun release() = effect.release()
 }
 
@@ -148,9 +141,7 @@ private class FrameworkDpEffect(private val effect: DynamicsProcessing) : DpEffe
  * So the rule is now: **the effect is released on every path that ends this
  * object's life**, exactly once, and a release that throws does not lose the
  * reference — the handle stays on [unreleased] and is retried at the next
- * [apply] and again at [close]. [createdInstanceCount] and
- * [releasedInstanceCount] make that auditable from a test instead of from a
- * dumpsys on the device.
+ * [apply] and again at [close].
  *
  * ## Threading
  *
@@ -187,10 +178,6 @@ class DynamicsProcessingEqualizer internal constructor(
 
     /** What was last written into the framework; see [writeBand]. */
     private var lastWritten = LastWritten(initialLayout.bandCount)
-
-    init {
-        instancesCreated.incrementAndGet()
-    }
 
     override fun apply(settings: EqSettings) = guard {
         // Cheap when there is nothing outstanding, and this is the "next
@@ -270,12 +257,13 @@ class DynamicsProcessingEqualizer internal constructor(
      */
     private fun setEnabledVerified(target: Boolean) {
         effect.enabled = target
+        if (effect.enabled == target) return
         // hasControl matters more than the return value here: another effect
         // holding control makes every setEnabled a no-op that still reports
         // success locally, which is exactly the "attached but Enabled=n" state
-        // AudioFlinger showed on a harvested session.
-        Log.i(TAG, "session $sessionId enable=$target control=${effect.hasControl()} readback=${effect.enabled}")
-        if (effect.enabled == target) return
+        // AudioFlinger showed on a harvested session. Asked only on refusal:
+        // it is a binder call, and apply() runs on every slider step.
+        Log.i(TAG, "session $sessionId refused enable=$target control=${effect.hasControl()}")
 
         var waitedMs = 0L
         while (waitedMs < ENABLE_VERIFY_BUDGET_MS) {
@@ -292,23 +280,6 @@ class DynamicsProcessingEqualizer internal constructor(
             "session $sessionId refused enabled=$target for $ENABLE_VERIFY_BUDGET_MS ms; " +
                 "the EQ is attached but inert",
         )
-    }
-
-    override val activeLayout: EqBandLayout get() = layout
-
-    override fun setBandGain(ear: Ear, bandIndex: Int, gainDb: Float) = guard {
-        require(bandIndex in 0 until layout.bandCount) { "band index out of range: $bandIndex" }
-        writeBand(ear, bandIndex, gainDb.coerceIn(EqBands.MIN_GAIN_DB, EqBands.MAX_GAIN_DB))
-    }
-
-    override fun setPreGain(db: Float) = guard {
-        val clamped = db.coerceIn(-24f, 0f)
-        effect.setInputGainAllChannelsTo(clamped)
-        lastWritten.preGainDb = clamped
-    }
-
-    override fun setEnabled(enabled: Boolean) = guard {
-        effect.enabled = enabled
     }
 
     /**
@@ -339,7 +310,6 @@ class DynamicsProcessingEqualizer internal constructor(
         }
         effect = rebuilt
         unreleased += rebuilt
-        instancesCreated.incrementAndGet()
         layout = target
         // Nothing written into the new effect yet, and its band count may
         // differ: the diff cache from the old one would suppress writes that
@@ -428,11 +398,6 @@ class DynamicsProcessingEqualizer internal constructor(
         lastWritten.compressor[ear.channelIndex][bandIndex] = boostDb
     }
 
-    /** Reads a gain back out of the framework — proof the value reached the effect. */
-    fun readBandGain(ear: Ear, bandIndex: Int): Float? = runCatching {
-        effect.preEqBandGain(ear.channelIndex, bandIndex)
-    }.getOrNull()
-
     private inline fun guard(block: () -> Unit) {
         if (!alive) return
         try {
@@ -493,7 +458,6 @@ class DynamicsProcessingEqualizer internal constructor(
         runCatching { handle.enabled = false }
         return try {
             handle.release()
-            instancesReleased.incrementAndGet()
             true
         } catch (t: RuntimeException) {
             Log.e(
@@ -574,26 +538,6 @@ class DynamicsProcessingEqualizer internal constructor(
         private const val LIMITER_RATIO = 10f
         private const val LIMITER_THRESHOLD_DB = -1f
         private const val LIMITER_POST_GAIN_DB = 0f
-
-        private val instancesCreated = AtomicInteger()
-        private val instancesReleased = AtomicInteger()
-
-        /**
-         * Native effects this class has created since the process started, and
-         * how many of them it has managed to release.
-         *
-         * Monotone counters rather than a live gauge, because the question they
-         * answer is historical: *did every effect we ever built get released?*
-         * A difference that grows over a session is the instance accumulation
-         * that starves the Bluetooth encoder — the same thing :core-monitor
-         * counts from the AudioFlinger dump, but visible from a unit test and
-         * without a device.
-         */
-        val createdInstanceCount: Int get() = instancesCreated.get()
-        val releasedInstanceCount: Int get() = instancesReleased.get()
-
-        /** Created minus released: what should still be registered right now. */
-        val liveInstanceCount: Int get() = createdInstanceCount - releasedInstanceCount
 
         /**
          * Attaches a fresh effect to [sessionId]. Returns null on any failure —

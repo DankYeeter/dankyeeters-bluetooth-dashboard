@@ -191,10 +191,6 @@ object SetupStatus {
     fun outstanding(states: List<SetupStepState>): List<SetupStepState> =
         states.filter { it.status == SetupStepStatus.PENDING }
 
-    /** Whether any *required* step is still unmet — skipping cannot clear these. */
-    fun hasUnmetRequirements(states: List<SetupStepState>): Boolean =
-        states.any { it.step.need == SetupNeed.REQUIRED && it.status != SetupStepStatus.DONE }
-
     /** Copy for the settings card. Null when there is nothing to say. */
     fun summary(states: List<SetupStepState>): String? {
         val count = outstanding(states).size

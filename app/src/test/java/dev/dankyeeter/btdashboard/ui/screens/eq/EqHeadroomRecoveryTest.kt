@@ -1,12 +1,9 @@
 package dev.dankyeeter.btdashboard.ui.screens.eq
 
-import android.content.Context
 import android.os.Looper
-import androidx.test.core.app.ApplicationProvider
 import dev.dankyeeter.btdashboard.audio.eq.Ear
 import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeSource
 import dev.dankyeeter.btdashboard.audio.eq.VolumeAwareTilt
-import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,20 +47,21 @@ class EqHeadroomRecoveryTest {
 
     @Before
     fun setUp() {
-        SystemGraph.init(ApplicationProvider.getApplicationContext<Context>())
+        resetEqStore()
     }
 
     private fun idle() {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    private fun viewModel(): EqViewModel = EqViewModel(volume).also { idle() }
+    private fun viewModel(): EqViewModel = EqViewModel(volume).awaitLoaded()
 
     /** One slider drag: a run of values, then the release. */
     private fun EqViewModel.drag(band: Int, through: List<Float>) {
         through.forEach { setLinkedBandGain(band, it) }
         persist()
         idle()
+        awaitSaved()
     }
 
     @Test
@@ -106,6 +104,7 @@ class EqHeadroomRecoveryTest {
 
         viewModel.persist()
         idle()
+        viewModel.awaitSaved()
         assertEquals(0f, viewModel.settings.value.preGainDb)
     }
 
@@ -133,6 +132,7 @@ class EqHeadroomRecoveryTest {
         // cannot become a second edit.
         viewModel.persist()
         idle()
+        viewModel.awaitSaved()
         assertEquals(settled, viewModel.settings.value)
     }
 
@@ -144,12 +144,14 @@ class EqHeadroomRecoveryTest {
 
         viewModel.setVolumeAwareTilt(true)
         idle()
+        viewModel.awaitSaved()
         val quiet = viewModel.settings.value
         assertTrue("expected a tilt at a tenth of the volume", quiet.tiltGainsDb.any { it > 0f })
         assertEquals(-quiet.tiltGainsDb.max(), quiet.preGainDb)
 
         viewModel.setVolumeAwareTilt(false)
         idle()
+        viewModel.awaitSaved()
         assertEquals(
             "the music stayed down with nothing boosted to justify it",
             0f,
@@ -169,9 +171,11 @@ class EqHeadroomRecoveryTest {
         idle()
         viewModel.setVolumeAwareTilt(true)
         idle()
+        viewModel.awaitSaved()
 
         viewModel.setVolumeAwareTilt(false)
         idle()
+        viewModel.awaitSaved()
         assertEquals(
             "the band is still boosted, so its headroom is still owed",
             -6f,

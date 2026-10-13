@@ -11,10 +11,12 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.dankyeeter.btdashboard.audio.eq.EqBandLayout
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 private val Context.eqDataStore: DataStore<Preferences> by preferencesDataStore(name = "eq_settings")
@@ -34,9 +36,13 @@ class EqSettingsStore(private val context: Context) {
 
     suspend fun current(): EqSettings = settings.first()
 
+    // Both writers edit on IO. DataStore runs an edit's transform in the
+    // caller's context while it holds the store's write lock, so an edit from
+    // viewModelScope needs the main thread to finish; a main dispatch that never
+    // comes (a torn-down Robolectric looper) would wedge every later write.
     suspend fun save(value: EqSettings) {
         val clean = value.sanitized()
-        context.eqDataStore.edit { prefs ->
+        withContext(Dispatchers.IO) { context.eqDataStore.edit { prefs ->
             prefs[KEY_ENABLED] = clean.enabled
             prefs[KEY_LAYOUT] = clean.layout.id
             prefs[KEY_LEFT] = clean.leftGainsDb.joinToString(";")
@@ -49,7 +55,7 @@ class EqSettingsStore(private val context: Context) {
             // at the moment it is applied, so storing it would mean restoring a
             // correction for a volume that is no longer set.
             prefs[KEY_VOLUME_TILT] = clean.volumeAwareTilt
-        }
+        } }
     }
 
     /** Id of the active compensation profile, or null if the EQ is manual. */
@@ -61,9 +67,9 @@ class EqSettingsStore(private val context: Context) {
     suspend fun activeProfileIdOrNull(): String? = activeProfileId.first()
 
     suspend fun setActiveProfileId(id: String?) {
-        context.eqDataStore.edit { prefs ->
+        withContext(Dispatchers.IO) { context.eqDataStore.edit { prefs ->
             if (id == null) prefs.remove(KEY_PROFILE_ID) else prefs[KEY_PROFILE_ID] = id
-        }
+        } }
     }
 
     private fun Preferences.toEqSettings(): EqSettings {

@@ -27,8 +27,10 @@ class PrivilegedCodecTest {
     fun `every sample rate survives a round trip through both directions`() {
         // A2dpCodecMasks writes and CodecDecoding reads. They are separate
         // tables on purpose, and separate tables are exactly the kind of thing
-        // that drifts, so the round trip is asserted rather than assumed.
-        A2dpCodecMasks.offeredSampleRatesHz.forEach { hz ->
+        // that drifts, so the round trip is asserted rather than assumed. The
+        // rates are the ones core-system lets a stored profile hold, so this
+        // also asserts that every one of them can actually be sent.
+        BluetoothCodecOptions.sampleRatesHz.forEach { hz ->
             val mask = A2dpCodecMasks.sampleRateMask(hz)
             assertNotNull("no mask for $hz Hz", mask)
             assertEquals("$hz Hz", hz, CodecDecoding.sampleRate(mask!!))
@@ -37,7 +39,7 @@ class PrivilegedCodecTest {
 
     @Test
     fun `every bit depth survives a round trip`() {
-        A2dpCodecMasks.offeredBitsPerSample.forEach { bits ->
+        BluetoothCodecOptions.bitsPerSample.forEach { bits ->
             val mask = A2dpCodecMasks.bitsMask(bits)
             assertNotNull("no mask for $bits bit", mask)
             assertEquals(bits, CodecDecoding.bitsPerSample(mask!!))
@@ -121,8 +123,6 @@ class PrivilegedCodecTest {
             A2dpCodecMasks.writableFamilies.map { it.name }.sorted(),
             BluetoothCodecOptions.codecs.sorted(),
         )
-        assertEquals(A2dpCodecMasks.offeredSampleRatesHz, BluetoothCodecOptions.sampleRatesHz)
-        assertEquals(A2dpCodecMasks.offeredBitsPerSample, BluetoothCodecOptions.bitsPerSample)
         assertEquals(A2dpCodecMasks.LDAC_QUALITIES, BluetoothCodecOptions.ldacQualities)
     }
 

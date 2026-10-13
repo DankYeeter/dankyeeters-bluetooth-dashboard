@@ -4,7 +4,6 @@ import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.data.InMemoryMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
-import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
@@ -58,7 +57,7 @@ class IdleWakeupTest {
             collector = LinkSampleCollector(
                 codecSource = FakeCodecStatusSource(devices = devices),
                 dumpsysSource = FakeDumpsysLinkSource(isAvailable = false),
-                qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+                qualityReportSource = FakeQualityReportSource("no BQR in tests"),
             ),
             screenOn = screenOn,
             uiVisible = uiVisible,

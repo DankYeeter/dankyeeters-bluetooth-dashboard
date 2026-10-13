@@ -56,7 +56,6 @@ class LdacQualityOnConnectTest {
                 profile.takeIf { it.deviceKey == deviceKey }
         },
         volume = object : MediaVolumeController {
-            override fun currentPercent(): Int? = 50
             override fun setPercent(percent: Int): Boolean = true
         },
         compensation = object : CompensationApplier {

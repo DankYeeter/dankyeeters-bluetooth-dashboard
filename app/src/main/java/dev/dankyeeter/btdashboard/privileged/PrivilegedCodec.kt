@@ -181,11 +181,6 @@ object A2dpCodecMasks {
         ChannelModes.DUAL to 0x4,
     )
 
-    /** Sample rates the editor offers, ascending. */
-    val offeredSampleRatesHz: List<Int> = sampleRateMasks.keys.toList()
-
-    val offeredBitsPerSample: List<Int> = bitsMasks.keys.toList()
-
     /**
      * The AOSP codec type id for a family, or null when we must not guess.
      *

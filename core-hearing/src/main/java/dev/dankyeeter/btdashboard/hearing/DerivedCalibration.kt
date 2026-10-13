@@ -115,9 +115,6 @@ data class DerivedCalibration(
         const val ID_PREFIX: String = "derived_"
 
         fun presetIdFor(deviceKey: String): String = ID_PREFIX + deviceKey
-
-        /** True for any id this class produces, whether or not it still exists. */
-        fun isDerivedId(id: String?): Boolean = id != null && id.startsWith(ID_PREFIX)
     }
 }
 

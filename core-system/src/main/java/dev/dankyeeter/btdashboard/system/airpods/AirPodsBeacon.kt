@@ -13,8 +13,6 @@ package dev.dankyeeter.btdashboard.system.airpods
  */
 data class AirPodsBeacon(
     val model: AirPodsModel,
-    /** Raw 16-bit model id, kept so unknown hardware can still be reported. */
-    val rawModelId: Int,
     val leftBatteryPercent: Int?,
     val rightBatteryPercent: Int?,
     val caseBatteryPercent: Int?,
@@ -23,18 +21,8 @@ data class AirPodsBeacon(
     val caseCharging: Boolean,
     val leftInEar: Boolean,
     val rightInEar: Boolean,
-    /** True while the charging case reports its lid as open. */
-    val lidOpen: Boolean,
-    /** Wraps at 255; only useful to detect *changes* (a lid event happened). */
-    val lidOpenCounter: Int,
     val color: AirPodsColor,
-) {
-    /** True when at least one bud reports a battery level. */
-    val hasBudBattery: Boolean get() = leftBatteryPercent != null || rightBatteryPercent != null
-
-    /** Both buds sitting in the ear — the only reliable "being worn" signal. */
-    val bothInEar: Boolean get() = leftInEar && rightInEar
-}
+)
 
 /**
  * Recognised AirPods models.

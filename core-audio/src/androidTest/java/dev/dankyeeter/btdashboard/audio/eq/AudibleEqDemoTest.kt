@@ -106,7 +106,6 @@ class AudibleEqDemoTest {
             // effect chain to another output thread, and the point of this demo
             // is to hear the gains, not to race the router.
             equalizer.apply(settings)
-            say("     band8 liest zurueck: " + equalizer.readBandGain(Ear.LEFT, 8) + " dB")
 
             val chunk = ShortArray(sampleRate / 4 * 2)
             val rng = Random(1234) // identical noise every segment: only the EQ differs

@@ -32,10 +32,6 @@ import org.junit.Test
  */
 class DynamicsProcessingEqualizerLifecycleTest {
 
-    // The counters are process-wide and monotone, so every assertion is a delta.
-    private val createdAtStart = DynamicsProcessingEqualizer.createdInstanceCount
-    private val releasedAtStart = DynamicsProcessingEqualizer.releasedInstanceCount
-
     private val enabled = EqSettings.FLAT.copy(enabled = true)
 
     // ---- instance accounting -------------------------------------------------
@@ -46,8 +42,8 @@ class DynamicsProcessingEqualizerLifecycleTest {
         rig.eq.apply(enabled)
         rig.eq.close()
 
-        assertEquals("one effect built", 1, created())
-        assertBalanced()
+        assertEquals("one effect built", 1, rig.created())
+        rig.assertBalanced()
         assertEquals(1, rig.effects.single().releases)
     }
 
@@ -73,7 +69,7 @@ class DynamicsProcessingEqualizerLifecycleTest {
             1,
             rig.effects.single().releases,
         )
-        assertBalanced()
+        rig.assertBalanced()
     }
 
     /**
@@ -91,7 +87,7 @@ class DynamicsProcessingEqualizerLifecycleTest {
         rig.eq.close()
 
         assertEquals("release must happen exactly once", 1, rig.effects.single().releases)
-        assertBalanced()
+        rig.assertBalanced()
     }
 
     @Test
@@ -103,8 +99,8 @@ class DynamicsProcessingEqualizerLifecycleTest {
         rig.eq.close()
 
         assertEquals(1, rig.effects.single().releases)
-        assertEquals(1, created())
-        assertBalanced()
+        assertEquals(1, rig.created())
+        rig.assertBalanced()
     }
 
     /**
@@ -122,13 +118,13 @@ class DynamicsProcessingEqualizerLifecycleTest {
         assertFalse(rig.eq.isAlive)
         assertEquals("no replacement was built", 1, rig.effects.size)
         assertEquals(1, rig.effects.single().releases)
-        assertEquals(1, created())
-        assertBalanced()
+        assertEquals(1, rig.created())
+        rig.assertBalanced()
 
         // And the close the caller makes afterwards must not release twice.
         rig.eq.close()
         assertEquals(1, rig.effects.single().releases)
-        assertBalanced()
+        rig.assertBalanced()
     }
 
     /**
@@ -155,7 +151,7 @@ class DynamicsProcessingEqualizerLifecycleTest {
         assertEquals(
             "the live effect plus the one the framework refused to release",
             2,
-            created() - released(),
+            rig.created() - rig.released(),
         )
 
         // The framework recovers; the next apply is the "next opportunity".
@@ -163,10 +159,10 @@ class DynamicsProcessingEqualizerLifecycleTest {
         rig.eq.apply(enabled.withLayout(EqBandLayout.HALF_OCTAVE_20))
 
         assertEquals("the retry released it", 1, first.releases)
-        assertEquals("only the live effect is left", 1, created() - released())
+        assertEquals("only the live effect is left", 1, rig.created() - rig.released())
         rig.eq.close()
-        assertEquals(2, created())
-        assertBalanced()
+        assertEquals(2, rig.created())
+        rig.assertBalanced()
     }
 
     /** The same retry, reached through `close()` instead of a second `apply`. */
@@ -182,8 +178,8 @@ class DynamicsProcessingEqualizerLifecycleTest {
         rig.eq.close()
 
         assertEquals(1, first.releases)
-        assertEquals(2, created())
-        assertBalanced()
+        assertEquals(2, rig.created())
+        rig.assertBalanced()
     }
 
     // ---- diff-aware apply ----------------------------------------------------
@@ -268,22 +264,7 @@ class DynamicsProcessingEqualizerLifecycleTest {
         assertEquals("and its limiter, once per channel", 2, rebuilt.limiterWrites)
 
         rig.eq.close()
-        assertBalanced()
-    }
-
-    /** A single band gain must reach the effect even when nothing else changed. */
-    @Test
-    fun `setBandGain writes through and then diffs like everything else`() {
-        val rig = Rig()
-        rig.eq.apply(enabled)
-        val effect = rig.effects.single()
-        effect.clearWrites()
-
-        rig.eq.setBandGain(Ear.RIGHT, 2, -4f)
-        assertEquals(1, effect.preEqWrites.size)
-
-        rig.eq.setBandGain(Ear.RIGHT, 2, -4f)
-        assertEquals("the second write is the same value", 1, effect.preEqWrites.size)
+        rig.assertBalanced()
     }
 
     // ---- enable verification -------------------------------------------------
@@ -315,16 +296,6 @@ class DynamicsProcessingEqualizerLifecycleTest {
 
     // ---- helpers -------------------------------------------------------------
 
-    private fun created() = DynamicsProcessingEqualizer.createdInstanceCount - createdAtStart
-
-    private fun released() = DynamicsProcessingEqualizer.releasedInstanceCount - releasedAtStart
-
-    private fun assertBalanced() = assertEquals(
-        "every native effect this test created must have been released",
-        created(),
-        released(),
-    )
-
     /** An equaliser wired to fakes, with a factory that records its rebuilds. */
     private class Rig(layout: EqBandLayout = EqBandLayout.OCTAVE_10) {
         val effects = mutableListOf<FakeDpEffect>()
@@ -340,6 +311,18 @@ class DynamicsProcessingEqualizerLifecycleTest {
                 if (refuseRebuild) null else FakeDpEffect().also { effects += it }
             }
         }
+
+        /** Native effects built so far: the first one plus every granted rebuild. */
+        fun created() = effects.size
+
+        /** Releases that took, across every effect built. */
+        fun released() = effects.sumOf { it.releases }
+
+        fun assertBalanced() = assertEquals(
+            "every native effect this test created must have been released",
+            created(),
+            released(),
+        )
     }
 
     private data class PreEqWrite(val channelIndex: Int, val bandIndex: Int, val band: PreEqBandSpec)
@@ -407,10 +390,6 @@ class DynamicsProcessingEqualizerLifecycleTest {
         override fun setLimiterEnabled(channelIndex: Int, enabled: Boolean) {
             limiterWrites++
         }
-
-        override fun preEqBandGain(channelIndex: Int, bandIndex: Int): Float =
-            preEqWrites.lastOrNull { it.channelIndex == channelIndex && it.bandIndex == bandIndex }
-                ?.band?.gainDb ?: 0f
 
         override fun release() {
             releaseAttempts++

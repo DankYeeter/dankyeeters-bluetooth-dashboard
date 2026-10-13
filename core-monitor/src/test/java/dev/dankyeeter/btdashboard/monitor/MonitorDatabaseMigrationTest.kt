@@ -5,7 +5,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
-import dev.dankyeeter.btdashboard.monitor.data.CodecModeSignatureEntity
 import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.link.live.EffectChainForensics
@@ -14,6 +13,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.SessionEffectCount
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,7 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * That upgrading to the calibration schema keeps the user's monitor history.
+ * That every schema upgrade keeps the user's monitor history.
  *
  * ## Why this is hand-rolled rather than `MigrationTestHelper`
  *
@@ -32,7 +32,7 @@ import org.robolectric.annotation.Config
  * schema against every entity**, throwing if the two disagree. So opening a
  * hand-built v1 file with the production [MonitorDatabase.create] exercises the
  * migration DDL exactly as a user's phone will, and a `CREATE TABLE` that does
- * not match `CodecModeSignatureEntity` fails this test rather than a device.
+ * not match an entity fails this test rather than a device.
  *
  * ## Why it exists at all
  *
@@ -119,6 +119,45 @@ class MonitorDatabaseMigrationTest {
         )
     }
 
+    /**
+     * A version-3 file: version 2 plus the encoder-starvation table, holding one
+     * calibration and one capture. This is what most upgrading phones carry.
+     * Copied from `schemas/3.json`.
+     */
+    private val version3Schema = version2Schema + listOf(
+        "CREATE TABLE IF NOT EXISTS `encoder_starvation_events` (" +
+            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+            "`timestamp_ms` INTEGER NOT NULL, `device_address` TEXT, `device_name` TEXT, " +
+            "`underflows_per_second` REAL NOT NULL, `window_ms` INTEGER NOT NULL, " +
+            "`sustained_passes` INTEGER NOT NULL, `effect_instances` INTEGER NOT NULL, " +
+            "`effect_sessions` INTEGER NOT NULL, `effects_per_session` TEXT NOT NULL, " +
+            "`effect_names` TEXT NOT NULL, `playback_session_ids` TEXT NOT NULL, " +
+            "`capture_note` TEXT)",
+        "CREATE INDEX IF NOT EXISTS `index_encoder_starvation_events_timestamp_ms` " +
+            "ON `encoder_starvation_events` (`timestamp_ms`)",
+        "CREATE INDEX IF NOT EXISTS `index_encoder_starvation_events_device_address` " +
+            "ON `encoder_starvation_events` (`device_address`)",
+    )
+
+    private fun writeVersion3Database() = writeDatabase(3, version3Schema) { db ->
+        db.execSQL(
+            "INSERT INTO `codec_mode_signatures` " +
+                "(`device_key`, `codec_name`, `mode_raw_value`, `sample_rate_hz`, " +
+                "`frames_per_packet_min`, `frames_per_packet_max`, " +
+                "`packets_per_second_min`, `packets_per_second_max`, " +
+                "`captured_at_ms`, `created_at_millis`) " +
+                "VALUES ('$address', 'LDAC', 1000, 96000, 5.5, 6.5, 55.0, 70.0, 1234, 9000)",
+        )
+        db.execSQL(
+            "INSERT INTO `encoder_starvation_events` " +
+                "(`timestamp_ms`, `device_address`, `device_name`, `underflows_per_second`, " +
+                "`window_ms`, `sustained_passes`, `effect_instances`, `effect_sessions`, " +
+                "`effects_per_session`, `effect_names`, `playback_session_ids`, `capture_note`) " +
+                "VALUES (3000, '$address', 'Headphones', 49.0, 2000, 3, 5, 2, " +
+                "'145:3,0:2', 'DynamicsProcessing|Volume', '8009,8137', NULL)",
+        )
+    }
+
     private fun writeDatabase(
         version: Int,
         schema: List<String>,
@@ -161,7 +200,7 @@ class MonitorDatabaseMigrationTest {
      * gone, no exception — the destructive fallback is back.
      */
     @Test
-    fun `upgrading to version 2 keeps the recorded history`() = runTest {
+    fun `upgrading a version 1 file keeps the recorded history`() = runTest {
         writeVersion1Database()
 
         val db = MonitorDatabase.create(context)
@@ -171,7 +210,7 @@ class MonitorDatabaseMigrationTest {
             assertEquals("connected", events.single().detail)
             assertEquals(660, events.single().bitrateKbps)
 
-            val samples = db.monitorDao().samplesBetween(address, 0L, Long.MAX_VALUE)
+            val samples = db.monitorDao().samples(0L).first()
             assertEquals(1, samples.size)
             assertEquals(-55, samples.single().rssiDbm)
             assertEquals(96_000, samples.single().sampleRateHz)
@@ -181,53 +220,29 @@ class MonitorDatabaseMigrationTest {
     }
 
     /**
-     * The other half: the migrated file is not merely intact, it has the new
-     * table and it works. Reaching this line at all already means Room accepted
-     * the migration's DDL as matching [CodecModeSignatureEntity] — that check
-     * runs during the upgrade and throws on any mismatch.
+     * The calibration table is gone after the upgrade. Reaching the assertion
+     * at all means Room accepted the migrated schema against every entity.
      */
     @Test
-    fun `the migrated database can store a calibration`() = runTest {
-        writeVersion1Database()
+    fun `upgrading a version 2 file drops the calibration table`() = runTest {
+        writeVersion2Database()
 
         val db = MonitorDatabase.create(context)
         try {
-            val dao = db.codecModeSignatureDao()
-            assertTrue(dao.all().isEmpty())
-            dao.upsert(
-                CodecModeSignatureEntity(
-                    deviceKey = address,
-                    codecName = "LDAC",
-                    modeRawValue = 1001L,
-                    sampleRateHz = 96_000,
-                    framesPerPacketMin = 5.5,
-                    framesPerPacketMax = 6.5,
-                    packetsPerSecondMin = 55.0,
-                    packetsPerSecondMax = 70.0,
-                    capturedAtMs = 1_234L,
-                    createdAtMillis = 9_000L,
-                ),
-            )
-            assertEquals(6.5, dao.all().single().framesPerPacketMax, 0.0)
+            assertEquals(1, db.monitorDao().events(0L).first().size)
+            assertFalse(tableExists(db, "codec_mode_signatures"))
         } finally {
             db.close()
         }
     }
 
-    // ---- version 2 to 3: the encoder-starvation forensics table --------------
-
     /**
-     * The same guarantee one version on. A phone that already took the
-     * calibration update keeps *both* kinds of history across this one.
-     *
-     * Worth its own test rather than an extension of the v1 case: v1 files exist
-     * only on installs that predate the calibration release, while v2 is what
-     * most upgrading phones actually carry, so this is the path that will
-     * really run.
+     * The path most upgrading phones take: a v3 file with recorded history and
+     * a starvation capture. Both survive, the dead calibration table does not.
      */
     @Test
-    fun `upgrading to version 3 keeps the history and the calibrations`() = runTest {
-        writeVersion2Database()
+    fun `upgrading a version 3 file keeps the history and the captures`() = runTest {
+        writeVersion3Database()
 
         val db = MonitorDatabase.create(context)
         try {
@@ -235,13 +250,12 @@ class MonitorDatabaseMigrationTest {
             assertEquals(1, events.size)
             assertEquals("connected", events.single().detail)
 
-            val samples = db.monitorDao().samplesBetween(address, 0L, Long.MAX_VALUE)
+            val samples = db.monitorDao().samples(0L).first()
             assertEquals(1, samples.size)
             assertEquals(96_000, samples.single().sampleRateHz)
 
-            val calibrations = db.codecModeSignatureDao().all()
-            assertEquals("the calibration table must survive its own successor", 1, calibrations.size)
-            assertEquals(1000L, calibrations.single().modeRawValue)
+            assertEquals(1, starvationRowCount(db))
+            assertFalse(tableExists(db, "codec_mode_signatures"))
         } finally {
             db.close()
         }
@@ -253,22 +267,22 @@ class MonitorDatabaseMigrationTest {
      * hand-written `MIGRATION_1_3` shortcut would silently break.
      */
     @Test
-    fun `a version 1 file upgrades all the way to 3 without losing anything`() = runTest {
+    fun `a version 1 file upgrades all the way to 4 without losing anything`() = runTest {
         writeVersion1Database()
 
         val db = MonitorDatabase.create(context)
         try {
             assertEquals(1, db.monitorDao().events(0L).first().size)
-            assertTrue(db.codecModeSignatureDao().all().isEmpty())
-            assertTrue(db.monitorDao().starvations(0L).isEmpty())
+            assertFalse(tableExists(db, "codec_mode_signatures"))
+            assertEquals(0, starvationRowCount(db))
         } finally {
             db.close()
         }
     }
 
     /**
-     * The migrated database can store a capture, and the capture survives the
-     * round trip through the three delimited columns.
+     * The migrated database can store a capture, and the three delimited
+     * columns hold exactly the documented formats.
      *
      * Reaching this line already means Room accepted `MIGRATION_2_3`'s DDL as
      * matching `EncoderStarvationEntity` — that validation runs during the
@@ -304,19 +318,43 @@ class MonitorDatabaseMigrationTest {
             )
             repository.recordStarvation(report)
 
-            assertEquals(
-                "the capture must come back exactly as it went in",
-                report,
-                repository.starvations(0L).single(),
-            )
+            db.openHelper.readableDatabase.query(
+                "SELECT `device_address`, `underflows_per_second`, `window_ms`, " +
+                    "`sustained_passes`, `effect_instances`, `effect_sessions`, " +
+                    "`effects_per_session`, `effect_names`, `playback_session_ids`, " +
+                    "`capture_note` FROM `encoder_starvation_events`",
+            ).use { row ->
+                assertEquals(1, row.count)
+                row.moveToFirst()
+                assertEquals(address, row.getString(0))
+                assertEquals(49.0, row.getDouble(1), 0.0)
+                assertEquals(2_000L, row.getLong(2))
+                assertEquals(3, row.getInt(3))
+                assertEquals(5, row.getInt(4))
+                assertEquals(2, row.getInt(5))
+                assertEquals("145:3,0:2", row.getString(6))
+                assertEquals("DynamicsProcessing|Volume", row.getString(7))
+                assertEquals("8009,8137", row.getString(8))
+                assertTrue(row.isNull(9))
+            }
             // Older than the cutoff: forensics are diagnostic data like the rest
             // of the history and are trimmed on the same schedule.
             repository.purgeOlderThan(10_000L)
-            assertTrue(repository.starvations(0L).isEmpty())
+            assertEquals(0, starvationRowCount(db))
         } finally {
             db.close()
         }
     }
+
+    private fun tableExists(db: MonitorDatabase, name: String): Boolean =
+        db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '$name'")
+            .use { it.moveToFirst(); it.getInt(0) > 0 }
+
+    private fun starvationRowCount(db: MonitorDatabase): Int =
+        db.openHelper.readableDatabase
+            .query("SELECT COUNT(*) FROM `encoder_starvation_events`")
+            .use { it.moveToFirst(); it.getInt(0) }
 
     private companion object {
         /** The name [MonitorDatabase.create] uses; the test has to target that file. */

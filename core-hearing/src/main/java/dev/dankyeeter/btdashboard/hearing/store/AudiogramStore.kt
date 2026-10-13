@@ -145,10 +145,6 @@ class AudiogramStore(context: Context) {
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs -> DerivedCalibrationJson.parse(prefs[KEY_DERIVED]) }
 
-    /** The derivation for one headphone, or null — including for a null key. */
-    fun derivedCalibrationFor(deviceKey: String?): Flow<DerivedCalibration?> =
-        derivedCalibrations.map { all -> all.firstOrNull { it.deviceKey == deviceKey } }
-
     suspend fun currentDerivedCalibrations(): List<DerivedCalibration> = derivedCalibrations.first()
 
     /**
@@ -210,8 +206,6 @@ class AudiogramStore(context: Context) {
     }
 
     suspend fun currentRuns(): List<AudiogramRun> = runs.first()
-
-    suspend fun currentSelectedRuns(): List<AudiogramRun> = selectedRuns.first()
 
     suspend fun currentSelectedRunIds(): Set<String> = selectedRunIds.first()
 

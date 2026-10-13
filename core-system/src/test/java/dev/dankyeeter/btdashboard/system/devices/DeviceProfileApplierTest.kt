@@ -15,18 +15,14 @@ private class FakeProfiles(vararg profiles: DeviceProfile) : DeviceProfileSource
 }
 
 private class FakeVolume(
-    private var percent: Int? = 50,
     private val accept: Boolean = true,
 ) : MediaVolumeController {
     var lastWrite: Int? = null
         private set
 
-    override fun currentPercent(): Int? = percent
-
     override fun setPercent(percent: Int): Boolean {
         if (!accept) return false
         lastWrite = percent
-        this.percent = percent
         return true
     }
 }

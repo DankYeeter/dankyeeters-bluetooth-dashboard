@@ -105,7 +105,6 @@ internal object AdbPeerInfo {
 
     const val SIZE = 8192
     const val TYPE_RSA_PUBLIC_KEY = 0
-    const val TYPE_DEVICE_GUID = 1
 
     /**
      * @param publicKey the key in adb's own format: base64 of the public key

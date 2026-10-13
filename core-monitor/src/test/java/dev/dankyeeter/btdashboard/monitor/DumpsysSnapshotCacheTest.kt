@@ -6,7 +6,6 @@ import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysDevice
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysSnapshot
-import dev.dankyeeter.btdashboard.monitor.link.UnavailableQualityReportSource
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -68,7 +67,7 @@ class DumpsysSnapshotCacheTest {
         val samples = LinkSampleCollector(
             codecSource = codecSource,
             dumpsysSource = cache,
-            qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+            qualityReportSource = FakeQualityReportSource("no BQR in tests"),
         ).collect()
 
         assertEquals(2, samples.size)
@@ -127,7 +126,7 @@ class DumpsysSnapshotCacheTest {
         val samples = LinkSampleCollector(
             codecSource = FakeCodecStatusSource(isProfileAvailable = false),
             dumpsysSource = cache,
-            qualityReportSource = UnavailableQualityReportSource("no BQR in tests"),
+            qualityReportSource = FakeQualityReportSource("no BQR in tests"),
         ).collect()
 
         assertEquals(emptyList<Any>(), samples)

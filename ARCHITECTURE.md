@@ -1064,8 +1064,7 @@ und die Maschine faellt an einer Lesung auf `CANNOT_TELL`, nicht an einer
 Zeitschranke. Stillstehen kann die Faltung nur, wenn die Poll-Schleife steht —
 und die steht nur, wenn der Bildschirm weg ist und niemand hinsieht. Fuer
 `readOnce` gilt das **nicht**: die Maschine wird ausschliesslich aus dem
-Poll-Fluss gefuettert, dieselbe Trennung, die `EncoderStarvationTripwire` aus
-demselben Grund hat (`CodecModeCalibrator` verhandelt absichtlich neu).
+Poll-Fluss gefuettert, dieselbe Trennung, die `EncoderStarvationTripwire` hat.
 
 **Konsequenzen:** Leicht wird der Test: eine Liste von Lesungen mit erfundenen
 Zeitstempeln hinein, eine Liste von Zustaenden heraus, ohne Nebenlaeufigkeit und
@@ -1457,8 +1456,7 @@ Lesungsfolge hinein, die Ereignisliste heraus. Leicht wird auch, dass Zeile,
 Graph und Zeitachse dieselbe Episode meinen. Dauerhaft schwer — und das ist der
 Preis dieser Entscheidung: Verlust-Ereignisse entstehen nur noch, solange der
 Monitor-Bildschirm faltet. Heute kostet das nichts (`recordLiveEvents` schreibt
-ohnehin nur von dort, und `MonitorGraph.liveLinkEvents` hat ausserhalb keinen
-Abnehmer), aber es ist die Stelle, die sich meldet, wenn jemand spaeter
+ohnehin nur von dort), aber es ist die Stelle, die sich meldet, wenn jemand spaeter
 Ereignisse ohne offenen Bildschirm will — dann ist das eine Frage an `GOAL.md`
 AK-4 und nicht an diese Datei.
 

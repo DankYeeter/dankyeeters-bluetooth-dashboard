@@ -1,11 +1,8 @@
 package dev.dankyeeter.btdashboard.ui.screens.eq
 
-import android.content.Context
 import android.os.Looper
-import androidx.test.core.app.ApplicationProvider
 import dev.dankyeeter.btdashboard.audio.eq.MediaVolumeSource
 import dev.dankyeeter.btdashboard.audio.eq.VolumeAwareTilt
-import dev.dankyeeter.btdashboard.system.SystemGraph
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,20 +53,21 @@ class VolumeAwareTiltViewModelTest {
 
     @Before
     fun setUp() {
-        SystemGraph.init(ApplicationProvider.getApplicationContext<Context>())
+        resetEqStore()
     }
 
     private fun idle() {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    private fun viewModel(): EqViewModel = EqViewModel(volume).also { idle() }
+    private fun viewModel(): EqViewModel = EqViewModel(volume).awaitLoaded()
 
     @Test
     fun `a volume change re-derives the band gains`() {
         val viewModel = viewModel()
         viewModel.setVolumeAwareTilt(true)
         idle()
+        viewModel.awaitSaved()
 
         // At the reference volume there is nothing to restore, and the screen
         // says as much.
@@ -128,11 +126,13 @@ class VolumeAwareTiltViewModelTest {
 
         viewModel.setVolumeAwareTilt(true)
         idle()
+        viewModel.awaitSaved()
         assertTrue(viewModel.settings.value.tiltGainsDb.any { it > 0f })
         assertTrue(viewModel.settings.value.preGainDb < 0f)
 
         viewModel.setVolumeAwareTilt(false)
         idle()
+        viewModel.awaitSaved()
 
         val off = viewModel.settings.value
         assertTrue(
