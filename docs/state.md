@@ -289,9 +289,9 @@ Verlust-Verdikt-Pfad.
 
 ## Offene Sicherheitsbefunde
 
-**SR-001 und SR-009** — weltles- und -schreibbare Dumps bzw. Helper-Log in
-`/data/local/tmp`, **ueberleben die Deinstallation**. Behebung ist T-006/U-0..U-6,
-braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen.
+**SR-001, SR-009, SR-016** — im Code behoben (T-006, PR #4, Helper v6):
+exec-Antworten reisen per Deskriptor, Log 0600, Helper raeumt nach der
+Deinstallation auf und endet. Emulator-Retest siehe PR; Geraete-Retest offen. `AudioEffectSessionReceiver` exportiert — eigenes Review offen.
 
 ## Laufende und offene Auftraege
 
@@ -300,7 +300,7 @@ braucht Geraet. `AudioEffectSessionReceiver` exportiert — eigenes Review offen
 | T-036 | performance-tuner | Trennmessung 2,4 GHz bei 990 + Doppelaufnahme | **naechster Schritt**, braucht Geraet |
 | T-037 | performance-tuner | Callback-Probe, letzte AK-7-Frage | nach T-036 |
 | QA-014..018 | developer | Befunde aus dem T-034-Retest und den Nachtraegen | **erledigt**, gegengeprueft 03.09. |
-| T-006 | architect nach developer | Transport SR-001/SR-009 | Entwurf abgenommen, Umsetzung offen |
+| T-006 | developer | Transport SR-001/SR-009/SR-016 | **umgesetzt** (PR #4), Geraete-Retest offen |
 | T-001 | performance-tuner | Vergleichslauf gegen Block 1 | offen, **vor** dem Transport-Messlauf |
 | T-008 | performance-tuner | E-1/E-3 (Nearby-Scans, Spatializer aus) | offen, **kein Shell-Hebel**, nur von Hand |
 | SR-012 | performance-tuner | `umask 077` in `docs/perf/tools/*.sh` | zurueckgestellt bis Ende der Messreihe |
