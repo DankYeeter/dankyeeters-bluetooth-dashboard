@@ -32,13 +32,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # The 37.0 and 36.1 images crash-loop surfaceflinger on emulator 37.2
-      # and 37.3 canary under every GPU mode (guest gralloc mapper asserts
-      # "!hasReadColorBufferDma"); no older emulator is listed. The canary
-      # row shows when a fix lands. API 35 boots and runs the probes.
+      # The 37.0 image crash-loops surfaceflinger on emulator 37.2 and the
+      # 37.3 canary under every GPU mode, host GPU included (guest gralloc
+      # mapper asserts "!hasReadColorBufferDma"). Emulator 36.6.11 boots it
+      # cleanly; it is no longer listed in the SDK repository, so it is
+      # fetched by build number. API 35 is the reference row.
       matrix:
         include:
-          - { api: "37.0", gpu: swiftshader_indirect, emu: canary }
+          - { api: "37.0", gpu: swiftshader_indirect, emu: "15507667" }
           - { api: "35", gpu: swiftshader_indirect, emu: stable }
     timeout-minutes: 50
     env:
@@ -85,9 +86,10 @@ jobs:
           echo "IMG=$IMG" >> "$GITHUB_ENV"
           mkdir -p "$ANDROID_AVD_HOME"
           "$SDKM" emulator platform-tools "$IMG" > /dev/null
-          case "${{ matrix.emu }}" in
-            canary) "$SDKM" --channel=3 emulator > /dev/null ;;
-          esac
+          if [ "${{ matrix.emu }}" != stable ]; then
+            curl -fsSo emu.zip "https://dl.google.com/android/repository/emulator-linux_x64-${{ matrix.emu }}.zip"
+            rm -rf "$ANDROID_HOME/emulator" && unzip -q emu.zip -d "$ANDROID_HOME" && rm emu.zip
+          fi
           grep -m1 Revision "$ANDROID_HOME/emulator/source.properties" || true
           echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
       # Boot and Probes report through the summary and the artifact; an
