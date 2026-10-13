@@ -382,14 +382,17 @@ class LiveLinkPanelScreenTest {
             overview = overviewWithQueue(nonEmpty = 40),
         )
 
-        assertHides("falling behind")
-        assertHides("packets queued")
+        assertNotRendered("AK-T009-29", "falling behind")
+        assertNotRendered("AK-T009-29", "packets queued")
         // Not in the first layer either, however true it is.
         assertHides("The send queue was not empty")
 
         openExplanation("Adaptive — 396 kbps right now (measured)")
 
         assertShows("The send queue was not empty in 80 % of the readings in the last 60 s.")
+        // The removed line stays removed behind the question mark too.
+        assertNotRendered("AK-T009-29", "falling behind")
+        assertNotRendered("AK-T009-29", "packets queued")
     }
 
     /** The resting case: one reading in fifty, which is the regulator working. */
@@ -402,8 +405,8 @@ class LiveLinkPanelScreenTest {
 
         openExplanation("Adaptive — 396 kbps right now (measured)")
 
-        assertHides("send queue")
-        assertHides("falling behind")
+        assertNotRendered("AK-T009-29", "send queue")
+        assertNotRendered("AK-T009-29", "falling behind")
     }
 
     /**
@@ -693,6 +696,22 @@ class LiveLinkPanelScreenTest {
             node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text } +
                 node.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
         }
+
+    /**
+     * [wording] appears in no rendered text or content description.
+     *
+     * Stronger than [assertHides], which reads text nodes only and passes on an
+     * empty screen (QA-013).
+     */
+    private fun assertNotRendered(criterion: String, wording: String) {
+        val texts = renderedText()
+        assertTrue("$criterion: the panel rendered no text at all", texts.isNotEmpty())
+        val offending = texts.filter { it.contains(wording, ignoreCase = true) }
+        assertTrue(
+            "$criterion: \"$wording\" is on screen:\n" + offending.joinToString("\n"),
+            offending.isEmpty(),
+        )
+    }
 
     private fun assertNoForbiddenWording(state: String) {
         val texts = renderedText()

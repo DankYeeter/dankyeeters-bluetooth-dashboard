@@ -136,6 +136,12 @@ class AcceptanceCriteriaGrepTest {
      */
     @Test
     fun `every open parameter names the measurement it waits for`() {
+        // Today no marker exists at all, so without this the rule would stay
+        // green over a moved path (QA-012).
+        assertTrue(
+            "AK-T009-31 scanned no files — has the source path moved?",
+            SourceTree.appAndLinkSources.isNotEmpty(),
+        )
         val markers = hits(SourceTree.appAndLinkSources, Regex("""TODO\("""))
         val unnamed = markers.filterNot { Regex("""TODO\(M-\d+\)""").containsMatchIn(it.text) }
 
