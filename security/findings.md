@@ -10,7 +10,7 @@ und Entscheider) | entfallen (Grund)
 
 | ID | Titel | Prioritaet | Status | Letzte Pruefung |
 |---|---|---|---|---|
-| SR-001 | Gestagte Dumps **0666** in `/data/local/tmp` — Geraetenamen und BT-Adressen fuer jede App les- UND schreibbar; **ueberlebt die Deinstallation** | hoch | offen (eigener Task T-006), am Geraet BESTAETIGT und verschaerft | 2026-09-01 |
+| SR-001 | Gestagte Dumps **0666** in `/data/local/tmp` — Geraetenamen und BT-Adressen fuer jede App les- UND schreibbar; **ueberlebt die Deinstallation** | hoch | behoben (PR #4; Emulator API 35: nach Live-Sitzung 0 Dateien `btdash_exec_*`; Retest Geraet offen) | 2026-10-13 |
 | SR-002 | `wifiFacts`: SSID/BSSID-Zusage nur Konvention, Fehlerpfad reicht Rohtext durch | hoch | offen (Auflage A1 vor S-3) | 2026-08-31 |
 | SR-003 | `wifiFacts`-Parser verarbeitet vom AP kontrollierten Text im Shell-Prozess | hoch | offen (Auflage A2 vor S-3) | 2026-08-31 |
 | SR-004 | Settings-Leihe ohne belegte Wirkung — Risiko ohne gesicherten Ertrag | hoch | offen (Geraetefrage vor S-6) | 2026-08-31 |
@@ -18,18 +18,18 @@ und Entscheider) | entfallen (Grund)
 | SR-006 | Ledger in `datastore/` reist per Cloud-Sicherung und Geraeteuebertragung | mittel | offen | 2026-08-31 |
 | SR-007 | Ledger: Doppelleihe macht Leihwert zum Nutzerwert; Rueckgabe ohne Vergleiche-und-Setze ueberschreibt Nutzerentscheidung | mittel | offen | 2026-08-31 |
 | SR-008 | Kein Test erzwingt parameterlose fest verdrahtete Vektoren (`wifiFacts`) | mittel | offen (Auflage A3 vor S-3) | 2026-08-31 |
-| SR-009 | Helper-Log **0666** (welt-les- und -schreibbar), ueberlebt die Deinstallation; Nebenausgang fuer WLAN-Daten, Log-Injection ueber SSID, zusaetzlich Integritaetsverlust | **hoch** (hochgestuft 2026-09-01, Auflage erfuellt: Modus am Geraet geprueft) | offen | 2026-09-01 |
+| SR-009 | Helper-Log **0666** (welt-les- und -schreibbar), ueberlebt die Deinstallation; Nebenausgang fuer WLAN-Daten, Log-Injection ueber SSID, zusaetzlich Integritaetsverlust | **hoch** (hochgestuft 2026-09-01, Auflage erfuellt: Modus am Geraet geprueft) | behoben (PR #4; Emulator API 35: Log 0600; Retest Geraet offen) | 2026-10-13 |
 | SR-010 | Versionssprung 5 → 6: Methode ans AIDL-Ende, KDoc fortschreiben | niedrig | offen (Auflage A4 vor S-3) | 2026-08-31 |
 | SR-011 | Ungesalzener MAC-Hash als `deviceKey` im Bericht | niedrig | offen | 2026-08-31 |
 | SR-012 | **`/data/local/tmp/btperf`: 117 Dateien, 13 MB Roh-Dumps mit Geraetenamen und MACs, 0666/0777, ueberlebt die Deinstallation** — erzeugt von `docs/perf/tools/*.sh`, nicht von Produktivcode | hoch | offen (Rolle: performance-tuner; Behebung `umask 077` in den Skripten) | 2026-09-01 |
 | SR-013 | Bauform 3 (entlinkte Datei in `/data/local/tmp`): Entlinken wirkt **nicht rueckwirkend** — eine App, die den konstanten Namen im Oeffnungsfenster trifft, haelt den Deskriptor darueber hinaus und liest den vollen Dump | hoch | offen (Auflage A11 vor U-0) | 2026-09-01 |
 | SR-014 | Pipe-Bauformen 1/2: Schreiben aus dem Binder-Thread in eine 64-KB-Pipe, waehrend der Aufrufer synchron wartet, **verklemmt den absichtlich unsterblichen Helper dauerhaft** | hoch | offen (Auflage A14 vor U-2) | 2026-09-01 |
-| SR-015 | Loeschung von `ExecHandoff` entfernt die einzige Erkennung stiller Trunkierung — kurzer Dump statt Fehlermeldung, verletzt AK-3 | mittel | offen (Auflage A13 vor U-1) | 2026-09-01 |
-| SR-016 | Helper **ueberlebt die Deinstallation** und pollt unbegrenzt weiter — R1 aus AD-011 ist fuer den Regelfall widerlegt; verwaister Shell-Prozess ohne Beendigungsbedingung | mittel | offen (Nachtrag an architect) | 2026-09-01 |
+| SR-015 | Loeschung von `ExecHandoff` entfernt die einzige Erkennung stiller Trunkierung — kurzer Dump statt Fehlermeldung, verletzt AK-3 | mittel | behoben (Bytezahl im Beleg, Kurzschreibung wird abgelehnt) | 2026-10-13 |
+| SR-016 | Helper **ueberlebt die Deinstallation** und pollt unbegrenzt weiter — R1 aus AD-011 ist fuer den Regelfall widerlegt; verwaister Shell-Prozess ohne Beendigungsbedingung | mittel | behoben (PR #4; Emulator API 35: Helper und Log nach Deinstallation fort; Retest Geraet offen) | 2026-10-13 |
 | SR-017 | `umask 077`: auf dem Auto-Start-Pfad strukturell, auf dem Kopier-Pfad Konvention; durch jeden expliziten `ownerOnly=false`-Aufruf aushebelbar; erreicht SR-012 nicht | mittel | offen (Auflage A15 vor U-5) | 2026-09-01 |
-| SR-018 | Nutzlast-Deskriptor kann an `dumpsys`-Kindprozesse vererbt werden — kein EOF, mit SR-015 zusammen stumme Kuerzung | mittel | offen (Auflage A12, Messpunkt in U-0) | 2026-09-01 |
+| SR-018 | Nutzlast-Deskriptor kann an `dumpsys`-Kindprozesse vererbt werden — kein EOF, mit SR-015 zusammen stumme Kuerzung | mittel | behoben (FD_CLOEXEC vor jedem exec) | 2026-10-13 |
 | SR-019 | Reihenfolgekopplung: `umask 077` **vor** dem FD-Transport erzeugt keinen Ausfall (`ExecSpill` stellt mit `setReadable(true,false)` 0644 her), sondern einen **unabgenommenen Zwischenstand** — Integritaetshaelfte von SR-001 zu, Vertraulichkeitshaelfte offen, messbar wie eine Behebung, wirksam wie die verworfene Option A. Version 6 liefert einen Zustand, nicht zwei | mittel | offen (Auflagen A9/A10 vor Freigabe v6; **Text korrigiert 2026-09-01**, Auflage unveraendert in Kraft) | 2026-09-01 |
-| SR-020 | Empfangener Deskriptor wird auf den Ablehnpfaden von `exec` nicht freigegeben; `null`-Deskriptor auf privilegierter Flaeche | niedrig | offen (Auflage A14 vor U-2) | 2026-09-01 |
+| SR-020 | Empfangener Deskriptor wird auf den Ablehnpfaden von `exec` nicht freigegeben; `null`-Deskriptor auf privilegierter Flaeche | niedrig | behoben (Emulator API 35: 53 offene Deskriptoren vor und nach 200 Ablehnungen, null beantwortet) | 2026-10-13 |
 | SR-021 | Aufraeumpfad in `shutdown()` laeuft beim Helperwechsel nicht (Nachfolger SIGKILLt den Vorgaenger vor dem Handover); Inode-Falle bestaetigt und zu verallgemeinern | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
 | SR-022 | Schrittnummern S-1..S-7 gehoeren zu T-005; AD-010/011/012 haben keine eigene Schrittfolge — Auflagen nicht verankerbar (Vorschlag U-0..U-6) | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
 

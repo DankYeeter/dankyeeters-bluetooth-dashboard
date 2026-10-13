@@ -53,69 +53,25 @@ object PrivilegedContract {
      * and stderr would otherwise be thrown away - and that is exactly where it
      * says why it gave up. `/data/local/tmp` because the helper runs as shell,
      * which can write there and cannot write into the app's own storage.
+     *
+     * Owner-only (0600): the start command runs under `umask 077` after
+     * removing any older log, and the helper narrows the file again itself
+     * (AD-012, SR-009). It removes the log when the app is uninstalled or the
+     * user ends it (AD-011).
      */
     const val HELPER_LOG_PATH: String = "/data/local/tmp/btdash_helper.log"
 
-    /**
-     * Where an exec reply too large for Binder is staged.
-     *
-     * The same directory, and deliberately the same trust model, as
-     * [HELPER_LOG_PATH]: the helper runs as shell and can write there, the app
-     * cannot write there but can read a world-readable file in it, and that
-     * asymmetry is exactly the one this hand-over needs. Nothing secret is ever
-     * staged — the payload is a `dumpsys` report the same shell could print to
-     * anyone who asked it — so world-readable costs nothing that the operation
-     * itself did not already cost.
-     *
-     * See PrivilegedProtocol.INLINE_LIMIT_BYTES for why the file exists at all.
-     */
-    const val SPILL_DIRECTORY: String = "/data/local/tmp"
+    /** The directory [HELPER_LOG_PATH] lives in, and the only one the helper tidies. */
+    const val HELPER_DIRECTORY: String = "/data/local/tmp"
 
     /**
-     * Name shape of a staged reply. Both halves are matched before the app
-     * reads anything: the client will only open a path it can recognise as one
-     * of these, so a malformed or hostile reply cannot point it at
-     * `/data/local/tmp/something_else`.
-     *
-     * The *shape* stays wider than the one name [SPILL_NAME] uses, for two
-     * reasons: the sweep has to recognise files an earlier build named
-     * differently, and the client has to be able to collect a reply from a
-     * helper that is still naming them that way.
+     * Name shape of the exec replies helpers up to version 5 staged in
+     * [HELPER_DIRECTORY] — `btdash_exec_current.out`, and per-call names before
+     * that. Nothing writes them any more; the shape is kept only so the helper
+     * can delete what older builds left (ARCHITECTURE.md AD-011).
      */
-    const val SPILL_PREFIX: String = "btdash_exec_"
-    const val SPILL_SUFFIX: String = ".out"
-
-    /**
-     * The one file every staged reply is written to, overwritten per call.
-     *
-     * It was a fresh name per call, and that was measured on the device to be
-     * wrong: ~470 files appeared in `/data/local/tmp` within minutes of a
-     * two-minute watch-live session — roughly 3.5 staged replies a second,
-     * which against a five-minute sweep settles at about a thousand files and
-     * 200 MB of flash writes per sweep window. For a phone that is a real cost
-     * and it bought nothing.
-     *
-     * One name is safe **only because `PrivilegedShellRunner.EXEC_LOCK`
-     * serialises exec calls**: at most one reply is being staged or read at any
-     * moment, and the client reads and releases inside the same serialised
-     * call, so a write can never land under a reader. That coupling is the
-     * whole justification — if the mutex is ever removed, this has to go back to
-     * a unique name per call, and the size check on collect is what would
-     * notice if it did not.
-     */
-    const val SPILL_NAME: String = SPILL_PREFIX + "current" + SPILL_SUFFIX
-
-    /**
-     * How long a staged file may sit unclaimed before the helper deletes it.
-     *
-     * A staged file normally lives for milliseconds — the client reads it and
-     * unlinks it. It outlives that only when the app dies between the reply and
-     * the read, which is rare and, without a sweep, permanent: these files land
-     * in a directory nothing else tidies. Five minutes is far longer than any
-     * legitimate read and far shorter than a session, so the sweep can never
-     * race a reader.
-     */
-    const val SPILL_MAX_AGE_MS: Long = 5 * 60 * 1000L
+    const val STAGED_REPLY_PREFIX: String = "btdash_exec_"
+    const val STAGED_REPLY_SUFFIX: String = ".out"
 
     /**
      * The app this helper serves.

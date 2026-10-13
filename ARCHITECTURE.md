@@ -338,7 +338,7 @@ WLAN-Spur als Ursache zu praesentieren, bevor sie gezeigt ist.
 
 ---
 
-### AD-010 — Eine grosse exec-Antwort reist als Dateideskriptor, nie als benannter Pfad (2026-09-01, Status: aktiv — Review bestanden mit Auflagen; **braucht Geraete-Spike U-0 und Retest U-6**)
+### AD-010 — Eine grosse exec-Antwort reist als Dateideskriptor, nie als benannter Pfad (2026-09-01, Status: aktiv — **umgesetzt 2026-10-13** als Form 3', Helper v6; U-0/U-6 als Emulator-Proben, Geraete-Retest offen)
 
 **Kontext:** SR-001. `ExecSpill` legt jede exec-Antwort ueber 64 KB unter dem
 festen Namen `/data/local/tmp/btdash_exec_current.out` ab. Am 01.09. am Geraet

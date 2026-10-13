@@ -3,8 +3,10 @@ package dev.dankyeeter.btdashboard.privileged
 import android.app.Application
 import android.content.Context
 import android.os.DeadObjectException
+import android.os.ParcelFileDescriptor
 import android.os.TransactionTooLargeException
 import androidx.test.core.app.ApplicationProvider
+import java.io.FileOutputStream
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
@@ -49,7 +51,8 @@ import org.robolectric.annotation.Config
  * Three things are pinned here, and the third is the owner-visible one:
  *
  *  1. exec calls are serialised, so replies never overlap in that buffer;
- *  2. a reply too large to send arrives as a file and is read back whole;
+ *  2. a reply is written into the app's own descriptor and read back whole,
+ *     with nothing left behind under a name;
  *  3. a transient transport failure keeps the connection, and only real death
  *     clears it.
  *
@@ -97,7 +100,7 @@ class PrivilegedTransportTest {
         return PrivilegedShellRunner(
             bootstrap = PrivilegedBootstrap(context),
             guard = guard,
-            spill = ExecSpill(directory = temp.root),
+            replyDirectory = temp.root,
         )
     }
 
@@ -108,7 +111,7 @@ class PrivilegedTransportTest {
         // The whole point of the Mutex. Both readers poll independently, so the
         // overlap is the normal case rather than a corner one, and overlapping
         // is what exhausts the shared 1 MB buffer.
-        val helper = FakeHelper(delayMs = 40) { PrivilegedProtocol.encodeResult(0, "state: ON", "") }
+        val helper = FakeHelper(delayMs = 40) { receipt(it, "state: ON") }
         val runner = runner(helper)
 
         val results = listOf(
@@ -125,80 +128,63 @@ class PrivilegedTransportTest {
         assertTrue(results.all { it.isSuccess })
     }
 
-    // ---- the file hand-over -------------------------------------------------
+    // ---- the descriptor hand-over -------------------------------------------
 
     @Test
-    fun `a reply too large to send arrives as a file and is read back whole`() = runBlocking {
+    fun `a large reply is written into the app's descriptor and read back whole`() = runBlocking {
         val payload = "Bluetooth Status\n" + "x".repeat(220_000)
-        val staging = ExecSpill(directory = temp.root)
-        val helper = FakeHelper {
-            PrivilegedProtocol.encodeExecResult(0, payload, "") { staging.stage(it)?.path }
-        }
+        val helper = FakeHelper { receipt(it, payload) }
 
         val result = runner(helper).run(dump)
 
         assertEquals(0, result.exitCode)
         assertEquals(payload, result.stdout)
-        // Collected means consumed: nothing is left behind in the staging
-        // directory for the helper's sweep to have to deal with.
-        assertEquals(
-            emptyList<String>(),
-            temp.root.listFiles().orEmpty().map { it.name },
-        )
-    }
-
-    @Test
-    fun `repeated large replies reuse one staging file`() = runBlocking {
-        // The follow-up defect: a name per call put ~470 files into
-        // /data/local/tmp inside a two-minute watch-live session. Nothing
-        // needed them distinct — this lock means one reply is staged, handed
-        // over and read per turn — so they are one file, overwritten.
-        val payload = "Bluetooth Status\n" + "x".repeat(120_000)
-        val staging = ExecSpill(directory = temp.root)
-        val staged = mutableListOf<String>()
-        val helper = FakeHelper {
-            PrivilegedProtocol.encodeExecResult(0, payload, "") { body ->
-                staging.stage(body)?.path?.also { staged += it }
-            }
-        }
-        val runner = runner(helper)
-
-        repeat(5) { assertEquals(payload, runner.run(dump).stdout) }
-
-        assertEquals(5, staged.size)
-        assertEquals("every reply must have gone to the same file", 1, staged.toSet().size)
-        assertEquals(
-            emptyList<String>(),
-            temp.root.listFiles().orEmpty().map { it.name },
-        )
-    }
-
-    @Test
-    fun `a small reply still travels inline`() = runBlocking {
-        val helper = FakeHelper { PrivilegedProtocol.encodeExecResult(0, "state: ON", "") { null } }
-        val result = runner(helper).run(dump)
-        assertEquals("state: ON", result.stdout)
+        // SR-001: the reply never had a name. The file was unlinked before the
+        // helper saw its descriptor, so nothing is left to list.
         assertEquals(emptyList<String>(), temp.root.listFiles().orEmpty().map { it.name })
     }
 
     @Test
-    fun `a staged file the app cannot read fails the call and keeps the helper`() = runBlocking {
-        val helper = FakeHelper {
-            PrivilegedProtocol.encodeFileResult(
-                exitCode = 0,
-                path = temp.root.path + "/" + PrivilegedContract.SPILL_PREFIX + "gone" +
-                    PrivilegedContract.SPILL_SUFFIX,
-                byteCount = 10,
-                stderr = "",
-            )
+    fun `repeated replies leave nothing behind`() = runBlocking {
+        val payload = "Bluetooth Status\n" + "x".repeat(120_000)
+        val runner = runner(FakeHelper { receipt(it, payload) })
+
+        repeat(5) { assertEquals(payload, runner.run(dump).stdout) }
+
+        assertEquals(emptyList<String>(), temp.root.listFiles().orEmpty().map { it.name })
+    }
+
+    @Test
+    fun `a short reply takes the same path`() = runBlocking {
+        // One shape for every exec reply: the rarely taken branch was the
+        // dangerous one.
+        val helper = FakeHelper { receipt(it, "state: ON") }
+        assertEquals("state: ON", runner(helper).run(dump).stdout)
+    }
+
+    @Test
+    fun `a receipt announcing more than was written is refused and keeps the helper`() = runBlocking {
+        // SR-015: a truncated dump parses as a short one, so the length is the
+        // only thing that can tell them apart.
+        val helper = FakeHelper { out ->
+            FileOutputStream(out!!.fileDescriptor).write("short".toByteArray())
+            PrivilegedProtocol.encodeExecReceipt(0, 10, "")
         }
         val result = runner(helper).run(dump)
 
         assertFalse(result.isSuccess)
-        assertTrue(result.stderr.isNotBlank())
-        // A file that could not be read says nothing at all about whether the
-        // helper is alive, and it plainly is - it just answered.
+        assertTrue(result.stderr.contains("partial"))
+        // A reply that could not be read says nothing about whether the helper
+        // is alive, and it plainly is - it just answered.
         assertTrue(PrivilegedConnection.isConnected)
+    }
+
+    @Test
+    fun `an error reply still reaches the caller`() = runBlocking {
+        val helper = FakeHelper { PrivilegedProtocol.encodeError("not on the whitelist: dumpsys") }
+        val result = runner(helper).run(dump)
+        assertFalse(result.isSuccess)
+        assertEquals("not on the whitelist: dumpsys", result.stderr)
     }
 
     // ---- what clears the connection, and what does not ----------------------
@@ -220,7 +206,7 @@ class PrivilegedTransportTest {
         val helper = FakeHelper {
             attempt += 1
             if (attempt == 1) throw TransactionTooLargeException()
-            PrivilegedProtocol.encodeResult(0, "state: ON", "")
+            receipt(it, "state: ON")
         }
         val runner = runner(helper)
 
@@ -371,7 +357,7 @@ class PrivilegedTransportTest {
  */
 private class FakeHelper(
     private val delayMs: Long = 0,
-    private val reply: () -> String,
+    private val reply: (ParcelFileDescriptor?) -> String,
 ) : IPrivilegedService.Stub() {
 
     /**
@@ -390,13 +376,16 @@ private class FakeHelper(
 
     override fun version(): Int = PrivilegedServer.VERSION
 
-    override fun exec(token: String?, command: MutableList<String>?): String {
+    override fun exec(token: String?, command: MutableList<String>?, out: ParcelFileDescriptor?): String {
         execCalls.incrementAndGet()
         val depth = inFlight.incrementAndGet()
         peakConcurrentExecs.updateAndGet { maxOf(it, depth) }
         try {
             if (delayMs > 0) Thread.sleep(delayMs)
-            return reply()
+            // Not closed here: a local binder hands over the app's own
+            // descriptor rather than a duplicate, so closing it would close the
+            // app's copy. The real helper closes the duplicate Binder gives it.
+            return reply(out)
         } finally {
             inFlight.decrementAndGet()
         }
@@ -424,4 +413,11 @@ private class FakeHelper(
     override fun grantSecureSettings(token: String?): String = notUnderTest
 
     override fun shutdown(token: String?) = Unit
+}
+
+/** What the real helper does with a reply: write it into [out], report the length. */
+private fun receipt(out: ParcelFileDescriptor?, stdout: String): String {
+    val bytes = stdout.toByteArray(Charsets.UTF_8)
+    FileOutputStream(out!!.fileDescriptor).write(bytes)
+    return PrivilegedProtocol.encodeExecReceipt(0, bytes.size, "")
 }

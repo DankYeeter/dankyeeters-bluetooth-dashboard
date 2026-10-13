@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Alignment
@@ -39,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.dankyeeter.btdashboard.privileged.HelperCleanup
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.attach.AttachmentStatus
@@ -59,6 +61,7 @@ import dev.dankyeeter.btdashboard.ui.theme.PanelDivider
 import dev.dankyeeter.btdashboard.ui.theme.PanelHeader
 import dev.dankyeeter.btdashboard.ui.theme.Pill
 import dev.dankyeeter.btdashboard.ui.theme.PillTone
+import kotlinx.coroutines.launch
 
 /**
  * Everything that is about the app rather than about the headphone: getting
@@ -168,6 +171,7 @@ private fun SystemAccessPanel(
             pill = if (helperRunning) "Running" else "Not running",
             tone = if (helperRunning) PillTone.ACCENT else PillTone.WARN,
         )
+        HelperCleanupControl()
 
         PanelDivider()
 
@@ -210,6 +214,34 @@ private fun SystemAccessPanel(
         // Not "System access" again — a button labelled after the panel it
         // sits in says nothing about what tapping it does.
         GoldOutlinedButton(onClick = onOpenOnboarding) { Text("Open system access") }
+    }
+}
+
+/**
+ * Stops the helper and removes what it left in `/data/local/tmp` (AD-011).
+ *
+ * The fallback for uninstalling, not the main path: the helper cleans up by
+ * itself once the app is gone. The result line says only what the app checked
+ * afterwards, never what the helper claims.
+ */
+@Composable
+private fun HelperCleanupControl() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+    TextButton(
+        enabled = !running,
+        onClick = {
+            running = true
+            scope.launch {
+                result = HelperCleanup(context).run().describe()
+                running = false
+            }
+        },
+    ) { Text("Stop helper and clean up") }
+    result?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

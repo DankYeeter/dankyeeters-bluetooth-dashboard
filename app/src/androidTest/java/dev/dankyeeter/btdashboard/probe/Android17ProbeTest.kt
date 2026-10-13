@@ -6,17 +6,22 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.system.Os
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysBluetoothParser
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpLinkDumpParser
+import dev.dankyeeter.btdashboard.privileged.HelperCleanup
+import dev.dankyeeter.btdashboard.privileged.IPrivilegedService
 import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
-import dev.dankyeeter.btdashboard.privileged.PrivilegedProtocol
+import dev.dankyeeter.btdashboard.privileged.PrivilegedShellRunner
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -44,38 +49,118 @@ class Android17ProbeTest {
         SystemClock.sleep(1_500)
     }
 
-    /** Waits for the helper to hand over its binder, then exercises every read-only call. */
+    /**
+     * Waits for the helper to hand over its binder, then exercises every read-only call.
+     *
+     * The exec reply travels through a descriptor (AD-010). The app's own form
+     * (3': unlinked app-private file) goes through [PrivilegedShellRunner]; the
+     * two fallback forms the design names (memfd, pipe) are tried against the
+     * raw service so a SELinux denial on one shows next to the others (U-0).
+     */
     @Test
     fun helperRoundTrip() {
+        val service = awaitService() ?: return
+        val token = PrivilegedBootstrap(context).activeToken()
+        report("HELPER_TOKEN", if (token == null) "MISSING" else "present")
+        report("HELPER_VERSION", attempt { service.version().toString() })
+        report("HELPER_CODEC_STATUS", attempt { service.codecStatus(token, NO_DEVICE) })
+        report("HELPER_OPTIONAL_CODECS", attempt { service.optionalCodecs(token, NO_DEVICE) })
+
+        val runner = PrivilegedShellRunner(context)
+        report("HELPER_EXEC_ID", attempt { runBlocking { runner.run(listOf("id")) }.toString() })
+
+        val bt = runBlocking { runner.run(listOf("dumpsys", "bluetooth_manager")) }
+        report("HELPER_EXEC_FD_FILE", "exit=${bt.exitCode} stderr=${bt.stderr.take(200)}")
+        report("HELPER_DUMPSYS_BT_LENGTH", bt.stdout.length.toString())
+        report("PARSER_DUMPSYS", attempt { DumpsysBluetoothParser.parse(bt.stdout).toString() })
+        report("PARSER_A2DP_LINK", attempt { A2dpLinkDumpParser.parse(bt.stdout).toString() })
+
+        // Larger than the 64 KB binder reply limit; with a descriptor that no
+        // longer matters, which is the point.
+        val audio = runBlocking { runner.run(listOf("dumpsys", "audio")) }
+        report("HELPER_EXEC_LARGE", "exit=${audio.exitCode} length=${audio.stdout.length} stderr=${audio.stderr.take(200)}")
+
+        val command = listOf("dumpsys", "bluetooth_manager")
+        report("SPIKE_MEMFD", attempt { memfdExec(service, token, command) })
+        report("SPIKE_PIPE", attempt { pipeExec(service, token, command) })
+        report("HELPER_EXEC_NULL_FD", attempt { service.exec(token, command, null) })
+    }
+
+    /**
+     * Calls the helper many times with requests it must refuse.
+     *
+     * The script counts the helper's open descriptors before and after: every
+     * refusal has to close the descriptor it was handed (SR-020).
+     */
+    @Test
+    fun helperRefusals() {
+        val service = awaitService() ?: return
+        var refused = 0
+        repeat(REFUSAL_CALLS) {
+            val pipe = ParcelFileDescriptor.createPipe()
+            try {
+                val reply = service.exec("wrong-token", listOf("id"), pipe[1])
+                if (reply?.startsWith("ERR") == true) refused++
+            } finally {
+                pipe.forEach { it.close() }
+            }
+        }
+        report("HELPER_REFUSED", "$refused of $REFUSAL_CALLS")
+        val token = PrivilegedBootstrap(context).activeToken()
+        report("HELPER_REFUSED_NOT_WHITELISTED", attempt { withPipe { service.exec(token, listOf("id", "-u"), it) } })
+    }
+
+    /** The settings action "Stop helper and clean up", as the user would trigger it (U-4). */
+    @Test
+    fun helperCleanup() {
+        awaitService() ?: return
+        val report = runBlocking { HelperCleanup(context).run() }
+        report("HELPER_CLEANUP", "stopped=${report.stopped} files=${report.files}")
+        report("HELPER_CLEANUP_TEXT", report.describe())
+    }
+
+    private fun awaitService(): IPrivilegedService? {
         val deadline = SystemClock.elapsedRealtime() + 75_000
         while (PrivilegedConnection.service.value == null && SystemClock.elapsedRealtime() < deadline) {
             SystemClock.sleep(250)
         }
         val service = PrivilegedConnection.service.value
-        if (service == null) {
-            report("HELPER_BIND", "FAILED no binder within 75 s")
-            return
+        report("HELPER_BIND", if (service == null) "FAILED no binder within 75 s" else "OK")
+        return service
+    }
+
+    private fun memfdExec(service: IPrivilegedService, token: String?, command: List<String>): String {
+        val memfd = Os.memfd_create("btdash_probe", 0)
+        try {
+            val reply = ParcelFileDescriptor.dup(memfd).use { service.exec(token, command, it) }
+            val size = Os.fstat(memfd).st_size
+            return "reply=${reply.take(120)} size=$size"
+        } finally {
+            Os.close(memfd)
         }
-        report("HELPER_BIND", "OK")
-        val token = PrivilegedBootstrap(context).activeToken()
-        report("HELPER_TOKEN", if (token == null) "MISSING" else "present")
-        report("HELPER_VERSION", attempt { service.version().toString() })
-        report("HELPER_EXEC_ID", attempt { service.exec(token, listOf("id")) })
-        report("HELPER_CODEC_STATUS", attempt { service.codecStatus(token, NO_DEVICE) })
-        report("HELPER_OPTIONAL_CODECS", attempt { service.optionalCodecs(token, NO_DEVICE) })
+    }
 
-        // exec answers in the wire format ("OK exit stdout64 stderr64"); the
-        // parsers read the decoded stdout, as the app does.
-        val reply = attempt { service.exec(token, listOf("dumpsys", "bluetooth_manager")) }
-        val dump = PrivilegedProtocol.decodeResult(reply)?.second ?: reply
-        report("HELPER_DUMPSYS_BT_LENGTH", dump.length.toString())
-        report("PARSER_DUMPSYS", attempt { DumpsysBluetoothParser.parse(dump).toString() })
-        report("PARSER_A2DP_LINK", attempt { A2dpLinkDumpParser.parse(dump).toString() })
+    private fun pipeExec(service: IPrivilegedService, token: String?, command: List<String>): String {
+        val (read, write) = ParcelFileDescriptor.createPipe()
+        var received = 0L
+        val reader = Thread {
+            ParcelFileDescriptor.AutoCloseInputStream(read).use { input ->
+                val buffer = ByteArray(16 * 1024)
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    received += n
+                }
+            }
+        }.apply { start() }
+        val reply = write.use { service.exec(token, command, it) }
+        reader.join(20_000)
+        return "reply=${reply.take(120)} received=$received"
+    }
 
-        // Larger than the 64 KB binder reply limit, so the helper has to spill.
-        val big = attempt { service.exec(token, listOf("dumpsys", "audio")) }
-        report("HELPER_SPILL_REPLY_LENGTH", big.length.toString())
-        report("HELPER_SPILL_REPLY_HEAD", big.take(200))
+    private fun withPipe(block: (ParcelFileDescriptor) -> String?): String? {
+        val pipe = ParcelFileDescriptor.createPipe()
+        return try { block(pipe[1]) } finally { pipe.forEach { it.close() } }
     }
 
     /** The reflection the app itself does, in the app's own (untrusted_app) domain. */
@@ -142,5 +227,6 @@ class Android17ProbeTest {
     private companion object {
         const val TAG = "A17PROBE"
         const val NO_DEVICE = "00:00:00:00:00:00"
+        const val REFUSAL_CALLS = 200
     }
 }
