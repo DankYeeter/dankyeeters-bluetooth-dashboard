@@ -86,12 +86,14 @@ jobs:
           echo "IMG=$IMG" >> "$GITHUB_ENV"
           mkdir -p "$ANDROID_AVD_HOME"
           "$SDKM" emulator platform-tools "$IMG" > /dev/null
+          echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
+          # After avdmanager, which refuses to run without the emulator
+          # package's metadata; a bare build zip has none.
           if [ "${{ matrix.emu }}" != stable ]; then
             curl -fsSo emu.zip "https://dl.google.com/android/repository/emulator-linux_x64-${{ matrix.emu }}.zip"
             rm -rf "$ANDROID_HOME/emulator" && unzip -q emu.zip -d "$ANDROID_HOME" && rm emu.zip
           fi
           grep -m1 Revision "$ANDROID_HOME/emulator/source.properties" || true
-          echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n a17 -k "$IMG" --force
       # Boot and Probes report through the summary and the artifact; an
       # emulator that will not come up must not turn the run red.
       - name: Boot
