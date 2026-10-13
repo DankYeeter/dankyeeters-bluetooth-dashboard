@@ -155,6 +155,7 @@ class SessionAttachmentStrategy(
                 equalizers.remove(sessionId)?.close()
             }
 
+            makeRoom()
             val eq = factory.create(sessionId)
             if (eq == null) {
                 Log.w(TAG, "Could not attach to session $sessionId; will retry on the next event")
@@ -213,6 +214,35 @@ class SessionAttachmentStrategy(
         }
     }
 
+    /**
+     * Keeps the number of attached effects bounded. Called under [lock].
+     *
+     * The session broadcast is not a protected one and the receiver has to be
+     * exported for players to reach it, so any app can announce sessions. Each
+     * announcement used to create one more `DynamicsProcessing` in audioserver,
+     * without limit — and stacked effects are what this module is careful about
+     * (see the class KDoc). Dead effects go first; if that is not enough, the
+     * oldest session does. AudioFlinger hands out session ids in increasing
+     * order, so the lowest id is the oldest real one. Players that never send
+     * the close broadcast make eviction necessary even without a forger:
+     * refusing instead would leave the EQ off the newest player, which is the
+     * one the user is listening to.
+     */
+    private fun makeRoom() {
+        if (equalizers.size < MAX_SESSIONS) return
+        equalizers.entries.toList()
+            .filterNot { (_, eq) -> eq.isAlive }
+            .forEach { (sessionId, eq) ->
+                equalizers.remove(sessionId)
+                eq.close()
+            }
+        while (equalizers.size >= MAX_SESSIONS) {
+            val oldest = equalizers.keys.min()
+            Log.i(TAG, "dropping session $oldest; $MAX_SESSIONS sessions are attached")
+            equalizers.remove(oldest)?.close()
+        }
+    }
+
     /** Called when the player closes its session. */
     fun onSessionClosed(sessionId: Int) {
         synchronized(lock) {
@@ -232,7 +262,10 @@ class SessionAttachmentStrategy(
         }
     }
 
-    private companion object {
-        const val TAG = "SessionAttach"
+    internal companion object {
+        private const val TAG = "SessionAttach"
+
+        /** Far above what plays at once on a phone; see [makeRoom]. */
+        const val MAX_SESSIONS = 8
     }
 }

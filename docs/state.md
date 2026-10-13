@@ -291,7 +291,7 @@ Verlust-Verdikt-Pfad.
 
 **SR-001, SR-009, SR-016** — im Code behoben (T-006, PR #4, Helper v6):
 exec-Antworten reisen per Deskriptor, Log 0600, Helper raeumt nach der
-Deinstallation auf und endet. Emulator-Retest siehe PR; Geraete-Retest offen. `AudioEffectSessionReceiver` exportiert — eigenes Review offen.
+Deinstallation auf und endet. Emulator-Retest siehe PR; Geraete-Retest offen. `AudioEffectSessionReceiver` exportiert — Review 13.10. erledigt (SR-023 behoben, SR-024 Restrisiko).
 
 ## Laufende und offene Auftraege
 

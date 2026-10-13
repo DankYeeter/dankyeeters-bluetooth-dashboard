@@ -32,6 +32,8 @@ und Entscheider) | entfallen (Grund)
 | SR-020 | Empfangener Deskriptor wird auf den Ablehnpfaden von `exec` nicht freigegeben; `null`-Deskriptor auf privilegierter Flaeche | niedrig | behoben (Emulator API 35: 53 offene Deskriptoren vor und nach 200 Ablehnungen, null beantwortet) | 2026-10-13 |
 | SR-021 | Aufraeumpfad in `shutdown()` laeuft beim Helperwechsel nicht (Nachfolger SIGKILLt den Vorgaenger vor dem Handover); Inode-Falle bestaetigt und zu verallgemeinern | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
 | SR-022 | Schrittnummern S-1..S-7 gehoeren zu T-005; AD-010/011/012 haben keine eigene Schrittfolge — Auflagen nicht verankerbar (Vorschlag U-0..U-6) | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
+| SR-023 | Exportierter `AudioEffectSessionReceiver`: jede App kann im Session-Modus beliebig viele Sessions ankuendigen, jede erzeugte ein weiteres `DynamicsProcessing` in audioserver, ohne Obergrenze | mittel | behoben (Obergrenze 8, tote Effekte zuerst, sonst die aelteste Session; Unit-Tests) | 2026-10-13 |
+| SR-024 | Exportierter `AudioEffectSessionReceiver`: ein gefaelschtes CLOSE nimmt den EQ von einer echten Session, bis sich die Menge der Player aendert; Absender ist nicht feststellbar | niedrig | akzeptiert vorgeschlagen (Restrisiko, Entscheidung beim Nutzer offen) | 2026-10-13 |
 
 ## Kurzfassungen
 
@@ -251,9 +253,30 @@ jede umask-Zusage schweigend umdreht.
   S-6 zu erfuellen. Restrisiko-Entscheidung (SR-005) liegt beim App
   Designer.
 
-## Beobachtung ausserhalb des Auftrags (ungeprueft)
+## Review `AudioEffectSessionReceiver` (2026-10-13, SR-023/SR-024)
 
 `AudioEffectSessionReceiver` in `:core-system` ist exportiert fuer
-OPEN_/CLOSE_AUDIO_EFFECT_CONTROL_SESSION (vermutlich keine geschuetzten
-Broadcasts; Komponente per Default deaktiviert). Eigenes Review noetig,
-nicht Teil von T-005.
+OPEN_/CLOSE_AUDIO_EFFECT_CONTROL_SESSION. Beide Broadcasts sind nicht
+geschuetzt; der Empfaenger muss exportiert sein, sonst erreichen ihn die Player
+nicht. Die Komponente ist per Default deaktiviert und wird nur im
+Session-Modus eingeschaltet (`setComponentEnabled`). Gemessen auf dem
+Emulator (API 35): ein gefaelschter Broadcast bei deaktivierter Komponente
+bleibt ohne Wirkung.
+
+Im Session-Modus traegt der Broadcast nur eine Session-ID. Was ein Faelscher
+damit erreicht:
+
+- **OPEN mit erfundenen IDs (SR-023):** frueher je ID ein weiterer Effekt in
+  audioserver, unbegrenzt. Jetzt hoechstens 8 gleichzeitig
+  (`SessionAttachmentStrategy.MAX_SESSIONS`); Ueberzaehliges verdraengt die
+  aelteste Session, die geschlossen wird. Ein Flood kann den EQ damit von der
+  laufenden Musik verdraengen, aber keine Effekte mehr anhaeufen.
+- **CLOSE mit einer echten ID (SR-024):** der EQ verschwindet von dieser
+  Session, bis sich die Menge der Player aendert. Der Absender eines Broadcasts
+  ist nicht feststellbar (`getSentFromUid` liefert nur, wenn der Sender es
+  freigibt; Player tun das nicht), also laesst sich ein echtes CLOSE nicht von
+  einem gefaelschten trennen. CLOSE zu ignorieren wuerde fuer jede beendete
+  Session einen Effekt bis zur Verdraengung halten. Empfehlung: als Restrisiko
+  akzeptieren — Wirkung ist ein ausgeschalteter EQ, kein Datenabfluss.
+- **Kein Datenabfluss:** der Empfaenger antwortet nicht und gibt nichts heraus.
+  `EXTRA_PACKAGE_NAME` landet ungeprueft in einer Debug-Logzeile; ohne Folgen.
