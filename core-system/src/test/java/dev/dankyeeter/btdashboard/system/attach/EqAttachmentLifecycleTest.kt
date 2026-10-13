@@ -389,6 +389,42 @@ class EqAttachmentLifecycleTest {
      * `DynamicsProcessing` is a binder round-trip into audioserver and takes
      * milliseconds on the device.
      */
+    /**
+     * The session broadcast is open to any app. A flood of invented sessions
+     * must not stack effects in audioserver without limit.
+     */
+    @Test
+    fun `announced sessions are bounded and the oldest gives way`() {
+        val factory = RecordingFactory()
+        val strategy = SessionAttachmentStrategy(factory)
+        strategy.activate(settings)
+        repeat(100) { assertTrue(strategy.onSessionOpened(SESSION + it)) }
+
+        val attached = (strategy.status as AttachmentStatus.ActiveSessions).sessionIds
+        assertEquals(SessionAttachmentStrategy.MAX_SESSIONS, attached.size)
+        assertEquals((SESSION + 100 - SessionAttachmentStrategy.MAX_SESSIONS until SESSION + 100).toSet(), attached)
+        assertEquals(
+            "every evicted effect is closed, not just forgotten",
+            SessionAttachmentStrategy.MAX_SESSIONS,
+            factory.created.count { !it.closed },
+        )
+    }
+
+    @Test
+    fun `a dead effect makes room before a live session is evicted`() {
+        val factory = RecordingFactory()
+        val strategy = SessionAttachmentStrategy(factory)
+        strategy.activate(settings)
+        repeat(SessionAttachmentStrategy.MAX_SESSIONS) { strategy.onSessionOpened(SESSION + it) }
+        factory.created.last().alive = false
+
+        assertTrue(strategy.onSessionOpened(SESSION + 1000))
+
+        val attached = (strategy.status as AttachmentStatus.ActiveSessions).sessionIds
+        assertTrue("the oldest live session stays", SESSION in attached)
+        assertFalse(SESSION + SessionAttachmentStrategy.MAX_SESSIONS - 1 in attached)
+    }
+
     private class RecordingFactory : SystemEqualizerFactory {
         val created = mutableListOf<FakeEqualizer>()
 
