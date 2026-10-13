@@ -2,12 +2,17 @@ package dev.dankyeeter.btdashboard.privileged
 
 import android.content.AttributionSource
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.system.Os
+import android.system.OsConstants
 import dev.dankyeeter.btdashboard.privileged.PrivilegedProtocol.PrivilegedOperation
+import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -81,6 +86,9 @@ object PrivilegedServer {
      * 4: HD audio (optional codecs) and the Bluetooth restart.
      * 5: exec replies larger than PrivilegedProtocol.INLINE_LIMIT_BYTES are
      *    staged in a file and the reply carries the path.
+     * 6: exec takes a file descriptor from the app and writes stdout into it;
+     *    the reply carries only exit code, byte count and stderr. No exec reply
+     *    is ever written to a named file again (SR-001, ARCHITECTURE.md AD-010).
      *
      * The bump matters more than usual for this one: the new methods are new
      * Binder transaction codes, so a version-3 helper receiving them throws
@@ -95,8 +103,12 @@ object PrivilegedServer {
      * incompatible-helper path and already says what the user must do. The
      * client still reads a plain `OK` reply, so nothing breaks in the seconds
      * before a stale helper is replaced.
+     *
+     * 6 changes the exec signature in place rather than adding a method, so the
+     * old inline-or-file exec is not left behind as callable surface
+     * (AD-013). A v5 helper is refused before anyone calls it.
      */
-    const val VERSION: Int = 5
+    const val VERSION: Int = 6
 
     /**
      * How often the helper looks for the app while disconnected.
@@ -163,17 +175,19 @@ object PrivilegedServer {
         // one btdash_privileged process, the newest.
         reapOtherHelpers()
 
-        // Staged exec replies from a previous helper have nobody left to claim
-        // them: the app that was told their paths is gone or has moved on. They
-        // are swept again before every write (see ExecSpill.stage), but a helper
-        // that is started and then never asked for a large dump would otherwise
-        // leave them lying in /data/local/tmp indefinitely.
-        val spill = ExecSpill()
-        spill.sweepStale().let { swept ->
-            if (swept > 0) println("privileged helper: swept $swept stale staged replies")
+        // Before serving anything: the log becomes owner-only (AD-012), and the
+        // exec replies a helper up to version 5 staged here are removed. Since
+        // version 6 nothing stages, so every file of that shape is a leftover
+        // (AD-011).
+        val leftovers = HelperLeftovers()
+        if (!leftovers.narrowOwnLog()) {
+            System.err.println("privileged helper: could not restrict ${PrivilegedContract.HELPER_LOG_PATH}")
+        }
+        leftovers.removeStagedReplies().let { removed ->
+            if (removed > 0) println("privileged helper: removed $removed staged replies of an older helper")
         }
 
-        val service = PrivilegedService(token, appUid, HelperBluetooth(context), spill)
+        val service = PrivilegedService(token, appUid, HelperBluetooth(context), leftovers)
         val appToken = handOver(context, service, token)
         if (appToken == null) {
             System.err.println("privileged helper: the app did not accept the binder")
@@ -184,7 +198,7 @@ object PrivilegedServer {
             "privileged helper: serving as uid ${Process.myUid()} for app uid $appUid, " +
                 "version $VERSION",
         )
-        watchApp(context, service, token, appUid, appToken)
+        watchApp(context, service, token, appUid, appToken, leftovers)
         Looper.loop()
     }
 
@@ -213,6 +227,7 @@ object PrivilegedServer {
         token: String,
         appUid: Int,
         appToken: IBinder,
+        leftovers: HelperLeftovers,
     ) {
         val onDeath = IBinder.DeathRecipient {
             println("privileged helper: the app process is gone, waiting for it to return")
@@ -228,6 +243,12 @@ object PrivilegedServer {
                 while (true) {
                     Thread.sleep(wait)
                     if (!appIsRunning(appUid)) {
+                        // Only at the backoff ceiling: the package query is a
+                        // binder call, the /proc scan is not.
+                        if (wait == RECONNECT_POLL_MAX_MS && appIsUninstalled(context)) {
+                            exitBecauseUninstalled(leftovers)
+                            return@Thread
+                        }
                         wait = (wait * 2).coerceAtMost(RECONNECT_POLL_MAX_MS)
                         continue
                     }
@@ -235,7 +256,7 @@ object PrivilegedServer {
                     val fresh = handOver(context, service, token)
                     if (fresh != null) {
                         println("privileged helper: re-attached to the restarted app")
-                        watchApp(context, service, token, appUid, fresh)
+                        watchApp(context, service, token, appUid, fresh, leftovers)
                         return@Thread
                     }
                     // A refusal is final: the app rotated its token, which is
@@ -260,6 +281,40 @@ object PrivilegedServer {
                     "it will need a manual restart if the app is killed",
             )
         }
+    }
+
+    /**
+     * Ends the helper once its app is uninstalled (SR-016).
+     *
+     * The helper is its own process on the shell uid, so uninstalling the app
+     * does not stop it; without this it kept serving a binder out of a removed
+     * APK until the next reboot. Here, and only here, it also deletes its own
+     * log: with the package gone there is no APK a successor could start from,
+     * so no successor can have opened the path (AD-011, R1). The inode check in
+     * [HelperLeftovers.removeOwnLog] still applies.
+     */
+    private fun exitBecauseUninstalled(leftovers: HelperLeftovers) {
+        println("privileged helper: the app is uninstalled, removing leftovers and exiting")
+        leftovers.removeStagedReplies()
+        leftovers.removeOwnLog()
+        Process.killProcess(Process.myPid())
+    }
+
+    /**
+     * Whether the package is gone, as opposed to merely unknown.
+     *
+     * Only `NameNotFoundException` counts. A binder hiccup or a missing
+     * PackageManager must not read as "uninstalled", or a helper serving a
+     * live app would delete its log and exit on a transient error.
+     */
+    @Suppress("DEPRECATION") // the flags overload needs API 33; minSdk here is 31
+    private fun appIsUninstalled(context: Context): Boolean = try {
+        context.packageManager?.getPackageUid(PrivilegedContract.APP_PACKAGE, 0)
+        false
+    } catch (_: PackageManager.NameNotFoundException) {
+        true
+    } catch (_: Exception) {
+        false
     }
 
     /**
@@ -515,8 +570,8 @@ private class PrivilegedService(
     /** Resolved once at startup; see [PrivilegedServer.resolveAppUid]. */
     private val appUid: Int,
     private val bluetooth: HelperBluetooth,
-    /** Where a reply too large for Binder is written; see [ExecSpill]. */
-    private val spill: ExecSpill,
+    /** What [shutdown] removes before the helper exits; see [HelperLeftovers]. */
+    private val leftovers: HelperLeftovers,
 ) : IPrivilegedService.Stub() {
 
     /**
@@ -527,7 +582,21 @@ private class PrivilegedService(
      */
     override fun version(): Int = PrivilegedServer.VERSION
 
-    override fun exec(token: String?, command: MutableList<String>?): String {
+    /**
+     * The kernel installs [out] in this process before any check below runs, so
+     * it is closed on every path, refusals included: the helper is meant to run
+     * for days, and one leaked descriptor per refused call would reach the limit
+     * within minutes at 1 Hz (SR-020). A null [out] is a legal Binder value and
+     * is answered, not thrown.
+     */
+    override fun exec(token: String?, command: MutableList<String>?, out: ParcelFileDescriptor?): String =
+        try {
+            serveExec(token, command, out)
+        } finally {
+            runCatching { out?.close() }
+        }
+
+    private fun serveExec(token: String?, command: MutableList<String>?, out: ParcelFileDescriptor?): String {
         refuse(token, PrivilegedOperation.EXEC)?.let { return it }
         val argv = command?.toList().orEmpty()
         if (!PrivilegedProtocol.isAllowed(argv)) {
@@ -535,13 +604,19 @@ private class PrivilegedService(
             // reason for is indistinguishable from a broken helper.
             return PrivilegedProtocol.encodeError("not on the whitelist: ${argv.firstOrNull()}")
         }
+        if (out == null) return PrivilegedProtocol.encodeError("no descriptor for the output")
+        // No child may inherit the descriptor: an inherited write end would
+        // keep the reply open past the child's exit (SR-018).
+        runCatching {
+            Os.fcntlInt(out.fileDescriptor, OsConstants.F_SETFD, OsConstants.FD_CLOEXEC)
+        }.onFailure { return PrivilegedProtocol.encodeError("cannot protect the descriptor: ${it.message}") }
         // Logged so it is provable that a command really ran as the helper.
         // The log dates from when a second shell identity was installable
         // alongside it and a successful result did not say which one had
         // served the call; it stays because it is still the only place that
         // shows what the helper was actually asked to do.
         println("privileged helper: exec " + argv.joinToString(" "))
-        return execute(argv, mayStage = true)
+        return execute(argv, out)
     }
 
     override fun codecStatus(token: String?, address: String?): String {
@@ -667,8 +742,17 @@ private class PrivilegedService(
         return execute(command)
     }
 
+    /**
+     * Removes the leftovers, then ends the helper (AD-011, "Beenden und
+     * aufraeumen"). The log goes only if it is still this helper's own; see
+     * [HelperLeftovers.removeOwnLog]. There is no return value to trust here —
+     * the process is gone before the transaction returns — so the app checks
+     * the outcome itself.
+     */
     override fun shutdown(token: String?) {
         if (refuse(token, PrivilegedOperation.SHUTDOWN) != null) return
+        leftovers.removeStagedReplies()
+        leftovers.removeOwnLog()
         Process.killProcess(Process.myPid())
     }
 
@@ -727,14 +811,16 @@ private class PrivilegedService(
     /**
      * Runs [command] and encodes the reply.
      *
-     * [mayStage] is false for everything except [exec], and deliberately so.
-     * `restartBluetooth` and `grantSecureSettings` decode their own replies with
-     * `decodeResult`, which by design does not recognise a staged one; both
-     * produce a few lines of output and could never cross the threshold anyway,
-     * so the honest thing is for the shape they can read to be the only shape
-     * they can be given, rather than a branch nobody would ever exercise.
+     * With [out], stdout is written into that descriptor and the reply is a
+     * receipt (exec). Without, the reply carries stdout inline, which only the
+     * fixed internal commands use: `restartBluetooth` and `grantSecureSettings`
+     * produce a few lines and decode their own replies with `decodeResult`.
+     *
+     * Writing from the Binder thread is safe because the app's descriptor is a
+     * regular file in its own storage, which never blocks a writer. A pipe
+     * would (SR-014).
      */
-    private fun execute(command: List<String>, mayStage: Boolean = false): String = runCatching {
+    private fun execute(command: List<String>, out: ParcelFileDescriptor? = null): String = runCatching {
         val process = ProcessBuilder(command).redirectErrorStream(false).start()
         // stderr is drained on its own thread, in parallel with stdout. Reading
         // them in sequence can deadlock outright: a child that fills the 64 KB
@@ -755,15 +841,12 @@ private class PrivilegedService(
             return PrivilegedProtocol.encodeError("timed out after $TIMEOUT_SECONDS s")
         }
         val exit = process.exitValue()
-        if (!mayStage) {
-            PrivilegedProtocol.encodeResult(exit, stdout, stderr)
-        } else {
-            PrivilegedProtocol.encodeExecResult(exit, stdout, stderr) { payload ->
-                spill.stage(payload)?.also {
-                    println("privileged helper: staged ${payload.length} chars in ${it.name}")
-                }?.path
-            }
-        }
+        if (out == null) return PrivilegedProtocol.encodeResult(exit, stdout, stderr)
+        val payload = stdout.toByteArray(Charsets.UTF_8)
+        // Not closed here: the descriptor belongs to exec(), which closes it on
+        // every path.
+        FileOutputStream(out.fileDescriptor).write(payload)
+        PrivilegedProtocol.encodeExecReceipt(exit, payload.size, stderr)
     }.getOrElse {
         PrivilegedProtocol.encodeError(it.message ?: it.javaClass.simpleName)
     }

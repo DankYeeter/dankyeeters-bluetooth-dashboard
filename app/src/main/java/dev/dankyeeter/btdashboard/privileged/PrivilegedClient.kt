@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.privileged
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.ParcelFileDescriptor
 import dev.dankyeeter.btdashboard.privileged.adb.WirelessDebuggingSwitch
 import android.util.Log
 import dev.dankyeeter.btdashboard.monitor.codec.CodecController
@@ -19,6 +20,10 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
+import java.io.Closeable
+import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -246,6 +251,15 @@ class PrivilegedBootstrap(context: Context) {
     private val helperStartGraceSeconds = 3
 
     private fun shellCommand(token: String): String = buildString {
+        // umask 077 first: the helper inherits it, so the log the redirect
+        // below creates, and anything else the helper ever creates, is 0600.
+        // adbd's umask was 0 on the device, which made the log 0666 (SR-009).
+        // `rm -f` because a redirect into an existing file truncates it and
+        // keeps its old mode. Both are structural on the auto-start path, where
+        // the user never touches this line (ARCHITECTURE.md AD-012).
+        append("umask 077; rm -f ")
+        append(PrivilegedContract.HELPER_LOG_PATH)
+        append("; ")
         append("CLASSPATH=$(pm path ")
         append(packageName)
         // `setsid` puts the helper in its own session, out of the shell's
@@ -265,9 +279,9 @@ class PrivilegedBootstrap(context: Context) {
         // start looked successful from the app's side while the helper was
         // exiting on the far end and saying why to nobody.
         //
-        // Truncating rather than appending: only the most recent start can
-        // explain the state the helper is in now, and an ever-growing file in
-        // a world-readable directory is not worth the history.
+        // A fresh file per start rather than appending: only the most recent
+        // start can explain the state the helper is in now. Readable by shell
+        // only, which is what `adb shell cat` runs as.
         append(" >")
         append(PrivilegedContract.HELPER_LOG_PATH)
         // The trailing wait keeps the shell - and with it the daemon's service
@@ -330,14 +344,14 @@ class PrivilegedShellRunner internal constructor(
     private val bootstrap: PrivilegedBootstrap,
     /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
     private val guard: PrivilegedCallGuard,
-    /** Reads back the replies the helper was too large to send; see [ExecSpill]. */
-    private val spill: ExecSpill,
+    /** App-private directory the per-call reply file is opened in; see [ExecReplyFile]. */
+    private val replyDirectory: File,
 ) : ShellRunner {
 
     constructor(
         context: Context,
         bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
-    ) : this(bootstrap, PrivilegedCallGuard.SHARED, ExecSpill())
+    ) : this(bootstrap, PrivilegedCallGuard.SHARED, context.noBackupFilesDir)
 
     /**
      * Whether the helper is connected.
@@ -364,14 +378,16 @@ class PrivilegedShellRunner internal constructor(
 
         EXEC_LOCK.withLock {
             runCatching {
-                val reply = service.exec(token, command)
-                // The transaction came back. Whatever the reply *says*, the
-                // transport worked, so any run of transient failures is over.
-                guard.succeeded()
-                if (reply == null) {
-                    ShellResult(-1, "", "helper returned nothing")
-                } else {
-                    decode(reply)
+                ExecReplyFile.open(replyDirectory).use { replyFile ->
+                    val reply = service.exec(token, command, replyFile.descriptor)
+                    // The transaction came back. Whatever the reply *says*, the
+                    // transport worked, so any run of transient failures is over.
+                    guard.succeeded()
+                    if (reply == null) {
+                        ShellResult(-1, "", "helper returned nothing")
+                    } else {
+                        decode(reply, replyFile)
+                    }
                 }
             }.getOrElse { error ->
                 // NOT automatically a dead helper — that assumption is what put
@@ -385,24 +401,14 @@ class PrivilegedShellRunner internal constructor(
         }
     }
 
-    /**
-     * Turns a reply into a result, whichever shape it arrived in.
-     *
-     * [PrivilegedProtocol.decodeResult] is tried first because the inline reply
-     * is the common one — an error, an empty dump, a `ps` listing — and because
-     * the two shapes are told apart by their keyword, so the order is a matter
-     * of cost rather than of correctness.
-     */
-    private fun decode(reply: String): ShellResult {
-        PrivilegedProtocol.decodeResult(reply)?.let { (exit, out, err) ->
-            return ShellResult(exit, out, err)
-        }
-        PrivilegedProtocol.decodeFileResult(reply)?.let { handoff ->
-            return spill.collect(handoff).fold(
-                onSuccess = { ShellResult(handoff.exitCode, it, handoff.stderr) },
+    /** Turns a receipt into a result by reading back what the helper wrote. */
+    private fun decode(reply: String, replyFile: ExecReplyFile): ShellResult {
+        PrivilegedProtocol.decodeExecReceipt(reply)?.let { receipt ->
+            return replyFile.read(receipt.byteCount).fold(
+                onSuccess = { ShellResult(receipt.exitCode, it, receipt.stderr) },
                 onFailure = {
-                    Log.w(TAG, "a staged reply could not be collected", it)
-                    ShellResult(-1, "", it.message ?: "the staged reply could not be read")
+                    Log.w(TAG, "the helper's reply could not be read back", it)
+                    ShellResult(-1, "", it.message ?: "the helper's reply could not be read")
                 },
             )
         }
@@ -436,21 +442,80 @@ class PrivilegedShellRunner internal constructor(
          * threads. This suspends instead.
          *
          * On the companion so that it is one lock for the process even though
-         * runners are cheap to construct. Staging large replies in a file
-         * (see [ExecSpill]) is the other half of the same fix and neither half
-         * replaces the other: serialising still puts a 444 KB reply through a
-         * buffer shared with the codec calls, and staging still lets a burst of
-         * small replies pile up.
+         * runners are cheap to construct.
          *
-         * ## This lock is load-bearing for [ExecSpill]
+         * ## Why it stays now that replies no longer travel through Binder
          *
-         * The helper stages every large reply into **one reused filename**, and
-         * that is only safe while at most one exec is in flight: the reply is
-         * written, handed over, read and released inside a single turn of this
-         * lock, so a write can never land under a reader. Removing or narrowing
-         * the lock means giving the helper unique names again.
+         * Since helper version 6 the payload goes through [ExecReplyFile], so
+         * neither the buffer nor a shared file name needs this lock any more.
+         * It stays for one reason: two `dumpsys bluetooth_manager` at once
+         * would be twice the load in the Bluetooth process, and AK-1 forbids
+         * extra load on the audio path (ARCHITECTURE.md AD-010). No test
+         * catches its removal, so read that before touching it.
          */
         val EXEC_LOCK = Mutex()
+    }
+}
+
+/**
+ * The file an exec reply is written into: opened by the app in its own
+ * storage, unlinked at once, and handed to the helper only as a descriptor.
+ *
+ * No other process can open it, because it has no name — not a hard-to-guess
+ * one, none — and it never exists in a shared directory (SR-001,
+ * ARCHITECTURE.md AD-010, form 3'). A regular file also never blocks the
+ * writer, so the helper can write from its Binder thread without the deadlock
+ * a pipe would bring (SR-014).
+ *
+ * One per call, closed when the call is done; closing the last descriptor is
+ * what frees the storage.
+ */
+internal class ExecReplyFile private constructor(
+    /** Passed to the helper; Binder installs a duplicate in its process. */
+    val descriptor: ParcelFileDescriptor,
+) : Closeable {
+
+    /**
+     * Reads what the helper wrote and checks it against [expectedBytes].
+     *
+     * A short read is refused rather than parsed: a truncated dump is
+     * syntactically fine and looks like a disconnected headphone (SR-015).
+     *
+     * Positional reads through a channel that is never closed, because
+     * closing a stream built on [descriptor] would close the descriptor itself
+     * on some runtimes.
+     */
+    fun read(expectedBytes: Int): Result<String> = runCatching {
+        val channel = FileInputStream(descriptor.fileDescriptor).channel
+        val size = channel.size()
+        check(size == expectedBytes.toLong()) {
+            "the helper reported $expectedBytes bytes and wrote $size — refusing to parse a partial dump"
+        }
+        val buffer = ByteBuffer.allocate(expectedBytes)
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer, buffer.position().toLong()) < 0) break
+        }
+        check(!buffer.hasRemaining()) { "the reply ended before the announced $expectedBytes bytes" }
+        String(buffer.array(), Charsets.UTF_8)
+    }
+
+    override fun close() {
+        runCatching { descriptor.close() }
+    }
+
+    companion object {
+        fun open(directory: File): ExecReplyFile {
+            directory.mkdirs()
+            val file = File.createTempFile("exec", null, directory)
+            try {
+                return ExecReplyFile(
+                    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_WRITE),
+                )
+            } finally {
+                // The open descriptor keeps the inode alive; the name goes now.
+                file.delete()
+            }
+        }
     }
 }
 

@@ -1,5 +1,7 @@
 package dev.dankyeeter.btdashboard.privileged;
 
+import android.os.ParcelFileDescriptor;
+
 /**
  * What the privileged helper offers the app.
  *
@@ -42,13 +44,20 @@ interface IPrivilegedService {
     int version();
 
     /**
-     * Runs a whitelisted command.
+     * Runs a whitelisted command and writes its stdout into [out].
+     *
+     * The payload never travels on the wire and never gets a path: the app
+     * opens [out] in its own private storage and the helper only writes into
+     * it (ARCHITECTURE.md AD-010). The helper closes [out] on every path,
+     * refusals included.
      *
      * @param token the value the app generated and passed in on the command line
      * @param command the argument vector, matched in full against the whitelist
-     * @return an encoded PrivilegedProtocol result or error line
+     * @param out where stdout goes
+     * @return an encoded PrivilegedProtocol receipt (exit code, bytes written,
+     *   stderr) or error line
      */
-    String exec(String token, in List<String> command);
+    String exec(String token, in List<String> command, in ParcelFileDescriptor out);
 
     /**
      * Reads the negotiated codec for one device through the privileged API.

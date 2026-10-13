@@ -179,4 +179,15 @@ class PrivilegedTokenTest {
                 .contains("--nice-name=${PrivilegedContract.HELPER_PROCESS_NAME}"),
         )
     }
+
+    @Test
+    fun `the helper starts under umask 077 with a fresh log`() {
+        // SR-009 / AD-012: adbd's umask was 0, so the log came out 0666. The
+        // umask has to come before the redirect that creates the log, and the
+        // old log has to go, because a redirect keeps an existing file's mode.
+        val command = bootstrap().deviceShellCommand()
+        val log = PrivilegedContract.HELPER_LOG_PATH
+        assertTrue(command.startsWith("umask 077; rm -f $log; "))
+        assertTrue(command.indexOf("umask 077") < command.indexOf(">$log"))
+    }
 }

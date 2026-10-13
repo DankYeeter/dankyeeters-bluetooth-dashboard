@@ -89,6 +89,28 @@ else
     note "- helper process: $(sh_ ps -A -o USER,PID,NAME | grep btdash_privileged || echo none)"
     note "- helper log: $(sh_ cat /data/local/tmp/btdash_helper.log | head -20 | tr '\n' '|' | cut -c1-600)"
     instrument helperRoundTrip
+    section "U-0 / U-6 descriptor hand-over (SR-001, SR-009, SR-020)"
+    note "- SELinux denials during the round trip: $("$ADB" logcat -d | tr -d '\r' | grep -c 'avc: denied.*shell')"
+    "$ADB" logcat -d | tr -d '\r' | grep 'avc: denied.*shell' | head -10 | sed 's/^/    /' | tee -a "$SUMMARY"
+    HPID=$(sh_ ps -A -o PID,NAME | awk '/btdash_privileged/ {print $1; exit}')
+    fds() { [ -n "$HPID" ] && sh_ ls /proc/"$HPID"/fd | wc -l || echo "?"; }
+    FD_BEFORE=$(fds)
+    instrument helperRefusals
+    note "- helper open descriptors: before $FD_BEFORE, after refusals $(fds)"
+    note "- staged reply files after live session: $(sh_ ls /data/local/tmp | grep -c '^btdash_exec_')"
+    note "- helper log mode: $(sh_ stat -c %a /data/local/tmp/btdash_helper.log)"
+
+    section "U-4 Stop helper and clean up"
+    instrument helperCleanup
+    note "- helper afterwards: $(sh_ ps -A -o USER,PID,NAME | grep btdash_privileged || echo none)"
+    note "- btdash files afterwards: $(sh_ ls /data/local/tmp | grep '^btdash' | tr '\n' ' ')"
+    # Start it again so 2.8 measures what happens to a live helper on uninstall.
+    instrument printHelperCommand
+    CMD=$(grep -o 'HELPER_CMD=.*' "$OUT/probe-printHelperCommand.txt" | sed 's/^HELPER_CMD=//')
+    sh_ am start -n $PKG/.MainActivity > /dev/null; sleep 2
+    "$ADB" shell "$CMD" >> "$OUT/helper-start.txt" 2>&1
+    sleep 5
+    note "- helper restarted: $(sh_ ps -A -o USER,PID,NAME | grep btdash_privileged || echo none)"
 fi
 
 section "2.8 SR-001 / SR-009 / SR-016: files and helper around uninstall"
@@ -99,7 +121,8 @@ sleep 5
 note "- helper after uninstall: $(sh_ ps -A -o USER,PID,NAME | grep btdash_privileged || echo none)"
 sh_ ls -la /data/local/tmp/ | tee "$OUT/tmp-after-uninstall.txt" | grep -E 'btdash' | sed 's/^/- left behind: /' | tee -a "$SUMMARY"
 sleep 60
-note "- helper 60 s after uninstall: $(sh_ ps -A -o USER,PID,NAME | grep btdash_privileged || echo none)"
+note "- helper 65 s after uninstall: $(sh_ ps -A -o USER,PID,NAME | grep btdash_privileged || echo none)"
+sh_ ls -la /data/local/tmp/ | grep -E 'btdash' | sed 's/^/- still left 65 s after uninstall: /' | tee -a "$SUMMARY"
 
 section "2.9 AudioEffectSessionReceiver (exported) with forged broadcast"
 "$ADB" install -r -g "$APP_APK" > /dev/null
