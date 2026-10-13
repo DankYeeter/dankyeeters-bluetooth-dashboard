@@ -33,7 +33,7 @@ und Entscheider) | entfallen (Grund)
 | SR-021 | Aufraeumpfad in `shutdown()` laeuft beim Helperwechsel nicht (Nachfolger SIGKILLt den Vorgaenger vor dem Handover); Inode-Falle bestaetigt und zu verallgemeinern | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
 | SR-022 | Schrittnummern S-1..S-7 gehoeren zu T-005; AD-010/011/012 haben keine eigene Schrittfolge — Auflagen nicht verankerbar (Vorschlag U-0..U-6) | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
 | SR-023 | Exportierter `AudioEffectSessionReceiver`: jede App kann im Session-Modus beliebig viele Sessions ankuendigen, jede erzeugte ein weiteres `DynamicsProcessing` in audioserver, ohne Obergrenze | mittel | behoben (Obergrenze 8, tote Effekte zuerst, sonst die aelteste Session; Unit-Tests) | 2026-10-13 |
-| SR-024 | Exportierter `AudioEffectSessionReceiver`: ein gefaelschtes CLOSE nimmt den EQ von einer echten Session, bis sich die Menge der Player aendert; Absender ist nicht feststellbar | niedrig | akzeptiert vorgeschlagen (Restrisiko, Entscheidung beim Nutzer offen) | 2026-10-13 |
+| SR-024 | Exportierter `AudioEffectSessionReceiver`: ein gefaelschtes CLOSE nimmt den EQ von einer echten Session, bis sich die Menge der Player aendert; Absender ist nicht feststellbar | niedrig | akzeptiert (Restrisiko, 2026-10-13, Nutzer) | 2026-10-13 |
 
 ## Kurzfassungen
 
@@ -276,7 +276,7 @@ damit erreicht:
   ist nicht feststellbar (`getSentFromUid` liefert nur, wenn der Sender es
   freigibt; Player tun das nicht), also laesst sich ein echtes CLOSE nicht von
   einem gefaelschten trennen. CLOSE zu ignorieren wuerde fuer jede beendete
-  Session einen Effekt bis zur Verdraengung halten. Empfehlung: als Restrisiko
-  akzeptieren — Wirkung ist ein ausgeschalteter EQ, kein Datenabfluss.
+  Session einen Effekt bis zur Verdraengung halten. Vom Nutzer am 13.10. als
+  Restrisiko akzeptiert — Wirkung ist ein ausgeschalteter EQ, kein Datenabfluss.
 - **Kein Datenabfluss:** der Empfaenger antwortet nicht und gibt nichts heraus.
   `EXTRA_PACKAGE_NAME` landet ungeprueft in einer Debug-Logzeile; ohne Folgen.
