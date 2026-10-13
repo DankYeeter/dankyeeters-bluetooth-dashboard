@@ -13,6 +13,7 @@ import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysBluetoothParser
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpLinkDumpParser
 import dev.dankyeeter.btdashboard.privileged.PrivilegedBootstrap
 import dev.dankyeeter.btdashboard.privileged.PrivilegedConnection
+import dev.dankyeeter.btdashboard.privileged.PrivilegedProtocol
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
@@ -63,13 +64,16 @@ class Android17ProbeTest {
         report("HELPER_CODEC_STATUS", attempt { service.codecStatus(token, NO_DEVICE) })
         report("HELPER_OPTIONAL_CODECS", attempt { service.optionalCodecs(token, NO_DEVICE) })
 
-        val dump = attempt { service.exec(token, listOf("dumpsys", "bluetooth_manager")) }
+        // exec answers in the wire format ("OK exit stdout64 stderr64"); the
+        // parsers read the decoded stdout, as the app does.
+        val reply = attempt { service.exec(token, listOf("dumpsys", "bluetooth_manager")) }
+        val dump = PrivilegedProtocol.decodeResult(reply)?.second ?: reply
         report("HELPER_DUMPSYS_BT_LENGTH", dump.length.toString())
         report("PARSER_DUMPSYS", attempt { DumpsysBluetoothParser.parse(dump).toString() })
         report("PARSER_A2DP_LINK", attempt { A2dpLinkDumpParser.parse(dump).toString() })
 
         // Larger than the 64 KB binder reply limit, so the helper has to spill.
-        val big = attempt { service.exec(token, listOf("dumpsys", "package")) }
+        val big = attempt { service.exec(token, listOf("dumpsys", "audio")) }
         report("HELPER_SPILL_REPLY_LENGTH", big.length.toString())
         report("HELPER_SPILL_REPLY_HEAD", big.take(200))
     }
@@ -102,7 +106,7 @@ class Android17ProbeTest {
             report("REFLECT_getCodecStatus", method(proxy, "getCodecStatus", BluetoothDevice::class.java))
             report(
                 "INVOKE_getActiveDevice",
-                attempt { proxy.javaClass.getMethod("getActiveDevice").invoke(proxy).toString() },
+                attempt { proxy.javaClass.getMethod("getActiveDevice").invoke(proxy)?.toString() },
             )
             adapter.closeProfileProxy(BluetoothProfile.A2DP, proxy)
         }
