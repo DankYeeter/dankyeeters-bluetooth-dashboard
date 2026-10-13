@@ -38,9 +38,13 @@ class HelperCleanup internal constructor(
             // which is the expected outcome, not a failure. The death recipient
             // in PrivilegedConnection is what proves it.
             runCatching { service.shutdown(token) }
+            // The block yields true rather than the flow value: the value it
+            // waits for is usually null, which withTimeoutOrNull would turn
+            // into a timeout.
             withTimeoutOrNull(DEATH_TIMEOUT_MS) {
                 PrivilegedConnection.service.first { it !== service }
-            } != null
+                true
+            } == true
         }
         HelperCleanupReport(stopped, knownPaths.associateWith(::presence))
     }
