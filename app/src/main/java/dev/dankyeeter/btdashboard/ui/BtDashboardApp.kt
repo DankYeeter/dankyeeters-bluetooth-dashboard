@@ -3,12 +3,6 @@ package dev.dankyeeter.btdashboard.ui
 import android.util.Log
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Equalizer
-import androidx.compose.material.icons.filled.Hearing
-import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -24,16 +18,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.dankyeeter.btdashboard.ui.icons.AppIcons
 import dev.dankyeeter.btdashboard.system.setup.SetupPhase
 import dev.dankyeeter.btdashboard.system.setup.SetupSignals
 import dev.dankyeeter.btdashboard.ui.screens.activate.ActivateRoute
 import dev.dankyeeter.btdashboard.ui.screens.bluetooth.BluetoothScreen
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesScreen
+import dev.dankyeeter.btdashboard.ui.screens.devices.SettingsRestoreBanner
+import androidx.compose.foundation.layout.Column
 import dev.dankyeeter.btdashboard.ui.screens.eq.EqScreen
 import dev.dankyeeter.btdashboard.ui.screens.hearing.HearingTestScreen
 import dev.dankyeeter.btdashboard.ui.screens.monitor.MonitorScreen
@@ -44,13 +42,13 @@ import dev.dankyeeter.btdashboard.ui.screens.wizard.rememberSetupPhase
 
 enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     /** What the headphone is doing right now, plus its own settings. */
-    BLUETOOTH("bluetooth", "Bluetooth", Icons.Filled.Bluetooth),
-    EQ("eq", "EQ", Icons.Filled.Equalizer),
+    BLUETOOTH("bluetooth", "Bluetooth", AppIcons.Bluetooth),
+    EQ("eq", "EQ", AppIcons.Equalizer),
     /** The hearing test. Named for what it produces, not for what it measures. */
-    PROFILING("profiling", "Sound Profiling", Icons.Filled.Hearing),
-    MONITORING("monitoring", "Monitoring", Icons.Filled.Insights),
+    PROFILING("profiling", "Sound Profiling", AppIcons.Hearing),
+    MONITORING("monitoring", "Monitoring", AppIcons.Insights),
     /** App-level: setup, backup, how-tos, appearance. */
-    SETTINGS("settings", "Settings", Icons.Filled.Settings),
+    SETTINGS("settings", "Settings", AppIcons.Settings),
 }
 
 const val ROUTE_ONBOARDING = "onboarding"
@@ -159,7 +157,13 @@ fun BtDashboardApp(
     // after a rotation must not be able to flash the setup over a finished app
     // for the frame before the effect runs.
     if (phase == SetupPhase.FULL_SETUP || (inSetup && phase != SetupPhase.READY)) {
-        GateSurface { SetupWizardScreen(onDone = { inSetup = false }) }
+        // SR-031: a missing permission must not hide settings the app changed.
+        GateSurface {
+            Column {
+                SettingsRestoreBanner()
+                SetupWizardScreen(onDone = { inSetup = false })
+            }
+        }
         return
     }
     if (phase == SetupPhase.ACTIVATION_ONLY) {
@@ -169,7 +173,14 @@ fun BtDashboardApp(
         // able to ask for that recount. Without it, a gate that opened over a
         // stale "Helper running." had no way to shut again, which is exactly the
         // black screen this fixes.
-        GateSurface { ActivateRoute(onDone = { SetupSignals.refresh() }) }
+        // D2/M14: changed settings are announced even when the helper is not
+        // there — this is then the first screen after a start.
+        GateSurface {
+            Column {
+                SettingsRestoreBanner()
+                ActivateRoute(onDone = { SetupSignals.refresh() })
+            }
+        }
         return
     }
 
@@ -221,13 +232,7 @@ fun BtDashboardApp(
                     Destination.entries.forEach { dest ->
                         NavigationBarItem(
                             selected = currentRoute == dest.route,
-                            onClick = {
-                                navController.navigate(dest.route) {
-                                    popUpTo(Destination.BLUETOOTH.route) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { navController.navigateToTab(dest.route) },
                             icon = { Icon(dest.icon, contentDescription = dest.label) },
                             label = { Text(dest.label) },
                         )
@@ -264,6 +269,17 @@ fun BtDashboardApp(
             )
         }
     }
+}
+
+/**
+ * The bottom bar's move to a tab. Each tab's back stack is saved and restored,
+ * so its ViewModels outlive a switch — which is what keeps a comparison's
+ * arm A across one (AD-038 S3-6).
+ */
+internal fun NavController.navigateToTab(route: String) = navigate(route) {
+    popUpTo(Destination.BLUETOOTH.route) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
 }
 
 private fun NavGraphBuilder.appGraph(

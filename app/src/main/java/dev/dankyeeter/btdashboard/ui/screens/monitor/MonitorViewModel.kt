@@ -1,17 +1,15 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.dankyeeter.btdashboard.ui.tuning.readConditions
 import dev.dankyeeter.btdashboard.monitor.MonitorGraph
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
 import dev.dankyeeter.btdashboard.monitor.codec.sameDevice
-import dev.dankyeeter.btdashboard.privileged.PrivilegedCodec
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuning
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DeviceDiagnosticRunner
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStepResult
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
 import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.MonitorEvent
@@ -19,24 +17,27 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxProbe
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
+import dev.dankyeeter.btdashboard.monitor.link.live.LinkEvent
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveUpdate
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveLinkSource
 import dev.dankyeeter.btdashboard.monitor.link.live.toMonitorEvent
-import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
+import dev.dankyeeter.btdashboard.monitor.optimize.ConditionBook
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import dev.dankyeeter.btdashboard.system.SystemGraph
 import dev.dankyeeter.btdashboard.system.devices.DeviceKey
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -45,20 +46,7 @@ import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
-data class DiagnosticUiState(
-    val running: Boolean = false,
-    val steps: List<DiagnosticStepResult> = emptyList(),
-    val report: DiagnosticReport? = null,
-    /** Why the run did not start, or why it ended early. Null while healthy. */
-    val message: String? = null,
-    /**
-     * Whether [message] reports a fault. Stopping the run yourself is not one,
-     * and painting "Test stopped." in the error colour told the user something
-     * had gone wrong when they had simply pressed the button.
-     */
-    val messageIsError: Boolean = false,
-)
+import kotlinx.coroutines.withContext
 
 /**
  * The raw Bluetooth address for a device the live panel is showing, or null.
@@ -112,7 +100,10 @@ internal fun redactAddresses(text: String): String =
 /** Six hex octets. Already-redacted addresses contain `X` and never match. */
 private val RAW_ADDRESS = Regex("""\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b""")
 
-class MonitorViewModel : ViewModel() {
+/** The environment book of one reading on the open screen, and that reading's time (AD-044 point 1). */
+internal data class ReadBook(val book: ConditionBook, val readAtMs: Long)
+
+class MonitorViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Timeline window: the last two hours is what correlating a dropout needs. */
     private val windowMs = 2 * 60 * 60 * 1000L
@@ -131,11 +122,6 @@ class MonitorViewModel : ViewModel() {
     )
     val bqrAvailability: StateFlow<QualityReportAvailability> = _bqr.asStateFlow()
 
-    private val _diagnostic = MutableStateFlow(DiagnosticUiState())
-    val diagnostic: StateFlow<DiagnosticUiState> = _diagnostic.asStateFlow()
-
-    private var diagnosticJob: Job? = null
-
     // ---- live link -----------------------------------------------------------
 
     private val _liveIntervalMs = MutableStateFlow(LiveLinkSource.DEFAULT_INTERVAL_MS)
@@ -144,14 +130,45 @@ class MonitorViewModel : ViewModel() {
     val liveIntervalMs: StateFlow<Long> = _liveIntervalMs.asStateFlow()
 
     /**
-     * The poll a live event was last taken from.
+     * The newest poll this ViewModel has seen.
      *
      * `MonitorGraph.liveLinkUpdates` replays its last reading to a new
      * collector, so a rotation or a tab switch hands us an update we have
      * already written to the timeline. Without this guard one dropout would
-     * appear twice in the event log for no reason the user could see.
+     * appear twice in the event log for no reason the user could see, and a
+     * replayed reading would be booked as a fresh one.
      */
-    private var lastRecordedPollMs = 0L
+    private var lastSeenPollMs = 0L
+
+    private val _conditionBook = MutableStateFlow<ReadBook?>(null)
+
+    /**
+     * The environment book of the newest fresh reading on the open screen
+     * (AD-044, AK-18). Null off the screen and until the first reading after it
+     * comes back, so a return from the system settings reads anew (AD-045).
+     */
+    internal val conditionBook: StateFlow<ReadBook?> = _conditionBook.asStateFlow()
+
+    /** The loss episode the open screen is in, or null (AD-044 point 3). */
+    private var lossEpisode: LossEpisode? = null
+
+    /**
+     * The observation run (`UI_SPEC.md` T-039). Fed from [liveUpdates] and from
+     * nothing else — the close-up probe never reaches it — so it costs no poll
+     * of its own and ends with this ViewModel.
+     */
+    internal val observationRun = ObservationRunController(viewModelScope, SystemGraph.setupStore)
+
+    /**
+     * The before/after comparison (`UI_SPEC.md` T-047 S3-6). Fed like the run,
+     * and it pins only through [LdacTuning.pin], which holds the ledger entry
+     * before it writes (M16). Arm A lives as long as this ViewModel.
+     */
+    internal val comparison = ComparisonController(
+        scope = viewModelScope,
+        pin = { shownAddress -> LdacTuning.pin(LdacQuality.HIGH_QUALITY, shownAddress = shownAddress) },
+        readBook = { snapshot, discoverySeen -> readConditions(application, snapshot, discoverySeen) },
+    )
 
     /**
      * One poll loop, at whichever rate the panel asked for.
@@ -174,13 +191,18 @@ class MonitorViewModel : ViewModel() {
                 MonitorGraph.liveLink.updates(interval)
             }
         }
-        .onEach { update -> recordLiveEvents(update) }
+        .onEach(::onReading)
         // Shared, not merely cold: the panel now reads this twice — once for the
         // numbers and once for the 60-second graph — and a second collector of
         // the cold branch above would start a second poll loop, i.e. double the
         // dumpsys cost for one screen. It also keeps [recordLiveEvents] running
         // exactly once per pass.
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(LIVE_STOP_TIMEOUT_MS), replay = 1)
+        //
+        // No grace of its own: the screen-facing flows below carry the one
+        // LIVE_STOP_TIMEOUT_MS, and a second one here would be added to theirs.
+        // Stacked graces add up, and kept the poll — and the run it feeds —
+        // going well after the screen left (F-012).
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /**
      * The newest reading, or null before the first poll returns.
@@ -213,7 +235,9 @@ class MonitorViewModel : ViewModel() {
      * will happen on the next connect.
      *
      * All three inputs are already collected by this screen or are push-based,
-     * so nothing here starts a poll of its own.
+     * so nothing here starts a poll of its own. No grace either: [liveLink]
+     * already holds the poll for LIVE_STOP_TIMEOUT_MS, and holding [liveLink]
+     * longer would hold the poll longer (F-012).
      */
     val storedLdacQuality: StateFlow<Long> = combine(
         liveLink.map { it?.device?.address },
@@ -228,7 +252,7 @@ class MonitorViewModel : ViewModel() {
         // has to be derived from the real one the A2DP profile holds.
         val key = rawAddressFor(shownAddress, devices)?.let(DeviceKey::fromAddress)
         LdacQuality.storedQuality(profiles.firstOrNull { it.deviceKey == key })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LdacQuality.NONE)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), LdacQuality.NONE)
 
     // ---- the two graphs ------------------------------------------------------
     //
@@ -288,6 +312,69 @@ class MonitorViewModel : ViewModel() {
         MonitorGraph.setUiVisible(true)
         MonitorGraph.ensureRunning()
         viewModelScope.launch { _bqr.value = MonitorGraph.qualityReportSource.start() }
+        holdPollWhileAnArmCounts()
+        forgetBookOffScreen()
+    }
+
+    /**
+     * One poll. The book, the event log and the run belong to the open screen
+     * only (AK-17, AK-18, AK-19): an arm may hold this poll off the screen
+     * (AD-039), and only the comparison takes readings there.
+     */
+    internal suspend fun onReading(update: LinkLiveUpdate) {
+        val fresh = update.snapshot.timestampMs > lastSeenPollMs
+        if (fresh) lastSeenPollMs = update.snapshot.timestampMs
+        if (MonitorGraph.uiVisible.value) {
+            if (fresh) bookAndRecord(update)
+            observationRun.onReading(update.snapshot, _liveIntervalMs.value)
+        }
+        comparison.onReading(update.snapshot, _liveIntervalMs.value)
+    }
+
+    /**
+     * AD-044 point 1: the book comes with this reading, its dump facts off this snapshot — no dump of its own.
+     * The settings and battery reads are binder calls and stay off the main thread. The screen may have
+     * left while they ran; then this reading books and records nothing (AK-19).
+     */
+    private suspend fun bookAndRecord(update: LinkLiveUpdate) {
+        val snapshot = update.snapshot
+        val book = withContext(Dispatchers.IO) {
+            readConditions(getApplication(), snapshot, snapshot.pairing?.discovering)
+        }
+        if (!MonitorGraph.uiVisible.value) return
+        _conditionBook.value = ReadBook(book, snapshot.timestampMs)
+        val hasLoss = update.events.any { it is LinkEvent.LossDetected }
+        lossEpisode = nextEpisode(lossEpisode, snapshot.timestampMs, hasLoss, book, _liveIntervalMs.value)
+        recordLiveEvents(update)
+    }
+
+    /** Off the screen there is no book and no episode; the first reading back starts both anew. */
+    private fun forgetBookOffScreen() {
+        viewModelScope.launch {
+            MonitorGraph.uiVisible.collect { visible ->
+                if (!visible) {
+                    _conditionBook.value = null
+                    lossEpisode = null
+                }
+            }
+        }
+    }
+
+    /**
+     * AD-039 point 3: while an arm counts, this ViewModel collects the live
+     * poll itself, so the arm keeps its readings with the screen off. The same
+     * shared poll at the same cadence — no second loop — and let go the moment
+     * the phase moves on.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun holdPollWhileAnArmCounts() {
+        viewModelScope.launch {
+            comparison.ui
+                .map { it.phase == ComparisonPhase.ARM_A || it.phase == ComparisonPhase.ARM_B }
+                .distinctUntilChanged()
+                .flatMapLatest { counting -> if (counting) liveUpdates else emptyFlow() }
+                .collect {}
+        }
     }
 
     /** Which source is actually feeding the timeline right now. */
@@ -335,15 +422,12 @@ class MonitorViewModel : ViewModel() {
      * correlating "it stuttered at 14:31" will look.
      */
     private suspend fun recordLiveEvents(update: LinkLiveUpdate) {
-        if (update.events.isEmpty()) return
-        if (update.snapshot.timestampMs <= lastRecordedPollMs) return
-        lastRecordedPollMs = update.snapshot.timestampMs
         update.events.forEach { event ->
             val record = event.toMonitorEvent(
                 deviceAddress = update.snapshot.device?.address,
                 deviceName = update.snapshot.device?.name,
                 linkCodec = update.snapshot.codec?.family,
-            )
+            ).withEpisodeBook(lossEpisode)
             if (alreadyReported(record)) return@forEach
             MonitorGraph.repository.recordEvent(record)
         }
@@ -394,112 +478,42 @@ class MonitorViewModel : ViewModel() {
 
     fun dismissLdacMessage() = LdacTuning.dismissMessage()
 
+    /** "Compare" and "Try again": the comparison starts, and the service that keeps it off the screen. */
+    fun onCompare() {
+        comparison.onCompare()
+        MeasurementService.start(getApplication())
+    }
+
+    /** "Start Arm B" and "Check again": the service ended with arm A and comes back with arm B (T-055s B1). */
+    fun onCheck() {
+        comparison.onCheck()
+        MeasurementService.start(getApplication())
+    }
+
     fun startDeepCapture() {
         MonitorGraph.engine.startDeepCapture(SamplingPolicy.DEEP_CAPTURE_WINDOW_MS)
         MonitorGraph.ensureRunning()
+        MeasurementService.start(getApplication())
     }
 
     fun stopDeepCapture() = MonitorGraph.engine.stopDeepCapture()
 
-    /**
-     * Runs the guided "test device" routine against the first connected device.
-     * The soak is deliberately short here; the runner itself takes any length.
-     */
-    fun runDiagnostic(soakMinutes: Int = 3) {
-        if (_diagnostic.value.running) return
-        diagnosticJob = viewModelScope.launch {
-            // The previous report deliberately survives the start of a new run.
-            // Clearing it emptied the only thing on the panel worth reading the
-            // moment the user asked for a fresh look, and left three minutes of
-            // nothing to compare the new run against.
-            _diagnostic.value = _diagnostic.value.copy(
-                running = true,
-                steps = emptyList(),
-                message = null,
-            )
-            val device = MonitorGraph.codecSource.connectedDevices().firstOrNull()
-            if (device == null) {
-                // Used to reset silently, which looked exactly like a frozen
-                // button: the run needs a connected A2DP sink to test against.
-                _diagnostic.value = _diagnostic.value.copy(
-                    running = false,
-                    message = "Connect a headphone first — the test needs a live link.",
-                    messageIsError = true,
-                )
-                return@launch
-            }
-            val runner = DeviceDiagnosticRunner(
-                codecSource = MonitorGraph.codecSource,
-                collector = LinkSampleCollector(
-                    codecSource = MonitorGraph.codecSource,
-                    // The shared, TTL-cached reader — never a fresh
-                    // ShellDumpsysLinkSource. A diagnostic soak samples on the
-                    // deep-capture interval, and each of those runs would
-                    // otherwise pay for its own exec-and-parse of the dump.
-                    dumpsysSource = MonitorGraph.dumpsysSource,
-                    qualityReportSource = MonitorGraph.qualityReportSource,
-                ),
-                // Real codec control when the privileged helper is answering,
-                // NoOpCodecController when it is not. The helper runs as
-                // com.android.shell, which holds BLUETOOTH_PRIVILEGED
-                // (granted=true, verified on the device), so
-                // setCodecConfigPreference is reachable from inside it.
-                //
-                // Resolved here rather than in init: the helper can connect or
-                // die between opening this screen and pressing the button.
-                codecController = PrivilegedCodec.controller(),
-            )
-            MonitorGraph.engine.startDeepCapture(soakMinutes * 60_000L)
-            val report = runner.run(
-                address = device.address,
-                soakDurationMs = soakMinutes * 60_000L,
-            ) { step ->
-                _diagnostic.value = _diagnostic.value.copy(
-                    steps = _diagnostic.value.steps + step,
-                )
-            }
-            _diagnostic.value = _diagnostic.value.copy(running = false, report = report)
-        }
-    }
-
-    /**
-     * Aborts a diagnostic in flight. The soak runs for minutes, so "wait it
-     * out" is not an acceptable only option — and the deep capture it started
-     * lives on the app-wide monitor scope, so it has to be stopped explicitly
-     * rather than dying with the job.
-     *
-     * The steps that already finished stay on screen: they were really measured
-     * and are still true after the stop, so throwing them away would discard the
-     * only result the aborted run produced.
-     */
-    fun cancelDiagnostic() {
-        diagnosticJob?.cancel()
-        diagnosticJob = null
-        MonitorGraph.engine.stopDeepCapture()
-        _diagnostic.value = _diagnostic.value.copy(
-            running = false,
-            message = "Test stopped.",
-            messageIsError = false,
-        )
-    }
-
-    fun dismissDiagnosticMessage() {
-        _diagnostic.value = _diagnostic.value.copy(message = null)
-    }
-
     override fun onCleared() {
-        // Leaving the screen must not leave deep capture burning battery —
-        // nor idle polling for a screen that is no longer there.
+        // Leaving the screen must not leave idle polling for a screen that is
+        // no longer there.
         MonitorGraph.setUiVisible(false)
-        if (_diagnostic.value.running) MonitorGraph.engine.stopDeepCapture()
+        // The comparison ends with this ViewModel (AD-037); nothing may still
+        // reach for it, and the measurement service lets go (AD-039 point 2).
+        ActiveComparison.set(null)
         super.onCleared()
     }
 
-    private companion object {
+    internal companion object {
         /**
          * Long enough that a rotation does not restart the poll loop, short
-         * enough that leaving the screen stops it within one interval. Mirrors
-         * the stop timeout the graph's shared loop uses.
+         * enough that leaving the screen stops it within one interval. The
+         * only grace on the way to the poll: it sits on the flows the screen
+         * collects, and everything upstream of them stops at once (F-012).
          */
         const val LIVE_STOP_TIMEOUT_MS = 3_000L
 

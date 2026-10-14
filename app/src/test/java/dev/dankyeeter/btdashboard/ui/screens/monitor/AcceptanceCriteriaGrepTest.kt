@@ -1,5 +1,7 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -136,19 +138,12 @@ class AcceptanceCriteriaGrepTest {
      */
     @Test
     fun `every open parameter names the measurement it waits for`() {
-        // Today no marker exists at all, so without this the rule would stay
-        // green over a moved path (QA-012).
-        assertTrue(
-            "AK-T009-31 scanned no files — has the source path moved?",
-            SourceTree.appAndLinkSources.isNotEmpty(),
-        )
-        val markers = hits(SourceTree.appAndLinkSources, Regex("""TODO\("""))
-        val unnamed = markers.filterNot { Regex("""TODO\(M-\d+\)""").containsMatchIn(it.text) }
-
-        assertTrue(
-            "AK-T009-31: a TODO marker here has to name one measurement, as TODO(M-x); " +
-                "the blanket TODO(T-001) is withdrawn.\n" + unnamed.joinToString("\n"),
-            unnamed.isEmpty(),
+        assertNone(
+            criterion = "AK-T009-31",
+            files = SourceTree.appAndLinkSources,
+            pattern = Regex("""TODO\((?!M-\d+\))"""),
+            why = "a TODO marker here has to name one measurement, as TODO(M-x); " +
+                "the blanket TODO(T-001) is withdrawn",
         )
     }
 
@@ -228,6 +223,232 @@ class AcceptanceCriteriaGrepTest {
         )
     }
 
+    /**
+     * AK-T039-5 — the run's lowest figure is "Lowest reading", never a word that
+     * claims more: a reading every 1 to 5 s cannot see how low the encoder went
+     * between two of them (`UI_SPEC.md` T-039, M-16).
+     */
+    @Test
+    fun `the run names its lowest figure a reading`() {
+        val pattern = Regex("""lowest rate|minimum bitrate|worst|floor""", RegexOption.IGNORE_CASE)
+        assertTrue(pattern.containsMatchIn("the floor of the link"))
+        assertNone(
+            criterion = "AK-T039-5",
+            files = SourceTree.observationRun,
+            pattern = pattern,
+            why = "the lowest figure is the lowest single reading and is called that",
+        )
+    }
+
+    /**
+     * AK-T039-6 — none of the verdict words appears anywhere in the run's path.
+     * The rendered half is in [ObservationRunSectionTest].
+     */
+    @Test
+    fun `the run path carries no verdict word`() {
+        val pattern = Regex(
+            """always|never below|never dropped|consistently|stable|steady enough|safe to pin|""" +
+                """you can pin|guaranteed|reliable""",
+            RegexOption.IGNORE_CASE,
+        )
+        assertTrue(pattern.containsMatchIn("a stable link"))
+        assertNone(
+            criterion = "AK-T039-6",
+            files = SourceTree.observationRun,
+            pattern = pattern,
+            why = "the run counts and does not judge (UI_SPEC.md T-039, R-E)",
+        )
+    }
+
+    /**
+     * AK-T039-10 — the run's arithmetic and its display have no time source, no
+     * scheduled work and no storage of their own (`GOAL.md` AK-4). The one stored
+     * value near the run, the start-notice flag, sits in the controller by
+     * decision 5 and carries no measurement; it is outside this scope on purpose.
+     */
+    @Test
+    fun `the run keeps no time and stores nothing`() {
+        val pattern = Regex(
+            """\b(timer|clock|delay|workmanager|room|datastore|savedstatehandle|file|""" +
+                """currenttimemillis|elapsedrealtime|nanotime|rememberSaveable)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        assertTrue(pattern.containsMatchIn("val now = System.currentTimeMillis()"))
+        assertNone(
+            criterion = "AK-T039-10",
+            files = SourceTree.observationRunCore,
+            pattern = pattern,
+            why = "timestamps come only from the readings, and nothing of a run is kept",
+        )
+    }
+
+    /** AK-T039-11 — the close-up probe feeds no part of the run; the rendered half is in [ObservationRunSectionTest]. */
+    @Test
+    fun `the close-up probe does not reach the run`() {
+        val pattern = Regex("""TxProbe|closeUp""", RegexOption.IGNORE_CASE)
+        assertNone(
+            criterion = "AK-T039-11",
+            files = SourceTree.observationRun,
+            pattern = pattern,
+            why = "the run is fed from the panel's own readings only",
+        )
+    }
+
+    /**
+     * AK-T047-7 — "fix"/"fixes"/"fixed" in the sense of "repaired" occurs in the
+     * comparison only negated, in the workarounds. "fixed step" is the F1
+     * sentence's "fest", outside the rule by the spec's own definition.
+     */
+    @Test
+    fun `the comparison calls nothing a fix`() {
+        val pattern = Regex("""\bfix(es|ed)?\b(?<!\bnot fixes)(?<!\bnot a fix)(?! step)""", RegexOption.IGNORE_CASE)
+        assertTrue(pattern.containsMatchIn("this fixes the link"))
+        assertFalse(pattern.containsMatchIn("not a fix, not fixes, a fixed step"))
+        assertNone(
+            criterion = "AK-T047-7",
+            files = SourceTree.comparison,
+            pattern = pattern,
+            why = "measures are never called fixes; workarounds only as \"not a fix\" (AK-12)",
+        )
+    }
+
+    /**
+     * AK-T047-14 — no "packet" but in the AD-036 boundary lines, no quantity per
+     * minute or second (R-F), and the T-039 word lists of AK-T039-5/6. The
+     * audible family is covered for the whole monitor directory by AK-T009-43.
+     */
+    @Test
+    fun `the comparison keeps the T-039 word rules`() {
+        val packet = Regex("""packets?(?! type)""", RegexOption.IGNORE_CASE)
+        assertTrue(packet.containsMatchIn("dropped packets"))
+        assertFalse(packet.containsMatchIn("Packet type and retransmission rate"))
+        assertNone("AK-T047-14", SourceTree.comparison, packet, "R-G: \"packet\" only in the AD-036 boundary lines")
+        assertNone(
+            criterion = "AK-T047-14",
+            files = SourceTree.comparison,
+            pattern = Regex("""/\s*(min|s)\b|per (minute|second)""", RegexOption.IGNORE_CASE),
+            why = "R-F: no quantity is normalised to a minute or a second",
+        )
+        assertNone(
+            criterion = "AK-T047-14",
+            files = SourceTree.comparison,
+            // Whole words: the identifier WIFI_SCAN_ALWAYS is a condition's name, not a claim.
+            pattern = Regex(
+                """\b(lowest rate|minimum bitrate|worst|floor|always|never below|never dropped|consistently|""" +
+                    """stable|steady enough|safe to pin|you can pin|guaranteed|reliable)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            why = "the T-039 word lists hold here too (AK-T039-5, AK-T039-6)",
+        )
+    }
+
+    /** AK-T054-3 — the process sentence that said only Arm A lives in memory is gone everywhere. */
+    @Test
+    fun `the old process sentence is gone`() {
+        assertNone(
+            criterion = "AK-T054-3",
+            files = SourceTree.appSources,
+            pattern = Regex("""Arm A lives only in this app's memory|being killed by Android between arms"""),
+            why = "the process sentence was replaced (UI_SPEC F-015); an arm survives the screen, not the process",
+        )
+    }
+
+    /**
+     * AK-T047-13 — the comparison's way back is D2's banner and its flow:
+     * `SettingsRestore` is built in one place only, and the Monitor screen hands
+     * the section that banner rather than a button of its own.
+     */
+    @Test
+    fun `the comparison has no way back of its own`() {
+        val builds = hits(SourceTree.appSources, Regex("""\bSettingsRestore\("""))
+            .filterNot { it.text.contains("class SettingsRestore(") }
+        assertEquals(
+            "AK-T047-13: SettingsRestore is built once, in DeviceProfilesViewModel\n" + builds.joinToString("\n"),
+            listOf("DeviceProfilesViewModel.kt"),
+            builds.map { it.file.name },
+        )
+        assertTrue(
+            "AK-T047-13: the Monitor screen hands the comparison the D2 banner",
+            SourceTree.monitorScreenFile.readText().contains("restoreButton = { SettingsRestoreBanner() }"),
+        )
+        assertNone(
+            criterion = "AK-T047-13",
+            files = SourceTree.comparison,
+            pattern = Regex("""SettingsRestore|restoreAll|Back to before"""),
+            why = "the section draws no restore of its own; it shows the slot it is handed",
+        )
+    }
+
+    /**
+     * AK-T057-3 — the Measures panel carries no T-039 word, no count, no icon and
+     * nothing that follows a `Verification` value.
+     */
+    @Test
+    fun `the Measures panel judges nothing as a whole`() {
+        val panel = listOf(SourceTree.monitorFile("MeasureStatusSection.kt"))
+        assertNone("AK-T057-3", panel, JUDGEMENT_WORDS, "a reading, not a score (R-E, T-039 word lists)")
+        assertNone("AK-T057-3", panel, COUNTER, "no count across the six")
+        assertNone("AK-T057-3", panel, Regex("""\bIcons?\b|painterResource|Verification"""), "no icon, no colour per state")
+    }
+
+    /** AK-T057-5 — the episode lines and their heading name no cause, comments included. */
+    @Test
+    fun `the episode lines claim no cause`() {
+        assertNone(
+            criterion = "AK-T057-5",
+            files = listOf(SourceTree.monitorFile("ConditionStatus.kt")),
+            pattern = CAUSE_WORDS,
+            why = "the log shows what the surroundings were, never why the loss happened (AK-19)",
+        )
+    }
+
+    /** W1 (T-058s) — the book is kept in the event row's text and nowhere else, never in a log line. */
+    @Test
+    fun `the condition book goes nowhere but the event row`() {
+        val users = hits(SourceTree.appAndLinkSources, Regex("""conditionLines\(""")).map { it.file.name }.toSet()
+        assertTrue(
+            "W1: conditionLines( outside ConditionStatus.kt, MonitorViewModel.kt, EventLog.kt: $users",
+            (users - setOf("ConditionStatus.kt", "MonitorViewModel.kt", "EventLog.kt")).isEmpty(),
+        )
+        assertNone(
+            criterion = "W1",
+            files = SourceTree.appAndLinkSources,
+            pattern = Regex("""Log\.\w\(.*(book|conditionBook|conditionLines)"""),
+            why = "the book may not reach logcat",
+        )
+    }
+
+    /**
+     * W5 (T-058s) — one way to the network, and out of `WifiInfo` only the frequency.
+     * `AirPodsScanner.kt` reads a Bluetooth `ScanResult.rssi`, not Wi-Fi, so only `rssi` is
+     * left out of the rule there.
+     */
+    @Test
+    fun `the band is read through one expression and nothing else of the network`() {
+        val fields = "ssid|bssid|ipAddress|macAddress|networkId|rssi|linkSpeed|informationElements|passpointFqdn|apMldMacAddress"
+        fun wifiReads(fields: String) = Regex(
+            """\.($fields)\b|\b(getSSID|getBSSID|getIpAddress|getMacAddress|getRssi)\b|WifiManager|getLinkProperties|""" +
+                """register(Default)?NetworkCallback|requestNetwork|FLAG_INCLUDE_LOCATION_INFO""",
+        )
+        val (bleScanner, rest) = SourceTree.allMain.partition { it.name == "AirPodsScanner.kt" }
+        val why = "SSID/BSSID and the rest of WifiInfo stay unread (AK-21)"
+        assertNone("W5", rest, wifiReads(fields), why)
+        assertNone("W5", bleScanner, wifiReads(fields.replace("|rssi", "")), why)
+        val users = hits(SourceTree.allMain, Regex("""getNetworkCapabilities|WifiInfo""")).map { it.file.name }.toSet()
+        assertEquals("W5: getNetworkCapabilities/WifiInfo", setOf("EnvironmentConditions.kt"), users)
+    }
+
+    /** W7 (T-058s) — no band line and no Measures sentence leads to a permission request. */
+    @Test
+    fun `nothing on the monitor or in tuning asks for a permission`() {
+        assertNone(
+            criterion = "W7",
+            files = SourceTree.monitorScreen + SourceTree.tuning,
+            pattern = Regex("""RequestPermission|requestPermissions|ACTION_APPLICATION_DETAILS_SETTINGS|ACTION_LOCATION_SOURCE_SETTINGS"""),
+            why = "the app does not ask for location (AK-21, user's condition)",
+        )
+    }
+
     // ---- the scan ---------------------------------------------------------------
 
     /** One matching line, printed the way a grep would print it. */
@@ -299,9 +520,47 @@ private object SourceTree {
     /** The app and the module that measures the link — where a parameter can live. */
     val appAndLinkSources: List<File> by lazy { appSources + kotlinUnder("core-monitor/src/main") }
 
+    /** The app and every `core-*` module — the W5 scope. */
+    val allMain: List<File> by lazy {
+        appSources + root.listFiles().orEmpty().filter { it.name.startsWith("core-") }.sorted()
+            .flatMap { kotlinUnder("${it.name}/src/main") }
+    }
+
+    /** `ui/tuning`: the environment book and the settings jumps — with [monitorScreen], the W7 scope. */
+    val tuning: List<File> by lazy { kotlinUnder("app/src/main/java/dev/dankyeeter/btdashboard/ui/tuning") }
+
+    /** The observation run's arithmetic and display — the AK-T039-10 scope. */
+    val observationRunCore: List<File> by lazy {
+        listOf(
+            file("core-monitor/src/main/java/dev/dankyeeter/btdashboard/monitor/link/live/ObservationRun.kt"),
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ObservationRunSection.kt"),
+        )
+    }
+
+    /** Everything a run passes through, its controller included — the AK-T039-5/6/11 scope. */
+    val observationRun: List<File> by lazy {
+        observationRunCore +
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ObservationRunController.kt")
+    }
+
+    /** The comparison's controller and section, and its read-back words — the AK-T047-7/13/14 scope. */
+    val comparison: List<File> by lazy {
+        listOf(
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ComparisonController.kt"),
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ComparisonSection.kt"),
+            file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/ConditionStatus.kt"),
+        )
+    }
+
+    val monitorScreenFile: File by lazy {
+        file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/MonitorScreen.kt")
+    }
+
     val livePanel: File by lazy {
         file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/LiveLinkPanel.kt")
     }
+
+    fun monitorFile(name: String): File = file("app/src/main/java/dev/dankyeeter/btdashboard/ui/screens/monitor/$name")
 
     fun relative(file: File): String = file.relativeTo(root).path.replace('\\', '/')
 

@@ -7,9 +7,13 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import dev.dankyeeter.btdashboard.monitor.link.LinkDataSource
+import dev.dankyeeter.btdashboard.monitor.link.LinkQualitySample
 import dev.dankyeeter.btdashboard.monitor.link.QualityReportAvailability
+import dev.dankyeeter.btdashboard.monitor.sampling.MonitorStatus
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
 import dev.dankyeeter.btdashboard.ui.theme.BtDashboardTheme
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,6 +67,8 @@ class MonitorScreenAuditTest {
                 source = LinkDataSource.DUMPSYS,
                 bqr = QualityReportAvailability.Unavailable("not privileged"),
                 samplingReason = "playing, screen on",
+                capturedMs = null,
+                keptOffScreen = false,
                 onWatchLive = {},
                 onStopCapture = {},
             )
@@ -92,19 +98,63 @@ class MonitorScreenAuditTest {
         assertShows("Nothing recorded yet")
     }
 
-    /** The device test explained its own button twice, one tap apart. */
+    /** AK-T054-1, the deep-capture half: announced while it runs, with its progress. */
     @Test
-    fun `the device test does not restate its own explanation`() {
-        render {
-            DiagnosticCard(
-                state = DiagnosticUiState(),
-                onRun = {},
-                onCancel = {},
-                onDismissMessage = {},
-            )
-        }
+    fun `a running deep capture says it keeps capturing off the screen`() {
+        renderDeepCapture(capturedMs = 60_000L, keptOffScreen = true)
 
-        assertHides("Runs a three-minute check")
-        assertShows("Run device test")
+        assertExactly("Keeps capturing for up to 5 minutes even off this screen — stop it here or from the notification.")
+        assertExactly("60 s of 5 min captured.")
+        assertHides(DEEP_NEEDS_THIS_SCREEN)
     }
+
+    /** AD-039 point 5: Android refused the service, so the screen asks to stay open instead. */
+    @Test
+    fun `a deep capture without the service asks for the screen instead`() {
+        renderDeepCapture(capturedMs = 60_000L, keptOffScreen = false)
+
+        assertExactly(DEEP_NEEDS_THIS_SCREEN)
+        assertExactly("60 s of 5 min captured.")
+        assertHides(DEEP_KEEPS_CAPTURING)
+    }
+
+    @Test
+    fun `no capture, no capture lines`() {
+        renderDeepCapture(capturedMs = null, keptOffScreen = true)
+
+        assertHides(DEEP_KEEPS_CAPTURING)
+        assertHides(DEEP_NEEDS_THIS_SCREEN)
+        assertHides("captured.")
+    }
+
+    @Test
+    fun `captured time runs from the capture's start to its newest sample`() {
+        val running = MonitorStatus(mode = SamplingMode.DEEP, deepCaptureUntilMs = 400_000L, deepCaptureSinceMs = 100_000L)
+        val samples = listOf(sample(90_000L), sample(160_000L), sample(130_000L))
+
+        assertEquals(60_000L, deepCapturedMs(running, samples))
+        assertEquals("nothing since the start", 0L, deepCapturedMs(running, listOf(sample(90_000L))))
+        assertEquals(0L, deepCapturedMs(running, emptyList()))
+        assertNull("stopped", deepCapturedMs(running.copy(deepCaptureUntilMs = 0L), samples))
+        assertNull("not in DEEP", deepCapturedMs(running.copy(mode = SamplingMode.ACTIVE), samples))
+    }
+
+    private fun renderDeepCapture(capturedMs: Long?, keptOffScreen: Boolean) = render {
+        DataSourcePanel(
+            mode = SamplingMode.DEEP,
+            source = LinkDataSource.DUMPSYS,
+            bqr = QualityReportAvailability.Unavailable("not privileged"),
+            samplingReason = "deep capture requested",
+            capturedMs = capturedMs,
+            keptOffScreen = keptOffScreen,
+            onWatchLive = {},
+            onStopCapture = {},
+        )
+    }
+
+    private fun assertExactly(text: String) =
+        composeRule.onAllNodesWithText(text).assertCountEquals(1)
+
+    private fun sample(atMs: Long) =
+        LinkQualitySample(timestampMs = atMs, deviceAddress = "XX:XX:XX:XX:37:8F", source = LinkDataSource.DUMPSYS)
 }

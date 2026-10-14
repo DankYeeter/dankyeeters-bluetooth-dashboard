@@ -240,7 +240,7 @@ object Iso7029 {
     ): List<Pair<Int, Double>> {
         val expected = expectedMedianHl(ageYears, sex, frequenciesHz)
         if (expected.isEmpty()) return emptyList()
-        val median = ClinicalAudiogram.medianOf(expected.values.toList())
+        val median = MedianAudiogramAggregator.median(expected.values.toList())
         return frequenciesHz.map { hz -> hz to (median - expected.getValue(hz)) }
     }
 
@@ -280,7 +280,7 @@ object Iso7029 {
         val converged = points.filter { it.converged }
         if (converged.size < MIN_GAP_FREQUENCIES + 1) return null
         val frequencies = converged.map { it.frequencyHz }.sorted()
-        val measuredMedian = ClinicalAudiogram.medianOf(converged.map { it.thresholdDb })
+        val measuredMedian = MedianAudiogramAggregator.median(converged.map { it.thresholdDb })
         // Positive = more sensitive than this ear's own average, matching the
         // chart and the clinical overlay. Larger dBFS is a worse threshold, so
         // the subtraction runs this way round.
@@ -378,8 +378,8 @@ object Iso7029 {
  * 41 it would still say 41 in ten years, and the curve would quietly stop
  * matching the person. A year is also the coarsest form of the fact that still
  * answers the question, which is the right amount of personal data to keep for
- * drawing a reference line. It never leaves the phone; there is no INTERNET
- * permission.
+ * drawing a reference line. It never leaves the phone: this class never
+ * opens a network connection.
  *
  * @param birthYear four-digit year as the user typed it. Validity is
  *   [isPlausible]'s business, not the constructor's — a store that threw on a

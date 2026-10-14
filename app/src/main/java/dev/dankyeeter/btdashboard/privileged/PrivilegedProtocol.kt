@@ -1,5 +1,6 @@
 package dev.dankyeeter.btdashboard.privileged
 
+import java.security.MessageDigest
 import java.util.Base64
 
 /**
@@ -14,9 +15,9 @@ import java.util.Base64
  *
  * Shizuku hands an authorised app a general shell. That is the right trade for
  * a general-purpose tool; it is the wrong one here, because this app issues
- * exactly three commands and never will issue a fourth without someone editing
- * [ALLOWED]. A general shell behind a socket is a much larger thing to get
- * wrong than a list of three fixed argument vectors.
+ * exactly the commands in [ALLOWED] and never will issue another without
+ * someone editing that list. A general shell behind a Binder is a much larger
+ * thing to get wrong than a short list of fixed argument vectors.
  *
  * Matching is by exact argument vector, not by prefix or by executable name.
  * `dumpsys` with a different service, or the same service with an extra flag,
@@ -32,11 +33,11 @@ import java.util.Base64
  * That is a category change, not a bigger version of the same thing, so it is
  * modelled as one: [PrivilegedOperation] names every entry point the Binder
  * offers and declares for each whether it mutates. Mutating operations are
- * separate entry points — deliberately *not* a flag or an extra argument on
- * the read path, because a mutating call that travels through the
- * same door as a read is one forgotten branch away from being reachable by
- * accident. `PrivilegedProtocolTest` reflects over the AIDL interface and
- * fails if a method is added there and not classified here.
+ * separate entry points, pinned by name in the test — deliberately *not* a
+ * flag or an extra argument on the read path, because a mutating call that
+ * travels through the same door as a read is one forgotten branch away from
+ * being reachable by accident. `PrivilegedProtocolTest` reflects over the
+ * AIDL interface and fails if a method is added there and not classified here.
  */
 object PrivilegedProtocol {
 
@@ -75,7 +76,7 @@ object PrivilegedProtocol {
         /** Build number of the running helper. Reveals nothing, changes nothing. */
         VERSION("version", mutates = false),
 
-        /** Runs one of [ALLOWED]. All three only read. */
+        /** Runs one of [ALLOWED]. Every entry only reads. */
         EXEC("exec", mutates = false),
 
         /** Reads the negotiated A2DP codec through the privileged system API. */
@@ -109,10 +110,6 @@ object PrivilegedProtocol {
         RESTART_BLUETOOTH("restartBluetooth", mutates = true),
 
         /**
-         * Stops the helper. Counted as mutating: it ends the privileged
-         * process, which is the largest state change on offer here.
-         */
-        /**
          * Deliberately its own operation rather than a whitelist entry.
          *
          * `pm grant` could have gone into [ALLOWED] and travelled through
@@ -122,13 +119,18 @@ object PrivilegedProtocol {
          */
         GRANT_SECURE_SETTINGS("grantSecureSettings", mutates = true),
 
+        /**
+         * Stops the helper. Counted as mutating: it ends the privileged
+         * process, which is the largest state change on offer here.
+         */
         SHUTDOWN("shutdown", mutates = true),
     }
 
     // ---- wire format --------------------------------------------------------
     //
-    // One response per line, UTF-8. Output is Base64 so that a newline in a
-    // dumpsys dump cannot end the message — the dumps are full of them, and a
+    // One response per line, UTF-8; requests are typed AIDL arguments and need
+    // no framing. Text fields are Base64 so that a newline in a dumpsys dump
+    // cannot end the message — the dumps are full of them, and a
     // length-prefixed binary framing would buy nothing else here.
 
     private const val SEPARATOR = ' '
@@ -229,25 +231,31 @@ object PrivilegedProtocol {
     }
 
     /**
-     * Length-independent token compare, shared by the helper and the provider.
+     * Token compare, shared by the helper and the provider.
      *
      * One implementation rather than two identical ones, because the two ends
      * silently disagreeing about what counts as a matching token is a much
-     * worse bug than the timing leak this closes. A timing attack across a
-     * Binder transaction is not a realistic threat here; the compare is free,
-     * so there is no reason to leave the asymmetry lying around.
+     * worse bug than any timing difference.
+     *
+     * [MessageDigest.isEqual] compares the content without an early exit.
+     * Whether a length mismatch exits early depends on the version of the ART
+     * module (android12-release: yes, main: no). That is harmless: the token
+     * is a UUID of fixed, public length, and both callers check the uid first.
+     * [offered] goes first because on main the running time follows the length
+     * of the first argument, and that length is the caller's, not the stored
+     * one.
      *
      * A null or blank token never matches, even against a null or blank
      * expectation — "nothing was ever set" must not authenticate anybody.
+     * Blank, not merely empty: [MessageDigest.isEqual] would accept two equal
+     * whitespace strings.
      */
     fun tokensMatch(offered: String?, expected: String?): Boolean {
         if (offered.isNullOrBlank() || expected.isNullOrBlank()) return false
-        val x = offered.toByteArray(Charsets.UTF_8)
-        val y = expected.toByteArray(Charsets.UTF_8)
-        if (x.size != y.size) return false
-        var diff = 0
-        for (i in x.indices) diff = diff or (x[i].toInt() xor y[i].toInt())
-        return diff == 0
+        return MessageDigest.isEqual(
+            offered.toByteArray(Charsets.UTF_8),
+            expected.toByteArray(Charsets.UTF_8),
+        )
     }
 
     fun encodeError(message: String): String = "ERR ${encode(message)}"
@@ -361,9 +369,10 @@ object PrivilegedProtocol {
         Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))
 
     /**
-     * Malformed Base64 returns null rather than throwing. The server reads from
-     * a socket anything on the device may connect to, so garbage in has to be a
-     * normal, refusable input rather than a crash of a privileged process.
+     * Malformed Base64 returns null rather than throwing. The decoders run in
+     * the app on replies from a shell-uid process that was only accepted after
+     * its uid and token were checked. That is still a process boundary, so
+     * garbage in has to be a normal, refusable input rather than a crash.
      */
     private fun decodeOrNull(value: String): String? = runCatching {
         String(Base64.getDecoder().decode(value), Charsets.UTF_8)

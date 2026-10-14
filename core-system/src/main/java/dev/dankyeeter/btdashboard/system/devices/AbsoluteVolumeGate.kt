@@ -4,7 +4,6 @@ import android.content.Context
 import android.provider.Settings
 import android.util.Log
 import dev.dankyeeter.btdashboard.system.secure.SecureSettingsGate
-import dev.dankyeeter.btdashboard.system.secure.SecureSettingsState
 
 /** What the UI is allowed to claim about absolute volume right now. */
 sealed interface AbsoluteVolumeStatus {
@@ -48,7 +47,7 @@ class AbsoluteVolumeGate(
     fun status(): AbsoluteVolumeStatus {
         val enabled = isEnabled()
         return when {
-            secureSettings.state() != SecureSettingsState.GRANTED ->
+            !secureSettings.isGranted() ->
                 AbsoluteVolumeStatus.PermissionMissing(enabled, secureSettings.adbGrantCommand())
 
             enabled == null -> AbsoluteVolumeStatus.Unsupported
@@ -56,7 +55,7 @@ class AbsoluteVolumeGate(
         }
     }
 
-    override fun isWritable(): Boolean = secureSettings.state() == SecureSettingsState.GRANTED
+    override fun isWritable(): Boolean = secureSettings.isGranted()
 
     /**
      * Absent key means the OEM never disabled absolute volume, which is the
@@ -84,8 +83,8 @@ class AbsoluteVolumeGate(
         Settings.Global.getString(resolver, KEY_DISABLE_ABSOLUTE_VOLUME) == null
     }.onFailure { Log.w(TAG, "absolute-volume reset refused", it) }.getOrDefault(false)
 
-    private companion object {
-        const val TAG = "AbsoluteVolumeGate"
+    companion object {
+        private const val TAG = "AbsoluteVolumeGate"
 
         /**
          * `Settings.Global.BLUETOOTH_DISABLE_ABSOLUTE_VOLUME` is `@hide`, so the

@@ -20,6 +20,7 @@ import dev.dankyeeter.btdashboard.ui.screens.dashboard.BluetoothCodecSection
 import dev.dankyeeter.btdashboard.ui.screens.dashboard.BluetoothDashboardViewModel
 import dev.dankyeeter.btdashboard.ui.screens.devices.DeviceProfilesViewModel
 import dev.dankyeeter.btdashboard.ui.screens.devices.ProfileEditorCard
+import dev.dankyeeter.btdashboard.ui.screens.devices.SettingsRestoreBanner
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.GoldOutlinedButton
 import dev.dankyeeter.btdashboard.ui.theme.Panel
@@ -141,6 +142,8 @@ fun BluetoothScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Bluetooth", style = MaterialTheme.typography.displayMedium)
+
+        SettingsRestoreBanner()
 
         BluetoothCodecSection(onWatchLive = onWatchLive)
 

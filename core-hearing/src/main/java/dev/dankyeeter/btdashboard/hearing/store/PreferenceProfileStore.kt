@@ -30,7 +30,7 @@ private val Context.preferenceDataStore: DataStore<Preferences> by
  * One JSON string for the whole list, like every other store in this package, so
  * that a partial write can never leave half a pool behind, and any parse failure
  * degrades to "no preference profiles" rather than crashing. Nothing leaves the
- * device — the app has no INTERNET permission.
+ * device: this store never opens a network connection.
  */
 class PreferenceProfileStore(context: Context) {
 

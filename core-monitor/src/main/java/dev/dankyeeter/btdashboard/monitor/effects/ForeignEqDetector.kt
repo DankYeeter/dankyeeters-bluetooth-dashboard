@@ -83,15 +83,6 @@ object ForeignEqDetector {
     }.distinctBy { it.effectName to it.sessionId to it.pid }
 }
 
-/**
- * Maps process ids to package names. On modern Android a normal app cannot
- * enumerate other processes, so the shell-backed `ps` implementation is the
- * only one that works — hence the interface.
- */
-interface ProcessResolver {
-    suspend fun pidToPackage(): Map<Int, String>
-}
-
 /** Parser for `ps -A -o PID,NAME` (and the wider default `ps -A` layout). */
 object PsOutputParser {
     fun parse(output: String): Map<Int, String> = buildMap {

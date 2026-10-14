@@ -34,10 +34,7 @@ ksp {
 }
 
 dependencies {
-    implementation(libs.androidx.core.ktx)
     api(libs.kotlinx.coroutines.android)
-
-    // Shell identity for BQR registration, dumpsys and ps.
 
     // Event/sample history needs real queries and time-range scans → Room.
     api(libs.room.runtime)

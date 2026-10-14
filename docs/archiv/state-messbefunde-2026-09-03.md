@@ -1,0 +1,154 @@
+# Messbefunde und Tuning-Grundlagen — aus docs/state.md ausgelagert (22.09.2026)
+
+Stand 03.09.2026, unverändert übernommen. Gilt weiter; aktuelle Punkte in `docs/state.md`.
+
+## Zielbild — neu gefasst und in Kraft (03.09.)
+
+`GOAL.md` ist vom Nutzer abgenommen. Drei Saeulen: **Anzeigen → Stellen →
+Optimieren**. AK-1..AK-6 unveraendert, **AK-8..AK-16 neu in Kraft**.
+
+- **AK-7 zurueckgestellt, Nummer reserviert** — erst nach Klaerung der letzten
+  BQR-Frage. **Bis dahin wird an diesem Kanal nichts gebaut.**
+- **AK-14** lautet „ohne kuenstliche Stoerung“, weil kein Stresshebel belegt
+  ist. Die Testsuite ist damit nicht blockiert.
+- **Umkehr gegenueber 02.09.:** Die App **stellt Einstellungen selbst**, wo es
+  ohne Root geht. Der Helfer darf wachsen. Gegengewicht: AK-10 (jedes Kommando
+  einzeln vom `security-reviewer`) und AK-11 (Rueckweg garantiert).
+
+## Die tragenden Befunde — belegt, nicht mehr zu diskutieren
+
+**Die Grenze bei 990 ist eine Luftzeit-Bilanz, nicht „Signalqualitaet“.**
+990 belegt auf einem 2-DH5-Link rund 70 % der Kapazitaet, 660 rund 47-59 %; die
+Sendewarteschlange fasst 28 Pakete, bei 990 nur ~150 ms Audio. Funkfehler werden
+per ARQ in Wiederholungen und damit ebenfalls in Luftzeit umgesetzt — „Latenz
+gegen Signalqualitaet“ ist **keine** Trennung. Die Prozentrechnung ist eigene
+Arithmetik auf belegten Konstanten, **kein Messwert**.
+
+**Die Paarung liegt in der 2-DH5-Klasse** (T-032, BQR direkt: 24/25 Ereignisse
+`2DH5`, eines `2DH3`). Nicht 2-DH3 — Massnahmen aus R-010 koennen also greifen.
+**Wiederholrate 23,5-33,2 % bei RSSI -43 bis -58 dBm**: starkes Signal, ein
+Viertel bis ein Drittel wiederholt. Der bisher staerkste Beleg der Luftzeit-These.
+
+**Der Ueberlauf entsteht auf der Abflussseite** (R-010, Quelltext):
+`tx_audio_queue` wird nur geleert, solange `l2c_bufs` unter der Schwelle bleibt.
+
+**Zaehler-Semantik** (R-005, Quelltext): `dropped` = verworfene
+Warteschlangeneintraege **variabler** Groesse, deshalb ohne Verdikt (Nutzer
+02.09.). `dropouts` = Ueberlauf-Episoden, **die einzige saubere
+Ereigniseinheit** und alleinige Leitgroesse. `underflow` = Encoder-Lesetakte mit
+PCM-Fehlbetrag, **mit Stille aufgefuellt**, ohne Verdikt. `accumulated_stats`
+werden bei Pause und Reconnect **nicht** genullt — nur bei Stack-Neustart.
+
+**`Packet counts (expected/dropped)` sagt NICHTS ueber die Funkstrecke**
+(R-010): der Zaehler zaehlt Encoder-Aufrufe und `ldacBT_encode()`-Fehler. Die
+fruehere Director-Lesart „auf Paketebene geht nichts verloren“ ist als Deutung
+dieses Zaehlers **widerlegt** — als Protokolleigenschaft bleibt sie richtig.
+
+**Der Encoder-Thread laeuft `SCHED_FIFO` Prio 1** (R-008): CPU-Last scheidet als
+Hebel endgueltig aus. **LDAC laeuft im Host-Pfad** (T-032, zwei Belege).
+
+**„990 gepinnt = Warteschlangenueberlauf = hoerbare Aussetzer“ ist belegt**
+(T-008): ABR 0/0, 990 gepinnt 525/21 durchgehend hoerbar, zurueck auf ABR 0/0.
+
+**Es gibt keine Literaturschwelle** (R-006). Fuer A2DP-Musik existiert **keine**
+belegte Hoerbarkeitsschwelle. Regel **R-E** ist dauerhaft: keine abstufenden
+Woerter, kein mehrstufiges Bildzeichen fuer Raten echt zwischen 0 und 12/min.
+Das Wort „audible“ kommt in der Oberflaeche nicht vor (Grep-Regel).
+
+## Der offene Widerspruch — was T-036 klaeren muss
+
+| Lauf | Bedingung | Ergebnis |
+|---|---|---|
+| T-029 (02.09.) | 990 gepinnt, WLAN **nie geprueft** | 10 Cluster in 25 min |
+| T-032 (03.09.) | 990 gepinnt, WLAN **nicht assoziiert** | **0 Verluste in 27,78 min**, 1143 Samples, Nachweisgrenze 0,1080/min |
+
+**Hypothese, nicht Erklaerung:** die WLAN-Assoziation macht den Unterschied.
+n=1 gegen n=1, keine kontrollierte Variable; T-029 nennt selbst Ruhephasen bis
+4,4 min. Das ist der erste ernsthafte Kandidat fuer einen belegten Hebel bei 990.
+
+## Die sechs Massnahmen (R-010, Teil 1) — Grundlage des Tuning-Prozesses
+
+Alle ohne Root, alle nur anleitbar bzw. stellbar, **keine unter 990 gemessen** —
+die Rangfolge ist Belegstaerke, nicht Wirkungsgroesse.
+
+1. **2,4-GHz-WLAN weg** (aus, oder Router-SSID auf 5 GHz) — eigene Messung
+   (n=1 bei 660) plus Koexistenz-Mechanismus
+2. **Keine Discovery/Scans** — Koppel-Bildschirm zu, Fast-Pair-Suche aus,
+   scannende Apps finden. AOSP-Javadoc woertlich
+3. **Kein zweites BT-Geraet, Multipoint am Sink aus** — Sony schaltet LDAC bei
+   Multipoint ganz ab
+4. **Koerper aus der Funkstrecke, Abstand klein** — Fachliteratur 10-21 dB
+5. **USB-3-Kabel ab** — Sekundaerquelle; **990 wurde nie ohne Kabel gemessen**
+6. **Sink-Modus, der LDAC zulaesst** — Herstellerdoku, nur Sony belegt
+
+**„Ausweichen“, sichtbar so zu benennen** (Nutzer 03.09.): Stufe senken, ABR,
+Codec-Wechsel, 44,1-kHz-Familie (909 statt 990). **990 existiert nur in der
+48/96-kHz-Familie**; 96 → 48 kHz spart **keine** Luftzeit, nur Resampling.
+
+**Widerlegt, erscheint nicht im Prozess:** Absolute Lautstaerke, AVRCP-Version,
+Bittiefe, Akku-/App-Optimierung, BT-Cache, Neukoppeln, Flugmodus-Zyklus,
+Schalter „Bluetooth-Scannen“, „max. Audiogeraete“, Neustart — und auf **diesem**
+Geraet der A2DP-Offload-Schalter (LDAC laeuft im Host-Pfad).
+
+## BQR — der staerkste Kanal, und seine Falle
+
+`dumpsys bluetooth_manager` enthaelt einen **Bluetooth-Quality-Report-Abschnitt**
+mit Pakettyp, RSSI, Sendeleistungsstufe, Wiederholrate, Nicht-Empfang und
+AFH-Kanalauslass — echte Firmware-Telemetrie, ohne Root lesbar.
+
+**Aber: Lesen leert die Queue** (R-011, Quelltext). `bqr::DebugDump()` dequeued
+und loescht in einer Schleife; **kein Leser-Cursor**, eine prozessweite Instanz.
+Wer liest, nimmt die Ereignisse **allen** weg. Zweiter, unabhaengiger
+Verlustweg: die Queue fasst **25** Eintraege und verdraengt den aeltesten.
+**`dumpsys bluetooth_manager` ist damit ein Eingriff, kein Read-back.**
+
+**Der Ausweg ist offen** (T-035): Der nicht-destruktive Callback
+`registerBluetoothQualityReportReadyCallback` verlangt `BLUETOOTH_PRIVILEGED` —
+**uid 2000 haelt sie**, deklariert, gewaehrt und laufzeitdurchsetzbar, belegt mit
+drei Verfahren inkl. echtem `checkPermission`-Aufruf. Methode existiert, `public`,
+kein Hidden-API-Fehler.
+
+**Die eine offene Frage:** Speist der Callback aus **derselben** Queue? R-011
+legt einen eigenen Weg nahe, hat ihn aber nur einfach belegt. **Speist er aus
+derselben, ist nichts gewonnen.** → T-037.
+
+## Zaehler-Inventar — mehr als bisher genutzt
+
+Sendeseite: `Counts (flushed/dropped/dropouts)`, `Counts (max dropped)`,
+`LDAC saved transmit queue length`. Quellseite: `Counts (underflow)`,
+`Bytes (underflow)`, `PCM read counts (expected/actual)`. Scheduling:
+`Enqueue/Dequeue deviation counts (overdue/premature)` samt Zeitsummen —
+**direkt messbarer Jitter, fuer Tuning die interessanteste Familie, bisher
+ungenutzt.**
+
+**Belegstand, nicht ueberdehnen:** Am Quelltext belegt sind nur `dropped`,
+`dropouts`, `underflow`. Die Bedeutung von `max dropped` und den
+Deviation-Zaehlern ist **Director-Lesart, unbelegt** — gehoert recherchiert,
+bevor ein Messapparat darauf gebaut wird.
+
+**`Frames per packet (ave)` taugt NICHT als Pakettyp-Indikator**, und meine
+frueher notierte Begruendung war ueberdehnt: T-032 las `115111 / 4 / 13` (dort
+ist `max` < `ave`, auffaellig), die 990er-Fixture liest `2763962 / 12 / 12`
+(voellig stimmig). Der Wert ist auch nicht „konstant 13“ — das galt innerhalb
+eines Laufs. **Was traegt:** weder 12 noch 13 passt zu den erwarteten ~2/~3.
+**Offene Frage:** Warum liest dasselbe Feld am selben Geraet einmal 4/13 und
+einmal 12/12? Verwendet wird der direkte BQR-Pakettyp.
+
+## „Gesetzt“ heisst NICHT „gebaut“
+
+Die T-009-Parameter stehen in `UI_SPEC.md` **festgelegt**; im Code existiert
+**keine** davon. Ebenso fehlen `SETTLING` und die Maschine
+CLEAN/OCCASIONAL/DISTURBED/CANNOT_TELL — von `developer` und `qa-engineer`
+unabhaengig per Grep bestaetigt (03.09.). Die heutige `LossRow` rechnet eine rohe
+Poll-zu-Poll-Differenz. **Rund 25 Akzeptanzkriterien sind dadurch nicht
+ungetestet, sondern gegenstandslos.** Das schliesst V-1..V-7.
+
+Entwurf dafuer liegt: `ARCHITECTURE.md` **AD-015..AD-024**. Kern: reine Logik in
+`:core-monitor`, **keine Uhr** (Zeitstempel reisen in den Lesungen), **ein**
+Fenster (`LossWindow`), `CANNOT_TELL` als versiegelter Zustand mit typisiertem
+Grund, Verlust und Stufe als **zwei getrennte Maschinen ohne gemeinsamen Typ**
+(R-E strukturell erzwungen). Buendelungskriterium in `UI_SPEC.md` ab Z. 1830
+(AK-T030-1..14): Ausbruch = **3 `dropouts`-Episoden in 30 s**. Regel **R-F**:
+keine Groesse je Minute/Sekunde in der Verlustanzeige. Regel **R-G**: das Wort
+„packet“ steht nicht mehr fuer die Raeumungsfamilie.
+

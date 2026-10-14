@@ -5,7 +5,7 @@ Entscheidungen mit Alternativen stehen als AD-001..AD-008 in `ARCHITECTURE.md`;
 dieses Dokument traegt den Katalog, das Datenmodell und den Ablauf.
 
 **Ohne Geraetezugriff geschrieben.** Alles, was hier als *belegt* steht, stammt
-aus `docs/perf/baselines.md`, `HANDOVER.md` oder aus KDoc, das eine
+aus `docs/perf/baselines.md`, `docs/archiv/HANDOVER.md` oder aus KDoc, das eine
 Geraetemessung zitiert. Nichts davon wurde in dieser Sitzung nachgemessen.
 
 ---

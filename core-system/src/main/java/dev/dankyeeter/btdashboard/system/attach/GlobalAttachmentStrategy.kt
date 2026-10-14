@@ -3,7 +3,6 @@ package dev.dankyeeter.btdashboard.system.attach
 import android.util.Log
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
-import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
 
 /**
  * Global attachment: one [SystemEqualizer] on audio session 0, the output mix.
@@ -37,7 +36,7 @@ import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
  * curve is then applied twice, which for this app is a wrong-audio bug.
  */
 class GlobalAttachmentStrategy(
-    private val factory: SystemEqualizerFactory,
+    private val factory: (sessionId: Int) -> SystemEqualizer?,
 ) : EqAttachmentStrategy {
 
     override val kind = AttachmentKind.GLOBAL
@@ -80,7 +79,7 @@ class GlobalAttachmentStrategy(
             equalizer = null
         }
 
-        val eq = factory.create(GLOBAL_SESSION_ID)
+        val eq = factory(GLOBAL_SESSION_ID)
         if (eq == null) {
             lastStatus = AttachmentStatus.Unavailable(
                 "This build refused a global audio effect. The system EQ falls back " +

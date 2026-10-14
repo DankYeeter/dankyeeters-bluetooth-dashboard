@@ -23,8 +23,8 @@ import kotlinx.coroutines.withContext
  * `GET_PERMISSIONS` and nothing else — that is the only extra field read, and
  * every additional flag is more parcel to marshal across the binder. App labels
  * are resolved *after* filtering: `loadLabel` opens the app's resource table,
- * which on a few hundred packages is by far the most expensive thing that could
- * happen here, and only a few dozen survive the filter.
+ * which is by far the most expensive thing that could happen here, and only
+ * the few apps that survive the filter need it.
  */
 class PackageManagerAppSource(private val context: Context) : InstalledAppSource {
 
@@ -70,11 +70,11 @@ class PackageManagerAppSource(private val context: Context) : InstalledAppSource
                         appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0,
                 )
             }
-            InstalledAppReadResult.Available(apps, installed.size)
+            InstalledAppReadResult.Available(apps)
         }.getOrElse {
             // A PackageManager that throws (dead system process, a ROM that
-            // caps the query, a revoked QUERY_ALL_PACKAGES) must read as
-            // "cannot check", never as an empty all-clear.
+            // caps the query) must read as "cannot check", never as an empty
+            // all-clear.
             InstalledAppReadResult.Unavailable(
                 it.message?.takeIf(String::isNotBlank) ?: it.javaClass.simpleName,
             )

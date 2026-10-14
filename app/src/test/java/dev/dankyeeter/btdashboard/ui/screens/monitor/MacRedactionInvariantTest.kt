@@ -1,11 +1,6 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
 import dev.dankyeeter.btdashboard.monitor.codec.BtAudioDevice
-import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticReport
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStep
-import dev.dankyeeter.btdashboard.monitor.diagnostic.DiagnosticStepResult
-import dev.dankyeeter.btdashboard.monitor.diagnostic.StepOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,19 +10,14 @@ import org.junit.Test
 
 /**
  * One rule, checked against every user-facing string the Monitor tab builds:
- * **no raw Bluetooth address reaches the screen or the clipboard.**
+ * **no raw Bluetooth address reaches the screen.**
  *
  * [MonitorTuningAddressTest] pins the two halves of the join that produced the
  * original defect — the redacted address must not go *down* to the controller,
  * the real one must not come *up* to the UI — but it does so one sentence at a
- * time, and one sentence is exactly what a new outcome branch or a new report
- * line is. This walks every producer instead, over a corpus of addresses in the
+ * time, and one sentence is exactly what a new outcome branch is. This walks
+ * every producer instead, over a corpus of addresses in the
  * spellings the platform and its own dumps actually use.
- *
- * It found one: `DiagnosticReport.asPlainText()` printed `deviceAddress`
- * verbatim whenever the headphone had no name, and that string exists to be
- * pasted into a support ticket. The report is built from the A2DP profile, not
- * from the dump, so its address is raw on every build — user or userdebug.
  */
 class MacRedactionInvariantTest {
 
@@ -111,32 +101,6 @@ class MacRedactionInvariantTest {
         CodecApplyOutcome.Unavailable("the privileged helper is not running"),
     )
 
-    /** A finished diagnostic with the address wherever it can legitimately appear. */
-    private fun reportFor(address: String, deviceName: String?) = DiagnosticReport(
-        deviceAddress = address,
-        deviceName = deviceName,
-        startedAtMs = 1_700_000_000_000L,
-        finishedAtMs = 1_700_000_180_000L,
-        steps = listOf(
-            DiagnosticStepResult(DiagnosticStep.CONNECTION_CHECK, StepOutcome.Passed("Connected as Bathys")),
-            DiagnosticStepResult(
-                DiagnosticStep.CODEC_NEGOTIATION,
-                // The shape a lower layer's reason really has: it names what it
-                // was handed, and what it was handed is the raw address.
-                StepOutcome.Warned("Codec status failed: no A2DP device for $address"),
-            ),
-            DiagnosticStepResult(
-                DiagnosticStep.CODEC_CYCLING,
-                StepOutcome.Skipped("Codec switching skipped — $address rejected the preference"),
-            ),
-            DiagnosticStepResult(DiagnosticStep.SOAK, StepOutcome.Passed("120 samples, no drops")),
-        ),
-        bestStableCodec = CodecFamily.LDAC,
-        dropCount = 0,
-        rssiRangeDbm = -70..-52,
-        sampleCount = 120,
-    )
-
     // ---- the invariant ----------------------------------------------------------
 
     @Test
@@ -144,22 +108,6 @@ class MacRedactionInvariantTest {
         rawAddresses.forEach { address ->
             outcomesFor(address).forEach { outcome ->
                 assertNoLeak("tuning outcome $outcome", tuningMessage(outcome))
-            }
-        }
-    }
-
-    @Test
-    fun `no diagnostic report puts a raw address on the clipboard`() {
-        rawAddresses.forEach { address ->
-            listOf(null, "Bathys").forEach { name ->
-                val text = reportFor(address, name).asPlainText()
-                assertNoLeak("report for $address named $name", text)
-                // The last two octets are what tells two headphones apart, so
-                // the line must still identify the device it tested.
-                assertTrue(
-                    "the report stopped identifying the device: $text",
-                    text.contains(name?.takeIf { it.isNotBlank() } ?: maskAddress(address)),
-                )
             }
         }
     }

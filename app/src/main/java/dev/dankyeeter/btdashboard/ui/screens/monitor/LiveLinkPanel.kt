@@ -1,6 +1,5 @@
 package dev.dankyeeter.btdashboard.ui.screens.monitor
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -16,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dankyeeter.btdashboard.monitor.codec.ChannelMode
 import dev.dankyeeter.btdashboard.monitor.link.live.A2dpTxDelta
 import dev.dankyeeter.btdashboard.monitor.link.live.InputStreamSnapshot
@@ -23,6 +23,7 @@ import dev.dankyeeter.btdashboard.monitor.link.live.LdacState
 import dev.dankyeeter.btdashboard.monitor.link.live.LinkLiveSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.LiveCodecSnapshot
 import dev.dankyeeter.btdashboard.monitor.link.live.TxLossChannel
+import dev.dankyeeter.btdashboard.ui.appLabel
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedBlock
@@ -90,6 +91,12 @@ fun LiveLinkPanel(
     closeUpTrace: LiveTrace = LiveTrace.closeUp(500L),
     closeUpEnabled: Boolean = false,
     onCloseUpEnabled: (Boolean) -> Unit = {},
+    /** The observation-run section, drawn under the graphs for a link that reads. */
+    observationRun: @Composable (LinkLiveSnapshot) -> Unit = {},
+    /** The before/after comparison, directly under the observation run. */
+    comparison: @Composable (LinkLiveSnapshot) -> Unit = {},
+    /** The running comparison's phase; the chips lock in [locksLdacChips]'s phases (UI_SPEC F-019). */
+    comparisonPhase: ComparisonPhase? = ActiveComparison.held.collectAsStateWithLifecycle().value?.phase,
 ) {
     Panel(modifier) {
         ExplainedHeader("Live link", LIVE_LINK_EXPLANATION)
@@ -119,10 +126,13 @@ fun LiveLinkPanel(
                     onLdacQuality,
                     onDismissLdacMessage,
                     queuePressureNote(overviewTrace),
+                    locksLdacChips(comparisonPhase),
                 )
                 LossRow(snapshot, intervalMs)
                 TxRows(snapshot)
                 TraceSection(overviewTrace, closeUpTrace, closeUpEnabled, onCloseUpEnabled)
+                observationRun(snapshot)
+                comparison(snapshot)
             }
         }
 
@@ -240,6 +250,8 @@ private fun LdacSection(
      * the loss row's sentence to make (`UI_SPEC.md` T-009, AK-T009-29).
      */
     queuePressureNote: String?,
+    /** A comparison is under way: the chips stay put and the second layer says why. */
+    locked: Boolean,
 ) {
     val ldac = snapshot.ldac ?: return
     val sampleRateHz = snapshot.codec?.sampleRateHz
@@ -261,7 +273,8 @@ private fun LdacSection(
         },
     )
 
-    ExplainedBlock("LDAC quality", LDAC_TUNING_EXPLANATION) { toggle ->
+    val explanation = if (locked) "$LDAC_TUNING_EXPLANATION $LDAC_LOCKED_BELOW" else LDAC_TUNING_EXPLANATION
+    ExplainedBlock("LDAC quality", explanation) { toggle ->
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -278,7 +291,7 @@ private fun LdacSection(
                     selected = selected == quality,
                     // Never two requests in flight: each one renegotiates the
                     // codec, and the second would race the first's read-back.
-                    enabled = !tuning.busy,
+                    enabled = !tuning.busy && !locked,
                     onClick = { onLdacQuality(quality) },
                     // The rate ladder follows the sample-rate family — 990/660/330
                     // at 48 and 96 kHz, 909/606/303 at 44.1 and 88.2. Labelling
@@ -562,6 +575,18 @@ private const val LDAC_TUNING_EXPLANATION =
         "pin High quality if you want it. Changing it renegotiates the codec: the audio " +
         "cuts out for a moment, and the result above is read back rather than assumed."
 
+/** UI_SPEC F-019, verbatim: the last sentence of the block's second layer, only while locked. */
+private const val LDAC_LOCKED_BELOW =
+    "Locked while a comparison is running below — changing it now would make the two arms not the same " +
+        "measurement."
+
+/**
+ * Whether the LDAC chips on either screen are locked (UI_SPEC F-019): [locksLdac]'s
+ * phases, and the comparison's own pin, which `LdacTuning.pin` lets through.
+ */
+internal fun locksLdacChips(phase: ComparisonPhase?): Boolean =
+    phase == ComparisonPhase.PIN_AND_CHECK || locksLdac(phase)
+
 private const val TRACE_EXPLANATION =
     "The bitrate the LDAC encoder reports it is sending, with every window that lost " +
         "audio marked red on the same time axis; a missed reading leaves a break rather " +
@@ -687,23 +712,6 @@ private fun LdacState.rateLine(): String {
 private fun List<InputStreamSnapshot>.topPlaying(): InputStreamSnapshot? =
     firstOrNull { it.usage?.contains("MEDIA", ignoreCase = true) == true } ?: firstOrNull()
 
-/**
- * The app's own name for its uid, falling back to the number.
- *
- * A uid is what the dump provides and a name is what the user recognises, so it
- * is resolved here rather than shown raw. When the lookup fails the number is
- * kept as-is — inventing "Unknown app" would hide that there really is a process
- * playing, which is the fact the line is making.
- */
-private fun appLabel(context: Context, uid: Int): String {
-    val pm = context.packageManager
-    val packages = runCatching { pm.getPackagesForUid(uid) }.getOrNull().orEmpty()
-    val label = packages.firstNotNullOfOrNull { name ->
-        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(name, 0)).toString() }.getOrNull()
-    }
-    return label?.takeIf { it.isNotBlank() } ?: packages.firstOrNull() ?: "uid $uid"
-}
-
 /** "44.1 kHz" / "96 kHz" — US formatting, so a German locale cannot print "44,1". */
 private fun formatKhz(hz: Int): String {
     val khz = hz / 1000.0
@@ -729,6 +737,6 @@ internal fun trimZero(seconds: Double): String =
         String.format(Locale.US, "%.1f", seconds)
     }
 
-/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". */
-private fun plural(count: Long, singular: String): String =
+/** "1 app underrun" / "3 app underruns" — never "1 underrun(s)". The run section counts with it too. */
+internal fun plural(count: Long, singular: String): String =
     if (count == 1L) "$count $singular" else "$count ${singular}s"

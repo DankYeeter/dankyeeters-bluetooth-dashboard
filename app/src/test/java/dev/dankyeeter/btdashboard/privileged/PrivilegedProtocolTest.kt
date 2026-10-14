@@ -74,6 +74,15 @@ class PrivilegedProtocolTest {
         }
     }
 
+    // ---- the token compare --------------------------------------------------
+
+    @Test
+    fun `a blank token never matches, not even an identical blank one`() {
+        // MessageDigest.isEqual alone accepts two equal whitespace strings. The
+        // check in front of it has to refuse blank, not merely empty.
+        assertFalse(PrivilegedProtocol.tokensMatch(" ", " "))
+    }
+
     // ---- the wire format ----------------------------------------------------
 
     @Test
@@ -108,9 +117,10 @@ class PrivilegedProtocolTest {
 
     @Test
     fun `garbage decodes to null instead of throwing`() {
-        // The helper reads from a socket anything on the device may connect to.
-        // Malformed input has to be a refusable value, not a crash of a
-        // privileged process.
+        // The decoders run in the app on replies from a shell-uid process that
+        // was only accepted after its uid and token were checked. That is still
+        // a process boundary, so malformed input has to be a refusable value,
+        // not a crash.
         listOf("", "OK", "OK x y z", "OK 0 !!! !!!", "ERR", "NONSENSE").forEach {
             assertNull("decodeResult($it)", PrivilegedProtocol.decodeResult(it))
             assertNull("decodeError($it)", PrivilegedProtocol.decodeError(it))
@@ -344,9 +354,10 @@ class PrivilegedProtocolTest {
 
     @Test
     fun `a malformed HD-audio line decodes to null rather than to a default`() {
-        // Same discipline as the codec decoder: the helper answers a socket
-        // anything on the device may reach, so garbage has to be refusable
-        // rather than silently readable as "off".
+        // Same discipline as the codec decoder: the reply crosses a process
+        // boundary from a shell-uid process, accepted only after its uid and
+        // token were checked, so garbage has to be refusable rather than
+        // silently readable as "off".
         listOf(
             "HDAUDIO 1 1",
             "HDAUDIO 1 1 ${b64("")} extra",

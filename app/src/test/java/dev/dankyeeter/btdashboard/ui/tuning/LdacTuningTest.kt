@@ -4,7 +4,12 @@ import dev.dankyeeter.btdashboard.monitor.link.live.LdacQualityMode
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
 import dev.dankyeeter.btdashboard.system.devices.DeviceProfile
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ActiveComparison
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ComparisonPhase
+import dev.dankyeeter.btdashboard.ui.screens.monitor.locksLdac
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -252,5 +257,47 @@ class LdacTuningSentenceTest {
 
         assertTrue("stored" !in text.lowercase())
         assertTrue(text.contains("was not changed"))
+    }
+
+    /** DR-008: a write the helper never answered may have landed, so no "not changed" frame. */
+    @Test
+    fun `an unanswered pin is reported as unknown, not as unchanged`() {
+        val unanswered = CodecApplyOutcome.Unavailable(
+            "the privileged helper did not answer within 15 s — whether the change took effect is unknown",
+        )
+
+        assertEquals(
+            "The privileged helper did not answer within 15 s — whether the change took effect is unknown.",
+            tuningSentence(unanswered, persisted = false),
+        )
+        assertEquals(
+            "Stored for this headphone and asked for again on every connect. " +
+                "The privileged helper did not answer within 15 s — whether the change took effect is unknown.",
+            tuningSentence(unanswered, persisted = true),
+        )
+    }
+}
+
+/** The comparison lock on the one path both chip rows take (AD-040). */
+class LdacTuningLockTest {
+
+    @Test
+    fun `the chips are locked while an arm counts and between the arms, and only then`() {
+        val locked = ComparisonPhase.entries.filter(::locksLdac)
+        assertEquals(listOf(ComparisonPhase.ARM_A, ComparisonPhase.INSTRUCT, ComparisonPhase.ARM_B), locked)
+        assertFalse("no comparison, no lock", locksLdac(null))
+    }
+
+    @Test
+    fun `a pin during an arm is refused before anything is recorded or written`() = runTest {
+        ActiveComparison.set(ActiveComparison.Held(ComparisonPhase.ARM_A, phaseSinceMs = 0L) {})
+        try {
+            val outcome = LdacTuning.pin(LdacQuality.STANDARD, deviceKey = "0123456789abcdef0123456789abcdef")
+
+            assertEquals(CodecApplyOutcome.Unavailable(LdacTuning.LOCKED), outcome)
+            assertEquals("the chips were not even marked busy", LdacTuningState(), LdacTuning.state.value)
+        } finally {
+            ActiveComparison.set(null)
+        }
     }
 }

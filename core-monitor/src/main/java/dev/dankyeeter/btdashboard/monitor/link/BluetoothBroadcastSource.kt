@@ -12,7 +12,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
-/** Source of the always-on event stream (hierarchy level 2 in PLAN.md). */
+/** Source of the always-on event stream (hierarchy level 2 in docs/archiv/PLAN.md). */
 interface MonitorEventSource {
     fun events(): Flow<MonitorEvent>
 }

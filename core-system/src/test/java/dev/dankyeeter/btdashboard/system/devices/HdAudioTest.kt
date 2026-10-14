@@ -1,5 +1,7 @@
 package dev.dankyeeter.btdashboard.system.devices
 
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,6 +34,7 @@ private class InertAbsoluteVolume : AbsoluteVolumeController {
 private class InertSettings : SecureSettingsController {
     override fun isWritable(): Boolean = true
     override fun read(key: String): String? = null
+    override fun readState(key: String): SettingRead = SettingRead.Unset
     override fun write(key: String, value: String): Boolean = true
     override fun clear(key: String): Boolean = true
 }
@@ -46,7 +49,7 @@ private class InertSettings : SecureSettingsController {
  */
 private class FakeHdAudio(
     private val available: Boolean = true,
-    private val state: HdAudioState = HdAudioState.Known(supported = true, enabled = null),
+    var state: HdAudioState = HdAudioState.Known(supported = true, enabled = null),
     private val outcome: HdAudioOutcome = HdAudioOutcome.Applied(enabled = true),
 ) : HdAudioController {
 
@@ -117,6 +120,7 @@ class HdAudioApplierTest {
         profile: DeviceProfile,
         hdAudio: HdAudioController = FakeHdAudio(),
         codec: CodecPreferenceController = UnavailableCodecPreferenceController,
+        ledger: SettingsLedger = NoSettingsLedger,
     ) = DeviceProfileApplier(
         profiles = HdProfiles(profile),
         volume = InertVolume(),
@@ -125,6 +129,7 @@ class HdAudioApplierTest {
         secureSettings = InertSettings(),
         codec = codec,
         hdAudio = hdAudio,
+        ledger = ledger,
     )
 
     private fun profile(wish: HdAudioPreference?) =
@@ -197,15 +202,61 @@ class HdAudioApplierTest {
     }
 
     @Test
-    fun `an unreadable state does not stop the write`() = runTest {
-        // "Cannot check" must not become "leave it alone". The user asked for a
-        // value; failing to read the old one is no reason to withhold the write.
+    fun `an unreadable state without a baseline stops the write`() = runTest {
+        // AD-033 reverses the old rule: a value that cannot be read cannot be
+        // restored, so the first write waits until it can be.
         val hd = FakeHdAudio(state = HdAudioState.Unreadable("the A2DP proxy did not bind"))
         val profile = profile(HdAudioPreference.DISABLE)
 
-        applier(profile, hd).applyNow(profile, address)
+        val actions = applier(profile, hd, ledger = FakeSettingsLedger()).applyNow(profile, address)
+
+        assertTrue(hd.writes.isEmpty())
+        val skipped = actions.filterIsInstance<ProfileAction.Skipped>().single()
+        assertEquals("HD audio", skipped.what)
+        assertEquals(
+            "the value before could not be read, so it could not be restored — nothing was written",
+            skipped.reason,
+        )
+    }
+
+    @Test
+    fun `an unreadable state with a baseline already held is written`() = runTest {
+        val hd = FakeHdAudio(state = HdAudioState.Unreadable("the A2DP proxy did not bind"))
+        val profile = profile(HdAudioPreference.DISABLE)
+        val ledger = FakeSettingsLedger(LedgerEntry.HdAudio(key, HdAudioPreference.ENABLE))
+
+        applier(profile, hd, ledger = ledger).applyNow(profile, address)
 
         assertEquals(listOf(address to HdAudioPreference.DISABLE), hd.writes)
+        assertEquals("the first baseline stays", listOf(LedgerEntry.HdAudio(key, HdAudioPreference.ENABLE)), ledger.recorded)
+    }
+
+    @Test
+    fun `a readable state is recorded before the write`() = runTest {
+        val hd = FakeHdAudio(state = HdAudioState.Known(supported = true, enabled = null))
+        val profile = profile(HdAudioPreference.DISABLE)
+        val ledger = FakeSettingsLedger()
+
+        applier(profile, hd, ledger = ledger).applyNow(profile, address)
+
+        assertEquals(listOf(LedgerEntry.HdAudio(key, HdAudioPreference.SYSTEM_DEFAULT)), ledger.recorded)
+        assertEquals(listOf(address to HdAudioPreference.DISABLE), hd.writes)
+    }
+
+    @Test
+    fun `the value before is read again under the lock (SR-032, V3)`() = runTest {
+        val hd = FakeHdAudio(state = HdAudioState.Known(supported = true, enabled = true))
+        val profile = profile(HdAudioPreference.DISABLE)
+        val ledger = FakeSettingsLedger()
+
+        ledger.lock.lock()
+        val applying = launch { applier(profile, hd, ledger = ledger).applyNow(profile, address) }
+        runCurrent()
+        hd.state = HdAudioState.Known(supported = true, enabled = null)
+        ledger.lock.unlock()
+        applying.join()
+
+        assertEquals(listOf(LedgerEntry.HdAudio(key, HdAudioPreference.SYSTEM_DEFAULT)), ledger.recorded)
     }
 
     @Test
@@ -337,12 +388,5 @@ class BluetoothSystemControlsTest {
             UnavailableHdAudioController.apply("AC:DE:48:00:11:22", HdAudioPreference.ENABLE)
                 is HdAudioOutcome.Unavailable,
         )
-
-        assertFalse(UnavailableBluetoothRestartController.isAvailable())
-        assertTrue(
-            UnavailableBluetoothRestartController.restart() is BluetoothRestartOutcome.Unavailable,
-        )
-
-        assertNull(NoSystemPropertyReader.read("persist.bluetooth.a2dp_offload.disabled"))
     }
 }

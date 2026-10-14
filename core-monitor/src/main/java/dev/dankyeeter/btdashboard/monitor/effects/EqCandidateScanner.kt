@@ -14,7 +14,7 @@ data class InstalledApp(
 
 /** Reading the package list either works or explains itself. Never a silent empty list. */
 sealed interface InstalledAppReadResult {
-    data class Available(val apps: List<InstalledApp>, val scannedPackages: Int) : InstalledAppReadResult
+    data class Available(val apps: List<InstalledApp>) : InstalledAppReadResult
     data class Unavailable(val reason: String) : InstalledAppReadResult
 }
 
@@ -25,7 +25,7 @@ sealed interface PlayingAppsResult {
 }
 
 /**
- * The expensive half: one pass over every installed package.
+ * The expensive half: one pass over every package visible to the app.
  *
  * A seam, so the tiering is unit-testable without a device — `PackageManager`
  * is not mocked in plain JVM tests and Robolectric does not model intent
@@ -57,15 +57,15 @@ object PlayingAppMapper {
 }
 
 /**
- * Tiers every installed app by how likely it is to carry its own equaliser, and
+ * Tiers every visible app by how likely it is to carry its own equaliser, and
  * marks the ones currently playing.
  *
  * ### Cost, and why it is cached
  *
  * The package pass costs one `getInstalledPackages(GET_PERMISSIONS)` plus one
- * `queryIntentActivities` — on a normally loaded phone a few hundred packages
- * and a few hundred milliseconds, all of it on a background dispatcher. That is
- * far too expensive to hang off a dashboard refresh or a timer, so:
+ * `queryIntentActivities`, on a background dispatcher. While the app still saw
+ * every package (before AD-050) that was a few hundred milliseconds on a
+ * normally loaded phone — far too expensive to hang off a dashboard refresh or a timer, so:
  *
  *  - the pass runs **only** when the user opens the section or taps "check",
  *  - its result is cached for the life of the process,
@@ -90,7 +90,7 @@ class EqCandidateScanner(
     private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
 
-    private data class CachedPass(val apps: List<InstalledApp>, val scanned: Int, val durationMs: Long)
+    private data class CachedPass(val apps: List<InstalledApp>, val durationMs: Long)
 
     @Volatile
     private var cache: CachedPass? = null
@@ -122,7 +122,6 @@ class EqCandidateScanner(
 
         return EqCandidateScan(
             candidates = EqCandidateRanking.sort(pass.apps.mapNotNull { toCandidate(it, playingPackages) }),
-            scannedPackages = pass.scanned,
             durationMs = pass.durationMs,
             fromCache = reused != null,
             playbackKnown = playbackResult is PlayingAppsResult.Available,
@@ -149,7 +148,6 @@ class EqCandidateScanner(
 
             is InstalledAppReadResult.Available -> CachedPass(
                 apps = read.apps,
-                scanned = read.scannedPackages,
                 durationMs = (elapsedMs() - started).coerceAtLeast(0),
             ).also {
                 cache = it

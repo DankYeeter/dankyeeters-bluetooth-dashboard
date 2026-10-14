@@ -261,18 +261,17 @@ class A2dpTxProbeTest {
     }
 
     /**
-     * The adaptive rung and the stack's own count of rung changes travel with
-     * the reading, out of the same single dump (D-11).
+     * The stack's own count of rung changes travels with the reading, out of
+     * the same single dump (D-11).
      *
      * The count is what a sampled series cannot supply: at this channel's 500 ms
      * cadence a rung the encoder held for less than one interval is invisible,
      * and only the counter says how many were missed.
      */
     @Test
-    fun `the reading carries the adaptive rung and the count of rung changes`() = runTest {
+    fun `the reading carries the count of rung changes`() = runTest {
         val reading = probeOf(liveBt).readOnce()
 
-        assertEquals(4, reading.ldacStack?.adaptiveBitrateIndex)
         assertEquals(3L, reading.ldacStack?.adaptiveBitrateAdjustments)
     }
 

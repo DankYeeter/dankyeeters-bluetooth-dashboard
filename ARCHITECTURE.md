@@ -26,13 +26,23 @@ Datenfluss: Helper → Rohtext → reiner Parser → Momentaufnahme + Ereignisse
 Repository/Ansicht. Aenderungen laufen den umgekehrten Weg und **immer mit
 Read-back**: eine angenommene Schreibung ist kein Beleg.
 
+Seit AD-030 ff. (23.09.) kommt Saeule 3 dazu: ein gefuehrter Vorher/Nachher-
+Vergleich aus zwei Beobachtungslaeufen und einer reinen Vergleichsfunktion,
+und ein Ledger, das vor jedem ersten Schreiben den Ausgangszustand festhaelt.
+Seit AD-039 (28.09.) darf eine vom Nutzer gestartete, zeitlich begrenzte
+Messung ohne offenen Monitor weiterlaufen (AK-4-Ausnahme); ein eigener,
+kurzlebiger Vordergrunddienst in `:app` haelt dafuer den Prozess.
+Seit AD-044..046 (28.09.) liest der offene Monitor das Zustandsbuch je Lesung
+mit (Pruefstand der sechs Massnahmen, Umgebung am Verlusteintrag, Sprung zur
+Einstellung, WLAN-Band ohne Standortrecht).
+
 ## Struktur
 
 | Modul | Verantwortung |
 |---|---|
 | `:core-audio` | DSP- und EQ-Grundtypen |
 | `:core-hearing` | Hoertest und Kompensationskurven |
-| `:core-monitor` | Beobachtung der Strecke: Parser, Live-Quelle, Ereignisse, Room-Historie, gefuehrte Laeufe (`diagnostic/`) |
+| `:core-monitor` | Beobachtung der Strecke: Parser, Live-Quelle, Ereignisse, Room-Historie, reine Logik des gefuehrten Vorher/Nachher-Prozesses (`optimize/`, AD-037; `diagnostic/` faellt mit T-046) |
 | `:core-system` | Zustand des Telefons: Geraeteprofile, `Settings.Global`, Systemeigenschaften, EQ-Anbindung, Dienste |
 | `:app` | Oberflaeche, privilegierter Helper und Transport, Verdrahtung |
 
@@ -55,9 +65,29 @@ Wuensche des Nutzers (Geraeteprofile, EQ) in den Stores von `:core-system`;
 fluechtiger Laufzustand in `StateFlow`s neben der Oberflaeche. Der Helper haelt
 keinen fachlichen Zustand ausser seiner Identitaet.
 
+**AK-4-Inventar — wiederkehrende Arbeit im Prozess** (angelegt 2026-09-28, T-057a;
+vorher gab es keines: Grep `Inventar|periodisch` in dieser Datei, `docs/` ohne
+`archiv/` und im Code fand keine Liste). Grundlage: Grep
+`delay(|while (isActive|while (currentCoroutineContext().isActive|while (true)|WorkManager|AlarmManager|postDelayed`
+in `*/src/main`, Stand `14fa3fc`. Wer periodische Arbeit hinzufuegt, traegt sie hier ein.
+
+| Arbeit | Takt | Laeuft nur, wenn | Beruehrt den Audiopfad | Grund |
+|---|---|---|---|---|
+| `LiveLinkSource.updates` (`dumpsys bluetooth_manager`, `media.audio_flinger`, `audio`) | Tafeltakt, Default 2 s | Monitor sammelt (`WhileSubscribed`); ab AD-039 auch waehrend eines Vergleichsarms | liest; `bluetooth_manager` leert die BQR-Queue (R-011) | Live-Tafel (AK-2), Vergleich |
+| `A2dpTxProbe.samples` (`dumpsys bluetooth_manager`) | 500 ms | Nahaufnahme an und Monitor sammelt | liest, wie oben | Nahaufnahme ≥ 2 Hz (AK-2) |
+| `MonitorEngine`-Schleife (`SamplingPolicy`) | je Modus | heute auch „playing, screen off" (F-014); nach X-3 nur `uiVisible` oder DEEP | liest | Zeitachse; DEEP ist AK-4-Ausnahme |
+| `MeasurementService` (AD-039) | ein `delay` bis zum DEEP-Ende, kein Takt | Messung laeuft | nein | AK-4-Ausnahme |
+| Zustandsbuch je Monitor-Lesung (AD-044, **geplant**) | je frischer Lesung von `LiveLinkSource` | `MonitorGraph.uiVisible` | nein: `Settings.Global` ×2, Battery-Sticky-Intent, ab AD-046 `ConnectivityManager` ×2; kein `dumpsys`, kein Funk | AK-18, AK-19 |
+| `VolumeGuard`-Wachhund | `POLL_INTERVAL_MS` | Hoertest-Lauf (`HearingTestViewModel`) | nein, liest die Lautstaerke | Hoertest |
+| `HughsonWestlakeTestController` | Reizabstand | Hoertest-Lauf | spielt den Pruefton | Hoertest |
+
+Nicht periodisch (einmalige Wartezeiten oder blockierendes Annehmen):
+`PlaybackSessionHarvester` (Entprellen), `BtDashboardApplication` (Helfer-Start),
+`ActivateScreen`, `HearingTestViewModel` (Hinweisdauer), `PrivilegedServer` (Annahmeschleife).
+
 **Historie:** Die Entscheidungen vor AD-001 sind nicht rueckwirkend als AD
 gefasst worden. Sie stehen ausfuehrlich im KDoc der betroffenen Typen und in
-`HANDOVER.md`; sie dort zu suchen ist zuverlaessiger, als sie hier aus dem
+`docs/archiv/HANDOVER.md`; sie dort zu suchen ist zuverlaessiger, als sie hier aus dem
 Gedaechtnis zu rekonstruieren.
 
 ---
@@ -67,7 +97,7 @@ Gedaechtnis zu rekonstruieren.
 ### AD-001 — Diese Datei beginnt beim heutigen Stand, nicht bei Null (2026-08-31, Status: aktiv)
 
 **Kontext:** `ARCHITECTURE.md` existierte nicht. Die Struktur ist gewachsen und
-im KDoc ungewoehnlich gut begruendet; `HANDOVER.md` traegt 222 KB Verlauf.
+im KDoc ungewoehnlich gut begruendet; `HANDOVER.md` (seit T-040 `docs/archiv/HANDOVER.md`) traegt 222 KB Verlauf.
 T-005 verlangt neue Entscheidungen, die irgendwo hinmuessen.
 
 **Optionen:**
@@ -119,9 +149,14 @@ wird; Ports und reine Logik machen es machbar, aber es waere ein Umzug.
 
 **Umkehrbarkeit:** mittel — ein Paketumzug plus Gradle-Modul, kein Datenmodell.
 
+**Nachtrag 2026-09-23 (T-047a):** Das Vorbild `DeviceDiagnosticRunner` ist
+**abgeloest durch T-046** (entfernt, AK-12). Die Entscheidung selbst stuetzt
+sich nicht darauf und bleibt; die reine Logik des Vorher/Nachher-Prozesses liegt
+nach demselben Muster in `:core-monitor` (`optimize/`, AD-037).
+
 ---
 
-### AD-003 — Zwei Phasen: Bestandsaufnahme immer, Belege einzeln freigegeben (2026-08-31, Status: aktiv)
+### AD-003 — Zwei Phasen: Bestandsaufnahme immer, Belege einzeln freigegeben (2026-08-31, Status: teilweise abgeloest durch AD-037 — Phase 2)
 
 **Kontext:** Ein Scan, der alles misst, dauert Minuten und braucht laufende
 Musik. Ein Scan, der nur liest, ist in zwei Sekunden fertig und beantwortet
@@ -147,6 +182,13 @@ Lieferung. Dauerhaft schwer wird ein Scan, der ueber Stunden mitlaeuft — das i
 Absicht.
 
 **Umkehrbarkeit:** leicht.
+
+**Nachtrag 2026-09-23 (T-047a):** Phase 2 (einzeln freigegebene Wirkungsbelege)
+ist fuer Umgebungsmassnahmen **abgeloest durch AD-037**: der gefuehrte Prozess
+misst dieselbe Frage, mit dem Nutzer als Ausfuehrendem statt der App. Die
+Bauform "Lauf lebt im Scope des Bildschirms, kein Service" bleibt und gilt fuer
+den Prozess (AD-030). Der Verweis auf `DeviceDiagnosticRunner` ist Geschichte
+(T-046).
 
 ---
 
@@ -177,7 +219,7 @@ knappe, marketing-taugliche Zeile — auch das ist Absicht.
 
 ---
 
-### AD-005 — WLAN-Fakten als typisierte, lesende Helper-Operation, nicht als Whitelist-Exec (2026-08-31, Status: aktiv — **braucht Freigabe durch `security-reviewer` und `director`**)
+### AD-005 — WLAN-Fakten als typisierte, lesende Helper-Operation, nicht als Whitelist-Exec (2026-08-31, Status: ruht — nicht gebaut; Saeule 3 kommt ohne neues Helfer-Kommando aus, AD-035)
 
 **Kontext:** Das Band des aktiven WLAN-Links und die affiliierten MLO-Links sind
 die einzige Katalog-Position, die mit den vorhandenen Zugriffen gar nicht
@@ -216,7 +258,7 @@ Ein Rueckbau kostet dasselbe noch einmal.
 
 ---
 
-### AD-006 — Zwei Scan-Schalter duerfen geliehen werden; das loest eine dokumentierte Gegenposition ab (2026-08-31, Status: aktiv — **braucht Antwort des App Designers, offene Frage 1**)
+### AD-006 — Zwei Scan-Schalter duerfen geliehen werden; das loest eine dokumentierte Gegenposition ab (2026-08-31, Status: ruht — Nutzer 23.09. F3: kein Leihen der Scan-Schalter im Prozess, AD-035; offene Frage 1 bleibt unbeantwortet)
 
 **Kontext:** `wifi_scan_always_enabled` und `ble_scan_always_enabled` sind die
 zwei plausibelsten periodischen 2,4-GHz-Verbraucher. Ohne sie zu veraendern
@@ -247,7 +289,7 @@ Vertrauen, wenn eine Rueckgabe je fehlschlaegt.
 
 ---
 
-### AD-007 — Geliehene Einstellungen haben ein persistiertes Ledger in `:core-system` (2026-08-31, Status: aktiv)
+### AD-007 — Geliehene Einstellungen haben ein persistiertes Ledger in `:core-system` (2026-08-31, Status: teilweise abgeloest durch AD-033 — Ort und "vor der Aenderung schreiben" bleiben; automatische Rueckgabe beim App-Start ruht, weil nichts mehr geliehen wird)
 
 **Kontext:** Ein Experiment, das eine Einstellung aendert und dann abstuerzt,
 laesst das Telefon veraendert zurueck — ohne dass irgendwer weiss, was.
@@ -274,7 +316,7 @@ gelingt.
 
 ---
 
-### AD-008 — Der Treppen-Optimierer wird Maschine des Scans, nicht eigenes Feature (2026-08-31, Status: aktiv)
+### AD-008 — Der Treppen-Optimierer wird Maschine des Scans, nicht eigenes Feature (2026-08-31, Status: ruht mit T-005; der Prozess aus AD-037 hat keine Treppe)
 
 **Kontext:** T-005 stellt den Optimierer aus T-003 zurueck, aber der Scan
 braucht selbst eine Treppe, um die geforderte Rate zu variieren.
@@ -302,7 +344,7 @@ etwas grundlegend anderes tut als messen, aendern, zurueckgeben.
 
 ---
 
-### AD-009 — Der Diskriminator laeuft vor der Umgebungserfassung (2026-08-31, Status: aktiv)
+### AD-009 — Der Diskriminator laeuft vor der Umgebungserfassung (2026-08-31, Status: teilweise abgeloest durch AD-032 — fuer den Vorher/Nachher-Vergleich gelten A/B und der Binomialtest statt A/B/A und 2sd; E-0 selbst ruht mit T-005)
 
 **Kontext:** Der belegte Befund ist ein Stocken im ~3-s-Takt bei gepinnt 990.
 `docs/state.md` nennt zwei Deutungen: einen periodischen Stoerer und einen
@@ -730,7 +772,8 @@ sagt, ob dort noch etwas liegt. Ein "erledigt" ohne beobachteten Binder-Tod und
 ohne ENOENT gibt es nicht.
 
 **Bauform:** eine Coroutine im Scope des Bildschirms, der sie ausgeloest hat —
-dieselbe Gattung wie `DeviceDiagnosticRunner` und wie AD-003 es fuer den Scan
+dieselbe Gattung wie `DeviceDiagnosticRunner` (Verweis abgeloest durch T-046,
+Klasse entfernt; die Bauform bleibt) und wie AD-003 es fuer den Scan
 festgelegt hat. Kein Service, kein WorkManager, kein Timer. `btperf` fasst sie
 nicht an (SR-012, fremdes Eigentum).
 
@@ -1503,6 +1546,2172 @@ fest. Der Bitratengraph (G-1..G-8) ist ein eigener Schnitt und setzt auf
 
 ---
 
+### AD-025 — Der Pruefton kommt aus `AudioTrack`, Oboe und NDK fallen weg (2026-09-22, Status: aktiv — **Freigabe `director`; Geraetenachweis W-7 vor W-8**)
+
+**Kontext:** T-040c/1. Der einzige native Code des Projekts ist der Tongenerator
+des Hoertests (`core-audio/src/main/cpp/*`, 363 Zeilen, `wc -l` 22.09.) samt
+JNI-Bruecke, Oboe 1.9.3, CMake, gepinntem NDK (~2,5 GB), 16-KB-Seitenausrichtung,
+drei ABIs und einer ProGuard-Regel. Einziger Nutzer:
+`HearingTestViewModel.launchRun` (`NativeToneGenerator()`, Grep 22.09.).
+
+**Was der Hoertest verlangt** (aus `HughsonWestlakeTestController`, Stand
+`86e8a45`): drei Pulse zu 220 ms mit 200 ms Pause, Antwortfenster 900 ms nach dem
+letzten Puls, Abfrage alle 25 ms. Ein Druck zaehlt also bis 1960 ms nach dem
+Einschalten (aus den Konstanten gerechnet, nicht gemessen). Daraus:
+- **Latenz:** muss nur *konstant* und *klein gegen 1960 ms* sein — sie verschiebt
+  das hoerbare Fenster, nicht die Schwelle. Ueber Bluetooth dominiert ohnehin der
+  A2DP-Puffer, durch den beide Engines gleich laufen (Annahme, nicht gemessen —
+  deshalb Punkt 3 in W-7).
+- **Pegeltreue:** rein digital, `10^(dB/20)` auf Float-Samples; kein
+  Systemvolumen, kein `setVolume`. Das ist in Kotlin dieselbe Rechnung.
+- **Rampe:** Raised-Cosine ueber `rampMs`, bei jedem Zielwechsel neu gespannt,
+  Laenge unabhaengig vom Pegel; stummer Kanal exakt `0.0f`. Ein Knacken oder
+  Aussetzer waere ein hoerbarer Hinweis und verfaelscht die Schwelle — das ist
+  das eigentliche Risiko eines Wechsels (GC-Pause im Schreib-Thread).
+
+**Optionen:**
+A. **Im Bestand bleiben.** Konsequenz: funktioniert; Preis ist die ganze native
+Werkzeugkette fuer ~170 Zeilen Sinus, und die Synthese ist ohne Geraet nicht
+testbar.
+B. **`AudioTrack`, `ENCODING_PCM_FLOAT`, `MODE_STREAM`**, eigener Schreib-Thread,
+`ToneGenerator`-Schnittstelle unveraendert. Konsequenz: NDK, CMake, Oboe, JNI,
+ProGuard-Regel und `.cxx/` entfallen; die Synthese wird eine reine Klasse mit
+JVM-Test. Preis: Unterlaufrisiko im Kotlin-Thread, am Geraet zu belegen.
+C. **`AudioTrack` `MODE_STATIC`** mit vorberechnetem Pulszug je Darbietung.
+Konsequenz: sample-genaues Gating ohne Thread — aber der Controller bricht einen
+Puls bei Tastendruck ab und schaltet einzeln (`setToneActive`), das passt nicht
+zu einem fertigen Puffer. Aendert den `ToneGenerator`-Vertrag; verworfen.
+
+**Entscheidung:** B, als Portierung, nicht als Neuentwurf:
+
+```kotlin
+// core-audio/.../audio/tone/AudioTrackToneGenerator.kt — eine Datei
+internal class ToneRenderer(sampleRate: Int) {          // rein, JVM-testbar
+    fun render(out: FloatArray, frames: Int, p: ToneParams) // 1:1 aus onAudioReady
+}
+class AudioTrackToneGenerator : ToneGenerator, Closeable // Thread + AudioTrack
+```
+
+Rate `AudioTrack.getNativeOutputSampleRate(STREAM_MUSIC)`, Puffer 2x
+`getMinBufferSize`, `PERFORMANCE_MODE_LOW_LATENCY`, `USAGE_MEDIA`/`MUSIC` wie
+bisher, Thread mit `THREAD_PRIORITY_URGENT_AUDIO`, **keine Allokation in der
+Schleife**, Parameter als `@Volatile`. (Nachtrag 2026-09-28: der Satz zu
+`isRunning` entfaellt — `ToneGenerator.isRunning` ist in T-056 entfernt,
+`eba9858`, Branch `t056-bereinigung`.)
+
+**Geraetenachweis (W-7), A/B beide Engines, gleiche Sitzung, Pixel 11 Pro:**
+1. Pegelschritt −10 dB per Goertzel: Differenz zwischen den Engines innerhalb
+   der Wiederholstreuung, die `AcousticEqTest.measuring_the_same_thing_twice…`
+   liefert.
+2. Pulsdauer 220 ms: zwischen den Engines gleich bis auf einen Schreibblock.
+3. Einsatzlatenz am BT-Weg ueber Leckschall (wie `…through_headphone_leakage`):
+   beide Zahlen werden **berichtet, nicht geschwellt**; reicht der Stoerabstand
+   nicht, meldet der Test „nicht messbar“ statt einer Zahl.
+4. `AudioTrack.underrunCount == 0` ueber 5 min Pulsmuster des Hoertests.
+Faellt 4 oder weicht 1/2 ab: W-8 wird nicht gebaut, Rueckgabe an `architect`.
+
+**Konsequenzen:** Leicht wird der Build (kein NDK auf neuen Rechnern) und der
+Test der Synthese. Dauerhaft schwer wird nichts. **Widerspricht dem Wortlaut von
+`GOAL.md`, Rahmen („Oboe NDK“)** — offene Frage an den Nutzer ueber den
+`director`; gebaut wird W-8 erst nach seiner Antwort.
+
+**Umkehrbarkeit:** leicht — ein Revert von W-8 stellt Oboe wieder her.
+
+---
+
+### AD-026 — Die zwei MiniJson-Codecs ziehen auf `org.json`, getestet unter Robolectric (2026-09-22, Status: aktiv)
+
+**Kontext:** T-040c/2. Im Persistenzpfad gibt es heute drei JSON-Muster:
+`org.json` in `AudiogramStore`, `CompensationProfileStore`, `DeviceProfileStore`;
+ein eigener Parser `MiniJson` (178 Zeilen) fuer `DerivedCalibrationJson` und
+`PreferenceProfileJson`; kotlinx.serialization nur im Backup (`:app`,
+`BackupCodec`) — Grep 22.09. `MiniJson` existiert nur, weil `org.json` auf dem
+Host-JVM „not mocked“ wirft (KDoc von `MiniJson`). Das Backup traegt eigene
+Typen, nicht die DataStore-Strings; es ist von hier nicht betroffen.
+
+**Optionen:**
+A. **Im Bestand bleiben.** Konsequenz: zweites Muster und ein handgeschriebener
+Parser bleiben; getestet und funktionsfaehig.
+B. **`org.json` + `testImplementation("org.json:json")`.** Konsequenz: neue
+Abhaengigkeit, und der Test laeuft gegen die Maven-Implementierung, nicht gegen
+die des Geraets (Zahlformat und Toleranzen weichen dort ab).
+C. **kotlinx.serialization.** Konsequenz: Compiler-Plugin in `:core-hearing`,
+ein drittes Muster im Store-Paket statt eines weniger.
+D. **`org.json` wie die Nachbarstores, Codec-Tests unter Robolectric.**
+Konsequenz: Robolectric fuehrt Androids eigenes `org.json` aus; es ist im
+Katalog und in `:core-monitor` aus genau diesem Grund schon Testabhaengigkeit.
+
+**Entscheidung:** D. Ein Muster im Paket, keine neue Abhaengigkeit, und der Test
+prueft die Implementierung, die auf dem Telefon laeuft (Bedingung: Robolectric
+SDK 35, das Geraet laeuft 37 — dass `org.json` dazwischen unveraendert ist, ist
+Annahme). Schluessel, Form und Ein-Buchstaben-Keys bleiben **wortgleich**.
+Zwei Stellen, an denen `org.json` anders reagiert als `MiniJson`, bleiben
+explizit: NaN/Unendlich wird vor `put` zu `0.0` (`put` wirft sonst), und eine
+unlesbare Zeile faellt einzeln weg, ein unlesbarer String ergibt `emptyList()`.
+
+**Der Test, der die gespeicherten Daten bindet (W-2, vor dem Umbau):** je Codec
+ein Literal `LEGACY_…_WRITTEN_BY_MINIJSON`, erzeugt vom **heutigen** Encoder aus
+einer Fixture mit Randwerten (Name `null`, Anfuehrungszeichen und Zeilenumbruch
+im Label, E-Notation wie `1.0E-4`, 13-stellige Millis, leere Listen), und
+`parse(LEGACY) == fixture`. Der Test wird gruen auf `MiniJson` committet und
+bleibt danach **unveraendert** gruen. Er faellt, sobald ein Schluessel, ein
+Zahlpfad oder die Escape-Behandlung beim Lesen abweicht.
+
+**Konsequenzen:** `MiniJson.kt` entfaellt, die Codecs werden kuerzer. Die
+Codec-Tests laufen langsamer (Robolectric-Start je Klasse). Ein Rueckweg auf
+eine aeltere App-Version liest das neue Format, weil die Form gleich bleibt —
+nicht eigens getestet.
+
+**Umkehrbarkeit:** leicht — das Format aendert sich nicht; das Literal bindet es.
+
+---
+
+### AD-027 — Das Helfer-Protokoll bleibt bei Strings; nur totes Socket-Erbe faellt (2026-09-22, Status: aktiv — **`security-reviewer` vor W-1**)
+
+**Kontext:** T-040c/3. Die AIDL-Methoden liefern Base64-Zeilen
+(`OK`/`FILE`/`ERR`/`CODEC`/`HDAUDIO`). Die **Anfragen** sind bereits typisiert
+(`int`, `String`, `List<String>`); der Helfer dekodiert keinen fremden String —
+die Decoder laufen in der App auf Antworten des eigenen Helfers
+(`PrivilegedServer` dekodiert nur seine eigene Antwort, `:626`). `PrivilegedServer`
+enthaelt kein `Socket` mehr (Grep 22.09.). `encodeAuth`/`decodeAuth`/`encodeRun`/
+`decodeRun` haben nur Aufrufer in `PrivilegedProtocolTest` (Grep 22.09.; Praemisse
+haelt). Die AIDL-KDoc haelt die Stringform als bewusste Entscheidung fest.
+
+**Optionen:**
+A. **Strings behalten**, totes Socket-Erbe loeschen, Vergleich auf Bibliothek.
+B. **`Bundle`-Antworten.** Konsequenz: die App entpackt Bundles aus einem
+Shell-Prozess — ein Bundle kann beliebige Parcelables tragen und laedt Klassen;
+das ist eine bekannte Fehlerklasse, die heute nicht existiert. Dazu
+Versionssprung.
+C. **Eigene Parcelables.** Konsequenz: je Antworttyp eine Klasse mit
+`writeToParcel`/`createFromParcel`, die im Gleichschritt bleiben muessen
+(Mismatch-Fehlerklasse), neue AIDL-`parcelable`-Deklarationen, Versionssprung,
+Sicherheitspruefung — fuer ~150 Zeilen Codec, die getestet sind.
+
+**Entscheidung:** A. Die Angriffsflaeche des Helfers aendert sich durch B/C
+nicht (er parst schon heute nichts Fremdes); B und C kosten jeweils einen
+Versionssprung, und AD-013 sagt, was der kostet: der Nutzer muss den ADB-Befehl
+neu ausfuehren. **Wenn** die Antwortform je geaendert wird, dann im Sprung von
+U-1 (AD-010), der die `exec`-Signatur ohnehin anfasst — nicht in einem eigenen.
+
+Konkret in W-1:
+- `encodeAuth`, `decodeAuth`, `encodeRun`, `decodeRun` und ihre Tests loeschen;
+  die KDoc von `decodeOrNull` und die Testkommentare (`PrivilegedProtocolTest`
+  :123, :420) sprechen noch von einem Socket — mitziehen.
+- `tokensMatch`: die Pruefung auf `null`/leer **bleibt** (`MessageDigest.isEqual`
+  liefert fuer zwei leere Arrays `true`), der Rumpf wird
+  `MessageDigest.isEqual(offered.toByteArray(UTF_8), expected.toByteArray(UTF_8))`.
+  Geprueft am AOSP-Quelltext `libcore/ojluni/.../MessageDigest.java`, Zweig
+  `main`, 22.09.: Laenge und Inhalt ohne fruehen Ausstieg verglichen.
+  **Praezisiert (T-041d, `security-reviewer`, 22.09.):** Zweig
+  `android12-release` (API 31) bricht bei ungleicher Laenge frueh ab, der
+  Inhalt wird konstantzeitig verglichen — harmlos, Token ist eine UUID fester,
+  oeffentlicher Laenge, beide Aufrufer pruefen vorher die uid. Pruefung bleibt
+  `isNullOrBlank` (nicht nur leer). Bindender Test existiert:
+  `PrivilegedTokenTest.tokens match only when…` faellt, wenn die Leer-Pruefung
+  wegfaellt (`tokensMatch("", "")`).
+- Nebenbefund, selbe Datei: die KDoc von `SHUTDOWN` (`:111-114`) haengt ueber
+  `GRANT_SECURE_SETTINGS`, `SHUTDOWN` selbst hat keine.
+
+**Konsequenzen:** Kein Versionssprung, kein neuer Typ auf der privilegierten
+Flaeche. Die Stringform bleibt Handarbeit — mit Tests, die es schon gibt.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-028 — Das Codec-Mode-Kalibrieren wird entfernt, die Tabelle per Hand-Migration 3→4 gedroppt (2026-09-22, Status: aktiv — **Freigabe `director`: loescht Nutzerdaten**)
+
+**Kontext:** T-040c/4. `codecModeCalibrator`, `codecModeSignatures`,
+`installCodecModePinner` haben ausserhalb ihrer Definition in `MonitorGraph.kt`
+**keinen** Aufrufer in main, test, androidTest, XML oder ProGuard (Grep 22.09.,
+Praemisse haelt). Die KDoc von `MonitorGraph.liveLink` sagt selbst, dass die
+gelernten Baender an einem Zaehler gemessen wurden, der kein Paketzaehler ist.
+Die gespeicherten Zeilen sind also unerreichbar **und** inhaltlich falsch (AK-3).
+`CodecModeSignature`/`LdacModeSignatures` (statische Rahmengroessen der
+Inferenz) sind etwas anderes und bleiben; `LiveLinkSource.readOnce` bleibt
+(`A2dpTxProbe`). Das Backup traegt keine Signaturen.
+
+**Optionen:**
+A. **Nur Code entfernen, Tabelle und Entity lassen.** Konsequenz: tote Tabelle
+mit falschen Daten auf dem Geraet, Entity ohne Nutzer.
+B. **`@DeleteTable`-AutoMigration.** Konsequenz: zweites Migrationsmuster; der
+Bestand schreibt Migrationen von Hand (`MIGRATION_1_2`, `MIGRATION_2_3`) und
+testet sie handgerollt ohne `MigrationTestHelper` (KDoc des Tests begruendet das).
+C. **Entity weg, Version 4, `MIGRATION_3_4` von Hand.**
+
+**Entscheidung:** C. Einzige Anweisung:
+
+```sql
+DROP TABLE IF EXISTS `codec_mode_signatures`
+```
+
+**Probe (L-033):** gegen eine frische Datenbank aus
+`core-monitor/schemas/…MonitorDatabase/3.json` (alle `createSql`, Indizes,
+`setupQueries`), je eine Zeile in `monitor_events` und `codec_mode_signatures`,
+dann die Anweisung zweimal. Befehl `python probe.py <3.json>` (Scratchpad
+T-040c), 22.09. 23:06, SQLite 3.49.1 (Host, nicht Android): Tabelle und ihr
+Autoindex weg, alle anderen Tabellen und Indizes unveraendert,
+`monitor_events` behaelt 1 Zeile, zweiter Lauf fehlerfrei. Unter Androids SQLite
+bindet es erst der Migrationstest aus W-6.
+
+Room prueft beim Oeffnen nur deklarierte Entities; eine liegengebliebene
+Tabelle faellt ihm **nicht** auf. Deshalb muss der Test die Abwesenheit selbst
+pruefen.
+
+**Migrationstest (W-6), in `MonitorDatabaseMigrationTest`, handgerollt wie der
+Bestand:** `writeVersion3Database()` mit Verlaufszeilen und einer
+Kalibrierzeile; Oeffnen mit allen Migrationen bei Version 4; (a) Verlauf
+zeilengleich, (b) `sqlite_master` kennt `codec_mode_signatures` nicht mehr,
+(c) Kette 1→4 ohne Verlust. Faellt, wenn der `DROP` fehlt (b), oder wenn
+`MIGRATION_3_4` nicht registriert ist (Room wirft, kein destruktiver
+Fallback). Die zwei Kalibriertests der Datei entfallen mit der Entity.
+
+**Konsequenzen:** Weg faellt ein mutierender Pfad (Codec-Neuverhandlung je
+Modus) ohne Nutzer. Die Klammer in AD-016 („`CodecModeCalibrator` verhandelt
+absichtlich neu“) wird damit Geschichte; stehen gelassen. `schemas/4.json`
+entsteht beim Build und wird eingecheckt.
+
+**Umkehrbarkeit:** Code leicht (Revert); **Daten schwer** — die Zeilen sind nach
+dem ersten Oeffnen unter Version 4 weg. Sie waren falsch gemessen; ein
+Rueckbau wuerde neu kalibrieren, nicht wiederherstellen.
+
+---
+
+### AD-029 — Diese Umbauten bekommen die Schrittfolge `W-1..W-9` (2026-09-22, Status: aktiv)
+
+**Kontext:** Regel aus AD-014. `B-` ist in `docs/release/ROLLOUT.md` belegt,
+`W-` nirgends (Grep ueber `*.md` 22.09.). Alle Schritte starten erst, wenn
+T-040a/b auf `master` sind — W-1, W-7, W-8 liegen in deren Dateien.
+
+| Schritt | AD | Dateien (≤5 geaendert; Loeschungen extra genannt) | Stufe | Test | Geraet | security-reviewer |
+|---|---|---|---|---|---|---|
+| **W-1** | 027 | `app/.../privileged/PrivilegedProtocol.kt`, `app/src/test/.../privileged/PrivilegedProtocolTest.kt` | normal | bestehender `PrivilegedTokenTest` bindet; K-2-Suche `socket` in `privileged/` | nein | **ja, vorher** (Auth-Vergleich im Helfer) |
+| **W-2** | 026 | `core-hearing/src/test/.../store/DerivedCalibrationJsonTest.kt`, `PreferenceProfileJsonTest.kt` | normal | Legacy-Literal, gruen auf `MiniJson` | nein | nein |
+| **W-3** | 026 | `core-hearing/build.gradle.kts` (`testImplementation(libs.robolectric)`), `core-hearing/src/test/resources/robolectric.properties` (`sdk=35`, wie `:app`), `DerivedCalibrationJson.kt`, `DerivedCalibrationJsonTest.kt` (`@RunWith`) | normal | W-2-Literal unveraendert gruen + bestehende | nein | nein |
+| **W-4** | 026 | `PreferenceProfileJson.kt`, `PreferenceProfileJsonTest.kt`; loeschen: `MiniJson.kt` | normal | wie W-3; K-2-Suche `MiniJson` | nein | nein |
+| **W-5** | 028 | `MonitorGraph.kt`, `link/live/CodecModeCalibration.kt` (nur `ModeSignatureSample` und das Interface `CodecModeSignatureStore` bleiben bis W-6 — `MonitorDatabase.kt:21` importiert es); loeschen: `data/RoomCodecModeSignatureStore.kt`, `CodecModeCalibrationTest.kt`, `CodecModeSignatureStoreTest.kt` | normal | Suite gruen; kein Schema-Eingriff | nein | nein |
+| **W-6** | 028 | `data/MonitorDatabase.kt` (Version 4, `MIGRATION_3_4`, Entity/DAO/Mapper weg), `MonitorDatabaseMigrationTest.kt`, `link/live/LiveLinkSource.kt` (KDoc :91); loeschen: `CodecModeCalibration.kt`; erzeugt: `schemas/.../4.json` | **hoch** (Daten) | Migrationstest oben | nein | nein |
+| **W-7** | 025 | neu `core-audio/.../tone/AudioTrackToneGenerator.kt`, neu `core-audio/src/test/.../tone/ToneRendererTest.kt`, neu `core-audio/src/androidTest/.../tone/ToneGeneratorAcousticTest.kt`, `AcousticEqTest.kt` (Aufnahme-/Goertzel-Helfer `internal` statt kopieren) | normal | JVM: Rampenlaenge pegelunabhaengig, Rampenenden steigungsfrei, stummer Kanal exakt 0, Pegel `10^(dB/20)` nach Einschwingen; Geraet: Punkte 1–4 aus AD-025 | **ja** | nein |
+| **W-8** | 025 | `HearingTestViewModel.kt`, `core-audio/build.gradle.kts` (NDK, CMake, `prefab`, `ndk{}`, Oboe raus), `gradle/libs.versions.toml` (`oboe`), `app/proguard-rules.pro`, `ToneGeneratorAcousticTest.kt` (Oboe-Arm raus); loeschen: `NativeToneGenerator.kt`, `src/main/cpp/` (4 Dateien) | normal | Suite + `assembleDebugAndroidTest`; ein Hoertestlauf am Geraet | **ja** (Smoke) | nein |
+| **W-9** | 025 | Texte: `README.md`, `THIRD_PARTY_LICENSES.md` (Oboe-Eintrag), `core-audio/.../eq/SystemEqualizer.kt` (Kommentar), `docs/release/ROLLOUT.md` | normal | K-2-Suche `oboe`/`NDK`/`JNI`/`cpp`, zweite Maske `native`; `docs/archiv/` bleibt | nein | nein |
+
+`GOAL.md` und `docs/state.md` (NDK-Zeile) zieht der `director` nach.
+Reihenfolge: W-1 und W-2 sofort parallel; W-3→W-4; W-5→W-6; W-7→(Nutzerantwort
+zu „Oboe NDK“)→W-8→W-9. Die vier Straenge beruehren keine gemeinsame Datei.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+<!-- Saeule 3 — T-047a, 2026-09-23. Grundlage: docs/berichte/T-045-architect.md §2-4,
+     Nutzerentscheide F1-F5 und Directorentscheid F-D1 vom 23.09. (docs/tasks/T-047.md). -->
+
+### AD-030 — Der Vergleich besteht aus zwei `ObservationRun`s und einer reinen Funktion (2026-09-23, Status: aktiv)
+
+**Kontext:** AK-13 verlangt Vorher und Nachher „mit denselben Groessen und
+derselben Dauer". `ObservationRun` (AK-17, `link/live/ObservationRun.kt`) zaehlt
+bereits abgedeckte Intervalle mit der **einen** Lueckenregel `isReadingGap`,
+deren KDoc ausdruecklich sagt, dass es genau eine geben soll (`:6-13`). Es fehlen
+ihm fuer den Vergleich vier Dinge: die Aussetzer-Zaehlung, ein Ende bei
+Zieldauer, die Kadenz und ein lesbarer Link.
+
+**Optionen:**
+A. **Eigener `ComparisonRun`** mit Armen, Phasen und Zaehlung. Konsequenz: eine
+zweite Zaehl- und Lueckenlogik neben `ObservationRun`; genau das Muster, das
+`isReadingGap` verhindern soll.
+B. **Zwei `ObservationRun`s plus `compare(before, after)`** als reine Funktion;
+die Phasen (waehlen, Arm A, anleiten, Arm B, Ergebnis) haelt ein Controller in
+`:app` nach dem Vorbild `ObservationRunController`.
+C. **Im Bestand bleiben:** der Nutzer startet zwei Beobachtungslaeufe von Hand
+und vergleicht selbst. Konsequenz: keine Nachweisgrenze, keine Gleichheit der
+Dauer — AK-13 unerfuellt.
+
+**Entscheidung:** B. `ObservationRun` bekommt genau diese Ergaenzungen:
+
+```kotlin
+// core-monitor/.../link/live/ObservationRun.kt
+enum class RunEnd { /* bestehende + T-046 */ TARGET_REACHED }   // Zieldauer erreicht
+data class ObservationRun(
+    // ... bestehende Felder ...
+    /** MEASURED (vom System gemeldet): Summe der `dropouts`-Zuwaechse ueber abgedeckte Intervalle. */
+    val dropouts: Long = 0L,
+    /** Abgedeckte Zeit, in der der Zaehler an einem Ende fehlte oder rueckwaerts lief. */
+    val dropoutsUncountedMs: Long = 0L,
+    /** Die erwarteten Poll-Intervalle, die abgedeckte Intervalle trugen. */
+    val cadencesMs: Set<Long> = emptySet(),
+    val targetMs: Long? = null,
+    val link: RunLink? = null,              // bisher private, jetzt lesbar
+    private val lastDropoutTotal: Long? = null,   // tx.dropoutCount der letzten Raten-Lesung
+)
+companion object { fun startedAfter(afterMs: Long?, targetMs: Long? = null): ObservationRun }
+```
+
+- Gezaehlt wird aus dem **absoluten** Zaehler `snapshot.tx?.dropoutCount`, nicht
+  aus `txDelta.dropouts`: `LiveLinkSource.txDelta` macht aus einem fehlenden
+  Zaehler `?: 0` (`LiveLinkSource.kt:381`), und eine erfundene Null waere der
+  Freispruch aus AK-3. Fehlt der Wert an einem Ende oder faellt er, landet das
+  Intervall in `dropoutsUncountedMs`, nicht in `dropouts`.
+- `TARGET_REACHED` setzt `withRate`, sobald `observedMs >= targetMs`. Die
+  Ueberschreitung ist hoechstens ein Intervall; AD-032 rechnet sie exakt ein.
+- Ein AK-17-Lauf (`targetMs == null`) verhaelt sich wie heute.
+
+**Konsequenzen:** Eine Zaehlregel, eine Lueckenregel, ein Test-Satz. Der
+Vergleich erbt T-046s Pausengrenze ohne eigenen Code. Dauerhaft schwer wird ein
+Vergleich ueber etwas anderes als abgedeckte Intervalle — das ist Absicht.
+
+**Umkehrbarkeit:** leicht (nichts persistiert).
+
+---
+
+### AD-031 — Die Messgroesse ist die `dropouts`-Zaehlung bei gepinnten 990 (2026-09-23, Status: aktiv — Nutzer 23.09. F1)
+
+**Kontext:** Nur bei gepinnten 990 treten auf diesem Geraet Verluste auf; unter
+ABR wurde 990 nie gehalten (`LiveLinkPanel.kt:576`), vorher und nachher stuenden
+dort beide auf null. Im gepinnten Modus fehlen nur die ABR-Zeilen, nicht Rate
+und Verlustzaehler (AD-022, Randbedingung dort: drei 990er-Dumps des Pixel 11 Pro).
+
+**Optionen:** A. `dropouts` bei 990 gepinnt. B. Anteil ≥ 990 unter ABR —
+signallos (s. o.). C. `dropped` statt `dropouts` — zaehlt je Raeumung viele
+Eintraege (Beispiel „one window with 525 dropped packets", KDoc `lossCount`,
+`LinkLiveModels.kt:671`); ein Binomialtest ueber abhaengige Einzelereignisse
+waere falsch.
+
+**Entscheidung:** A. Der Kanal ist `TxLossChannel.STACK_DROPOUTS`; eine Episode
+zaehlt einmal. Preis, vom Nutzer angenommen: waehrend der Arme sind Aussetzer
+hoerbar.
+
+**Konsequenzen:** Der Prozess pinnt 990 vor Arm A (AD-033 haelt den Zustand
+davor). `compare` verlangt denselben `RunLink` in beiden Armen, also dieselbe
+Stufe, Familie und Abtastrate. Laeuft der Link in der 44,1-kHz-Familie, ist die
+Stufe 909, nicht 990 — der Messrahmen nennt die gemessene Stufe, nicht die
+gewuenschte.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-032 — A/B mit je 15 min, exakter bedingter Binomialtest, α als Konvention (2026-09-23, Status: aktiv — Nutzer 23.09. F2)
+
+**Kontext:** AK-13 verlangt, dass eine Wirkung innerhalb der Nachweisgrenze als
+solche benannt wird. R-F (`UI_SPEC.md:2226`) verbietet Raten je Minute in der
+Verlustanzeige. Aussetzer kommen in Clustern mit Ruhephasen bis 4,4 min (R-010 C4).
+
+**Optionen:**
+A. **A/B, 15 min je Arm, exakter bedingter Binomialtest** auf zwei Zaehlungen.
+Konsequenz: 30 min; Drift steckt ungetrennt in der Differenz und wird im
+Messrahmen benannt.
+B. **A/B/A nach AD-009.** Robust gegen Drift, 45 min — vom Nutzer nicht gewaehlt.
+C. **2sd-Regel aus AD-009.** Braucht eine Streuung aus Wiederholungen, die es
+bei 990 nicht gibt; jede Zahl waere erfunden.
+
+**Entscheidung:** A.
+
+```kotlin
+// core-monitor/.../optimize/Comparison.kt
+const val ARM_TARGET_MS = 15 * 60_000L       // F2
+/** Konvention, keine Messung. Je Richtung einseitig; die Chance auf einen falschen
+ *  Befund in *irgendeine* Richtung ist damit bis 2α — so im KDoc benannt. */
+const val DETECTION_ALPHA = 0.05
+
+data class Arm(val run: ObservationRun, val start: ConditionBook, val end: ConditionBook)
+
+enum class Verdict { FEWER_DETECTED, MORE_DETECTED, WITHIN_DETECTION_LIMIT, NO_BASELINE_EVENTS }
+
+sealed interface NotComparable {
+    data object ArmAIncomplete : NotComparable      // before.run.end != TARGET_REACHED
+    data object ArmBIncomplete : NotComparable      // after.run.end != TARGET_REACHED
+    data object LinkDiffers : NotComparable         // before.run.link != after.run.link
+    data object CadenceDiffers : NotComparable      // cadencesMs nicht beide dieselbe Einermenge
+    data object DropoutsUncounted : NotComparable   // dropoutsUncountedMs > 0 in einem Arm
+    data class ConditionChanged(val condition: Condition, val where: Where) : NotComparable
+    data class MeasureNotInEffect(val condition: Condition) : NotComparable
+    enum class Where { IN_ARM_A, IN_ARM_B, BETWEEN_ARMS }
+}
+
+sealed interface ComparisonResult {
+    data class NotComparableResult(val reasons: List<NotComparable>) : ComparisonResult
+    data class Compared(
+        val before: Arm, val after: Arm, val measure: Measure,
+        val verdict: Verdict, val pValue: Double,
+        val verification: Verification,            // Rueckgelesen? (AD-035)
+        val notChecked: List<Condition>,           // nicht lesbare Bedingungen, im Rahmen genannt
+    ) : ComparisonResult
+}
+
+fun compare(before: Arm, after: Arm, measure: Measure): ComparisonResult
+/** Kleinste Vorher-Zaehlung, bei der "0 nachher" nachweisbar ist (gleiche Dauer). */
+fun smallestDetectableBaseline(alpha: Double = DETECTION_ALPHA): Int
+```
+
+Rechnung: a = `before.run.dropouts`, b = `after.run.dropouts`, n = a + b,
+p0 = tB / (tA + tB) mit t = `observedMs`. Unter H0 gilt b ~ Bin(n, p0).
+`FEWER_DETECTED`, wenn P(X ≤ b) ≤ α; `MORE_DETECTED`, wenn P(X ≥ b) ≤ α; sonst
+`WITHIN_DETECTION_LIMIT`. Ist a = 0 und nicht `MORE_DETECTED`, lautet das
+Urteil `NO_BASELINE_EVENTS` (F2: „keine Wirkung nachweisbar"). Die Summe laeuft
+im Log-Raum, weil 0,5^n fuer n > 1074 in `Double` auf null faellt. Verglichen
+werden Zaehlungen mit ihrem Fenster, keine Rate — R-F bleibt.
+
+**Warum p0 aus den Dauern statt 1/2:** Arm B endet erst nach dem Intervall, das
+tA ueberschreitet (AD-030). Die Gewichtung macht den Test fuer diese Ueberschreitung
+exakt; bei gleicher Dauer ist p0 = 1/2 und die Literale unten gelten wortgleich.
+
+**Konsequenzen:** Die Nachweisgrenze ist ein Satz, den die App ausrechnet, nicht
+ein Wert, den jemand eintraegt: bei α = 0,05 sind **5 gegen 0** nachweisbar
+(p = 1/32), **4 gegen 0 nicht** (p = 1/16). Bei der T-029-Rate (10 Cluster in
+25 min) reichen 15 min im Mittel dafuer; bei der T-032-Lage (0 in 27,78 min)
+sagt die App `NO_BASELINE_EVENTS`. Dauerhaft schwer: ein Urteil ueber
+Wirkungs*groesse* — der Test sagt nur, ob ein Unterschied nachweisbar ist.
+
+**Umkehrbarkeit:** leicht — α und Armlaenge sind Konstanten.
+
+---
+
+### AD-033 — Das Ledger haelt den Ausgangszustand vor dem ersten Schreiben; „geliehen" entfaellt im ersten Schnitt (2026-09-23, Status: aktiv — **Freigabe `director`**: Persistenz, kehrt einen Teil von AD-007 und das HD-Audio-Verhalten aus `HdAudioTest.kt:201` um; Regel „Codec-Familie aus Profilen wird nicht festgehalten" **abgeloest durch AD-041** am 2026-09-28)
+
+**Kontext:** AK-11 verlangt: vor dem ersten Setzen den Ausgangszustand
+festhalten, jeden selbst gesetzten Wert wiederherstellen koennen, mit **einer**
+Handlung zurueck. Heute gibt es kein Ledger (`ledger|priorValue|valueBefore`: 0
+Treffer im Hauptcode, T-045). T-045 schlug zwei Arten vor: „geliehen" (App setzt
+fuer ein Experiment, geht automatisch zurueck) und „gewaehlt" (Nutzer setzt,
+geht nur auf Wunsch zurueck).
+
+**Wer schreibt heute Audiopfad-Einstellungen** (Grep `write(key|setEnabled|
+clear|hdAudio.apply|LdacTuning.pin` in `app/src/main` und `core-system/src/main`,
+23.09., Arbeitsbaum `d5b262c`): `DeviceProfileApplier` (Globals :189,
+Absolute Volume :117/:132, HD-Audio :245, Codec), `DeviceProfilesViewModel`
+(`setGlobalNow` :310, `setAbsoluteVolumeNow` :478), `LdacTuning.pin` (aus
+`DeviceProfilesViewModel.kt:502` und `MonitorViewModel.kt:405`).
+
+**Optionen:**
+A. **Zwei Arten nach T-045.** Konsequenz: Mit F3 leiht der Prozess nichts mehr
+aus — die einzige App-eigene Schreibung ist das 990-Pinnen, und 990 ist das
+Ziel des Nutzers. Eine automatische Rueckgabe nach dem Vergleich oder beim
+naechsten Start machte genau den Zustand rueckgaengig, den der Prozess
+herstellen soll. Die Art „geliehen" haette keinen einzigen Nutzer.
+B. **Eine Art: Ausgangszustand je Einstellung vor dem ersten Schreiben der App**,
+ein Rueckweg fuer alles. Das 990-Pinnen des Prozesses ist eine Wahl des Nutzers,
+der den Prozess mit dem Satz „pinnt 990" startet.
+C. **Nur `finally` im Prozess.** Deckt keinen getoeteten Prozess und keine
+Schreibung ausserhalb des Prozesses — AK-11 unerfuellt.
+
+**Entscheidung:** B. **Benannter Widerspruch zu AD-007:** dort geht Geliehenes
+beim App-Start automatisch zurueck; hier geht nichts automatisch zurueck, alles
+mit der einen Handlung. Ort bleibt `:core-system`, Schreiben **vor** der
+Aenderung bleibt. Die Art „geliehen" kommt zurueck, sobald AD-006 beantwortet und
+eine Leihgabe beschlossen ist.
+
+```kotlin
+// core-system/.../devices/SettingsLedger.kt
+sealed interface LedgerEntry {
+    /** Settings.Global: die vier Entwickleroptionen und `bluetooth_disable_absolute_volume`.
+     *  prior == null heisst "Schluessel war nicht gesetzt" -> Rueckweg ist `clear`. */
+    data class Global(val key: String, val prior: String?) : LedgerEntry
+    /** Vom Stack je Geraet persistiert (R-010 C4: a2dpOptionalCodecsEnabled). */
+    data class HdAudio(val deviceKey: String, val prior: HdAudioPreference) : LedgerEntry
+    /** Profilwunsch und Live-Stufe; priorLive == null: vorher nicht lesbar/nicht verbunden. */
+    data class Ldac(val deviceKey: String, val priorWish: CodecPreference?, val priorLive: Long?) : LedgerEntry
+}
+/** Gleiche Einstellung = gleicher Typ und gleicher key/deviceKey. */
+fun List<LedgerEntry>.withBaseline(entry: LedgerEntry): List<LedgerEntry>   // rein; vorhandene gewinnt
+
+interface SettingsLedger {
+    /** Persistiert [entry], falls fuer diese Einstellung noch keins liegt. false = nicht
+     *  persistiert -> der Aufrufer schreibt NICHT. */
+    suspend fun recordIfAbsent(entry: LedgerEntry): Boolean
+    suspend fun entries(): List<LedgerEntry>
+    suspend fun remove(entry: LedgerEntry)
+}
+object NoSettingsLedger : SettingsLedger        // Default fuer Bestandstests, wie UnavailableHdAudioController
+class SettingsLedgerStore(context: Context) : SettingsLedger   // DataStore "settings_ledger", ein JSON-Schluessel, org.json
+
+/** Liest den Vorwert und haelt ihn fest. false: Aufrufer ueberspringt die Schreibung. */
+suspend fun SettingsLedger.recordGlobal(settings: SecureSettingsController, key: String): Boolean
+/** Unreadable -> false, ausser es liegt schon ein Eintrag fuer das Geraet. */
+suspend fun SettingsLedger.recordHdAudio(deviceKey: String, before: HdAudioState): Boolean
+```
+
+Regeln:
+- **Keine erste Schreibung ohne festgehaltenen Vorwert.** Ist der Vorwert nicht
+  lesbar und liegt noch kein Eintrag, wird nicht geschrieben; der Grund steht als
+  `ProfileAction.Skipped` bzw. im Satz des Bildschirms. Das kehrt die dokumentierte
+  Haltung „an unreadable state does not stop the write" (`HdAudioTest.kt:201-209`)
+  um — AK-11 geht vor. Liegt der Eintrag schon, wird geschrieben wie bisher.
+- **Randbedingung Globals:** `GlobalSettingsController.read` macht aus einem
+  Lesefehler `null` (`GlobalSettingsController.kt:34-36`). Ein Fehler wuerde also als
+  „nicht gesetzt" festgehalten, der Rueckweg waere `clear`. Geprueft ist nur, dass
+  diese Schluessel weltlesbar sind (KDoc `AbsoluteVolumeGate.kt:14`); ein Werfen
+  von `getString` ist nicht beobachtet.
+- **Codec-Familie aus Profilen** wird nicht festgehalten: der Stack haelt sie je
+  Verbindung, nicht dauerhaft (KDoc `LdacTuning`, „survive the reconnect"). Nach dem
+  Rueckweg setzt AD-034 das Autoapply aus; die Familie faellt beim naechsten
+  Verbinden auf den Stack-Standard. Der Rueckweg-Bericht sagt das.
+- **Nicht im Ledger:** Medienlautstaerke und EQ-Kompensation. Sie sind die
+  Hoerfunktion der App, keine Audiopfad-Einstellung im Sinn von AK-9 (offene Frage).
+- **Nicht sichern, nicht mitnehmen:** `backup_rules.xml` und
+  `data_extraction_rules.xml` schliessen heute `datastore/` ganz ein. Ein Ledger
+  auf einem neuen Telefon stellte Werte eines anderen Geraets her (AK-15-Geist).
+  Beide Dateien bekommen ein `<exclude domain="file"
+  path="datastore/settings_ledger.preferences_pb"/>` (drei Stellen).
+- **Eintraege verschwinden nur**, wenn ihr Rueckweg per Read-back bestaetigt ist.
+  Was nicht zurueckging, zeigt die App, bis es gelingt (AD-007, bleibt).
+- **D-001 beachten:** Ledger-Schreibungen nicht aus `viewModelScope` auf Main
+  ohne Abwarten im Test ausloesen (`docs/debug/D-001.md`).
+
+**Konsequenzen:** Jede Schreibung haengt an einem `suspend`-Aufruf davor; die
+drei Schreiber in `DeviceProfilesViewModel` werden dafuer `launch`-Bloecke. Eine
+kuenftige Schreibstelle muss `recordGlobal`/`recordHdAudio`/`recordIfAbsent`
+rufen — der Applier-Test prueft die Reihenfolge, fuer neue Schreiber gibt es
+keinen Waechter (Risiko unten).
+
+**Umkehrbarkeit:** mittel — eine neue DataStore-Datei. Loeschen verliert die
+Vorwerte; das Format ist ein JSON-String wie bei `DeviceProfileStore` und
+wiederverwendet dessen `CodecPreference`-Kodierung (internal machen, kein zweites
+Format).
+
+---
+
+### AD-034 — Der Rueckweg setzt das Autoapply der beruehrten Profile aus (2026-09-23, Status: aktiv — Director 23.09. F-D1)
+
+**Kontext:** Nach „zurueck auf vorher" schriebe das naechste Verbinden eines
+Profilgeraets die Profilwuensche sofort wieder (`DeviceProfileApplier.onDeviceConnected`,
+`if (!profile.autoApply)`).
+
+**Optionen:** A. Autoapply aller Profile aus. Konsequenz: auch reine EQ-/Lautstaerke-
+Profile verstummen. B. Autoapply nur der Profile aus, deren Wuensche eine
+Audiopfad-Einstellung beruehren. C. Profile unangetastet lassen — der Rueckweg
+haelt nur bis zum naechsten Verbinden.
+
+**Entscheidung:** B. Beruehrt heisst: `codecPreference != null ||
+developerOptions.isNotEmpty() || absoluteVolumeEnabled != null ||
+absoluteVolumeSystemDefault || hdAudio != null` (Felder aus `DeviceProfile.kt:28-77`).
+Das Aussetzen geschieht **zuerst**, vor den Rueckschreibungen, damit ein Verbinden
+waehrend des Rueckwegs nichts wieder anwendet. Es bleibt aus, bis der Nutzer den
+vorhandenen Schalter im Profil wieder einschaltet — kein neuer Zustand, kein Ledger-Eintrag.
+
+**Konsequenzen:** Ein beruehrtes Profil verliert auch seine EQ- und Lautstaerke-
+Wuensche, bis es wieder eingeschaltet ist; der Bericht nennt die Profile beim Namen.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-035 — Der Prozess leitet an und liest zurueck; die Lesbarkeit stellt die Laufzeit fest (2026-09-23, Status: aktiv — Nutzer 23.09. F3; loest die Abhaengigkeit von P-3; Punkt „Kein Band" und „keine neue Permission" **abgeloest durch AD-046** am 2026-09-28)
+
+**Kontext:** F3: kein neues Helfer-Kommando, kein WLAN-Schalten, kein Leihen der
+Scan-Schalter. P-3 (Geraeteinventur) faellt in die Geraetesession; der Code darf
+nicht auf sie warten. AK-14 verlangt den Umgebungszustand am Ergebnis.
+
+**Optionen:**
+A. **Zustandsbuch aus vorhandenen Quellen**, Lesbarkeit zur Laufzeit: `Settings.Global`
+(`wifi_on`, `wifi_scan_always_enabled`), Battery-Sticky-Intent (`EXTRA_PLUGGED`) und
+der ohnehin gepollte Dump (zweite ACL-Verbindung, `Discovering:`). Nicht lesbar
+heisst `Unreadable(grund)` auf dem Schirm.
+B. **`WifiManager`** fuer Band und Assoziation. Braucht `ACCESS_WIFI_STATE`, fuer
+das Band je nach Feld Standortrechte (AD-005, Option A verworfen).
+C. **Erst P-3 abwarten**, dann die Kategorien fest einbauen. Blockiert den Bau.
+
+**Entscheidung:** A.
+
+```kotlin
+// core-monitor/.../optimize/Measures.kt
+enum class Condition(val stable: Boolean) {
+    WIFI_RADIO(true), WIFI_SCAN_ALWAYS(true), USB_POWER(true), OTHER_ACL_LINKS(true),
+    DISCOVERY_SEEN(false),   // Ereignis, kein Zustand: nur im Rahmen, blockiert nie
+}
+sealed interface ConditionValue {
+    data class Read(val value: String) : ConditionValue   // "on"/"off", "usb"/"other"/"none", "0".."n", "yes"/"no"
+    data class Unreadable(val reason: String) : ConditionValue
+}
+typealias ConditionBook = Map<Condition, ConditionValue>
+enum class Verification { VERIFIED, CONTRADICTED, NOT_VERIFIABLE }
+
+// app/.../ui/tuning/EnvironmentConditions.kt
+fun readConditions(context: Context, snapshot: LinkLiveSnapshot, discoverySeen: Boolean?): ConditionBook
+internal fun settingValue(raw: String?, error: Throwable?): ConditionValue   // "1"/"0" -> on/off, null -> Unreadable("not set on this phone"), Wurf -> Unreadable(message)
+internal fun usbValue(plugged: Int?): ConditionValue                         // USB -> "usb", AC/WIRELESS/DOCK -> "other", 0 -> "none", null -> Unreadable
+```
+
+- **Vergleichbarkeit (in `compare`):** Fuer jede `stable`-Bedingung gilt: beide
+  Enden eines Arms `Read` und verschieden → `ConditionChanged(IN_ARM_A|IN_ARM_B)`;
+  Ende A und Anfang B `Read` und verschieden → `ConditionChanged(BETWEEN_ARMS)`,
+  **ausser** es ist die Bedingung der gewaehlten Massnahme. `Unreadable` blockiert
+  nie, sondern landet in `notChecked` und im Rahmen.
+- **Rueckgelesen:** Die Massnahme nennt ihre Bedingung und was als umgesetzt gilt
+  (AD-037). Vor Arm B wird gelesen: `CONTRADICTED` startet Arm B nicht, `VERIFIED`
+  und `NOT_VERIFIABLE` schon; der Rahmen sagt, welches von beiden.
+- **Nur Kabel, nie „USB 3":** `EXTRA_PLUGGED` sagt, ob eine USB-Quelle speist, nicht
+  welche Signalisierung laeuft.
+- **Kein Band:** `wifi_on` sagt „Funk an", nicht „2,4 GHz". Bei A2 gilt deshalb
+  „off" als `VERIFIED`, „on" als `NOT_VERIFIABLE` (ein 5-GHz-Netz ist moeglich) —
+  nie als Widerspruch.
+- **`ble_scan_always_enabled` kommt nicht ins Zustandsbuch:** laut R-010 C7 wirkt
+  „Bluetooth-Scannen" nur bei ausgeschaltetem Bluetooth, im Prozess laeuft es
+  immer. Nach AK-12 erscheint Widerlegtes gar nicht. P-3 inventarisiert den
+  Schluessel trotzdem (AK-9).
+- **Discovery** liest jede Lesung eines Arms aus dem Dump; `DISCOVERY_SEEN` ist
+  „yes", wenn eine sie sah. Zwischen den Lesungen bleibt sie ungesehen, der Rahmen
+  sagt das.
+
+**Konsequenzen:** Kein neues Kommando, keine neue Permission, AK-10 bleibt leer
+erfuellt. P-3 bestaetigt spaeter nur, was die Laufzeit schon ehrlich meldet;
+aendert sich dabei eine Kategorie, ist das ein Text- und kein Strukturwechsel.
+Dauerhaft schwer: eine Aussage ueber das WLAN-Band. Sie kaeme erst mit AD-005.
+
+**Nachtrag 2026-09-28 (F-017, Director-Entscheid: die Zeile kommt ins Ergebnis;
+keine neue Entscheidung, nur die Quelle):** Die Rueckleseergebnis-Zeile liest
+`ComparisonResult.Compared.verification` (`Comparison.kt`, `compare`) =
+`measure.verify(after.start[condition])` — das Zustandsbuch am Beginn des
+**gezaehlten** Arms B. Nicht `ComparisonUi.readBack`: nach einem Neustart von
+Arm B liest `armFrom` das Buch neu, `readBack` bleibt das der Taste. Im Ergebnis
+kommen nur `VERIFIED` und `NOT_VERIFIABLE` vor; `CONTRADICTED` endet vorher als
+`NotComparable.MeasureNotInEffect`. Den Grund fuer `NOT_VERIFIABLE` trennt
+`measure.condition == null` (per Lesung nicht belegbar: A1, A4, A7) von
+`after.start[condition]` (`Unreadable` oder A2 „on"). Kein neuer Typ, kein neues
+Feld. **Beruehrt:** `ComparisonSection.kt`. **Test:** Ergebnis A4,
+`FEWER_DETECTED`, `NOT_VERIFIABLE` → die Zeile steht im selben Composable wie das
+Urteil (faellt heute, QA-Probe S4); A5 `VERIFIED` → die andere Zeile; nach einem
+Arm-B-Neustart mit anderem Buch gilt das Buch des gezaehlten Arms.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-036 — AK-16 sagt „strukturell nicht bestimmbar", bis T-037 den Pakettyp klaert (2026-09-23, Status: aktiv — Nutzer 23.09. F4)
+
+**Kontext:** Ob eine Paarung 990 strukturell tragen kann, haengt am Pakettyp
+(R-010 Teil 0). Der ist nur ueber BQR lesbar, und dort wird nach AK-7 nichts
+gebaut. Die Luftzeitrechnung ist laut `GOAL.md` eigene Arithmetik. Auf dieser
+Paarung (MTU 883, `Support 3Mbps: true`) schlaege eine MTU-Regel ohnehin nie an.
+
+**Optionen:** A. Fester Satz „strukturell nicht bestimmbar" plus die lesbaren
+Paarungsfakten (P-2). B. MTU-Regel (≤ 351 → 990 unmoeglich) als Urteil. Konsequenz:
+ein Urteil aus einer Sekundaertabelle (Habr), ohne Messung — gegen AK-3.
+C. „Alle Massnahmen ohne nachweisbare Wirkung" als strukturelles Urteil. Konsequenz:
+ein empirischer Befund ueber getestete Bedingungen wird zur Aussage ueber die Paarung.
+
+**Entscheidung:** A. Kein Typ, keine Schnittstelle: ein Satz im Prozess, daneben
+die Fakten aus P-2 („3 Mbps: ja, MTU 883 — gelesen an dieser Paarung"), und
+ausdruecklich „Pakettyp und Wiederholrate: ohne BQR nicht lesbar". C wird nie
+als strukturell formuliert; da Vergleiche nicht persistiert werden (AD-037), gibt
+es im ersten Schnitt auch keinen Sammelsatz darueber.
+
+**Konsequenzen:** AK-16 ist erfuellt, indem die App ihre Grenze nennt. Ein echtes
+Urteil kommt erst mit T-037; dann ist es eine Erweiterung dieser Entscheidung.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-037 — Der Prozess gilt, wo er dasselbe tut wie Scan-Entwurf und Geraetetest; der Katalog ist Daten (2026-09-23, Status: aktiv — T-045 vorgesehen; F5)
+
+**Kontext:** Der ruhende Scan (T-005, AD-003/AD-008/AD-009) und der
+„Device test" (`DeviceDiagnostic`, entfernt in T-046, F5) ueberschneiden sich mit
+Saeule 3. AK-12 verlangt genau sechs belegte Massnahmen (R-010 A1–A5, A7), die
+Bitratensenker nur als „Ausweichen", Widerlegtes gar nicht.
+
+**Optionen:**
+A. **Der Prozess ist die eine Form des Vorher/Nachher**; Scan-Phase 2 und AD-009
+sind dafuer abgeloest (Statuszeilen oben), der Katalog ist eine Aufzaehlung in
+`:core-monitor/optimize/`.
+B. **Prozess neben dem Scan-Entwurf**, beide mit eigener Versuchslogik.
+Konsequenz: zwei Muster fuer dasselbe Problem, sobald T-005 erwacht.
+C. **Katalog als Texte in der UI.** Konsequenz: AK-12 haengt an Textbausteinen und
+ist nicht als Literal pruefbar (AD-004, Option A, derselbe Fehler).
+
+**Entscheidung:** A.
+
+```kotlin
+// core-monitor/.../optimize/Measures.kt
+/** R-010 Teil 1, in der Rangfolge dort. A6 fehlt: Eigenschaft, keine Einstellung. */
+enum class Measure(val r010: String, val condition: Condition?) {
+    NO_2_4_GHZ_WIFI("A2", Condition.WIFI_RADIO),
+    NO_DISCOVERY("A1", null),               // Ereignis, per Lesung nicht als abwesend belegbar
+    NO_SECOND_DEVICE("A3", Condition.OTHER_ACL_LINKS),
+    BODY_OUT_OF_PATH("A4", null),
+    USB_CABLE_OFF("A5", Condition.USB_POWER),
+    SINK_ALLOWS_LDAC("A7", null);
+    fun verify(value: ConditionValue?): Verification
+}
+/** R-010 Teil 2: senken die Bitrate. Nie als Behebung, nur unter "Ausweichen". */
+enum class Fallback { LOWER_STEP, ADAPTIVE_BITRATE, CODEC_CHANGE, FAMILY_44_1_KHZ }
+```
+
+`verify`: `condition == null` → `NOT_VERIFIABLE`; A2 siehe AD-035; A3 „0" →
+`VERIFIED`, sonst `CONTRADICTED`; A5 „none" → `VERIFIED`, sonst `CONTRADICTED`;
+`Unreadable` → `NOT_VERIFIABLE`. `Fallback` hat keinen Vergleich und kein
+Pinnen — es ist Wissen, keine Aktion. Die Texte liefert `UI_SPEC.md`; der Code
+kennt nur Kennungen.
+
+- **Keine Persistenz von Vergleichen.** Arm A liegt als Wert im
+  `MonitorViewModel` (wie der AK-17-Lauf) und uebersteht das Verlassen der App,
+  nicht den Prozesstod. Der Ablauf sagt das.
+- **Kein Ersatz fuer den Geraetetest** (F5): P-8 steht allein.
+
+**Konsequenzen:** AK-12 ist ein Literaltest. Wacht T-005 auf, baut der Scan auf
+`compare` und `Measure` auf, statt eine zweite Versuchslogik zu schreiben.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-038 — Bauschnitt fuer Saeule 3: sechs Laeufe aus P-2, P-4..P-9 (2026-09-23, Status: aktiv)
+
+**Kontext:** Schnitt P-1..P-9 aus T-045 §2. P-1 laeuft in T-046, P-3 in der
+Geraetesession. Regel: hoechstens fuenf Dateien mit eigener Logik je Lauf,
+Verdrahtung und Tests zaehlen nicht. **Alle Laeufe starten erst, wenn T-046 auf
+dem Branch liegt:** T-046 aendert `ObservationRun.kt`, `LinkLiveModels.kt`,
+`MonitorScreen.kt`, `MonitorViewModel.kt`, die hier wieder beruehrt werden.
+Keine Datenbank-Anweisung in diesem Schnitt (L-033 nicht beruehrt).
+
+| Lauf | P | Dateien mit Logik (Verdrahtung) | schreibt Einstellungen → Security-Vorlauf | UI-Spec liefert |
+|---|---|---|---|---|
+| **S3-1** | P-2 | `A2dpLinkDumpParser.kt`, `LinkLiveModels.kt` (`LiveLinkSource.kt`: Feld durchreichen) | nein | nichts (Anzeige in S3-6) |
+| **S3-2** | P-6, P-7 | `ObservationRun.kt`, neu `optimize/Comparison.kt`, neu `optimize/Measures.kt` | nein | nichts |
+| **S3-3** | P-5 (Kern) | neu `devices/SettingsLedger.kt`, `DeviceProfileApplier.kt`, `DeviceProfileStore.kt` (`CodecPreference`-JSON internal) (`SystemGraph.kt`, `backup_rules.xml`, `data_extraction_rules.xml`) | **ja** — Schreibpfad des Appliers, neue persistierte Vorwerte, Backup-Ausschluss | Skip-Grund „Wert vorher nicht lesbar, deshalb nicht umkehrbar — nicht geschrieben" |
+| **S3-4** | P-4 | neu `app/.../ui/tuning/EnvironmentConditions.kt` | nein (liest nur) | nichts (Anzeige in S3-6) |
+| **S3-5** | P-5 (Rueckweg) | `LdacTuning.kt`, neu `app/.../ui/tuning/SettingsRestore.kt`, `DeviceProfilesViewModel.kt`, `DeviceProfilesScreen.kt` (Instanz in der App-Verdrahtung) | **ja** — schreibt Globals, HD-Audio, Codec zurueck; setzt Autoapply aus | Knopf „zurueck auf vorher" (Bluetooth-Tab), Bestaetigung, Bericht: zurueckgestellt / nicht zurueck mit Grund / Autoapply ausgesetzt fuer {Profil} / Codec-Familie erst beim naechsten Verbinden; Dauerhinweis fuer offene Eintraege mit „erneut versuchen" |
+| **S3-6** | P-8, P-9, Anzeige P-2 | neu `ComparisonController.kt`, neu `ComparisonSection.kt`, `LiveLinkPanel.kt` (Paarungsfakten) (`MonitorViewModel.kt`, `MonitorScreen.kt`) | **ja** — pinnt 990 ueber den vorhandenen `LdacTuning.pin`-Pfad | Einstieg und Hinweis (F1: Aussetzer hoerbar); Massnahmenliste (6) und eigene Sektion „Ausweichen" (4) mit Begruendung, warum keine Behebung — Kategoriename muss als „Ausweichen" erkennbar sein; Anleitung je Massnahme; Rueckleseworte (bestaetigt / widerspricht / nicht pruefbar); Armfortschritt „{T} von 15 min beobachtet"; Armende-Gruende (Bestand + `TARGET_REACHED`); vier Urteilssaetze + je `NotComparable` ein Satz; **Messrahmen am Ergebnis**: beide Dauern, Stufe, Codec, Kadenz, Zustandsbuch Anfang/Ende je Arm, `notChecked`, Drift-Satz (F2), „relative Aussage ueber genau diese Bedingungen, keine Aussage ueber Alltagsqualitaet", Nachweisgrenze aus `smallestDetectableBaseline()`; AK-16-Satz; Paarungsfakten-Zeilen; Satz zum Prozesstod; Rueckweg-Knopf. R-A, R-F, R-G gelten. |
+
+**Schnittstellen je Lauf** (Signaturen der Kernlogik stehen in AD-030..AD-037):
+
+- **S3-1:** `data class PairingFacts(val edr: Boolean?, val threeMbps: Boolean?,
+  val otherAclLinks: Int?, val discovering: Boolean?)`; `A2dpLinkDump.pairing` und
+  `LinkLiveSnapshot.pairing: PairingFacts? = null`. `edr`/`threeMbps` aus dem
+  Peer-Block unter `A2DP Source State` (`EDR:`, `Support 3Mbps:`); `otherAclLinks`
+  = Zeilen mit `[ACL BR/EDR:Y` minus eins, wenn ein A2DP-Peer verbunden ist, nie
+  unter 0; `discovering` aus der ersten `Discovering:`-Zeile. Die effektive MTU
+  liegt schon in `LdacStackState.effectiveMtu`. Randbedingung der Zaehlregel:
+  in allen drei Pixel-11-Fixtures genau eine `Y`-Zeile, und die ist die Gegenstelle
+  (Grep 23.09.); ob andere Builds die aktive Verbindung anders auflisten, ist
+  nicht geprueft.
+- **S3-3:** Applier bekommt `ledger: SettingsLedger = NoSettingsLedger` als
+  letzten Konstruktorparameter (Muster `codec`/`hdAudio`). Vor `secureSettings.write/
+  clear` → `ledger.recordGlobal(secureSettings, key)`; vor `absoluteVolume.setEnabled/
+  clear` → `ledger.recordGlobal(secureSettings, KEY_DISABLE_ABSOLUTE_VOLUME)`; vor
+  `hdAudio.apply` → `ledger.recordHdAudio(key, before)` mit dem schon gelesenen
+  `before`. `false` → `Skipped`, keine Schreibung. `SystemGraph` baut
+  `SettingsLedgerStore` einmal (lazy) und reicht ihn hinein.
+- **S3-5:** `LdacTuning.pin` haelt vor `store`/`apply` `LedgerEntry.Ldac(key,
+  profil?.codecPreference, LdacQuality.codeOf(live mode) oder null)` fest.
+  `setGlobalNow`/`setAbsoluteVolumeNow` rufen `recordGlobal` in einem `launch`.
+  ```kotlin
+  class SettingsRestore(
+      ledger: SettingsLedger, globals: SecureSettingsController, hdAudio: HdAudioController,
+      profiles: DeviceProfileStore, connected: suspend () -> List<BtAudioDevice>,
+      requestLdac: suspend (address: String, quality: Long) -> CodecApplyOutcome,
+  ) { suspend fun restoreAll(): RestoreReport }
+  data class RestoreReport(
+      val restored: List<LedgerEntry>,
+      val pending: List<Pair<LedgerEntry, String>>,   // Grund, woertlich
+      val autoApplyPausedFor: List<String>,           // Profilnamen
+  )
+  ```
+  Reihenfolge: Autoapply aussetzen (AD-034) → Globals (`prior == null` → `clear`) →
+  HD-Audio (nur verbundene Geraete, Zuordnung per `DeviceKey.fromAddress`) → LDAC
+  (Profil `codecPreference = priorWish`; live nur wenn verbunden und `priorLive != null`;
+  `NONE` wird als `ADAPTIVE` angefragt). Eintrag weg nur bei Read-back-Erfolg;
+  Nicht-Verbunden gilt beim Live-Teil als erledigt (die Stufe stirbt mit der Verbindung).
+- **S3-6:** `ComparisonController(scope)` nach dem Muster `ObservationRunController`:
+  `onReading(snapshot, expectedIntervalMs)` fuettert den laufenden Arm und merkt
+  `discovering`; Phasen `Choose → PinAndCheck → ArmA → Instruct → ArmB → Result`;
+  Pinnen ueber `LdacTuning.pin(HIGH_QUALITY, shownAddress = …)`, weiter nur bei
+  `CodecApplyOutcome.Applied`; Arm A `startedAfter(newest, ARM_TARGET_MS)`, Arm B
+  `startedAfter(newest, armA.run.observedMs)`; vor Arm A: steht die Massnahme schon
+  `VERIFIED`, sagt der Ablauf „bereits umgesetzt" und startet nicht; vor Arm B:
+  `CONTRADICTED` startet nicht. Endet ein Arm ohne `TARGET_REACHED`, wird nur dieser
+  Arm wiederholt; Arm A bleibt. Kein neuer persistierter Hinweis-Schalter.
+
+**Testfaelle als Literale** (je positiver und negativer Fall, Lehre QA-018):
+
+- **S3-1** (Fixture `bt_manager_pixel11_ldac_990_loss.txt`): `edr == true`,
+  `threeMbps == true`, `otherAclLinks == 0`, `discovering == false`,
+  `effectiveMtu == 883`. Text ohne `A2DP Source State` → `edr`/`threeMbps` null;
+  zweite Zeile mit `[ACL BR/EDR:Y` ergaenzt → `otherAclLinks == 1`; ohne
+  Geraeteliste → `otherAclLinks == null` (nie 0).
+- **S3-2 ObservationRun** (990 kbps, spielend, Kadenz 1000): Lesungen t = 0/1000/2000
+  mit `dropoutCount` 10/12/15 → `dropouts == 5`, `observedMs == 2000`,
+  `cadencesMs == {1000}`. Mittlere Lesung mit `dropoutCount = null` →
+  `dropouts == 0`, `dropoutsUncountedMs == 2000`. Zaehler 15 → 3 →
+  Intervall in `dropoutsUncountedMs`, `dropouts` unveraendert. `targetMs = 2000` →
+  nach t = 2000 `end == TARGET_REACHED`, Lesung t = 3000 aendert nichts;
+  `targetMs = 2001` → nach t = 2000 `end == null`. `targetMs = null` → Verhalten
+  wie Bestand (bestehende Tests unveraendert gruen).
+- **S3-2 compare** (tA = tB = 900 000, gleicher Link, Kadenz {1000}, Buecher gleich):
+  5/0 → `FEWER_DETECTED`, `pValue == 1.0/32`; 4/0 → `WITHIN_DETECTION_LIMIT`,
+  `pValue == 1.0/16`; 0/5 → `MORE_DETECTED`; 0/0 und 0/4 → `NO_BASELINE_EVENTS`;
+  10/10 → `WITHIN_DETECTION_LIMIT`; 1000/900 → `FEWER_DETECTED` (Log-Raum, kein
+  NaN); 5/0 mit tA = 900 000, tB = 905 000 → `FEWER_DETECTED`, `pValue` = (900/1805)^5
+≈ 0,030820 (Python `math`, 23.09.). 1000/900 bei gleicher Dauer: p ≈ 0,01155
+(ebenda, exakte Summe).
+  `smallestDetectableBaseline() == 5`, `smallestDetectableBaseline(0.1) == 4`.
+  `NotComparable`: Arm A endet `STOPPED` → `ArmAIncomplete`; Link `HIGH` gegen
+  `ADAPTIVE` → `LinkDiffers`; Kadenz {1000} gegen {2000} → `CadenceDiffers`;
+  `dropoutsUncountedMs = 1` → `DropoutsUncounted`; `WIFI_RADIO` on→off in Arm A →
+  `ConditionChanged(WIFI_RADIO, IN_ARM_A)`; `USB_POWER` wechselt zwischen den Armen
+  bei Massnahme A2 → `ConditionChanged(USB_POWER, BETWEEN_ARMS)`; `WIFI_RADIO`
+  wechselt zwischen den Armen bei A2 → vergleichbar; `WIFI_SCAN_ALWAYS` `Unreadable`
+  → vergleichbar, in `notChecked`; `DISCOVERY_SEEN` yes in Arm B → vergleichbar.
+- **S3-2 Katalog:** `Measure.entries.map { it.r010 } == listOf("A2","A1","A3","A4","A5","A7")`;
+  `Fallback.entries.size == 4`; kein Name aus `Measure` in `Fallback`; keine Kennung
+  `A6`, `C1`..`C10` in `Measure`. `verify`: A2 „off" → `VERIFIED`, „on" →
+  `NOT_VERIFIABLE`; A3 „0" → `VERIFIED`, „1" → `CONTRADICTED`; A5 „none" →
+  `VERIFIED`, „usb" → `CONTRADICTED`; A4 → `NOT_VERIFIABLE`; `Unreadable` → `NOT_VERIFIABLE`.
+- **S3-3:** `withBaseline`: zweiter `Global("k", "2")` nach `Global("k", null)` →
+  Liste unveraendert, Vorwert bleibt `null`. Applier mit Fake-Ledger: Globalwunsch →
+  Ledger-Eintrag **vor** der Schreibung (Reihenfolge-Log); zweites Anwenden → kein
+  zweiter Eintrag. HD-Audio `Unreadable` ohne Eintrag → keine Schreibung, `Skipped`
+  mit Grund (ersetzt `HdAudioTest.kt:201`); mit vorhandenem Eintrag → geschrieben.
+  Ledger meldet `false` → keine Schreibung. `SettingsLedgerStore` (Robolectric):
+  Rundreise aller drei Typen inkl. `prior = null` und `priorWish = null`.
+  Backup-Regeln: Test liest beide XML und findet den `exclude`.
+- **S3-4** (Robolectric): `wifi_on` = "1" → `Read("on")`, "0" → `Read("off")`,
+  nicht gesetzt → `Unreadable`; `usbValue(BATTERY_PLUGGED_USB) == Read("usb")`,
+  `usbValue(0) == Read("none")`, `usbValue(null)` → `Unreadable`;
+  `OTHER_ACL_LINKS` aus `pairing == null` → `Unreadable`, nie `Read("0")`.
+- **S3-5:** Ledger mit `Global("k", null)`, `Global("j","1")`, `HdAudio(d, DISABLE)`
+  (Geraet nicht verbunden), `Ldac(d, null, ADAPTIVE)`: → `clear("k")`, `write("j","1")`,
+  HD in `pending` mit Grund „nicht verbunden", Profil `codecPreference == null`,
+  live `ADAPTIVE` angefragt; Autoapply des beruehrten Profils `false`, eines reinen
+  EQ-Profils unveraendert `true`; Aussetzen vor der ersten Rueckschreibung
+  (Reihenfolge-Log). Schlaegt `write` fehl → Eintrag bleibt, `pending` nennt ihn.
+  `LdacTuning.pin`: Eintrag vor `store` (Reihenfolge-Log), zweiter Pin → kein
+  neuer Eintrag.
+- **S3-6** (Robolectric/Controller): Lesungsfolge ueber 15 min Arm A mit 5 Aussetzern,
+  Massnahme A5, Buch vor Arm B `USB_POWER = none`, Arm B ohne Aussetzer →
+  `Result` mit `FEWER_DETECTED`; `USB_POWER = usb` vor Arm B → Arm B startet nicht;
+  Pinnen `NotObserved` → Arm A startet nicht; Arm B endet `READING_GAP` → Arm A
+  bleibt, nur B wird neu gestartet. Oberflaeche: der Rahmen steht im selben
+  Composable wie das Urteil (kein Fussnoten-/Detail-Umweg, AK-14); K-2-Suche
+  der Wortfamilien aus R-G im neuen Text.
+
+**Reihenfolge und Parallelitaet** (Worktrees nur bei disjunkten Dateilisten):
+
+1. **Welle 1**, parallel: S3-1 ∥ S3-2 ∥ S3-3. Dateilisten disjunkt (Parser/Modelle ·
+   `ObservationRun` + `optimize/` · `:core-system` + zwei XML). Security-Vorlauf
+   vor S3-3 prueft AD-033/AD-034 zusammen und deckt S3-5 mit ab. Der
+   `ui-ux-designer` schreibt parallel die Texte fuer S3-3, S3-5, S3-6.
+2. **Welle 2**, parallel: S3-4 (braucht S3-1, S3-2) ∥ S3-5 (braucht S3-3 und UI-Spec).
+3. **Welle 3:** S3-6 (braucht S3-2, S3-4, S3-5, UI-Spec). Security-Vorlauf fuer den
+   Pin-Pfad, falls der erste Vorlauf ihn nicht abgedeckt hat.
+4. **Geraet:** Abnahme von S3-6 faellt mit T-036 zusammen (Massnahme A2 unter 990).
+   Monitor ist dabei offen — der Vergleich braucht die Lesungen; T-037 bleibt
+   getrennt (BQR-Queue, T-045 Nebenfund 1).
+
+**Risiken und Pruefpunkte:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Ein neuer Schreiber umgeht das Ledger | Grep der Schreibstellen (s. AD-033) findet einen Aufruf ohne `record…` davor | Schreibstelle nachziehen; bleibt es wiederholt, Ledger als Dekorator an die Ports (dafuer muessten `write`/`setEnabled` `suspend` werden — heute zu breit) |
+| Tabwechsel raeumt das `MonitorViewModel` und damit Arm A | S3-6-Test oder Geraet: Arm A fehlt nach Tabwechsel | Controller eine Ebene hoeher halten (Activity-Scope); keine Persistenz |
+| 15 min reichen bei ruhiger Strecke nie fuer 5 Aussetzer | T-036 zeigt Arm A regelmaessig < 5 | Das ist die ehrliche Aussage (`NO_BASELINE_EVENTS`/`WITHIN…`); Armlaenge ist eine Konstante, Aenderung beim Nutzer |
+| `wifi_on` ist aus der App-Uid nicht lesbar | P-3 oder Laufzeit zeigt `Unreadable` | Nichts zu bauen: der Schirm sagt es bereits (AD-035) |
+| D-001-Muster im neuen Store | Haengende Robolectric-Tests nach S3-3/S3-5 | Wie D-001: Abwarten im Test, keine Main-Schreibung ohne Join |
+
+**Umkehrbarkeit:** leicht — eine Schrittfolge ist ein Plan, kein Bauwerk.
+
+---
+
+### AD-039 — Eine gestartete Messung laeuft ueber einen eigenen, kurzlebigen Vordergrunddienst in `:app` weiter (2026-09-28, Status: aktiv — Nutzer 28.09., AK-4-Ausnahme; **`security-reviewer` vor dem Bau**: neuer Dienst mit Stop-Aktion)
+
+**Kontext:** F-015. Mechanismus (gelesen 28.09., `c2a29f5`): der Vergleich wird aus
+`MonitorViewModel.liveUpdates` gefuettert, und der Poll ist `WhileSubscribed` am
+`collectAsStateWithLifecycle` des Schirms (`MonitorViewModel.kt:191,204`). Display
+aus ist ON_STOP → der Poll steht → nach > `RUN_GAP_MAX_MS` endet der Arm
+`READING_GAP` und startet neu (`ComparisonController.kt:159-164`). Zweites Problem:
+ohne Vordergrunddienst ist der Prozess nach ON_STOP ein Cache-Prozess, den Android
+einfrieren darf, und `EqForegroundService` laeuft nur bei eingeschaltetem EQ
+(`EqForegroundService.kt:105-109`). DEEP (`SamplingPolicy.DEEP`, 5 min, in
+`MonitorEngine`) hat dasselbe zweite Problem. AK-4-Ausnahme: sichtbar angekuendigt,
+jederzeit abbrechbar. R-013: Play verlangt „nur so lange wie noetig" und eine klare
+Benachrichtigung; Wakelocks zaehlen auch unter einem Vordergrunddienst.
+Kraefte: der vorhandene Dienst ist bewusst still (`IMPORTANCE_MIN`, `SECRET`) und
+traegt die Hoerkompensation, die nie stehen darf.
+
+**Optionen:**
+A. **`EqForegroundService` erweitern** (laeuft bei EQ an *oder* Messung; Benachrichtigung
+schaltet fuer die Messdauer um). Konsequenz: der Dienst liegt in `:core-system`,
+kennt weder DEEP (`:core-monitor`) noch den Vergleich (`:app`) — neuer Port noetig;
+Stopp-Logik und Benachrichtigung der Hoerfunktion aendern sich fuer eine Messfunktion.
+B. **Eigener `MeasurementService` in `:app`**, Typ `connectedDevice`, nur solange eine
+Messung laeuft, sichtbare Benachrichtigung mit Stop-Aktion. Konsequenz: zweiter
+Manifesteintrag, zweiter Kanal; die Play-Console-Erklaerung fuer `connectedDevice`
+muss die Messung mitnennen (R-013). Der EQ-Dienst bleibt unberuehrt.
+C. **Bildschirm wach halten** waehrend der Arme. Konsequenz: widerspricht Nutzerentscheid 4
+(Display aus), 30 min Display an.
+D. **Im Bestand bleiben**, Hinweis „Schirm offen lassen" wie T-039. Konsequenz:
+Nutzerentscheid 4 unerfuellt; Arm B von A5 auf Akku praktisch unerreichbar (T-051b).
+
+**Entscheidung:** B. Die Messung ist das Einzige, was den Dienst braucht; sie besitzt
+ihn fuer genau ihre Dauer.
+
+1. **Was „laeuft" heisst.** Vergleich: vom Tipp auf „Compare" (`PIN_AND_CHECK`) bis
+   `RESULT`, Ende oder Abbruch — `INSTRUCT` eingeschlossen, damit Arm A (15 min) keinen
+   Cache-Kill verliert; in `INSTRUCT` wird nicht gepollt. DEEP: von `startDeepCapture`
+   bis `deepCaptureUntilMs` oder `stopDeepCapture`.
+2. **Prozessweiter Griff auf den Vergleich.** Dienst, Chip-Sperre (AD-040) und Rueckweg
+   muessen ihn erreichen; der Controller bleibt im `MonitorViewModel` (AD-037).
+   ```kotlin
+   // app/.../ui/screens/monitor/ActiveComparison.kt
+   object ActiveComparison {
+       data class Held(val phase: ComparisonPhase, val phaseSinceMs: Long, val end: (ComparisonEnd) -> Unit)
+       val held: StateFlow<Held?>
+       internal fun set(held: Held?)      // nur ComparisonController, synchron mit dem eigenen Phasenwechsel
+       fun end(cause: ComparisonEnd)      // Rueckweg, Stop-Aktion; ohne Vergleich wirkungslos
+   }
+   ```
+   `null` in `CHOOSE`/`RESULT`, bei fehlgeschlagenem Pinnen und in `MonitorViewModel.onCleared`.
+3. **Poll bei Display aus.** `MonitorViewModel` haelt, solange `phase ∈ {ARM_A, ARM_B}`,
+   einen eigenen Sammler auf `liveUpdates` (`flatMapLatest` auf die Phase). Kein neuer
+   Poll, keine andere Kadenz. Der AK-17-Lauf bekommt Lesungen nur bei
+   `MonitorGraph.uiVisible` (neuer Lese-Accessor auf `_uiVisible`) — sonst profitierte
+   er still von der Ausnahme, und AK-17 sagt „nur bei offener Oberflaeche".
+4. **Der Dienst.**
+   ```kotlin
+   // app/.../ui/screens/monitor/MeasurementService.kt
+   // Manifest :app: exported=false, foregroundServiceType=connectedDevice, stopWithTask=true; START_NOT_STICKY
+   class MeasurementService : Service() {
+       companion object {
+           val foreground: StateFlow<Boolean>   // true erst nach erfolgreichem startForeground
+           fun start(context: Context)          // nur aus einem Tipp: "Compare", beide "Watch live"
+           const val ACTION_STOP = "dev.dankyeeter.btdashboard.action.STOP_MEASUREMENT"
+       }
+   }
+   /** Rein: was die Benachrichtigung sagt; null -> stopSelf. */
+   internal fun runningMeasurement(held: ActiveComparison.Held?, deepUntilMs: Long, nowMs: Long): RunningMeasurement?
+   ```
+   Er beobachtet `ActiveComparison.held` und `engine.status.deepCaptureUntilMs`
+   (`startDeepCapture`/`stopDeepCapture` setzen `_status` kuenftig sofort, heute erst in
+   der naechsten Schleifenrunde). Fuer das DEEP-Ende ein einmaliges `delay` bis zum
+   bekannten Ende, kein Takt. Neu gepostet wird nur bei Phasenwechsel; den Fortschritt
+   zeichnet das System (`setUsesChronometer` ab `phaseSinceMs`, DEEP
+   `setChronometerCountDown` bis zum Ende) — Wanduhr, nicht beobachtete Zeit; die steht
+   in der App. Eigener Kanal `IMPORTANCE_LOW` (sichtbar, lautlos, Symbol in der
+   Statusleiste — bewusst anders als der EQ-Kanal: eine laufende Messung ist eine
+   Nachricht), `VISIBILITY_PUBLIC`, keine Adresse im Text (M18). Tippen oeffnet die App.
+   **Abbruch von aussen:** Aktion „Stop" = `PendingIntent.getService(…, ACTION_STOP,
+   FLAG_IMMUTABLE)` an den nicht exportierten Dienst → `ActiveComparison.end(Cancelled)`
+   und `engine.stopDeepCapture()`, dann `stopSelf`. Sie schreibt keine Einstellung und
+   ist nicht der Rueckweg (T-047b: Rueckweg nie von aussen). **Nachtrag 2026-09-29
+   (T-055d, `d3caa96`, Director-Entscheid Option A):** „Cancel" im Schirm nimmt denselben
+   Pfad (`ActiveComparison.end(Cancelled)`, AK-T054-2); der Endgrund hiess vorher `StoppedOutside`.
+5. **Scheitert `startForeground`** (Typ verweigert, `BLUETOOTH_CONNECT` fehlt), bleibt
+   `foreground == false`: der Vergleich laeuft wie heute nur bei offenem Schirm, und der
+   Schirm sagt das statt der Ankuendigung (AK-3). Sind Benachrichtigungen abgeschaltet,
+   laeuft der Dienst trotzdem; dann traegt die Ankuendigung im Schirm AK-4 allein.
+6. **Kein Wakelock.** Randbedingung: gemessen wird nur bei Wiedergabe, und dabei haelt der
+   Player einen Teil-Wakelock (T-007 Abschn. 5.6: `ExoPlayer:WakeLockManager` von TIDAL,
+   `bluetooth_timer`; Momentaufnahme bei Display an, eine Sitzung). Stoppt die
+   Wiedergabe, darf die CPU schlafen; der Arm endet dann nach der bestehenden Regel
+   (`PAUSED`/`READING_GAP`). Dass ein Arm bei Display aus auf Akku ohne Luecke durchlaeuft,
+   ist **nicht geprueft** — Geraeteprobe unten. Rueckweg, falls nicht: Teil-Wakelock nur
+   fuer die Armdauer mit Timeout (2 × 15 min liegen unter der 2-h-Schwelle aus R-013,
+   zaehlen aber).
+7. **F-014 in derselben Datei:** `SamplingPolicy.decide` prueft DEEP zuerst (die
+   Ausnahme), dann ohne `uiVisible` → `Stopped`; BURST, ACTIVE und „idle, monitor on
+   screen" nur mit `uiVisible`. Der Vergleich haengt nicht am Sampler, DEEP nicht am Monitor.
+
+**AK-13 „dieselbe Dauer":** bleibt, weil Zaehlregel und Kadenz unveraendert sind. Beide
+Arme zaehlen abgedeckte Intervalle nach `isReadingGap` bis zum Ziel (AD-030), Arm B mit
+Arm As `observedMs`. Die Kadenz ist `_liveIntervalMs` der Tafel, nicht der
+bildschirmabhaengige Takt des Samplers — Display an/aus aendert sie nicht; ein Wechsel
+faellt weiter als `CadenceDiffers`.
+
+**Texte, die T-054b liefert:** Kanalname und -beschreibung; Titel/Text je `ARM_A`,
+`INSTRUCT`, `ARM_B`, DEEP; Aktion „Stop"; Ankuendigung beim Start; Satz fuer
+`foreground == false`; was den Vergleich trotzdem beendet (Aufgabe weggewischt,
+Prozessende).
+
+**Konsequenzen:** Leicht: jede weitere zeitlich begrenzte Messung meldet sich ueber
+denselben Dienst. Schwer: ein zweiter Vordergrunddienst ist Policy-Flaeche. Der
+Vergleich uebersteht Display aus, Tab- und App-Wechsel (Tabs mit `saveState`,
+`BtDashboardApp.kt:275`), nicht das Wegwischen der Aufgabe (`stopWithTask`,
+ViewModel geraeumt) und nicht den Prozesstod (AD-037).
+
+**Umkehrbarkeit:** leicht — ein Dienst, ein Manifesteintrag, ein Objekt; nichts persistiert.
+
+**Beruehrt Dateien:** neu `ActiveComparison.kt` (entsteht in AD-040s Lauf), neu
+`MeasurementService.kt`, `MonitorViewModel.kt`, `SamplingPolicy.kt`, `MonitorEngine.kt`;
+Verdrahtung `MonitorGraph.kt` (Accessor), `app/src/main/AndroidManifest.xml`,
+`BluetoothDashboardViewModel.kt` (ein Aufruf), `MonitorScreen.kt` (DEEP-Ankuendigung).
+
+**Test:**
+- `SamplingPolicyTest`: spielend, Screen an, `uiVisible = false`, kein DEEP → `Stopped`
+  (heute `ACTIVE`, faellt ohne Fix); dasselbe mit `burstUntilMs > now` → `Stopped`;
+  `deepCaptureUntilMs > now`, `uiVisible = false`, nichts spielt → `DEEP`; spielend mit
+  `uiVisible = true` → `ACTIVE`.
+- `runningMeasurement`: `Held(ARM_A)` → Vergleich; `null` und `deepUntil > now` → DEEP;
+  `null` und `deepUntil <= now` → `null`.
+- `MonitorViewModel` (Robolectric): Arm A laeuft, kein Schirm-Abonnent → Lesungen laufen
+  bis `TARGET_REACHED` (faellt ohne Mess-Sammler); AK-17-Lauf mit `uiVisible = false`
+  zaehlt nicht weiter.
+- Dienst (Robolectric): `ACTION_STOP` → `end(Cancelled)` gerufen, Dienst beendet;
+  `held = null` ohne DEEP → Dienst beendet sich.
+- **Geraet** (naechste Session, „AK-4 Bildschirm-aus-Messung"): Arm A auf Akku, Display
+  aus, Musik, 15 min → `TARGET_REACHED` ohne `READING_GAP`; ohne Monitor und ohne
+  Messung keine `dumpsys`-Aufrufe (Retest F-014).
+
+---
+
+### AD-040 — Die LDAC-Sperre sitzt in `LdacTuning.pin`; ein Arm endet den Vergleich, statt ungepinnt neu zu starten (2026-09-28, Status: aktiv — Nutzer 28.09. Entscheide 2 und 6)
+
+**Kontext:** F-019 (Luecke aus T-047i): jedes Armende ausser `TARGET_REACHED` startet
+denselben Arm aus der aktuellen Lesung neu (`ComparisonController.kt:159-164`), auch
+unter ABR; Codec weg von LDAC → Neustart je Lesung. Ausloeser: die LDAC-Chips auf zwei
+Schirmen (`LiveLinkPanel.kt`, `BitrateSection.kt`, beide ueber `LdacTuning.pin`), der
+Rueckweg (`SettingsRestore` → `LdacTuning.apply`), „Apply now" im Profil (Applier),
+Reconnect, Sample-Rate-Wechsel.
+
+**Optionen:**
+A. **Sperre nur in der Oberflaeche.** Konsequenz: jeder kuenftige Aufrufer von `pin`
+umgeht sie.
+B. **Sperre in `LdacTuning.pin`** — der eine Weg beider Chip-Reihen — plus Ende statt
+Neustart im Controller.
+C. **Sperre im `CodecPreferenceController`.** Konsequenz: sperrt auch das Pinnen des
+Vergleichs und den Rueckweg, braucht Ausnahmen; `:core-system` kennt den Vergleich nicht.
+
+**Entscheidung:** B.
+1. **Sperre:** `pin` liefert `CodecApplyOutcome.Unavailable(LOCKED)` — ohne Ledger-Eintrag,
+   ohne Schreibung —, solange `ActiveComparison.held?.phase ∈ {ARM_A, INSTRUCT, ARM_B}`
+   (reine Funktion `locksLdac(phase)`, erste Zeile von `pin`). Das Pinnen des Vergleichs
+   selbst laeuft in `PIN_AND_CHECK` und ist frei. Beide Chip-Reihen lesen denselben
+   Zustand und sind gesperrt. `LdacTuning.apply` sperrt nicht; der Rueckweg beendet den
+   Vergleich vorher (3).
+2. **Ende statt ungepinntem Neustart:** Neu gestartet wird ein Arm nur, wenn er
+   `READING_GAP` oder `PAUSED` endete **und** die Lesung denselben `RunLink` traegt wie
+   der beendete Lauf (`LinkLiveSnapshot.runLink()` wird dafuer oeffentlich). Jedes andere
+   Ende (`QUALITY_CHANGED`, `CODEC_CHANGED`, `DISCONNECTED`, `RATE_UNREADABLE`, neu
+   `SAMPLE_RATE_CHANGED`) und ein Linkwechsel ueber die Luecke beenden den Vergleich; ebenso
+   `onCheck`, wenn die neueste Lesung nicht Arm As `RunLink` traegt. Kein Urteil.
+   ```kotlin
+   sealed interface ComparisonEnd {
+       data class LinkChanged(val arm: String, val end: RunEnd?) : ComparisonEnd  // end == null: Wechsel vor Arm B
+       data object SettingsPutBack : ComparisonEnd
+       data object Cancelled : ComparisonEnd        // "Cancel" im Schirm und Stop in der Benachrichtigung, ein Pfad (AD-039; bis d3caa96 StoppedOutside)
+   }
+   // ComparisonUi.ended: ComparisonEnd? — steht in CHOOSE, bis eine Massnahme oder "Compare" getippt wird
+   ```
+   Nicht in `NotComparable`: dort landen nur zwei fertige Arme.
+3. **Der Rueckweg beendet den Vergleich:** `SettingsRestore` bekommt
+   `endMeasurement: () -> Unit = { ActiveComparison.end(ComparisonEnd.SettingsPutBack) }`,
+   gerufen in `restoreAll` nach dem Leer-Check und **vor** `pauseAutoApply`, dem ersten
+   Schreiben. Das ist der eine Einstieg aller Rueckweg-Knoepfe (Bluetooth-Tab, Gate, Monitor).
+4. **Sample-Rate (Entscheid 2):** `endAgainst` bekommt
+   `codec?.sampleRateHz != link.sampleRateHz -> RunEnd.SAMPLE_RATE_CHANGED`; der KDoc-Satz
+   „it ends no run" an `RunLink` wird falsch und faellt. Gilt fuer AK-17-Lauf und Arme.
+
+**Nicht gesperrt:** der Codecwunsch aus Profileditor/„Apply now" waehrend eines Arms. Er
+schreibt ueber den Applier in `:core-system`, der den Vergleich nicht kennt; der Arm
+endet dann `QUALITY_CHANGED`/`CODEC_CHANGED` und der Vergleich mit Grund (Teil 2) —
+kein falsches Urteil.
+
+**Konsequenzen:** Ein Urteil entsteht nur ueber zwei Arme am selben gepinnten Link. Die
+Chips sind fuer die Dauer des Vergleichs gesperrt (bis ~30 min plus Anleitung); Auswege
+sind „Cancel", Stop und der Rueckweg.
+
+**Umkehrbarkeit:** leicht.
+
+**Beruehrt Dateien:** `ComparisonController.kt`, neu `ActiveComparison.kt`, `LdacTuning.kt`,
+`SettingsRestore.kt`, `ObservationRun.kt`; Oberflaeche (Saetze, gesperrte Chips):
+`ComparisonSection.kt`, `ObservationRunSection.kt`, `LiveLinkPanel.kt`, `BitrateSection.kt`.
+
+**Test:**
+- `ComparisonControllerTest`: Arm A laeuft, Lesung mit `ADAPTIVE` → `phase == CHOOSE`,
+  `ended == LinkChanged("A", QUALITY_CHANGED)`, kein neuer Arm (heute Neustart); Codec AAC
+  → genau ein Ende, weitere Lesungen aendern nichts (heute 20 Neustarts in 20 Lesungen,
+  Probe P5); Luecke > 120 s mit gleichem Link → Arm A neu (wie heute); Luecke, danach
+  anderer Link → Ende; `INSTRUCT`, neueste Lesung ABR, `onCheck` → Ende statt Arm B.
+- `locksLdac`: `ARM_A`, `INSTRUCT`, `ARM_B` → true; `CHOOSE`, `PIN_AND_CHECK`, `RESULT` → false.
+- `SettingsRestoreTest`: Reihenfolge-Log `endMeasurement` vor dem ersten `saveProfile`;
+  leeres Ledger → `endMeasurement` nicht gerufen.
+- `ObservationRunTest`: LDAC 990, 96 kHz → 88,2 kHz, sonst gleich → `end ==
+  SAMPLE_RATE_CHANGED` (heute `null`, Probe P3b).
+
+---
+
+### AD-041 — Der Applier haelt den Codecwunsch eines Profils im Ledger fest; Autoapply bleibt nach dem Rueckweg aus (2026-09-28, Status: aktiv — Nutzer 28.09. Entscheid 7; **`security-reviewer` vor dem Bau**: neuer Ledger-Schreiber; loest die Codec-Regel aus AD-033 ab)
+
+**Kontext:** F-020. Codec-Schreibstellen (Grep `codec.apply(|controller.apply(|\.apply(address`
+in `app/src/main` und `core-system/src/main`, 28.09., `c2a29f5`): `LdacTuning.apply` (aus
+`pin` mit Eintrag, aus dem Rueckweg ohne — richtig so) und `DeviceProfileApplier.kt:302`
+**ohne** — die einzige Luecke; die uebrigen Treffer sind EQ und Durchreicher in
+`SystemGraph`. QA-Probe R1: Banner verborgen, `restoreAll` tut nichts, Autoapply bleibt an.
+
+**Optionen:**
+A. **Eintrag beim Speichern im Profileditor** (`priorWish` = alter Wunsch). Konsequenz:
+zweite Aufnahmestelle; Speichern aendert noch keine Einstellung (erst der Applier), und
+Profile aus der Zeit vor dem Ledger schrieben weiter ohne Eintrag.
+B. **Eintrag im Applier vor `codec.apply`**, unter der Ledger-Sperre ueber `ifRecorded`
+wie Globals und HD-Audio. Eine Stelle fuer Autoapply, „Apply now" und Editor-Anwenden.
+C. **Im Bestand:** Codec aus Profilen bleibt draussen. Konsequenz: AK-11 „aus jedem
+Tuning-Zustand" verletzt.
+
+**Entscheidung:** B, Eintrag `LedgerEntry.Ldac(profile.deviceKey, priorWish =
+profile.codecPreference, priorLive = null)`.
+- **Festgehalten wird der Systemzustand, nicht der Profilinhalt.** `priorWish` ist der
+  aktuelle Wunsch; der Rueckweg laesst ihn stehen (`putBack` speichert nur bei
+  Abweichung). Das Profil ist Nutzerdaten und wird ausgesetzt, nicht geleert (AD-034).
+  Bewusst anders als beim Chip: dort schreibt die App den Wunsch als Nebenwirkung, und
+  der Rueckweg nimmt ihn zurueck.
+- **`priorLive = null`**, weil der Applier die Live-Stufe nicht lesen kann
+  (`CodecPreferenceController` hat nur `apply`, `:core-system` kennt die Live-Quelle
+  nicht). Nach M12 heisst das beim Rueckweg „Stufe bleibt bis zum naechsten Verbinden";
+  dann greift wegen AD-034 kein Autoapply, und der Stack nimmt seinen Standard.
+- Nicht persistierbar → `ProfileAction.Skipped("codec", PRIOR_NOT_RECORDED)`, keine
+  Schreibung (M1/M3). Gleiche Einstellung wie beim Chip (`ldac:<deviceKey>`): der erste
+  Eintrag gewinnt (`withBaseline`).
+- **Autoapply nach dem Rueckweg: bleibt aus** (AD-034 unveraendert). Ein Profil mit
+  Codecwunsch ist „beruehrt" und wird vor dem ersten Rueckschreiben ausgesetzt;
+  Wiedereinschalten ist der vorhandene Schalter.
+- **Wettlauf M4/M11 (SR-028):** Eintrag und Schreibung unter `ledger.lock`, wie der
+  Rueckweg je Eintrag. Ein Verbinden, das das Profil vor dem Aussetzen gelesen hat,
+  kann nach dem Rueckweg noch einmal schreiben — dann **mit** neuem Eintrag, und das
+  Banner zeigt ihn. Der Schaden aus SR-028 („geaendert, Ledger leer") tritt nicht auf.
+- **Benannter Widerspruch zu AD-033** („Codec-Familie aus Profilen wird nicht
+  festgehalten"): abgeloest. Live zurueckgestellt wird die Familie weiterhin nicht (der
+  Stack haelt sie je Verbindung); der Eintrag sorgt dafuer, dass Banner, Aussetzen und
+  Bericht greifen. `LedgerEntry.Ldac` traegt damit auch Nicht-LDAC-Wuensche; Typname
+  und JSON-Typ `ldac` bleiben (ein Umbenennen waere eine Formatmigration), der KDoc wird
+  breiter.
+
+**Konsequenzen:** Jede Codec-Schreibung der App hat einen Eintrag. Dauerhaft: das Profil
+behaelt nach dem Rueckweg seinen Wunsch; wer ihn loswerden will, aendert das Profil.
+
+**Umkehrbarkeit:** leicht (kein Formatwechsel).
+
+**Beruehrt Dateien:** `DeviceProfileApplier.kt`; `SettingsLedger.kt` (nur KDoc von `Ldac`).
+
+**Test:** `DeviceProfileApplierTest`: Profil mit `CodecPreference("LDAC", 1000)`,
+Fake-Ledger → `recordIfAbsent(Ldac(key, wish, null))` vor `codec.apply` im
+Reihenfolge-Log (faellt ohne Fix: kein Eintrag); Ledger `false` → kein `codec.apply`,
+`Skipped` mit `PRIOR_NOT_RECORDED`; AAC-Wunsch → ebenfalls Eintrag. `SettingsRestoreTest`:
+nur dieser Eintrag, Profil `autoApply = true`, Geraet verbunden → danach `autoApply ==
+false`, Wunsch unveraendert, Geraet in `liveKeptUntilReconnect`.
+
+---
+
+### AD-042 — Ein unlesbares Ledger verwirft nur der Nutzer, nach Warnung und nur, wenn es in dem Moment unlesbar ist (2026-09-28, Status: aktiv — F-021; **`security-reviewer` vor dem Bau**: lockert AK-11 fuer die verlorenen Vorwerte)
+
+**Kontext:** `SettingsLedgerStore.decode` wirft bei jedem nicht vollstaendig lesbaren
+Inhalt; dann verweigert `recordIfAbsent` jede Schreibung und `entries()` meldet einen
+Fehler (M3, gewollt). Ausweg heute nur „App-Daten loeschen" — das kostet Profile, EQ,
+Hoerprofile. Zweite, ungehandhabte Form: ist die Protobuf-Datei selbst kaputt, wirft
+DataStore bei jedem Lesen **und** jedem `edit` (`PreferenceDataStoreFactory.create` ohne
+`corruptionHandler`, `SystemGraph.kt:295-298`) — dann scheitert jeder Ausweg ueber `edit`.
+
+**Optionen:**
+A. **Bestaetigtes Verwerfen:** Knopf im Banner-Zweig „unlesbar" mit Warnung; der Store
+ersetzt den Inhalt nur, wenn er **in derselben `edit`-Transaktion** nicht dekodierbar
+ist. Datei-Korruption uebersetzt ein `ReplaceFileCorruptionHandler` in genau diesen
+Zustand: er schreibt einen Marker, den `decode` nicht lesen kann — das Ledger bleibt
+unlesbar (M3), wird aber editierbar.
+B. **Nachsichtig dekodieren** (lesbare Eintraege behalten). Konsequenz: fuer die
+verlorenen Eintraege genau das stille „leer", das M3 verbietet.
+C. **Automatisch zuruecksetzen** (Handler liefert leer, oder nach n Fehlern).
+Konsequenz: bricht M3 woertlich.
+D. **Im Bestand:** App-Daten loeschen. Konsequenz: F-021 bleibt.
+
+**Entscheidung:** A.
+```kotlin
+// SettingsLedger
+/** Nur nach bestaetigter Nutzerhandlung. Ersetzt den Inhalt durch eine leere Liste, aber nur,
+ *  wenn er in derselben edit-Transaktion nicht dekodierbar ist. true = ersetzt. */
+suspend fun discardUnreadable(): Boolean
+// NoSettingsLedger: false. SettingsLedgerStore: unter lock; edit { if (decode wirft) prefs[KEY_ENTRIES] = "[]" };
+// IOException -> false.
+// Store und SystemGraph bauen den DataStore ueber eine gemeinsame Fabrik mit
+// corruptionHandler = ReplaceFileCorruptionHandler { preferencesOf(KEY_ENTRIES to CORRUPT_MARKER) }
+```
+- **M3 bleibt:** kein Lesepfad liefert je „leer" fuer kaputten Inhalt; leer wird es nur
+  durch die Handlung, und nur wenn der Inhalt in dem Moment unlesbar ist. Der Handler
+  greift nur bei `CorruptionException`, nicht bei gewoehnlichem `IOException`; der
+  Marker ist kein JSON-Array.
+- **Ausloeser:** `DeviceProfilesViewModel.discardUnreadableLedger()` nach
+  Bestaetigungsdialog; nie automatisch, nicht von aussen. Warnung (Wortlaut T-054b):
+  was die App vorher geaendert hat, kann sie danach nicht mehr zurueckstellen; ab jetzt
+  gilt der aktuelle Zustand als „vorher"; alles bleibt in den Android-Einstellungen aenderbar.
+
+**Konsequenzen:** Der Ausweg kostet genau die ohnehin verlorenen Vorwerte, nichts sonst.
+Jede kuenftige Korruption landet im selben, bedienbaren Zustand.
+
+**Umkehrbarkeit:** leicht — eine Methode und ein Handler, das Format bleibt.
+
+**Beruehrt Dateien:** `SettingsLedger.kt`, `SystemGraph.kt`, `DeviceProfilesViewModel.kt`,
+`DeviceProfilesScreen.kt` (Knopf und Dialog im Banner-Zweig `:1429`).
+
+**Test:** `SettingsLedgerStoreTest` (Robolectric): Inhalt `"{kaputt"` → `entries()` ist
+Fehler, `discardUnreadable() == true`, danach `entries() == success([])` und
+`recordIfAbsent` true; lesbarer Inhalt mit einem Eintrag → `false`, Eintrag bleibt
+(faellt, wenn die Pruefung nicht in der Transaktion steht); Datei mit ueberschriebenen
+Bytes → `entries()` ist Fehler, **nicht** leer, danach `discardUnreadable() == true`.
+`NoSettingsLedger.discardUnreadable() == false`.
+
+---
+
+### AD-043 — Bauschnitt fuer den Fixzyklus nach T-051: vier Laeufe (2026-09-28, Status: aktiv)
+
+**Kontext:** AD-039..042, Nachtrag AD-035 (F-017), dazu ohne Strukturfrage F-011, F-014,
+F-016, F-018, SR-031, DR-006, Ledger-Banner-Ersatztext, Sample-Rate-Ende. Regel wie
+AD-038: hoechstens fuenf Dateien mit eigener Logik je Lauf; Verdrahtung, Texte und
+Tests zaehlen nicht. Keine Datenbank-Anweisung (L-033 nicht beruehrt).
+
+| Lauf | Inhalt | Dateien mit Logik | Verdrahtung / nur Text | Security-Vorlauf | UI_SPEC |
+|---|---|---|---|---|---|
+| **X-1** | AD-040 Teile 1–4 | `ComparisonController.kt`, neu `ActiveComparison.kt`, `LdacTuning.kt`, `SettingsRestore.kt`, `ObservationRun.kt` | — | nein (keine neue Schreibung) | Grund `LOCKED` |
+| **X-2** | AD-041, AD-042, F-011, DR-006, Banner-Ersatztext, SR-031 | `DeviceProfileApplier.kt`, `SettingsLedger.kt`, `DeviceProfilesViewModel.kt`, `DeviceProfilesScreen.kt` | `SystemGraph.kt`, `BtDashboardApp.kt` (Banner in `FULL_SETUP`), `BluetoothSystemControls.kt` (F-011) | **ja** | F-021-Warnung, F-011, DR-006, Banner |
+| **X-3** | AD-039, F-014 | neu `MeasurementService.kt`, `MonitorViewModel.kt`, `SamplingPolicy.kt`, `MonitorEngine.kt` | `MonitorGraph.kt`, `app/src/main/AndroidManifest.xml`, `BluetoothDashboardViewModel.kt`, `MonitorScreen.kt` | **ja** | Benachrichtigung, Ankuendigungen |
+| **X-4** | Vergleichs-Oberflaeche: F-015-Saetze, F-016, F-017, F-018, Endgrund F-019, Sample-Rate-Satz, gesperrte Chips | `ComparisonSection.kt`, `ObservationRunSection.kt`, `LiveLinkPanel.kt`, `BitrateSection.kt` | — | nein | alle Vergleichstexte |
+
+- **F-016** in X-4: Paarungsfakten nur zeigen, wenn die Adresse des Snapshots
+  `armA.run.link.address` ist, sonst „nicht lesbar" — kein neues Feld am Arm.
+- **F-018** in X-4: Stufe und Codec je Arm aus dem eigenen `run.link`; „gepinnt" nur bei
+  `adaptive == false`.
+
+**Reihenfolge:** Welle 1: X-1 ∥ Security-Vorlauf (AD-039 Stop-Aktion, AD-041, AD-042 in
+einem Lauf); danach X-2. Welle 2: X-3 (braucht `ActiveComparison` aus X-1). Welle 3: X-4
+(braucht `ComparisonEnd` und die Sperre aus X-1, `MeasurementService.foreground` aus X-3,
+UI_SPEC). Dann ein QA-Retest. Dateilisten paarweise disjunkt; einzige geteilte Datei
+waere `DeviceProfilesViewModel.kt`, deshalb verdrahtet X-1 den Rueckweg-Haken als
+Default-Parameter in `SettingsRestore`.
+
+**Risiken:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Bei Display aus auf Akku luecken die Lesungen trotz Wiedergabe | Geraeteprobe AD-039: `READING_GAP` in Arm A | Teil-Wakelock fuer die Armdauer mit Timeout (AD-039 Punkt 6) |
+| Android verweigert den Diensttyp (A17, Hintergrundstart) | `foreground == false`, Log „TYPE refused" | Vergleich nur bei offenem Schirm, Schirm sagt es; Typ neu bewerten |
+| Ein kuenftiger Pin-Aufrufer umgeht die Sperre | Grep `LdacTuning.pin\|controller.apply(` findet einen neuen Weg | Sperre sitzt in `pin`; neue Wege muessen dort durch |
+
+**Umkehrbarkeit:** leicht — ein Plan.
+
+---
+
+### AD-044 — Der offene Monitor liest das Zustandsbuch je Lesung mit; ein Verlusteintrag traegt das Buch der ersten Lesung seiner Episode als Text (2026-09-28, Status: aktiv — AK-18, AK-19)
+
+**Kontext:** Gelesen am Branch `auto/2026-09-23-saeule3`, `14fa3fc`: `MonitorViewModel.kt`,
+`ComparisonController.kt`, `ComparisonSection.kt`, `EnvironmentConditions.kt`, `Measures.kt`,
+`LinkEvent.kt`, `LiveLinkSource.kt`, `MonitorDatabase.kt`, `MonitorScreen.kt`. Das Buch
+(`readConditions`, AD-035) wird heute nur an den Armgrenzen des Vergleichs gelesen.
+Verlusteintraege entstehen je Poll-Fenster mit Verlust (`LiveLinkSource.lossEvent` →
+`LinkEvent.LossDetected` → `MonitorViewModel.recordLiveEvents` → Room
+`monitor_events.detail`); die Episoden aus AD-023 sind **nicht gebaut** (Grep
+`LOSS_EVENT_COOLDOWN|LossFold` in `*/src/main`: 0 Treffer). Nach X-3 (AD-039 Teil 3)
+sammelt das `MonitorViewModel` waehrend eines Arms auch bei Display aus — dann schriebe
+`recordLiveEvents` Eintraege ohne offenen Monitor, gegen AK-19. R-011: kein neuer
+`dumpsys bluetooth_manager`. Kraefte: AK-3 (das Buch gehoert zu genau dieser Lesung),
+AK-1/AK-4 (Kosten je Takt), Umkehrbarkeit der Persistenz.
+
+**Optionen:**
+A. **Buch je frischer Lesung, nur bei `uiVisible`; Episodenbuch als Text in `detail`.**
+Kein Schemawechsel.
+B. **Eigene Spalte `environment` in `monitor_events`** (Room 4→5). Konsequenz: strukturiert,
+aber eine Migration (L-033, schwer umkehrbar) fuer einen Text, der nur angezeigt wird.
+C. **Buch per Push** (`ContentObserver` auf `wifi_on`, Batterie-Broadcast). Konsequenz: keine
+Lesung ohne Aenderung, aber zwei Registrierungen mit eigener Lebensdauer, und die
+Dump-Felder kommen trotzdem je Lesung — zwei Mechanismen fuer ein Buch.
+D. **Buch nur im Speicher** (Eintrag → Buch). Konsequenz: nach Prozessende fehlt es den
+Zeilen — AK-19 „jeder Protokolleintrag" gebrochen.
+
+**Entscheidung:** A.
+
+1. **Lesung je Takt.** In `liveUpdates.onEach` (oberhalb von `shareIn`, laeuft also nur fuer
+   frische Polls, nie fuer den Replay): ist `MonitorGraph.uiVisible` (Accessor aus X-3) wahr,
+   `readConditions(app, snapshot, snapshot.pairing?.discovering)`; sonst wird nichts gelesen.
+   Die Dump-Felder (`OTHER_ACL_LINKS`, `DISCOVERY_SEEN`) kommen aus dem Snapshot derselben
+   Lesung — kein neuer `dumpsys`. Wird `uiVisible` falsch, wird das Buch `null`.
+   ```kotlin
+   // MonitorViewModel
+   data class ReadBook(val book: ConditionBook, val readAtMs: Long)   // readAtMs = snapshot.timestampMs
+   val conditionBook: StateFlow<ReadBook?>
+   ```
+2. **Ereignisse nur bei offenem Monitor.** `recordLiveEvents` laeuft nur bei `uiVisible` —
+   fuer alle Live-Ereignisse, wie vor AD-039. Der Vergleich bekommt seine Lesungen
+   unabhaengig davon (`comparison.onReading`).
+3. **Episode**, klein, bis AD-023 gebaut ist: eine Folge sichtbarer Lesungen mit
+   `LossDetected` ohne Lesung ohne Verlust dazwischen und ohne `isReadingGap`.
+   ```kotlin
+   // app/.../ui/screens/monitor/ConditionStatus.kt (rein)
+   internal data class LossEpisode(val lastLossAtMs: Long, val book: ConditionBook)
+   /** Kein Verlust -> null; Verlust nach Verlust ohne Luecke -> prev mit neuem lastLossAtMs; sonst neue Episode mit [book]. */
+   internal fun nextEpisode(prev: LossEpisode?, atMs: Long, hasLoss: Boolean, book: ConditionBook, expectedIntervalMs: Long): LossEpisode?
+   internal fun conditionLines(book: ConditionBook): List<String>   // je Condition eine Zeile: gelesen / nicht lesbar: Grund
+   ```
+   `hasLoss` = die Lesung traegt ein `LossDetected` (dasselbe Kriterium wie die Zeile).
+   Nicht sichtbar → Episode `null`. Wird AD-023 gebaut, uebernimmt dessen Episodenbeginn
+   diese Rolle; kein Widerspruch.
+4. **Zeile:** nur `MonitorEventType.DROPOUT`: `record.copy(detail = record.detail + "\n" +
+   conditionLines(episode.book).joinToString("\n"))`. Gruende laufen durch
+   `redactAddresses`. Kein Ursachenwort (Liste UI_SPEC T-057b).
+5. **Pruefstand (AK-18):** neu `MeasureStatusSection.kt`, sechs Zeilen in `Measure.entries`-
+   Reihenfolge (R-010, keine Sortierung nach Stand — die waere eine Rangfolge), je
+   `readBackSentence(measure, book)` und Lesezeit; `null` → Satz „wird gelesen". Keine
+   Gesamtzeile. `readBackSentence`, `Condition.displayName`, `ConditionBook.shown` ziehen
+   wortgleich von `ComparisonSection.kt` nach `ConditionStatus.kt` (ein Satz Worte fuer
+   Vergleich, Pruefstand und Protokoll).
+6. **Rueckkehr (fuer AD-045):** faellt aus 1 heraus — ON_STOP macht das Buch `null`, die erste
+   frische Lesung nach ON_START fuellt es neu.
+
+**Randbedingung:** „`onEach` laeuft einmal je frischem Poll" gilt fuer `MonitorViewModel.kt:168-191`
+am Stand `14fa3fc`; der Mess-Sammler aus X-3 haengt am selben geteilten Fluss und verdoppelt
+`onEach` nicht. Aendert X-3 das, prueft Y-1 es zuerst.
+
+**Kosten:** je frischer Lesung bei offenem Monitor zwei `Settings.Global`-Lesungen und ein
+Sticky-Intent (ab AD-046 zwei `ConnectivityManager`-Aufrufe); kein `dumpsys`, kein Funk.
+Ungemessen; im AK-4-Inventar eingetragen.
+
+**Konsequenzen:** Leicht: AD-045 braucht keinen eigenen Rueckkehr-Haken, AD-046 erweitert nur
+`readConditions`. Dauerhaft: das Buch im Protokoll ist Text in der Sprache zur Schreibzeit;
+wer spaeter nach Bedingungen filtern will, braucht B. Lange Verlustphasen schreiben weiter
+eine Zeile je Fenster (Bestand) — jede mit demselben Episodenbuch.
+
+**Umkehrbarkeit:** leicht — kein Schema; alte Zeilen behalten ihren Text.
+
+**Beruehrt Dateien:** `MonitorViewModel.kt`, neu `ConditionStatus.kt`, neu
+`MeasureStatusSection.kt`; Verschiebung/Verdrahtung `ComparisonSection.kt`, `MonitorScreen.kt`.
+
+**Test (rot vorher):**
+- `MonitorViewModel` (Robolectric, Lesungen wie `MonitorLiveStopTest`): `uiVisible` wahr,
+  `wifi_on = "1"`, eine Lesung t1 → `conditionBook.value?.book[WIFI_RADIO] == Read("on")`,
+  `readAtMs == t1`. `uiVisible` falsch, Arm A laeuft, Lesung mit Verlust → `conditionBook == null`
+  und keine neue `monitor_events`-Zeile (faellt nach X-3 ohne Sperre). **AK-20-Rueckkehr:**
+  Buch(t1) → `setUiVisible(false)` → `null` → `setUiVisible(true)` → weiter `null` bis zur
+  Lesung t2 → `readAtMs == t2`, zwischendurch `wifi_on = "0"` → `Read("off")`.
+- `ConditionStatusTest` (JVM): (0, kein Verlust, B0), (2000, Verlust, B1), (4000, Verlust, B2),
+  (6000, kein), (8000, Verlust, B4), Takt 2000 → Zeilen bei 2000 und 4000 tragen B1, bei 8000 B4.
+  (2000, Verlust, B1), (200 000, Verlust, B5) → B5 (Luecke). `conditionLines`: jede
+  `Condition` genau einmal; `Unreadable("x")` → Zeile nennt „x", nie die Gelesen-Form; keine
+  Zeile enthaelt ein Wort der Ursachenliste, fuer alle Werte.
+- `MeasureStatusSectionTest` (Robolectric): sechs Zeilen in `Measure.entries`-Reihenfolge;
+  `USB_POWER = Unreadable("battery state not read")` → A5 „Not checkable: battery state not
+  read." und kein „Confirmed"; A1/A4/A7 immer nicht pruefbar; kein Wort der
+  Sammelbewertungsliste (UI_SPEC, R-E).
+
+---
+
+### AD-045 — Sprung nur zu zwei belegten Systemseiten, per `startActivity` mit gefangenem Fehler; die Rueckkehr liest ueber AD-044 neu (2026-09-28, Status: aktiv — AK-20, AK-9)
+
+**Kontext:** AK-20 verlangt fuer alle zehn Eintraege aus `Measures.kt` eine festgelegte
+Antwort. Bestand: fuenf `startActivity`-Stellen mit stillem `runCatching` (z. B.
+`ActivateScreen.kt:343`). A-005 nimmt `QUERY_ALL_PACKAGES` aus dem Play-Build. Offene Frage
+aus P-002: startet der Sprung in die Bluetooth-Einstellungen eine Geraetesuche (dann
+widerspraeche er A1)?
+
+**Quellen** (AOSP Settings, GitHub-Spiegel `aosp-mirror/platform_packages_apps_settings`,
+`main`, letzter Commit 2025-03-24, abgerufen 2026-09-28; googlesource lieferte 503):
+- `android.settings.BLUETOOTH_SETTINGS` → `Settings$ConnectedDeviceDashboardActivity`,
+  Fragment `ConnectedDeviceDashboardFragment` (`AndroidManifest.xml:360-376`).
+- `android.settings.WIFI_SETTINGS` → `Settings$WifiSettingsActivity`, `NetworkProviderSettings`.
+- `startDiscovery()` steht nur in `DeviceListPreferenceFragment.kt:317`, Basis von
+  `BluetoothPairingDetail` („Neues Geraet koppeln", eigene Aktion
+  `BLUETOOTH_PAIRING_SETTINGS`, verlangt `BLUETOOTH_SCAN`) und `DevicePickerFragment`;
+  `ConnectedDeviceDashboardFragment` erbt nicht davon. `AlwaysDiscoverable` (Sichtbarkeit,
+  keine Suche) startet dort nur, wenn der Aufrufer Settings oder SystemUI ist
+  (`ConnectedDeviceDashboardFragment.java:106-111`).
+- `startActivity` braucht keine Package-Visibility und kein `<queries>`; `resolveActivity`
+  schon. Empfohlen: `ActivityNotFoundException` fangen —
+  https://developer.android.com/training/package-visibility/use-cases, abgerufen 2026-09-28.
+
+**Randbedingung:** „keine Suche beim Sprung" ist am AOSP-Stand 2025-03 belegt, **nicht** an
+Android 17 und nicht am Pixel-Build (dort z. B. der Nearby-Slice
+`config_nearby_devices_slice_uri` der Play-Dienste, dessen Scanverhalten nicht in AOSP liegt).
+Geraeteprobe unten.
+
+**Optionen:**
+A. **Feste Zuordnung, `startActivity` in `try`/`catch`**, fehlgeschlagen → sichtbarer Satz.
+B. **`resolveActivity` vorab, `<queries>` je Aktion.** Konsequenz: zusaetzlicher
+Manifestteil; ohne `QUERY_ALL_PACKAGES` (A-005) haengt das Ergebnis an der Deklaration,
+und ein positives `resolve` garantiert den Start trotzdem nicht.
+C. **Auch Ausweichen und Nur-Lesen-Werte bekommen Spruenge** (Entwickleroptionen). Konsequenz:
+T-049a fand dort auf dem Pixel 11/A17 keinen Bluetooth-Punkt; und ein Sprung aus
+„Ausweichen" machte Wissen zur Aktion (AD-037, AK-12).
+
+**Entscheidung:** A.
+```kotlin
+// app/.../ui/tuning/SettingsJumps.kt
+/** The system page for [measure], or null: none exists, it is a physical step, or it is the sink's. */
+fun settingsAction(measure: Measure): String? = when (measure) {
+    Measure.NO_2_4_GHZ_WIFI -> Settings.ACTION_WIFI_SETTINGS          // "android.settings.WIFI_SETTINGS"
+    Measure.NO_SECOND_DEVICE -> Settings.ACTION_BLUETOOTH_SETTINGS    // "android.settings.BLUETOOTH_SETTINGS"
+    Measure.NO_DISCOVERY, Measure.BODY_OUT_OF_PATH, Measure.USB_CABLE_OFF, Measure.SINK_ALLOWS_LDAC -> null
+}
+/** Always null, spelled out so a new entry forces a decision. */
+fun settingsAction(fallback: Fallback): String? = when (fallback) {
+    Fallback.LOWER_STEP, Fallback.ADAPTIVE_BITRATE, Fallback.CODEC_CHANGE, Fallback.FAMILY_44_1_KHZ -> null
+}
+/** Starts [action]; false on ActivityNotFoundException or SecurityException. */
+fun openSettings(context: Context, action: String): Boolean
+```
+Gruende fuer `null` (Worte UI_SPEC): A1 — Suchquellen sind die Koppelseite (nicht oeffnen)
+und der Fast-Pair-Schalter der Play-Dienste (keine oeffentliche Aktion, R-010 A1); A4, A5
+Handgriff; A7 Einstellung der Gegenstelle; Ausweichen: Wissen, keine Aktion (AD-037) — Stufe,
+ABR und Codec stellt die App selbst an ihrer Stelle, fuer 44,1 kHz fand T-049a keine Seite.
+Die drei Nur-Lesen-Werte (F-011) bekommen keinen Sprung (Backlog P-002 c).
+
+- **Knoepfe:** je Zeile in `MeasureStatusSection` (nur wo `settingsAction != null`) und in
+  `ComparisonSection` Phase `INSTRUCT` fuer die gewaehlte Massnahme. „Ausweichen": keiner.
+- **Rueckkehr:** AD-044 Punkt 6. In `INSTRUCT` bleibt `readBack` bis „Check again"/„Start Arm B";
+  kein automatisches `onCheck` (startete Arm B ohne Tipp).
+- Die fuenf stillen `runCatching`-Stellen bleiben (keine Massnahmen).
+
+**Konsequenzen:** Kein Manifestteil, unabhaengig von A-005. Der Landeort ist erst am Geraet
+bewiesen.
+
+**Umkehrbarkeit:** leicht.
+
+**Beruehrt Dateien:** neu `SettingsJumps.kt`, `MeasureStatusSection.kt`, `ComparisonSection.kt`.
+
+**Test (rot vorher):**
+- `SettingsJumpsTest`: Tabelle aller zehn Eintraege (`Measure.entries + Fallback.entries`) →
+  A2 `"android.settings.WIFI_SETTINGS"`, A3 `"android.settings.BLUETOOTH_SETTINGS"`, acht
+  `null`; Groesse 10.
+- `openSettings` (Robolectric, `checkActivities(true)`): ohne aufloesbare Aktivitaet → `false`;
+  mit registrierter Aktivitaet fuer die Aktion → `true`, `nextStartedActivity.action` gleich.
+- `MeasureStatusSectionTest`: Sprung A3 nicht aufloesbar → Satz (UI_SPEC) sichtbar; A4-Zeile
+  ohne Knopf.
+- **Geraet:** Monitor offen, Sprung A3, 20 s auf der Seite, zurueck. Einmal von Hand
+  `dumpsys bluetooth_manager | grep Discovering` waehrend die Seite offen ist — **nicht
+  waehrend einer Messung** (R-011). `Discovering: true` → A3-Sprung auf `null`.
+
+---
+
+### AD-046 — Das WLAN-Band kommt aus `ConnectivityManager` ohne Standortrecht; A2 widerspricht bei 2,4 GHz (2026-09-28, Status: aktiv — AK-21, **P-003 baubar: ja**; oeffnet AD-035; **`security-reviewer` vor dem Bau**: neue Berechtigung `ACCESS_NETWORK_STATE`)
+
+**Kontext:** AK-21 unter der Nutzerbedingung „nur ohne Standortberechtigung; SSID/BSSID werden
+nicht gelesen". AD-035 schloss das Band aus („Kein Band", „keine neue Permission").
+
+**Quellen** (AOSP ueber GrapheneOS-Baeume Branch `17`, Android-17-Basis, gepusht
+2026-09-26, abgerufen 2026-09-28; googlesource lieferte 503):
+- `WifiInfo(WifiInfo source, long redactions)` (`packages/modules/Wifi`,
+  `framework/java/android/net/wifi/WifiInfo.java:596-620`): unter
+  `REDACT_FOR_ACCESS_FINE_LOCATION` werden BSSID, SSID, Netz-ID, AP-MLD-Adresse geschwaerzt;
+  `mFrequency = source.mFrequency` bleibt. `getFrequency()` (`:1204-1212`): bei MLO die
+  Frequenz des verbundenen Links mit dem hoechsten RSSI.
+- `ConnectivityService.getNetworkCapabilities` (`packages/modules/Connectivity`,
+  `service/src/com/android/server/ConnectivityService.java:3284-3292, 4241-4245`): verlangt nur
+  `ACCESS_NETWORK_STATE` und schwaerzt mit `includeLocationSensitiveInfo = false` die
+  Standortfelder **immer** — SSID/BSSID erreichen die App gar nicht.
+- Bandgrenzen: `ScanResult.java:885-932` (2412–2484, 5160–5885, 5935 und 5955–7115 MHz); die
+  Pruefmethoden dort sind `@hide`, deshalb eine eigene Funktion.
+
+**Randbedingung:** belegt am Quelltext eines Android-17-Baums, **nicht** am Pixel-Build.
+Liefert der Pixel 0 oder −1, wird das „nicht lesbar" — AK-21 wird dann ehrlich nie
+„widerspricht", aber nie falsch.
+
+**Optionen:**
+A. **`ConnectivityManager.getNetworkCapabilities(activeNetwork)?.transportInfo as? WifiInfo`
+→ `frequency`**, neue Berechtigung `ACCESS_NETWORK_STATE` (normal, bei Installation, kein
+Dialog; heute in keinem Manifest, Grep 28.09.).
+B. **`WifiManager.getConnectionInfo()`**. Konsequenz: seit API 31 abgekuendigt, braucht
+`ACCESS_WIFI_STATE`, oeffnet „kein `WifiManager`" woertlich — gleiche Schwaerzung, kein Gewinn.
+C. **Helfer `cmd wifi status`** (AD-005). Konsequenz: neues Helfer-Kommando, F3 verbietet es.
+D. **`NetworkCallback` auf `TRANSPORT_WIFI`**, solange der Monitor offen ist. Konsequenz: sieht
+WLAN auch, wenn es nicht das aktive Netz ist, kostet aber eine Registrierung mit Lebensdauer.
+E. **Im Bestand:** AK-21 ruht.
+
+**Entscheidung:** A. Grenze, bewusst: ist WLAN verbunden, aber nicht das aktive Netz (kein
+Internet, VPN), ist das Band „nicht lesbar" — Richtung vorsichtig. Hoeher nur mit D.
+```kotlin
+// core-monitor/.../optimize/Measures.kt
+enum class Condition(val stable: Boolean) {
+    WIFI_RADIO(true), WIFI_BAND(true), WIFI_SCAN_ALWAYS(true), USB_POWER(true), OTHER_ACL_LINKS(true),
+    DISCOVERY_SEEN(false),
+}
+// WIFI_BAND: Read("off") | Read("2.4 GHz") | Read("5 GHz") | Read("6 GHz") | Unreadable(grund)
+enum class Measure(val r010: String, val condition: Condition?, private val alsoChanged: Condition? = null) {
+    NO_2_4_GHZ_WIFI("A2", Condition.WIFI_BAND, alsoChanged = Condition.WIFI_RADIO), /* Rest unveraendert */
+    ;
+    /** What carrying this measure out changes; a change of these between the arms is the measure itself. */
+    val governs: Set<Condition> get() = setOfNotNull(condition, alsoChanged)
+}
+// verify A2: "off" -> VERIFIED, "2.4 GHz" -> CONTRADICTED, sonst NOT_VERIFIABLE
+
+// app/.../ui/tuning/EnvironmentConditions.kt
+internal fun bandValue(radio: ConditionValue, frequencyMhz: Int?, error: Throwable?): ConditionValue
+// radio Read("off") -> Read("off"), ohne ConnectivityManager-Aufruf; radio Unreadable -> Unreadable;
+// error -> Unreadable(message); null (kein WLAN als aktives Netz) -> Unreadable; Frequenz -> Band
+// nach den Grenzen oben; ausserhalb -> Unreadable("… MHz in no known band")
+```
+- `Comparison.kt`: Ausnahme „Bedingung der gewaehlten Massnahme" wird `c !in measure.governs`
+  (heute `c != measure.condition`, Z. 113). Ohne das beendete ein Wechsel von 2,4 auf 5 GHz —
+  die Massnahme selbst — den A2-Vergleich; mit `WIFI_BAND` als `stable` blockiert derselbe
+  Wechsel jeden anderen Vergleich (T-036: 2,4 GHz ist der belegte Ausloeser).
+- A2 vor Arm B bei 2,4 GHz: `CONTRADICTED`, Arm B startet nicht. „Bereits umgesetzt" nur bei „off".
+- 5 und 6 GHz bleiben `NOT_VERIFIABLE`: T-036s Arm „ohne" war WLAN **aus**.
+- Gelesen wird nur in `readConditions`: bei offenem Monitor (AD-044) und an den Armgrenzen —
+  genau AK-21.
+- Nur `getFrequency()` wird gelesen; die App fasst `ssid`, `bssid`, IP nicht an.
+
+**Konsequenzen:** Neue Berechtigung und damit Policy-Flaeche; AK-10 unberuehrt (kein Helfer).
+Das Band steht ueber AD-044 im lokalen Protokoll — die Datenschutzliste (C-001 Nr. 10) muss es
+nennen. Rahmenzeilen und `notChecked` zeigen `WIFI_BAND` ohne Strukturaenderung.
+
+**Umkehrbarkeit:** leicht — ein Enum-Eintrag, eine Funktion, eine Manifestzeile.
+
+**Beruehrt Dateien:** `EnvironmentConditions.kt`, `Measures.kt`, `Comparison.kt`,
+`ConditionStatus.kt` (A2-Worte, Name `WIFI_BAND`); Verdrahtung `app/src/main/AndroidManifest.xml`.
+
+**Test (rot vorher):**
+- `bandValue` (JVM): (`Read("off")`, –) → `Read("off")`; (`Read("on")`, 2437) → „2.4 GHz";
+  2484 → „2.4 GHz"; 2485 → `Unreadable`; 5180 → „5 GHz"; 5935 und 5955 → „6 GHz"; (`Read("on")`,
+  `null`) → `Unreadable`; Fehler `SecurityException("x")` → `Unreadable("x")`; (`Unreadable`, 2437)
+  → `Unreadable`, nie `Read`.
+- `readConditions` (Robolectric, `ShadowNetworkCapabilities.setTransportInfo` mit Frequenz 2437,
+  `wifi_on = "1"`) → `book[WIFI_BAND] == Read("2.4 GHz")`.
+- `MeasuresTest`: A2 „2.4 GHz" → `CONTRADICTED`, „5 GHz" → `NOT_VERIFIABLE`, „off" → `VERIFIED`;
+  `NO_2_4_GHZ_WIFI.governs == setOf(WIFI_BAND, WIFI_RADIO)`, sonst `setOfNotNull(condition)`.
+- `ComparisonTest`: A2, Band Ende A „2.4 GHz" → Anfang B „5 GHz", Funk beide „on" → vergleichbar;
+  derselbe Wechsel bei A5 → `ConditionChanged(WIFI_BAND, BETWEEN_ARMS)`; A2 Funk on→off, Band
+  „2.4 GHz"→„off" → vergleichbar.
+- `ComparisonControllerTest`: A2 in `INSTRUCT`, Buch „2.4 GHz" → `onCheck` bleibt in `INSTRUCT`.
+- `AcceptanceCriteriaGrepTest`: kein `getSSID|getBSSID|WifiManager` in `app/src/main/java`,
+  kein `ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|NEARBY_WIFI_DEVICES` in den Manifesten,
+  `getNetworkCapabilities` nur in `EnvironmentConditions.kt`.
+- **Geraet:** 2,4-GHz-Netz → A2 „widerspricht"; 5-GHz-Netz → „nicht pruefbar"; `dumpsys package`
+  der App zeigt keine Standortberechtigung.
+
+---
+
+### AD-047 — Bauschnitt fuer P-001/P-004, P-002, P-003: drei Laeufe Y-1..Y-3 (2026-09-28, Status: aktiv)
+
+**Kontext:** AD-044..046. Regel wie AD-038/AD-043: hoechstens fuenf Dateien mit eigener Logik
+je Lauf; Verdrahtung, Verschiebung, Texte und Tests zaehlen nicht. Keine Datenbank-Anweisung
+(L-033 nicht beruehrt; AD-044 Option B verworfen). Alle Laeufe nach dem Fixzyklus T-055.
+
+| Lauf | AD / AK | Dateien mit Logik | Verdrahtung / Verschiebung | Security-Vorlauf | UI_SPEC T-057b | braucht |
+|---|---|---|---|---|---|---|
+| **Y-1** | AD-044 / AK-18, AK-19, AK-20 (Rueckkehr) | `MonitorViewModel.kt`, neu `ConditionStatus.kt`, neu `MeasureStatusSection.kt` | `ComparisonSection.kt` (drei Funktionen wortgleich heraus), `MonitorScreen.kt` | nein | Pruefstand, „wird gelesen", Protokollzeilen, Ursachen- und Sammelwortliste | X-3 (`uiVisible`-Accessor, Mess-Sammler), X-4 (`ComparisonSection.kt`) |
+| **Y-2** | AD-045 / AK-20 | neu `SettingsJumps.kt`, `MeasureStatusSection.kt`, `ComparisonSection.kt` | — | nein (feste Aktionen, keine Extras) | Knoepfe, Satz „nicht aufloesbar", Grund je Eintrag ohne Sprung | Y-1 |
+| **Y-3** | AD-046 / AK-21 | `EnvironmentConditions.kt`, `Measures.kt`, `Comparison.kt`, `ConditionStatus.kt` | `app/src/main/AndroidManifest.xml` | **ja** (`ACCESS_NETWORK_STATE`, AD-035 geoeffnet) | A2-Worte je Band, Name „Wi-Fi band" | Y-1, Security-Vorlauf |
+
+**Reihenfolge:** Y-1; dann **Y-2 ∥ Y-3** (Dateilisten disjunkt: {`SettingsJumps`,
+`MeasureStatusSection`, `ComparisonSection`} gegen {`EnvironmentConditions`, `Measures`,
+`Comparison`, `ConditionStatus`, Manifest}); Security-Vorlauf fuer Y-3 parallel zu Y-1. Dann ein
+QA-Retest. **F-011:** P-002 beruehrt `DeviceProfilesScreen.kt` und `BluetoothSystemControls.kt`
+nicht (keine Spruenge fuer die Nur-Lesen-Werte) — die Kollision aus dem Backlog entfaellt; X-2
+bleibt trotzdem vorher. Aendert UI_SPEC fuer P-003 auch Anleitung oder Namen von A2
+(`Measure.instruction`/`displayName` in `ComparisonSection.kt`), setzt das **Y-2**, nicht Y-3 —
+sonst teilen sich die parallelen Laeufe eine Datei.
+
+**Rot-vorher je AK:** AK-18 `MeasureStatusSectionTest` (Unlesbar → nicht pruefbar, sechs Zeilen);
+AK-19 `ConditionStatusTest` (Episodenbuch) und `MonitorViewModel` (keine Zeile bei `uiVisible`
+falsch); AK-20 `SettingsJumpsTest` (zehn Eintraege) und `MonitorViewModel`-Rueckkehr; AK-21
+`MeasuresTest` (2,4 GHz → `CONTRADICTED`) und `bandValue`. Einzelheiten in den ADs.
+
+**Risiken:**
+
+| Risiko | Woran man es merkt | Rueckweg |
+|---|---|---|
+| Die Buch-Lesung je Takt stoert (AK-1) | AK-1-Messreihe | Lesen seltener geht nicht ohne AK-19 „zum Zeitpunkt der ersten Lesung" zu brechen → Frage an den Nutzer |
+| Pixel-Settings sucht beim Bluetooth-Sprung doch | Geraeteprobe AD-045 | A3 auf `null`, Satz statt Knopf |
+| Pixel liefert ohne Standort keine Frequenz | A2 immer „nicht pruefbar: …" | AK-21 ruht faktisch; ehrlich, kein Bau noetig |
+| WLAN verbunden, aber nicht aktives Netz | Grund im Buch | Option D aus AD-046 |
+| Lange Verlustphasen fuellen das Protokoll | viele gleiche Zeilen | AD-023 bauen |
+
+**Umkehrbarkeit:** leicht — ein Plan.
+
+---
+
+### AD-048 — Codec- und HD-Audio-Aufrufe an den Helfer enden nach 15 s; ein unbeantworteter Aufruf sperrt die naechsten, nicht das Ledger (2026-09-29, Status: aktiv — B6 aus T-055s; Punkt „Weggelassen: `exec`" **abgeloest durch AD-053** am 2026-09-29)
+
+**Kontext:** B6: Die Ledger-Sperre wird ueber Helferaufrufe gehalten, die kein Ende haben.
+Unter der Sperre laufen genau zwei Arten Helferaufruf: `PrivilegedCodecController.call`
+(Pinnen `LdacTuning.recordThenPin`, Applier `DeviceProfileApplier.kt:304` bei jedem Verbinden
+mit Codecwunsch seit AD-041, Rueckweg `SettingsRestore.putBack(Ldac)`) und
+`PrivilegedHdAudioController.call` (Applier `:262`, Rueckweg `putBack(HdAudio)`). Globals laufen
+in-App ueber `GlobalSettingsController`, nicht ueber den Helfer. Haengt der Helfer lebend (kein
+`DeadObjectException`), haelt der Aufrufer die Sperre fuer immer, und der Rueckweg wartet davor.
+Zwei Tatsachen tragen den Entwurf:
+1. **Ein Binder-Aufruf ist nicht abbrechbar.** `service.setCodecPreference(...)` blockiert einen
+   Thread in einer nativen Transaktion; Coroutine-Abbruch ist kooperativ, und `withContext` kehrt
+   erst zurueck, wenn sein Block fertig ist. Ein `withTimeout` um den bestehenden
+   `withContext(Dispatchers.IO) { ... }` beendet **nichts**. Der Timeout muss den Aufruf
+   zuruecklassen, nicht abbrechen. (Randbedingung: Kotlin-Coroutines-Semantik, gilt fuer jede
+   blockierende Transaktion; `Thread.interrupt` erreicht Binder nicht.)
+2. **Ein zurueckgelassener Aufruf kann spaeter noch schreiben.** Loest sich der Haenger, landet die
+   Schreibung eventuell nach einem Rueckweg, der die Sperre inzwischen bekommen, zurueckgestellt und
+   den Eintrag vergessen hat — dann steht der App-Wert ohne Ausgangszustand da (AK-11, Klasse
+   SR-032).
+
+Obergrenze des Helfers selbst, aus dem Code gelesen, nicht gemessen: A2DP-Bindung
+`BIND_TIMEOUT_SECONDS = 8` plus Ruecklesen `SETTLE_BUDGET_MS = 2_500` (`HelperBluetooth.kt:785-786`)
+plus die einzelnen Stack-Aufrufe.
+
+**Optionen:**
+- **A. Im Bestand bleiben.** Konsequenz: B6 bleibt; ein haengender Helfer blockiert Pinnen,
+  Autoapply und Rueckweg bis zum Prozessende.
+- **B. Timeout um den Sperrbereich** (`withTimeout` um `ledger.lock.withLock`). Konsequenz: wirkt
+  wegen Tatsache 1 gar nicht; wuerde er wirken, gaebe er die Sperre bei laufender Schreibung frei —
+  genau der Fall aus Tatsache 2.
+- **C. Timeout im Rueckweg** (nur `SettingsRestore`). Konsequenz: Pinnen und Autoapply haengen
+  weiter, und der Rueckweg wartet trotzdem auf die Sperre, die ein haengender Schreiber haelt.
+- **D. Timeout am Client-Aufruf, mit Einzelplatz.** Der Binder-Aufruf laeuft in einem eigenen
+  Scope, der Aufrufer wartet hoechstens 15 s. Solange ein zurueckgelassener Aufruf noch laeuft,
+  wird jeder weitere Codec-/HD-Audio-Aufruf **sofort** abgelehnt, ohne den Helfer zu erreichen.
+  Konsequenz: die Sperre ist nach hoechstens 15 s frei; eine spaete Schreibung kann nicht mehr mit
+  einer Rueckschreibung ueberlappen, weil die Rueckschreibung den Helfer gar nicht erreicht.
+
+**Entscheidung:** D, in `PrivilegedCallGuard` (der Guard ist schon der eine prozessweite Ort fuer
+den Zustand aller privilegierten Aufrufe, `PrivilegedCallGuard.SHARED`). Illustration, keine Vorgabe
+fuer Namen:
+
+```kotlin
+// PrivilegedCallGuard, neben succeeded()/failed()
+internal class PrivilegedCallGuard(
+    private val threshold: Int = FAILURES_BEFORE_PING,
+    private val forget: () -> Unit = PrivilegedConnection::forget,
+    private val callTimeoutMs: Long = HELPER_CALL_TIMEOUT_MS,   // 15_000
+) {
+    private val inFlight = AtomicReference<Deferred<*>?>(null)
+
+    /** Busy: an earlier call is unanswered. TimedOut: this one is. Exceptions from block pass through as today. */
+    suspend fun <T> bounded(block: () -> T): Bounded<T> {
+        val call = CALLS.async(start = LAZY) { block() }        // CALLS = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        if (!inFlight.compareAndSet(inFlight.get()?.takeUnless { it.isActive }, call)) {
+            call.cancel()
+            return Bounded.Busy
+        }
+        call.start()
+        return withTimeoutOrNull(callTimeoutMs) { Bounded.Done(call.await()) } ?: Bounded.TimedOut
+    }
+}
+```
+
+Die zwei `call`-Funktionen in `PrivilegedClient.kt` (Codec `:607`, HD-Audio `:712`) setzen nur
+`block(service, token)` in `guard.bounded { ... }`; Dekodieren, `succeeded()` und `failed()`
+bleiben, wie sie sind. `Busy` und `TimedOut` werden zu `Unavailable` mit Satz:
+- TimedOut: „the privileged helper did not answer within 15 s — whether the change took effect is
+  unknown" (bei Lesungen ohne Halbsatz nach dem Strich).
+- Busy: „the privileged helper has not answered an earlier request yet — nothing was sent".
+
+**Zustand nach Timeout (AK-11):** Der Eintrag steht schon vor dem Schreiben und **bleibt**. Das ist
+richtig, egal ob die Schreibung spaeter landet oder nie: Der Eintrag haelt den Wert *vor* der App,
+und genau dahin fuehrt der Rueckweg. Kein Schreiber entfernt einen Eintrag nach `Unavailable` (heute
+schon so: `recordThenPin`, `ifRecorded`); `SettingsRestore.forget` laeuft nur nach bestaetigtem
+Ruecklesen, also bleibt ein Eintrag nach Timeout/Busy als „pending" mit dem Satz oben im Bericht.
+Der Rueckweg laeuft damit durch: Globals und Profilwuensche werden zurueckgestellt, die
+Helfer-Eintraege bleiben offen und sind mit einem zweiten Tipp nachholbar; `putBack(Ldac)` ist dafuer
+schon idempotent (Profilwunsch gleich → nur die Live-Stufe). Dauer des Rueckwegs bei haengendem
+Helfer: hoechstens einmal 15 s, danach lehnt Busy sofort ab.
+
+**Timeout und Guard:** Ein Timeout ruft `failed()` **nicht** auf — dessen Ping `version()` ist
+selbst ein Binder-Aufruf und haengt am selben Helfer. Einmal `Log.w` genuegt. Stirbt der Helfer
+spaeter, feuert die bestehende Death-Recipient in `PrivilegedConnection` unabhaengig davon.
+
+**15 s:** oberhalb der Helfer-Budgets (8 s + 2,5 s, abgeleitet, nicht gemessen) und gleich dem
+Helfer-eigenen `exec`-Timeout (`PrivilegedServer.kt:772`). Ein Wert darunter wuerde einen langsamen,
+aber gesunden Helfer als „unbekannt" melden. Eine Konstante mit KDoc, die beide Quellen nennt; keine
+Einstellung.
+
+**Weggelassen:** `exec` (`EXEC_LOCK`) und `restartBluetooth`. Beide laufen nicht unter der
+Ledger-Sperre; `exec` hat den 15-s-Timeout schon im Helfer, und die Dauer eines Neustarts
+(`wait-for-state`) ist unbekannt — ein Timeout dort muesste erst gemessen werden.
+
+**Umsetzung — ein developer-Lauf (Z-1):**
+
+| Datei | Aenderung |
+|---|---|
+| `app/.../privileged/PrivilegedFailure.kt` | `PrivilegedCallGuard`: `callTimeoutMs`, `bounded`, Ergebnis `Done/Busy/TimedOut`, Konstante `HELPER_CALL_TIMEOUT_MS` |
+| `app/.../privileged/PrivilegedClient.kt` | zwei `call`-Funktionen ueber `guard.bounded`; `guard` als Konstruktorparameter (Default `SHARED`) an `PrivilegedCodecController` und `PrivilegedHdAudioController` — Muster wie `PrivilegedShellRunner` |
+| neu `app/src/test/.../privileged/PrivilegedTimeoutTest.kt` | Robolectric, Fake-Helfer nach `PrivilegedTransportTest.kt:375`, `PrivilegedConnection.accept(fake)` |
+
+**Rot-vorher** (Guard mit `callTimeoutMs = 200`; der Fake blockiert `setCodecPreference` an einem
+`CountDownLatch`, das im `finally` freigegeben wird):
+1. *Ein Helfer, der nie antwortet, haelt die Ledger-Sperre hoechstens bis zum Timeout.* Im Test:
+   `async(Dispatchers.IO) { ledger.lock.withLock { controller.apply(addr, ldac990) } }`, dann
+   `withTimeoutOrNull(5_000) { it.await() }` — erwartet nicht-null, `Unavailable` mit „did not
+   answer", danach `ledger.lock.isLocked == false`. **Wichtig:** der Test darf den Aufruf nicht
+   direkt in `withTimeout` legen — heute kehrt er dann nie zurueck, und die Suite haengt, statt rot
+   zu werden (Tatsache 1).
+2. *Waehrend ein Aufruf unbeantwortet ist, erreicht der naechste den Helfer nicht.* Nach Fall 1 ein
+   zweites `apply` → sofort `Unavailable` mit „earlier request", Aufrufzaehler des Fakes bleibt 1.
+   Dann Latch frei, auf das Ende des ersten warten, drittes `apply` erreicht den Fake (Zaehler 2).
+3. Dasselbe wie 1 fuer `PrivilegedHdAudioController.apply` (ein Test, kein Satz je Methode).
+
+Nicht beruehrt: `SettingsLedger.kt`, `SettingsRestore.kt`, `LdacTuning.kt`,
+`DeviceProfileApplier.kt` — sie behandeln `Unavailable` bereits als „nicht bestaetigt, Eintrag
+bleibt". Die zwei Saetze sind vom Architekten gesetzt → ui-ux-Review.
+
+**Konsequenzen:** Ein haengender Helfer kostet hoechstens 15 s und blockiert danach nur noch sich
+selbst. Ein verkeilter, aber lebender Helfer erscheint weiter als „verbunden"; jede Codec-/HD-Aktion
+sagt dann „earlier request". Ein haengender Binder-Thread bleibt im IO-Pool, bis der Helfer antwortet
+oder stirbt — hoechstens einer, wegen des Einzelplatzes.
+
+**Umkehrbarkeit:** leicht — zwei Dateien, keine Schnittstelle nach aussen, keine Persistenz.
+
+---
+
+### AD-049 — BQR-Callback im Helfer mit dessen vorhandenem Bootstrap, abgeholt statt zugestellt; zuerst eine Geraeteprobe, kein Bau (2026-09-29, Status: Entwurf — **Nutzer: AK-7-Freigabe**, **`security-reviewer` vor dem Bau** (AK-6/AK-10), **Geraeteprobe G0–G4 vor dem Bau**)
+
+**Kontext:** T-037 meldet „strukturell blockiert — `BluetoothAdapter` ist unter rohem `app_process`
+`null`; braucht echten App-Bootstrap oder AIDL (Bau-, kein Messschritt)". **Randbedingung dieses
+Befunds:** gemessen mit einer Scratch-Sonde, die nur `ActivityThread.systemMain()` aufrief
+(`docs/perf/T-037-callback-probe.md`, Befund 3). **Der Helfer tut mehr:**
+`HelperBluetooth.primeFrameworkInitializer()` (`HelperBluetooth.kt:586`) setzt genau den fehlenden
+`BluetoothServiceManager` in `BluetoothFrameworkInitializer`, und `adapterOrBuild()` (`:618`) baut den
+Adapter ueber den Konstruktor `BluetoothAdapter(IBluetoothManager, Context, AttributionSource)` mit
+Attribution `com.android.shell`. Am Geraet belegt am 21.08. (Android 16) fuer `getProfileProxy` und
+`setCodecConfigPreference`: Log `privileged helper: adapter attributed to com.android.shell`
+(`docs/archiv/HANDOVER.md:1567-1584`). Der Befund aus T-037 gilt also fuer die Sonde, **nicht** fuer
+den Helfer. Offen ist nicht mehr der Bootstrap, sondern ob der Stack die Registrierung ueber diesen
+Adapter annimmt — ein Mess-, kein Bauschritt.
+
+Weitere Kraefte:
+- **AK-7 ist zurueckgestellt:** „Bis dahin wird an diesem Kanal nichts gebaut." R-011 (die
+  verlangte Klaerung) liegt vor; die Freigabe selbst hat der Nutzer nicht gegeben.
+- **R-011:** `dumpsys bluetooth_manager` leert die BQR-Queue fuer alle [Q, doppelt]; der Callback
+  wird laut `AddLinkQualityEventToQueue` getrennt von der Queue ausgeliefert, also ohne sie zu
+  leeren [Q, **einfach abgefragt**] — genau das muss die Probe bestaetigen.
+  `bqr.event_mask`/`bqr.min_interval_ms` sind auf dem Pixel 11 Pro leer: Berichte kommen, wenn
+  ueberhaupt, ereignisgesteuert, nicht periodisch. T-036 sah BQR nur im Arm mit 2,4-GHz-WLAN.
+- **AK-6/AK-10:** jede Helfererweiterung einzeln vom `security-reviewer`.
+- **AK-1/AK-4:** keine Arbeit ohne offenen Monitor; die Registrierung kostet je Ereignis eine
+  Binder-Zustellung vom Stack an den Helfer.
+- **Bestand:** Die Naht existiert — `QualityReportSource` (`core-monitor/.../link/QualityReportSource.kt`)
+  mit Verbraucher `LinkSampleCollector` und `LinkQualitySample`. Die einzige Implementierung
+  `ReflectiveQualityReportSource` versucht die Registrierung aus der App-Uid.
+
+**Optionen:**
+- **A. Die App registriert selbst** (Bestand: `ReflectiveQualityReportSource`). Konsequenz: scheitert
+  an `BLUETOOTH_PRIVILEGED` (`signature|privileged`, R-011 Befund 4, [P]); die App-Uid bekommt sie
+  nie. Auf Android 17 nicht geprueft, aber ohne Weg.
+- **B. Der Helfer registriert mit seinem vorhandenen Bootstrap**, puffert die Berichte und die App
+  holt sie ab. Konsequenz: kein neuer Prozess, kein neues Bootstrap, ein Muster (Frage/Antwort als
+  String, AD-027); zwei neue Helferkommandos.
+- **C. Der Helfer ruft `IBluetooth.registerBluetoothQualityReportReadyCallback` roh ueber AIDL**,
+  am `BluetoothAdapter` vorbei. Konsequenz: versteckte, versionsabhaengige Signaturen
+  (`AttributionSource`-Parameter) per Reflection, ein Callback-Stub fuer ein verstecktes Interface.
+  Bruechiger als B, loest kein Problem, das B hat.
+- **D. Der Helfer stellt zu** (die App uebergibt einen Listener-Binder, der Helfer ruft in die App).
+  Konsequenz: erste Aufrufrichtung Helfer→App; die App muesste die Aufrufer-Uid pruefen; zweites
+  Muster neben Frage/Antwort. Groessere Angriffsflaeche fuer keinen Gewinn — Berichte kommen selten,
+  und der Monitor liest ohnehin im Takt.
+- **E. Im Bestand bleiben:** AD-036 bleibt, AK-16 sagt „strukturell nicht bestimmbar".
+
+**Entscheidung:** B, mit C nur als Rueckfall, falls die Probe an B scheitert und die Fehlermeldung
+auf den Adapter-Wrapper zeigt. **Bis G0–G4 belegt und AK-7 freigegeben sind, gilt E.**
+
+Zuschnitt fuer den spaeteren Bau (Entwurf, nicht beauftragt):
+- **Helfer** (`HelperBluetooth.kt`): `adapterOrBuild()` wiederverwenden;
+  `registerBluetoothQualityReportReadyCallback(Executor, Callback)` reflektiv; Ringpuffer 32
+  Eintraege, aeltester faellt, Zaehler der verworfenen. **Es verlaesst nur der
+  Link-Quality-Common-Teil den Helfer** (Pakettyp, RSSI, Sendeleistungsstufe, Wiederholungen,
+  Nicht-Empfang, AFH-Auslass, Zeitstempel) — keine Adresse, kein Name (PII, SR-030-Klasse).
+  Abmelden bei `watch(false)` und in der bestehenden Death-Recipient auf den App-Token
+  (`PrivilegedServer.watchApp`, `:210`) — der Callback ueberlebt keinen Verbraucher (die Luecke,
+  die `ReflectiveQualityReportSource.stop()` selbst benennt).
+- **Protokoll** (`IPrivilegedService.aidl`, `PrivilegedServer.kt`, `PrivilegedProtocol.kt`): zwei
+  Kommandos, String-Antwort wie alle anderen (AD-027): `watchQualityReports(token, on: boolean)` und
+  `takeQualityReports(token)` (leert **nur den Helfer-eigenen Puffer**, nie die Stack-Queue).
+  Helferversion +1.
+- **App:** `HelperQualityReportSource` implementiert das bestehende `QualityReportSource`
+  (`start` = watch an, `stop` = watch aus, `samples` = `take` im vorhandenen Monitor-Takt) und
+  **ersetzt** `ReflectiveQualityReportSource` in `MonitorGraph.kt:174`, die geloescht wird (A ist
+  ohne Weg; zwei Implementierungen fuer denselben Zweck waeren zwei Muster). Nur bei offenem Monitor
+  (AK-4); unlesbar → `Unavailable(Grund)` (AK-3).
+- **AK-16:** erst wenn G4 den Pakettyp liefert, eine eigene AD als Erweiterung von AD-036.
+
+**Am Geraet zu belegen** (performance-tuner, Scratch-Sonde wie T-037, aber mit den zwei
+Helferschritten aus `HelperBluetooth.kt:586-660` kopiert; kein Produktcode; App und Helfer beendet
+(F-014); nur passiv):
+
+| Nr | Belegt, wenn | Scheitert → |
+|---|---|---|
+| G0 | Sonde loggt „BluetoothFrameworkInitializer primed" und einen Adapter ungleich `null` unter Android 17 | T-037-Befund gilt auch fuer das Helfer-Rezept → C pruefen |
+| G1 | `registerBluetoothQualityReportReadyCallback` kehrt ohne `SecurityException` zurueck, Statuscode notiert | Grund notieren; bei Attributionsfehler C, bei Berechtigung E endgueltig |
+| G2 | mindestens ein Bericht erreicht den Callback (Bedingung wie T-036: 990 gepinnt, 2,4-GHz-WLAN, ≤ 30 min Warten) | „nicht belegt", nicht „negativ" — ohne Ereignis keine Aussage |
+| G3 | **ein einziges** `dumpsys bluetooth_manager` am Ende zeigt denselben Bericht noch in der Queue | Callback konsumiert doch → Option B verletzt AK-1 gegen andere Leser, zurueck an den Architekten |
+| G4 | der Bericht traegt einen lesbaren Pakettyp (z. B. 2-DH5/3-DH5) | B liefert AK-7-Felder ohne Pakettyp; AD-036 bleibt |
+
+Danach, vor Auslieferung: AK-1-Messreihe mit aktiver Registrierung (performance-tuner).
+
+**Konsequenzen:** Der naechste Schritt ist eine Probe von hoechstens einer Sitzung statt eines Baus.
+Gelingt sie, waechst der Helfer um zwei lesende Kommandos und einen Puffer ohne PII. Die App verliert
+eine Implementierung, die nie funktioniert hat.
+
+**Umkehrbarkeit:** leicht, solange nur entworfen; nach dem Bau mittel (Helferversion, AIDL).
+
+---
+
+### AD-050 — Eine Fassung fuer alle: `QUERY_ALL_PACKAGES` und `BLUETOOTH_PRIVILEGED` fallen aus dem Manifest, die EQ-Erkennung laeuft ueber `<queries>` (2026-09-29, Status: aktiv — AK-22, C-001 Auflagen 4, 5)
+
+**Kontext:** AK-22 verlangt einen Store-Build ohne beide Berechtigungen. Frage 1 aus T-067: zweiter
+Build (Flavor) oder eine Fassung? Am Bestand gelesen (29.09.):
+- `PackageManagerAppSource.read` (`AndroidEqCandidateSources.kt:39-73`) behaelt von der vollen
+  Paketliste **nur** Apps, die `DISPLAY_AUDIO_EFFECT_CONTROL_PANEL` deklarieren oder in `VendorEqApps`
+  stehen (`if (!declares && !vendor) return@mapNotNull null`). Beides macht die `<queries>`-Liste
+  sichtbar: das `<intent>`-Element und 12 `<package>`-Eintraege. `VendorEqApps` enthaelt dieselben 12
+  Pakete (Diff der beiden sortierten Listen: identisch, 29.09.). **Randbedingung:** gilt fuer den
+  Filter von heute; bekommt die Erkennung je eine Stufe „irgendeine App mit
+  `MODIFY_AUDIO_SETTINGS`" zurueck, braucht sie wieder die volle Liste.
+- Was die volle Liste heute sonst traegt: (a) die Zahl `scannedPackages` in „N apps checked"
+  (`BluetoothSection.kt:526-527`) — ohne QAP zaehlt sie nur noch sichtbare Pakete und wuerde eine
+  Vollpruefung vortaeuschen; (b) Uid→Name fuer spielende Apps: `getPackagesForUid` liefert fuer eine
+  unsichtbare App `null`. `LiveLinkPanel.appLabel` (`:724`) faellt dann ehrlich auf „uid N" zurueck;
+  `EqScreen.kt:488` und `PreferenceTestViewModel.kt:579` verwerfen den Eintrag per `mapNotNull` —
+  eine spielende, unsichtbare App verschwaende aus der Liste (stiller Freispruch, AK-3).
+  Suchmuster `getPackagesForUid|getApplicationLabel|loadLabel|getApplicationInfo|getPackageInfo\(`
+  ueber `*/src/main/*.kt` (29.09.): 4 Uid→Paket-Stellen — die 3 genannten plus
+  `AndroidEqCandidateSources.kt:141` (Abgleich spielender Apps mit den Kandidaten, die ohnehin
+  sichtbar sind: unberuehrt); 3 Stellen, die Pakete nach Namen aufloesen (`MonitorGraph.kt:336`,
+  `BluetoothSection.kt:384`, `AndroidEqCandidateSources.kt:63`) und ohne QAP wie heute arbeiten bzw.
+  schon auf den Paketnamen zurueckfallen; 2 lesen das eigene Paket (`BackupRepository.kt:189`,
+  `SettingsScreen.kt:524`). „Mindestens" — eine Aufloesung ueber andere APIs deckt das Muster nicht.
+- `BLUETOOTH_PRIVILEGED` (`core-monitor/src/main/AndroidManifest.xml:17`) wird der App-Uid nie
+  gewaehrt; der Helfer laeuft mit Attribution `com.android.shell` (AD-049), die App-Deklaration
+  beruehrt ihn nicht.
+
+**Optionen:**
+- **A. Im Bestand bleiben.** Konsequenz: Einreichung scheitert sicher an der Package-Visibility-Policy
+  (C-001 Befund 2, ROT).
+- **B. Zwei Flavors** (`store` ohne, `sideload` mit QAP). Konsequenz: zwei Manifeste, zwei
+  Testmatrizen, und die private Fassung gewinnt nichts, weil der Filter nur `<queries>`-sichtbare
+  Apps behaelt.
+- **C. Eine Fassung ohne beide Berechtigungen.**
+
+**Entscheidung:** C. Ein zweiter Build haette keinen Grund, den man in einem Satz nennen kann.
+1. Beide `<uses-permission>` samt Kommentar entfallen (`app/.../AndroidManifest.xml:39-57`,
+   `core-monitor/.../AndroidManifest.xml:10-18`); der `<queries>`-Kommentar (`:59-68`) sagt, dass
+   `<queries>` jetzt die einzige Sicht ist.
+2. „N apps checked" wird ein fester Satz ohne Zahl, sinngemaess „Only known EQ apps are recognised:
+   apps that declare an equaliser panel, and 12 headphone companion apps." (Wortlaut ui-ux). Das
+   Feld `scannedPackages` faellt mit (ohne Verbraucher waere es QA-005-Klasse): `EqCandidates.kt:133`,
+   `EqCandidateScanner.kt:17/125/152`, `AndroidEqCandidateSources.kt:73`.
+3. `LiveLinkPanel.appLabel` zieht in eine eigene Datei `app/.../ui/AppLabel.kt` und ist die **eine**
+   Uid→Name-Funktion; `EqScreen.kt:480-495` und `PreferenceTestViewModel.kt:576-584` rufen sie, statt
+   zu verwerfen. Drei Kopien derselben Logik werden eine.
+4. KDoc/Kommentare, die QAP voraussetzen: `MonitorGraph.kt:323-330`,
+   `AndroidEqCandidateSources.kt:74-77` („a revoked QUERY_ALL_PACKAGES").
+
+**Berührt Dateien:** `app/src/main/AndroidManifest.xml`, `core-monitor/src/main/AndroidManifest.xml`,
+`BluetoothSection.kt`, `EqCandidates.kt`, `EqCandidateScanner.kt`, `AndroidEqCandidateSources.kt`,
+`MonitorGraph.kt` (nur KDoc), `LiveLinkPanel.kt`, `EqScreen.kt`, `PreferenceTestViewModel.kt`, neu
+`app/.../ui/AppLabel.kt`; Tests, die `scannedPackages` setzen.
+
+**Tests, die den Bau binden:**
+- `app/src/test/.../StoreManifestTest.kt` (Robolectric, Muster
+  `EnvironmentConditionsTest.kt:188-201`): (1) `requestedPermissions` des gemergten Manifests enthaelt
+  weder `QUERY_ALL_PACKAGES` noch `BLUETOOTH_PRIVILEGED` — rot heute; (2) jede Paketkennung aus
+  `VendorEqApps.known` steht als `<package>` in `src/main/AndroidManifest.xml` und das
+  Panel-`<intent>` ist da (Textlesung der Quelldatei; Erwartung zusaetzlich als Literal: 12 Pakete).
+  Faellt (2), ist eine Hersteller-App ohne QAP unsichtbar — genau der stille Freispruch.
+- `app/src/test/.../ui/AppLabelTest.kt`: eine Uid ohne Paket ergibt „uid 12345", nicht nichts; rot
+  gegen die heutige `EqScreen`-Variante (die Liste waere leer).
+
+**Konsequenzen:** Die Erkennung sagt ueber unbekannte EQ-Apps nichts mehr und sagt das. Eine
+spielende unbekannte App erscheint als Uid statt als Name. Die Gegenrichtung (wieder volle Liste)
+ist ein Manifest-Eintrag plus Policy-Konflikt.
+
+**Umkehrbarkeit:** leicht — Manifest und ein Satz.
+
+---
+
+### AD-051 — Offenlegung ueber den vorhandenen Zustimmungsdialog; ein Text, zwei Orte, ein Waechter gegen Luecken (2026-09-29, Status: aktiv — AK-23, AK-24, C-001 Auflagen 1, 3, 6, 8, 16)
+
+**Kontext:** Auflage 1 verlangt vor der ersten Verbindung, mit Zustimmung, die vollstaendige Liste:
+Entwickleroptionen, Wireless Debugging, Prozess mit Shell-Rechten, Vergabe von
+`WRITE_SECURE_SETTINGS`, jede geschriebene Einstellung, das selbsttaetige Oeffnen/Schliessen von
+Wireless Debugging nach Neustart. Bestand: `ActivateViewModel` zeigt vor dem ersten Versuch
+**einmal je Installation** den Dialog `LocalConnectionDisclosure` (`ActivateScreen.kt:~488-508`,
+Zustaende `ActivateState.Disclosure`, `onDisclosureAccepted`) — heute zwei Saetze nur ueber
+`127.0.0.1`. Der PC-Weg (`SystemAccessScreen.kt`) startet den Helfer ohne diesen Dialog.
+Was die App schreibt, am Code gezaehlt (Muster `Settings\.(Global|Secure|System)\.put` ueber
+`*/src/main/*.kt`, 29.09.): 6 `Settings.Global`-Schluessel — die 4 aus
+`BluetoothDeveloperOptions.all` (`bluetooth_avrcp_version`, `bluetooth_map_version`,
+`bluetooth_pbap_client_version`, `bluetooth_show_devices_without_names`),
+`bluetooth_disable_absolute_volume` (`AbsoluteVolumeGate`), `adb_wifi_enabled`
+(`WirelessDebuggingSwitch`); dazu 4 mutierende Helfer-Operationen (`PrivilegedOperation` mit
+`mutates = true`: `setCodecPreference`, `setOptionalCodecs`, `restartBluetooth`,
+`grantSecureSettings`).
+
+**Optionen:**
+- **A. Im Bestand bleiben** (zwei Saetze). Konsequenz: Auflage 1 verfehlt.
+- **B. Neuer Zustimmungsschritt im Setup mit eigenem gespeicherten Flag.** Konsequenz: zweiter
+  Mechanismus neben `ActivateState.Disclosure` fuer denselben Zweck.
+- **C. Den vorhandenen Dialog fuellen**, Inhalt aus einer Quelle, die auch der PC-Weg zeigt, und
+  ein Test, der die Liste gegen den Code haelt.
+
+**Entscheidung:** C.
+- Neu `app/.../privileged/HelperDisclosure.kt`: ein `object` mit dem Einleitungssatz,
+  `helperActions: Map<PrivilegedOperation, String>` (je mutierende Operation ein Satz) und
+  `writtenSettings: Map<String, String>` (Schluessel → Satz). Kein Compose darin.
+- `LocalConnectionDisclosure` rendert daraus (Titel/Aufbau ui-ux; die Begruendung „zwei Saetze,
+  sonst ungelesen" im Code-Kommentar wird durch Auflage 1 ueberholt — Liste statt Fliesstext).
+  `SystemAccessScreen` zeigt denselben Inhalt vor dem Befehl. Das „einmal je Installation"-Flag
+  bleibt unversioniert: der einzige Nutzer, der die alte Fassung bestaetigt hat, ist der Entwickler.
+- Texte: `technical-writer` liefert die Saetze (Deutsch/Englisch nach App-Sprache), Store-Text mit
+  jeder Berechtigung und Funktion (Auflage 8, `INTERNET` „nur zum eigenen Geraet") und
+  Health-Disclaimer (Auflage 17). Ablage des Store-Texts bestimmt der `director`.
+- Auflage 6, gezaehlt mit zwei Masken (`play store|google play|sideload` +
+  `never|nie|not going|no store` / `no store|no distribution|never (be )?(published|distributed)`,
+  `git grep` ohne `docs/legal`, `.claude`, 29.09.): 4 Stellen — `app/.../AndroidManifest.xml:44-49`
+  (faellt mit AD-050), `docs/archiv/PLAN.md:184` und `:216` (Archiv: datierter Zusatz „bis
+  29.09.2026", nicht umschreiben), `SystemAccessScreen.kt:233` („no sideloaded app" → „no app").
+- **AK-24** ist reiner Text (`CompensationSection.kt:87-179`, `ClinicalAudiogram.kt:162-205`,
+  Hoertest-Texte): `technical-writer` + `ui-ux-designer`, Zweckbestimmung „Klang nach persoenlichem
+  Hoerprofil". Keine Code-Struktur aendert sich; NAL-R und die Audiogramm-Eingabe bleiben.
+
+**Berührt Dateien:** neu `HelperDisclosure.kt`; `ActivateScreen.kt`, `SystemAccessScreen.kt`,
+`docs/archiv/PLAN.md`, `CompensationSection.kt`, `ClinicalAudiogram.kt`, Hoertest-Texte.
+
+**Tests, die den Bau binden:**
+- `app/src/test/.../privileged/HelperDisclosureTest.kt`: (1) `writtenSettings.keys` gleich dem
+  Literal der 6 Schluessel oben **und** enthaelt jeden Schluessel aus `BluetoothDeveloperOptions.all`
+  (eine neue Option ohne Satz macht ihn rot); (2) `helperActions.keys` gleich
+  `PrivilegedOperation.entries.filter { it.mutates }`, Literal 4; (3) kein Satz leer.
+- `app/src/test/.../PurposeWordingTest.kt` (AK-24): durchsucht String-Literale in
+  `app/src/main`, `core-hearing/src/main`, `core-audio/src/main` nach einer Literal-Liste verbotener
+  Wendungen, die `technical-writer` mit dem `compliance-agent` festlegt (Kandidaten laut C-001:
+  „hearing loss", „hearing aid", „diagnos", „past what an EQ can correct"). **Grenze:** ueber zwei
+  Literale verteilte Wendungen (`"hearing " + "loss"`) sieht der Test nicht — er ist ein Riegel gegen
+  Rueckfall, kein Beweis; die Pruefung des Wortlauts bleibt beim `compliance-agent`.
+
+**Konsequenzen:** Jede neue geschriebene Einstellung oder mutierende Helfer-Operation braucht ab
+jetzt einen Offenlegungssatz, sonst ist die Suite rot — AK-10 und Auflage 3 bekommen einen Waechter.
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-052 — Datenschutz und Lizenzen als Asset-Text auf einer Textseite; Verlauf loeschen ueber das vorhandene `purgeOlderThan` (2026-09-29, Status: aktiv — AK-25, AK-26, C-001 Auflagen 10, 12, 14)
+
+**Kontext:** Frage 2 aus T-067 — was gibt es zum Loeschen? Am Bestand (Muster
+`fun (delete|clear|remove|forget|wipe|reset)[A-Za-z]*\(` ueber `*/src/main/*.kt`, 29.09., mit
+UI-Aufrufer geprueft):
+| Daten | Loeschen in der App |
+|---|---|
+| Hoertest-Laeufe | `AudiogramStore.deleteRun/deleteAllRuns`, UI `HearingTestScreen.kt:1360/1398` |
+| Klinisches Audiogramm, Altersreferenz, abgeleitete Kalibrierung | `clearClinicalAudiogram`, `clearAgeReference`, `clearDerivedCalibration`, UI ueber `HearingTestViewModel` |
+| Kompensationsprofile | `CompensationProfileStore.delete`, UI `CompensationSection.kt:800` |
+| Praeferenzprofil und -laeufe | `PreferenceTestViewModel.deleteProfile/removeRun`, UI `PreferenceTestScreen.kt:508/522` |
+| Geraeteprofile, EQ-Profile | `DeviceProfilesViewModel.delete`, `EqViewModel.deleteProfile` |
+| **Messverlauf** (Room: `monitor_events`, `link_samples`, `encoder_starvation_events`) | **fehlt** — nur Alterung ueber `MonitorRepository.purgeOlderThan(cutoff)` |
+
+Lizenzen: `THIRD_PARTY_LICENSES.md` liegt im Repo-Root, ohne Conscrypt; der Release-Bau entfernt
+`/META-INF/{AL2.0,LGPL2.1}` (`app/build.gradle.kts:69`). Ausgeliefert (`implementation`/`api`,
+29.09.): Conscrypt, Oboe (`core-audio`, bis AD-025 W-8), AndroidX Core/Lifecycle/Activity/
+Navigation/Compose/DataStore/Room, kotlinx.coroutines, kotlinx.serialization, Kotlin; kopierte
+Material-Icon-Pfade. Kein `assets/`-Verzeichnis existiert.
+
+**Optionen (Lizenzseite):**
+- **A. Google `oss-licenses-plugin`** — neue Abhaengigkeit plus Gradle-Plugin; liest nur
+  Maven-POM-Lizenzen, deckt weder Conscrypts BSD/NIST-Teile noch die Icon-Pfade.
+- **B. HTML in einer `WebView`** — eine Engine fuer eine Textseite.
+- **C. Klartext-Assets, eine Compose-Textseite.** Keine Abhaengigkeit.
+
+**Optionen (Datenschutzerklaerung in der App):** Link auf die URL (haengt an Hosting und Browser)
+oder derselbe Text als Asset. **Entscheidung:** Asset — liest sich offline und im Review; die URL
+zeigt dieselbe Datei.
+
+**Entscheidung:** C.
+- `app/src/main/assets/` neu mit `privacy.txt`, `THIRD_PARTY_LICENSES.md` (per `git mv` aus dem
+  Root — **eine** Quelle; README und `AppIcons.kt:14` verweisen auf den neuen Pfad),
+  `LICENSE-Apache-2.0.txt` (Volltext). Klartext ohne Markdown-Tabellen; die Seite zeigt ihn roh.
+- Neu `app/.../ui/screens/settings/AssetTextScreen.kt`: `(asset: String, onBack)`, liest einmal,
+  scrollt. Zwei Routen `ROUTE_PRIVACY`, `ROUTE_LICENSES` nach dem Muster der `ROUTE_*` in
+  `BtDashboardApp.kt:313-316`; kein Routen-Argument. Kaeme ein Impressum aus C-002 dazu: dritte
+  Route, dieselbe Seite.
+- `SettingsScreen` bekommt einen Abschnitt mit drei Eintraegen: Datenschutz, Open-Source-Lizenzen,
+  Messverlauf loeschen (mit Bestaetigungsdialog).
+- Loeschen: `MonitorRepository.purgeOlderThan` gibt `Boolean` zurueck (heute `Unit`, Fehler werden
+  verschluckt — ein Loeschknopf darf nicht „geloescht" sagen, wenn es scheiterte; AK-3). Der Knopf
+  ruft `purgeOlderThan(Long.MAX_VALUE)`; keine neue DAO-Abfrage. Der bestehende Alterungs-Aufrufer
+  ignoriert den Rueckgabewert.
+- Die oeffentliche URL ist eine Veroeffentlichung **dieser** Datei; der `release-manager` prueft vor
+  der Einreichung Gleichheit (Hash). Wo sie liegt, ist offen (Repo ist privat, `docs/state.md`
+  „Zurueckgestellt": LAN-IP in der Historie).
+- **Rueckfall Data Safety:** Verlangt die Formularpraxis, dass Googles Android-Backup der
+  Hoerdaten deklariert wird (C-001 Befund 4, offen), ist der Ausweg eine Zeile in
+  `data_extraction_rules.xml` (`datastore/` der Hoerdaten aus `cloud-backup`); der manuelle Export
+  in den Einstellungen bleibt. Erst nach dem Formularbefund entscheiden.
+
+**Berührt Dateien:** neu `app/src/main/assets/{privacy.txt,THIRD_PARTY_LICENSES.md,LICENSE-Apache-2.0.txt}`,
+neu `AssetTextScreen.kt`; `BtDashboardApp.kt`, `SettingsScreen.kt`, `SettingsViewModel.kt`,
+`MonitorRepository.kt` (Interface, Room- und In-Memory-Implementierung), `README.md`, `AppIcons.kt`
+(Kommentar); geloescht Root-`THIRD_PARTY_LICENSES.md`.
+
+**Tests, die den Bau binden:**
+- `app/src/test/.../settings/LegalAssetsTest.kt` (Robolectric, `context.assets`): alle drei Dateien
+  oeffnen sich; die Lizenzdatei nennt jedes Literal aus `Conscrypt`, `BSD`, `NIST`, `Oboe`,
+  `AndroidX`, `Compose`, `Room`, `DataStore`, `kotlinx.coroutines`, `kotlinx.serialization`,
+  `Kotlin`, `Material`; der Apache-Text enthaelt `TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND
+  DISTRIBUTION`. Rot heute (kein `assets/`).
+- `core-monitor/src/test/.../MonitorHistoryDeleteTest.kt` (Robolectric, In-Memory-Room): je Tabelle
+  eine Zeile, `purgeOlderThan(Long.MAX_VALUE)` → `true`, alle drei Tabellen leer; auf geschlossener
+  Datenbank → `false`. Rot heute (Rueckgabe `Unit`).
+
+**Konsequenzen:** Jede neue ausgelieferte Abhaengigkeit verlangt einen Eintrag in der Asset-Datei;
+der Literal-Test faengt nur Streichungen, nicht Zugaenge — das bleibt Auflage 15
+(`release-manager`, `gradlew :app:dependencies --configuration releaseRuntimeClasspath` vor jedem
+Release).
+
+**Umkehrbarkeit:** leicht.
+
+---
+
+### AD-053 — `exec` endet an beiden Enden: der Helfer schneidet nach 15 s auch bei offenem stdout, der Client wartet hoechstens 20 s und sendet danach nichts, bis der alte Aufruf endet (2026-09-29, Status: aktiv — F-025; loest den Punkt „Weggelassen: `exec`" aus AD-048 ab)
+
+**Kontext:** F-025: `LdacTuning.readAtMost` (`:309`) bricht die Vorwertlesung nach 15 s ab, aber
+der `exec` darunter steckt in `PrivilegedShellRunner.run` in einem nicht abbrechbaren
+Binder-Aufruf innerhalb von `EXEC_LOCK.withLock` (`PrivilegedClient.kt:369`) — die Sperre bleibt
+gehalten, bis der Helfer antwortet; Monitor, `ForeignEqScanner`, `A2dpTxProbe` warten. Zwei
+Tatsachen, am Code gelesen:
+1. **Die Helfergrenze gilt nicht fuer stdout.** `PrivilegedServer.execute` (`:737-771`) liest
+   stdout mit `readText()` **vor** `waitFor(15 s)`. Ein Kind, das stdout offen haelt (oder ein
+   Enkel, der es erbt), haelt den Binder-Thread des Helfers unbegrenzt. Die 15 s aus AD-048
+   („`exec` endet im Helfer nach 15 s") galten nur bei geschlossenem stdout.
+2. **Tatsache 1 aus AD-048 gilt auch hier:** ein `withTimeout` um den Binder-Aufruf beendet nichts;
+   der Aufruf muss zurueckgelassen werden.
+Zusaetzlich traegt `EXEC_LOCK` laut KDoc (`PrivilegedClient.kt:449-456`) die Einzelbelegung von `ExecSpill`
+(ein wiederverwendeter Dateiname) und des 1-MB-Binder-Puffers: **kein zweiter `exec` darf laufen,
+solange ein zurueckgelassener noch laeuft.**
+
+**Optionen:**
+- **A. Im Bestand bleiben.** F-025 bleibt; ein haengender `exec` blockiert alle Lesungen.
+- **B. Nur der Server.** Loest den haengenden Kindprozess, nicht den verkeilten Helfer (ein
+  Binder-Thread, der aus anderem Grund nicht antwortet) und nicht einen alten Helfer, der noch mit
+  dem heutigen Code laeuft.
+- **C. Nur der Client, mit Sperre freigeben.** Der naechste `exec` liefe neben dem alten — bricht
+  `ExecSpill` und den Pufferschutz.
+- **D. Beide, Client mit eigenem Einzelplatz nach AD-048.** Der Server schneidet jeden Prozess nach
+  15 s ab; der Client laesst den Aufruf nach hoechstens 20 s zurueck und gibt `EXEC_LOCK` frei;
+  solange der zurueckgelassene Aufruf laeuft, kehrt jeder weitere `exec` sofort mit „earlier
+  request" zurueck, ohne den Helfer zu erreichen.
+
+**Entscheidung:** D.
+
+*Server* (`PrivilegedServer.kt`): stdout wird wie stderr auf eigenem Future gelesen; **eine**
+Frist von `TIMEOUT_SECONDS` (15 s) ab Start gilt fuer `waitFor` und beide Futures. Laeuft sie ab:
+`destroyForcibly()`, Antwort `encodeError("timed out after 15 s")`. Das Warten zieht in eine
+`internal`-Funktion auf Dateiebene (Illustration, Namen frei):
+
+```kotlin
+/** Output of [process], or null when it did not finish, and close its output, within [timeoutMs]. */
+internal fun awaitOutput(process: Process, timeoutMs: Long): Pair<String, String>? {
+    val deadline = System.nanoTime() + timeoutMs * 1_000_000
+    fun left() = maxOf(0, (deadline - System.nanoTime()) / 1_000_000)
+    val out = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().use { it.readText() } }
+    val err = CompletableFuture.supplyAsync { runCatching { process.errorStream.bufferedReader().use { it.readText() } }.getOrDefault("") }
+    return runCatching {
+        check(process.waitFor(left(), TimeUnit.MILLISECONDS))
+        out.get(left(), TimeUnit.MILLISECONDS) to err.get(left(), TimeUnit.MILLISECONDS)
+    }.getOrElse { process.destroyForcibly(); null }
+}
+```
+Gilt auch fuer `restartBluetooth`/`grantSecureSettings` (dieselbe `execute`); deren Obergrenze war
+schon 15 s ueber `waitFor`, sie aendert sich nur fuer den Fall „stdout bleibt offen".
+**Grenze** (`ponytail:`-Kommentar): haelt ein Enkel die Pipe nach dem Tod des Kindes, bleibt ein
+Lesethread des Common-Pools blockiert, bis der Enkel endet — die Antwort kommt trotzdem nach 15 s.
+**Keine Helferversion +1:** kein neues Kommando; ein alter Helfer mit dem heutigen Code wird durch
+die Clientgrenze harmlos und beim naechsten Neustart ersetzt. (Damit bleibt auch die Nummernfolge
+aus AD-013 unberuehrt.)
+
+*Client* (`PrivilegedFailure.kt`, `PrivilegedClient.kt`): `PrivilegedCallGuard` bekommt einen
+zweiten Einzelplatz; der Rumpf von `bounded` wird privat mit Platz und Frist als Parameter:
+
+```kotlin
+private val writeSlot = AtomicReference<Deferred<*>?>(null)   // today's inFlight, AD-048
+private val execSlot = AtomicReference<Deferred<*>?>(null)
+suspend fun <T> bounded(block: () -> T) = bounded(writeSlot, callTimeoutMs, block)        // unchanged callers
+suspend fun <T> boundedExec(block: () -> T) = bounded(execSlot, execTimeoutMs, block)     // EXEC_CALL_TIMEOUT_MS = 20_000
+```
+`PrivilegedShellRunner.run` behaelt `EXEC_LOCK` (Aufrufer sollen bei normalem Betrieb warten, nicht
+„busy" lesen) und ruft darin `guard.boundedExec { service.exec(token, command) → succeeded() →
+decode(...) }`. **Dekodieren im Block**, damit ein spaet eintreffender Aufruf seine gestagte Datei
+noch einsammelt und freigibt — die `ExecSpill`-Einzelbelegung haelt ab jetzt der Platz, nicht die
+Sperre; der KDoc von `EXEC_LOCK` sagt das. `BUSY`/`TIMED_OUT` → `ShellResult(-1, "", Satz)` mit
+den Saetzen aus AD-048 („did not answer within 20 s", „has not answered an earlier request yet —
+nothing was sent"); nachgelagert wird daraus „cannot check" (AK-3). Ausnahmen aus dem Block laufen
+wie heute in `guard.failed`; ein Timeout ruft `failed()` nicht (Ping haengt am selben Helfer).
+
+**Warum F-025 damit weg ist:** Das `await` in `bounded` ist abbrechbar. Bricht `readAtMost` ab,
+endet `withLock` sofort und `EXEC_LOCK` ist frei; der Binder-Aufruf laeuft im `CALLS`-Scope weiter,
+der naechste `exec` bekommt `BUSY` statt zu warten. `LdacTuning.kt` bleibt unberuehrt.
+
+**20 s:** Serverfrist 15 s plus 5 s fuer Staging (bis 444 KB, KDoc `EXEC_LOCK`) und Transaktion —
+abgeleitet, nicht gemessen. Damit antwortet ein gesunder Helfer mit langsamem Kind immer zuerst
+mit seinem eigenen, genaueren Satz; die Clientgrenze greift nur, wenn der Helfer selbst nicht
+antwortet. Wechselwirkung mit AD-048: getrennte Plaetze — ein haengender `exec` sperrt weder Pinnen
+noch Rueckweg, ein haengender Codec-Aufruf nicht die Monitor-Lesungen; je Platz hoechstens ein
+zurueckgelassener IO-Thread. `readAtMost` (15 s) endet vor der Clientgrenze und gibt die Sperre
+ueber den Abbruch frei.
+
+**Berührt Dateien:** `app/.../privileged/PrivilegedServer.kt` (`execute`, neue `awaitOutput`),
+`PrivilegedFailure.kt` (`PrivilegedCallGuard`: `execSlot`, `boundedExec`, `execTimeoutMs`,
+`EXEC_CALL_TIMEOUT_MS`), `PrivilegedClient.kt` (`PrivilegedShellRunner.run`, KDoc `EXEC_LOCK`).
+Nicht: `LdacTuning.kt`, `ExecSpill.kt`, AIDL.
+
+**Tests, die den Bau binden** (rot heute; wie in AD-048 nie den Aufruf direkt in `withTimeout`
+legen, sonst haengt die Suite statt rot zu werden):
+- `PrivilegedTimeoutTest.kt` (bestehend, Fake nach `PrivilegedTransportTest.kt:375`, Guard mit
+  `execTimeoutMs = 200`, Fake-`exec` blockiert an einem Latch):
+  1. *Ein nie antwortender `exec` kehrt innerhalb der Grenze zurueck:* `withTimeoutOrNull(5_000)`
+     um `async(Dispatchers.IO) { runner.run(dumpsys) }` ist nicht null, `exitCode == -1`, Satz „did
+     not answer".
+  2. *F-025:* ein `exec`, dessen Aufrufer nach 50 ms abgebrochen wird, gibt die Sperre frei — ein
+     zweiter `run` kehrt binnen 1 s mit „earlier request" zurueck, Aufrufzaehler des Fakes bleibt 1;
+     Latch frei, auf das Ende warten, dritter `run` erreicht den Fake (Zaehler 2).
+- neu `app/src/test/.../privileged/ExecDeadlineTest.kt` (JUnit, `@Test(timeout = 5_000)`, Frist
+  200 ms, Fake-`Process` mit nie endendem stdout):
+  1. `waitFor` liefert `false` → `awaitOutput` gibt `null`, `destroyForcibly` gerufen;
+  2. `waitFor` liefert `true`, stdout bleibt offen (Enkel) → `null`.
+
+**Konsequenzen:** Ein haengender Helfer kostet eine Lesung hoechstens 20 s, danach sagen alle
+Lesungen sofort „earlier request", bis er antwortet oder stirbt. Ein haengendes Kind kostet 15 s
+und eine Fehlermeldung. Der dritte Fix an `EXEC_LOCK` aendert die Klasse, nicht einen Aufrufer.
+
+**Umkehrbarkeit:** leicht — drei Dateien, keine Schnittstelle nach aussen, keine Persistenz.
+
+**Nachtrag 2026-10-14 (Zusammenfuehrung mit Helper v6, AD-010 Form 3'):** `ExecSpill` und die
+eine wiederverwendete Datei gibt es nicht mehr; die Antwort reist ueber einen app-privaten
+Deskriptor (`ExecReplyFile`). Beide Fristen bleiben: der Helfer schneidet ueber `awaitOutput`
+nach 15 s, der Client wartet ueber `PrivilegedCallGuard.boundedExec` hoechstens 20 s. Der
+Deskriptor wird **innerhalb** des Platzes geoeffnet, gelesen und geschlossen, damit eine spaete
+Antwort in einen offenen Deskriptor schreibt. Die Begruendung fuer den einen exec-Platz ist jetzt
+AK-1 (kein zweites `dumpsys` neben einem verlassenen), nicht mehr der gemeinsame Dateiname.
+Test: `PrivilegedTimeoutTest` prueft, dass der naechste exec erst nach dem Schliessen des alten
+Deskriptors den Helfer erreicht.
+
+---
+
+### AD-054 — Bauschnitt fuer die Veroeffentlichungsstufe und F-025: vier Laeufe H-1..H-4 plus Texte, Recht und Formulare (2026-09-29, Status: aktiv)
+
+**Kontext:** T-067 Frage 3 — welche Teile sind Code, Text, Formular, Recht. Keine neue
+Abhaengigkeit in diesem Schnitt (Frage 4).
+
+| AK | Code (`developer`) | Text | Formular (`release-manager`) | Recht / Nutzer |
+|---|---|---|---|---|
+| AK-22 | AD-050 (H-1) | Satz „nur bekannte EQ-Apps": ui-ux | Paketliste in Data Safety: lokal, nicht erhoben | — |
+| AK-23 | AD-051: `HelperDisclosure`, Dialog, PC-Weg (H-3) | Offenlegung, Store-Text je Berechtigung, `PLAN.md`-Zusatz: technical-writer; Dialogaufbau: ui-ux | — | compliance-agent `pruefen` gegen Auflagen 1, 3, 8 |
+| AK-24 | `PurposeWordingTest` (H-3) | Zweckbestimmung, `CompensationSection.kt`, `ClinicalAudiogram.kt`, Hoertest: technical-writer + ui-ux | Health-Deklaration, Disclaimer | compliance-agent: Wortliste und Zweckbestimmung pruefen; MDR-Restrisiko traegt der Nutzer (29.09.) |
+| AK-25 | AD-052: Assets, `AssetTextScreen`, Loeschen (H-3) | `privacy.txt` nach Auflage 10 inkl. Backup-Verhalten: technical-writer | URL im Console-Feld; Hash-Gleichheit | Nutzer: Hosting der URL |
+| AK-26 | AD-052 (H-3) | `THIRD_PARTY_LICENSES.md` + Conscrypt/BSD/NIST, Robolectric berichtigt, Apache-Text: technical-writer | Auflage 15 vor jedem Release | — |
+| AK-27 | — | Store-Text (s. AK-23/24) | FGS-Deklaration fuer **zwei** Dienste mit Typ `connectedDevice` (`EqForegroundService`, `MeasurementService` aus AD-039) je mit Video (qa-engineer), Data Safety (Backup-Frage, AD-052 Rueckfall), Health | compliance-agent C-002: Impressum, Traderstatus (DSA Art. 30), Verbraucherrecht, BFSG neu, Nebentaetigkeit — EU/EWR mit Einnahmen; Nutzer: Monetarisierungsform, Freigabe der Einreichung |
+| F-025 | AD-053 (H-2) | — | — | — |
+
+**Monetarisierungsform und Architektur:** Ein **Kaufpreis** braucht keinen Code. **In-App-Kauf**
+braucht die Play-Billing-Bibliothek (neue Abhaengigkeit), echten Netzverkehr und damit die Schwelle
+„erste Datenuebertragung" (C-001 Befund 5, Auflage A-019) — eine eigene AD und eine eigene Klaerung.
+**Werbung** kollidiert mit dem Nicht-Ziel „keine neue Datensammlung".
+
+**Laeufe:**
+| Lauf | Rolle | Inhalt | Haengt ab von |
+|---|---|---|---|
+| H-1 | developer | AD-050 | — |
+| H-2 | developer | AD-053 | — (parallel zu H-1 moeglich: getrennte Dateien) |
+| T-W | technical-writer (+ ui-ux fuer Dialog, Satz AK-22, AK-24) | alle Texte der Tabelle, Asset-Inhalte als Dateien in `app/src/main/assets/` | — (parallel zu H-1/H-2) |
+| H-3 | developer | AD-051 (Code), AD-052, `PurposeWordingTest` mit der Wortliste aus T-W | T-W |
+| C-002 | compliance-agent | Einnahmen, EU/EWR | jederzeit |
+| H-4 | qa-engineer | Retest AK-22..26, F-025 am Quellstand; FGS-Videos am Geraet | H-1..H-3 |
+| R | release-manager | Entwuerfe AK-27 | T-W, C-002 |
+
+`security-reviewer`: nicht faellig — AD-050 und AD-053 verengen, keine Helfer-Erweiterung (AK-6).
+SR-040 (Nutzer: beheben mit der Play-Stufe) ist ein Fix in bestehender Struktur und kann an H-3
+haengen; kein Entwurf noetig.
+
+**Umkehrbarkeit:** leicht — ein Schnitt, keine Entscheidung.
+
+---
+
 ## Bewusst nicht getan
 
 - **Ein zweiter Ring fuer die Zustandsmaschine neben `LiveTrace`.** Zwei Fenster
@@ -1574,3 +3783,97 @@ fest. Der Bitratengraph (G-1..G-8) ist ein eigener Schnitt und setzt auf
   Prozess, der Dateien loescht, ueber die er nichts weiss, ist ein groesserer
   Fehler als die Reste, die er beseitigt (AD-011). Gilt insbesondere fuer
   `btperf` — das gehoert den Messwerkzeugen.
+- **Ein eigener `ComparisonRun`.** Zweite Zaehl- und Lueckenregel neben
+  `isReadingGap`. Wieder interessant nur, wenn ein Vergleich etwas anderes als
+  abgedeckte Intervalle zaehlen muss. (AD-030)
+- **Die Ledger-Art „geliehen" und die automatische Rueckgabe beim App-Start.**
+  Ohne Leihgabe gibt es nichts zurueckzugeben, und das 990-Pinnen ist das Ziel
+  des Nutzers. Wieder interessant, sobald AD-006 beantwortet und eine Leihgabe
+  beschlossen ist. (AD-033)
+- **Vergleichsergebnisse persistieren.** Neue Datensammlung, und AK-17 hat die
+  Aufzeichnungsvariante ausdruecklich nicht gewaehlt. Wieder interessant, wenn
+  der Nutzer einen Verlauf ueber Sitzungen will — dann auch fuer AK-16s
+  empirischen Sammelsatz. (AD-036, AD-037)
+- **WLAN-Band ueber `WifiManager` oder ein Helfer-Kommando.** F3 und AD-005.
+  Wieder interessant, wenn der Nutzer A2 genauer als „Funk aus" belegen will.
+  (AD-035) — Nachtrag 28.09.: das Band kommt jetzt ueber `ConnectivityManager`
+  (AD-046); `WifiManager` und Helfer bleiben draussen.
+- **Eine MTU-Regel als AK-16-Urteil.** Urteil aus einer Sekundaertabelle ohne
+  Messung. Wieder interessant, wenn T-037 den Pakettyp lesbar macht. (AD-036)
+- **Das Ledger als Dekorator an den Settings-Ports.** Der einzige Ort, der
+  jede Schreibung faengt, braeuchte `suspend` an `write`/`setEnabled` und an
+  allen Fakes. Wieder interessant, wenn ein Schreiber das Ledger umgeht. (AD-038)
+- **Der Pruefton als `MODE_STATIC`-Puffer je Darbietung.** Braeuchte einen
+  anderen `ToneGenerator`-Vertrag, weil der Controller Pulse einzeln schaltet
+  und bei Tastendruck abbricht. Wieder interessant, wenn W-7 zeigt, dass der
+  Schreib-Thread unterlaeuft und kein Puffermass das behebt. (AD-025)
+- **`org.json:json` als Testabhaengigkeit** und **kotlinx.serialization in
+  `:core-hearing`.** Das erste testet eine andere Implementierung als die des
+  Geraets, das zweite fuehrt ein drittes Muster ins Store-Paket. Wieder
+  interessant, wenn alle Stores gemeinsam umziehen sollen — dann als eigene
+  Entscheidung ueber alle fuenf, nicht ueber zwei. (AD-026)
+- **`Bundle`/Parcelable-Antworten des Helfers.** Keine kleinere
+  Angriffsflaeche, aber ein Versionssprung und eine neue Fehlerklasse. Wieder
+  interessant nur zusammen mit U-1 (AD-010), wenn die `exec`-Antwort ohnehin
+  ihre Form aendert. (AD-027)
+- **`@DeleteTable`-AutoMigration.** Zweites Migrationsmuster neben den
+  handgeschriebenen. Wieder interessant, wenn der Bestand insgesamt auf
+  AutoMigrationen umzieht. (AD-028)
+- **Die Messung ueber `EqForegroundService`.** Aendert Lebensdauer und Benachrichtigung
+  der Hoerfunktion fuer eine Messfunktion und braeuchte einen Port nach `:core-monitor`.
+  Wieder interessant, wenn der EQ-Dienst ohnehin sichtbar und verbindungsgebunden wird
+  (R-013 Option b) — dann ein Dienst mit zwei Gruenden statt zwei Diensten. (AD-039)
+- **Ein eigener Wakelock fuer die Arme.** Waehrend der Wiedergabe haelt der Player einen
+  (T-007). Wieder interessant, wenn die Geraeteprobe bei Display aus Luecken zeigt. (AD-039)
+- **Der Vergleich prozessweit statt im `MonitorViewModel`.** Der Poll, der ihn fuettert,
+  lebt dort; ein Griff (`ActiveComparison`) reicht. Wieder interessant, wenn ein
+  Vergleich das Wegwischen der Aufgabe ueberstehen soll. (AD-039)
+- **Codec-Sperre im Applier waehrend eines Vergleichs.** `:core-system` kennt den
+  Vergleich nicht; ein Profil-„Apply now" beendet ihn mit Grund. Wieder interessant, wenn
+  das im Alltag oft passiert. (AD-040)
+- **Live-Stufe im Applier lesen (`priorLive`).** Braucht eine Leseoperation am
+  `CodecPreferenceController`. Wieder interessant, wenn der Nutzer die Stufe nach dem
+  Rueckweg sofort statt beim naechsten Verbinden zurueck will. (AD-041)
+- **Den unlesbaren Ledger-Inhalt aufbewahren.** Niemand kann ihn lesen. Wieder
+  interessant, wenn ein Fehlerbericht ihn braucht. (AD-042)
+- **Eine Spalte fuer das Zustandsbuch in `monitor_events`.** Migration fuer einen Text, der nur
+  angezeigt wird. Wieder interessant, wenn das Protokoll nach Bedingungen gefiltert oder
+  ausgewertet werden soll. (AD-044)
+- **Das Buch per `ContentObserver`/Broadcast statt je Lesung.** Zweiter Mechanismus neben den
+  Dump-Feldern. Wieder interessant, wenn die AK-1-Messreihe die Lesung je Takt belastet. (AD-044)
+- **`resolveActivity` und `<queries>` fuer die Spruenge.** `startActivity` mit gefangenem Fehler
+  sagt dasselbe ohne Manifestteil. Wieder interessant, wenn ein Knopf vorab ausgegraut werden
+  soll. (AD-045)
+- **Spruenge fuer „Ausweichen" und die Nur-Lesen-Werte.** Wissen wuerde Aktion (AD-037); T-049a
+  fand keine Seite. Wieder interessant, wenn ein Geraet die Seite nachweislich hat. (AD-045)
+- **`NetworkCallback` fuer das WLAN-Band.** Registrierung mit Lebensdauer fuer den Fall „WLAN
+  verbunden, aber nicht aktives Netz". Wieder interessant, wenn der Fall am Geraet auftritt. (AD-046)
+- **Ein Timeout um die Ledger-Sperre oder nur im Rueckweg.** Ein Binder-Aufruf ist nicht
+  abbrechbar; der Timeout wirkte nicht, und wirkte er, gaebe er die Sperre bei laufender
+  Schreibung frei. Wieder interessant nie — der Ort ist der Client-Aufruf. (AD-048)
+- **Timeout fuer `exec` und den Bluetooth-Neustart.** Nicht unter der Ledger-Sperre; `exec` endet
+  im Helfer nach 15 s, die Neustartdauer ist ungemessen. Wieder interessant, wenn ein verkeilter
+  Helfer die Monitor-Lesungen haengen laesst oder der Neustart unter die Sperre kommt. (AD-048)
+  — Nachtrag 29.09.: fuer `exec` eingetreten (F-025), und „endet im Helfer nach 15 s" galt nur bei
+  geschlossenem stdout; geloest in AD-053. Der Neustart bleibt draussen.
+- **Einen verkeilten, lebenden Helfer vergessen.** Der Ping waere selbst ein haengender
+  Binder-Aufruf. Wieder interessant, wenn „earlier request" am Geraet dauerhaft stehen bleibt. (AD-048)
+- **BQR ueber rohe `IBluetooth`-AIDL oder mit Zustellung Helfer→App.** Bruechige versteckte
+  Signaturen bzw. eine zweite Aufrufrichtung. Wieder interessant: AIDL, wenn G0/G1 am
+  Adapter-Wrapper scheitern; Zustellung, wenn Berichte so dicht kommen, dass der Monitor-Takt sie
+  verliert (Zaehler der verworfenen > 0). (AD-049)
+- **Zwei Builds (`store`/`sideload`).** Der EQ-Filter behaelt nur `<queries>`-sichtbare Apps; die
+  private Fassung gewaenne mit QAP nichts. Wieder interessant, wenn die Erkennung eine Stufe fuer
+  beliebige Apps zurueckbekommt oder Play den Helfer ablehnt (C-001 Befund 1, Alternative). (AD-050)
+- **Ein versioniertes Zustimmungs-Flag.** Die alte Kurzfassung hat nur der Entwickler bestaetigt.
+  Wieder interessant, sobald Fremdnutzer eine Fassung bestaetigt haben und die Offenlegung waechst.
+  (AD-051)
+- **`oss-licenses-plugin` oder eine `WebView` fuer die Lizenzseite.** Neue Abhaengigkeit bzw. eine
+  Engine fuer Klartext; das Plugin deckt Conscrypts BSD/NIST-Teile nicht. Wieder interessant, wenn
+  die Zahl der Abhaengigkeiten die Handpflege unzuverlaessig macht. (AD-052)
+- **Ein gemeinsamer Einzelplatz fuer `exec` und Codec-Aufrufe.** Ein haengender `dumpsys` sperrte
+  sonst den Rueckweg (AK-11). Wieder interessant, wenn sich zeigt, dass beide im Helfer denselben
+  Engpass teilen. (AD-053)
+- **Helferversion +1 fuer die Serverfrist.** Kein neues Kommando; die Clientgrenze macht einen
+  alten Helfer harmlos. Wieder interessant, wenn ein alter Helfer am Geraet dauerhaft „earlier
+  request" erzeugt. (AD-053)

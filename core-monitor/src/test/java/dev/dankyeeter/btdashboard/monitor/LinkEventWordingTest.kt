@@ -71,7 +71,6 @@ class LinkEventWordingTest {
             mixerUnderruns = 0,
             txDropped = 1,
             txDropouts = 0,
-            txUnderflows = 0,
             detail = "Audio loss: 3 app underrun(s), 1 dropped packet(s)",
         ).toMonitorEvent(null, null).detail
 
@@ -97,7 +96,6 @@ class LinkEventWordingTest {
             mixerUnderruns = 0,
             txDropped = 0,
             txDropouts = 21,
-            txUnderflows = 12,
             detail = "Audio loss: 21 stack dropout(s)",
         ).toMonitorEvent(null, null).detail
 
@@ -115,7 +113,6 @@ class LinkEventWordingTest {
             mixerUnderruns = 0,
             txDropped = 0,
             txDropouts = 0,
-            txUnderflows = 0,
             detail = "…",
         ).toMonitorEvent(null, null).detail
 
@@ -184,7 +181,6 @@ class LinkEventWordingTest {
             mixerUnderruns = 0,
             txDropped = 0,
             txDropouts = 0,
-            txUnderflows = 0,
             detail = "…",
         ).toMonitorEvent(null, null, CodecFamily.LDAC)
 

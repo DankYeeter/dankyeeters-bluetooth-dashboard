@@ -13,7 +13,6 @@ import dev.dankyeeter.btdashboard.monitor.link.live.SessionEffectCount
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,7 +31,7 @@ import org.robolectric.annotation.Config
  * schema against every entity**, throwing if the two disagree. So opening a
  * hand-built v1 file with the production [MonitorDatabase.create] exercises the
  * migration DDL exactly as a user's phone will, and a `CREATE TABLE` that does
- * not match an entity fails this test rather than a device.
+ * not match its entity fails this test rather than a device.
  *
  * ## Why it exists at all
  *
@@ -98,31 +97,9 @@ class MonitorDatabaseMigrationTest {
     )
 
     /**
-     * A version-1 `monitor.db` holding one event and one sample — the file the
-     * production builder will find on a phone that has been running the monitor.
-     */
-    private fun writeVersion1Database() = writeDatabase(1, version1Schema)
-
-    /**
-     * A version-2 file, i.e. what a phone that already took the calibration
-     * update is carrying. It holds the same history plus one calibration, so
-     * the v2 to v3 step has something of both kinds to preserve.
-     */
-    private fun writeVersion2Database() = writeDatabase(2, version2Schema) { db ->
-        db.execSQL(
-            "INSERT INTO `codec_mode_signatures` " +
-                "(`device_key`, `codec_name`, `mode_raw_value`, `sample_rate_hz`, " +
-                "`frames_per_packet_min`, `frames_per_packet_max`, " +
-                "`packets_per_second_min`, `packets_per_second_max`, " +
-                "`captured_at_ms`, `created_at_millis`) " +
-                "VALUES ('$address', 'LDAC', 1000, 96000, 5.5, 6.5, 55.0, 70.0, 1234, 9000)",
-        )
-    }
-
-    /**
-     * A version-3 file: version 2 plus the encoder-starvation table, holding one
-     * calibration and one capture. This is what most upgrading phones carry.
-     * Copied from `schemas/3.json`.
+     * The schema as version 3 shipped it, copied from `schemas/3.json`: every
+     * `createSql` plus its `setupQueries`, so the file carries the identity hash
+     * a real version-3 phone has and Room takes its ordinary upgrade path.
      */
     private val version3Schema = version2Schema + listOf(
         "CREATE TABLE IF NOT EXISTS `encoder_starvation_events` (" +
@@ -137,26 +114,75 @@ class MonitorDatabaseMigrationTest {
             "ON `encoder_starvation_events` (`timestamp_ms`)",
         "CREATE INDEX IF NOT EXISTS `index_encoder_starvation_events_device_address` " +
             "ON `encoder_starvation_events` (`device_address`)",
+        "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+        "INSERT OR REPLACE INTO room_master_table (id,identity_hash) " +
+            "VALUES(42, 'bed0e2322a9dd041edcc8795c929ef08')",
     )
 
-    private fun writeVersion3Database() = writeDatabase(3, version3Schema) { db ->
-        db.execSQL(
-            "INSERT INTO `codec_mode_signatures` " +
-                "(`device_key`, `codec_name`, `mode_raw_value`, `sample_rate_hz`, " +
-                "`frames_per_packet_min`, `frames_per_packet_max`, " +
-                "`packets_per_second_min`, `packets_per_second_max`, " +
-                "`captured_at_ms`, `created_at_millis`) " +
-                "VALUES ('$address', 'LDAC', 1000, 96000, 5.5, 6.5, 55.0, 70.0, 1234, 9000)",
-        )
-        db.execSQL(
-            "INSERT INTO `encoder_starvation_events` " +
-                "(`timestamp_ms`, `device_address`, `device_name`, `underflows_per_second`, " +
-                "`window_ms`, `sustained_passes`, `effect_instances`, `effect_sessions`, " +
-                "`effects_per_session`, `effect_names`, `playback_session_ids`, `capture_note`) " +
-                "VALUES (3000, '$address', 'Headphones', 49.0, 2000, 3, 5, 2, " +
-                "'145:3,0:2', 'DynamicsProcessing|Volume', '8009,8137', NULL)",
-        )
+    /** The tables that hold the user's history, i.e. everything version 4 keeps. */
+    private val historyTables = listOf("monitor_events", "link_samples", "encoder_starvation_events")
+
+    /**
+     * A version-1 `monitor.db` holding one event and one sample — the file the
+     * production builder will find on a phone that has been running the monitor.
+     */
+    private fun writeVersion1Database() = writeDatabase(1, version1Schema)
+
+    /**
+     * A version-2 file, i.e. what a phone that already took the calibration
+     * update is carrying. It holds the same history plus one calibration, so
+     * the v2 to v3 step has something of both kinds to preserve.
+     */
+    private fun writeVersion2Database() = writeDatabase(2, version2Schema, ::insertCalibration)
+
+    /**
+     * A version-3 file with history in all three history tables and one
+     * calibration: the file version 4 deletes user data from.
+     *
+     * @return every history row as it was written, to compare after the upgrade.
+     */
+    private fun writeVersion3Database(): Map<String, List<List<String?>>> {
+        var written = emptyMap<String, List<List<String?>>>()
+        writeDatabase(3, version3Schema) { db ->
+            insertCalibration(db)
+            db.execSQL(
+                "INSERT INTO `encoder_starvation_events` " +
+                    "(`timestamp_ms`, `device_address`, `device_name`, " +
+                    "`underflows_per_second`, `window_ms`, `sustained_passes`, " +
+                    "`effect_instances`, `effect_sessions`, `effects_per_session`, " +
+                    "`effect_names`, `playback_session_ids`, `capture_note`) " +
+                    "VALUES (3000, '$address', 'Headphones', 49.0, 2000, 3, 5, 2, " +
+                    "'145:3,0:2', 'DynamicsProcessing|Volume', '8009,8137', NULL)",
+            )
+            written = historyTables.associateWith { rows(db, it) }
+        }
+        return written
     }
+
+    private fun insertCalibration(db: SupportSQLiteDatabase) = db.execSQL(
+        "INSERT INTO `codec_mode_signatures` " +
+            "(`device_key`, `codec_name`, `mode_raw_value`, `sample_rate_hz`, " +
+            "`frames_per_packet_min`, `frames_per_packet_max`, " +
+            "`packets_per_second_min`, `packets_per_second_max`, " +
+            "`captured_at_ms`, `created_at_millis`) " +
+            "VALUES ('$address', 'LDAC', 1000, 96000, 5.5, 6.5, 55.0, 70.0, 1234, 9000)",
+    )
+
+    /** Every row of [table] in rowid order, each column as SQLite renders it to text. */
+    private fun rows(db: SupportSQLiteDatabase, table: String): List<List<String?>> =
+        db.query("SELECT * FROM `$table` ORDER BY rowid").use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(List(cursor.columnCount) { cursor.getString(it) })
+            }
+        }
+
+    /** What `sqlite_master` still lists for the calibration table: itself and its index. */
+    private fun calibrationSchemaObjects(db: MonitorDatabase): List<String> =
+        db.openHelper.readableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE tbl_name = 'codec_mode_signatures'",
+        ).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
 
     private fun writeDatabase(
         version: Int,
@@ -219,6 +245,8 @@ class MonitorDatabaseMigrationTest {
         }
     }
 
+    // ---- version 2 to 3: the encoder-starvation forensics table --------------
+
     /**
      * The calibration table is gone after the upgrade. Reaching the assertion
      * at all means Room accepted the migrated schema against every entity.
@@ -230,7 +258,7 @@ class MonitorDatabaseMigrationTest {
         val db = MonitorDatabase.create(context)
         try {
             assertEquals(1, db.monitorDao().events(0L).first().size)
-            assertFalse(tableExists(db, "codec_mode_signatures"))
+            assertEquals(emptyList<String>(), calibrationSchemaObjects(db))
         } finally {
             db.close()
         }
@@ -255,16 +283,16 @@ class MonitorDatabaseMigrationTest {
             assertEquals(96_000, samples.single().sampleRateHz)
 
             assertEquals(1, starvationRowCount(db))
-            assertFalse(tableExists(db, "codec_mode_signatures"))
+            assertEquals(emptyList<String>(), calibrationSchemaObjects(db))
         } finally {
             db.close()
         }
     }
 
     /**
-     * A v1 file skipping straight to 3 — a phone that never took the middle
-     * release. Both migrations have to run in order, which is the case a
-     * hand-written `MIGRATION_1_3` shortcut would silently break.
+     * A v1 file skipping straight to 4 — a phone that never took the middle
+     * releases. All three migrations have to run in order, which is the case a
+     * hand-written shortcut migration would silently break.
      */
     @Test
     fun `a version 1 file upgrades all the way to 4 without losing anything`() = runTest {
@@ -273,8 +301,43 @@ class MonitorDatabaseMigrationTest {
         val db = MonitorDatabase.create(context)
         try {
             assertEquals(1, db.monitorDao().events(0L).first().size)
-            assertFalse(tableExists(db, "codec_mode_signatures"))
+            assertEquals(1, db.monitorDao().samples(0L).first().size)
             assertEquals(0, starvationRowCount(db))
+            assertEquals(emptyList<String>(), calibrationSchemaObjects(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    // ---- version 3 to 4: the calibration table is dropped (AD-028) ------------
+
+    /**
+     * The only migration that deletes user data, so the one that has to prove
+     * it deletes exactly that: the calibration table and its index are gone,
+     * and every history row is still there, column for column.
+     *
+     * Room does not notice a leftover table — it validates declared entities
+     * only — so the absence is checked in `sqlite_master` directly. Without
+     * `MIGRATION_3_4` registered the open throws instead, because there is no
+     * destructive fallback to hide behind.
+     */
+    @Test
+    fun `upgrading to version 4 drops the calibrations and keeps every history row`() = runTest {
+        val written = writeVersion3Database()
+
+        val db = MonitorDatabase.create(context)
+        try {
+            val upgraded = db.openHelper.readableDatabase
+            assertEquals(
+                "the history must survive row for row",
+                written,
+                historyTables.associateWith { rows(upgraded, it) },
+            )
+            assertEquals(
+                "the calibration table and its index must be gone",
+                emptyList<String>(),
+                calibrationSchemaObjects(db),
+            )
         } finally {
             db.close()
         }
@@ -345,11 +408,6 @@ class MonitorDatabaseMigrationTest {
             db.close()
         }
     }
-
-    private fun tableExists(db: MonitorDatabase, name: String): Boolean =
-        db.openHelper.readableDatabase
-            .query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '$name'")
-            .use { it.moveToFirst(); it.getInt(0) > 0 }
 
     private fun starvationRowCount(db: MonitorDatabase): Int =
         db.openHelper.readableDatabase

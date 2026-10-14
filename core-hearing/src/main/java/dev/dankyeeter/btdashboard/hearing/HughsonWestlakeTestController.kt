@@ -39,14 +39,13 @@ class HughsonWestlakeTestController(
     private val volumeGuard: VolumeGuard? = null,
     private val ambientNoiseCheck: AmbientNoiseCheck? = null,
     private val protocol: ProtocolConfig = ProtocolConfig(),
-    private val timing: PresentationTiming = PresentationTiming(),
     private val random: Random = Random.Default,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
-) : HearingTestController {
+) {
 
     private val _state = MutableStateFlow<HearingTestState>(HearingTestState.Idle)
-    override val state: Flow<HearingTestState> = _state.asStateFlow()
+    val state: Flow<HearingTestState> = _state.asStateFlow()
 
     private val responded = AtomicBoolean(false)
     @Volatile private var abortReason: AbortReason? = null
@@ -57,7 +56,7 @@ class HughsonWestlakeTestController(
     @Volatile var reliability: RunReliability = RunReliability()
         private set
 
-    override suspend fun prepare(config: HearingTestConfig): PrepareResult {
+    suspend fun prepare(config: HearingTestConfig): PrepareResult {
         this.config = config
         this.abortReason = null
         this.ambientDbA = null
@@ -67,7 +66,7 @@ class HughsonWestlakeTestController(
             return PrepareResult.Failed("No audio output could be opened. Connect your headphones and try again.")
         }
         toneGenerator.setToneActive(false)
-        toneGenerator.setRampMs(timing.rampMs)
+        toneGenerator.setRampMs(RAMP_MS)
         toneGenerator.setLevelDbFs(protocol.minLevelDb)
 
         val guard = volumeGuard
@@ -93,7 +92,7 @@ class HughsonWestlakeTestController(
         return PrepareResult.Ready
     }
 
-    override suspend fun start() {
+    suspend fun start() {
         val config = requireNotNull(config) { "prepare() must run before start()" }
         val ears = when (config.ear) {
             null -> listOf(Ear.LEFT, Ear.RIGHT)
@@ -134,11 +133,11 @@ class HughsonWestlakeTestController(
         )
     }
 
-    override fun onUserResponse() {
+    fun onUserResponse() {
         responded.set(true)
     }
 
-    override suspend fun abort(reason: AbortReason) {
+    suspend fun abort(reason: AbortReason) {
         abortReason = reason
         silence()
         volumeGuard?.stopWatchdog()
@@ -170,7 +169,7 @@ class HughsonWestlakeTestController(
                     )
                     // Randomised silence before the stimulus: the listener must
                     // not be able to predict when a tone is due.
-                    delay(timing.randomInterStimulusMs(random))
+                    delay(random.nextLong(MIN_INTER_STIMULUS_MS, MAX_INTER_STIMULUS_MS + 1))
                     if (abortReason != null) return null
                     val heard = present(step)
                     engine.record(heard)
@@ -187,17 +186,17 @@ class HughsonWestlakeTestController(
             toneGenerator.setLevelDbFs(step.levelDb)
         }
 
-        repeat(timing.pulseCount) { index ->
+        repeat(PULSE_COUNT) { index ->
             if (!step.catchTrial) toneGenerator.setToneActive(true)
-            if (waitForResponse(timing.pulseMs)) {
+            if (waitForResponse(PULSE_MS)) {
                 silence()
                 return true
             }
             silence()
-            if (index < timing.pulseCount - 1 && waitForResponse(timing.pulseGapMs)) return true
+            if (index < PULSE_COUNT - 1 && waitForResponse(PULSE_GAP_MS)) return true
         }
         // A late press still counts: reaction times of 1 s are normal.
-        return waitForResponse(timing.responseWindowMs)
+        return waitForResponse(RESPONSE_WINDOW_MS)
     }
 
     /** @return true as soon as the user answered inside [durationMs]. */
@@ -230,22 +229,17 @@ class HughsonWestlakeTestController(
     private companion object {
         const val TAG = "HwTestController"
         const val POLL_MS = 25L
-    }
-}
 
-/** Stimulus timing. Pulsed tones are standard practice — they are easier to detect than steady ones. */
-data class PresentationTiming(
-    val pulseMs: Long = 220,
-    val pulseGapMs: Long = 200,
-    val pulseCount: Int = 3,
-    /** Extra time after the last pulse in which a press still counts. */
-    val responseWindowMs: Long = 900,
-    val minInterStimulusMs: Long = 900,
-    val maxInterStimulusMs: Long = 2_400,
-    val rampMs: Double = 30.0,
-) {
-    fun randomInterStimulusMs(random: Random): Long =
-        random.nextLong(minInterStimulusMs, maxInterStimulusMs + 1)
+        // Stimulus timing. Pulsed tones are standard practice — they are easier to detect than steady ones.
+        const val PULSE_MS = 220L
+        const val PULSE_GAP_MS = 200L
+        const val PULSE_COUNT = 3
+        /** Extra time after the last pulse in which a press still counts. */
+        const val RESPONSE_WINDOW_MS = 900L
+        const val MIN_INTER_STIMULUS_MS = 900L
+        const val MAX_INTER_STIMULUS_MS = 2_400L
+        const val RAMP_MS = 30.0
+    }
 }
 
 /** Catch-trial statistics of a finished run. */

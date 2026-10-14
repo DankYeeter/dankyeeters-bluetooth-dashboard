@@ -2607,6 +2607,45 @@ pinnbaren Stufen der ausgehandelten Sample-Rate-Familie** — 330/660/990
 - **Umschalten rechnet den Lauf neu, ohne ihn neu zu starten.** Die
   Paar-Zeitsummen tragen jede Schwelle nachtraeglich.
 
+### Entscheidung 5 — der Starthinweis: einmal ueberhaupt, nicht einmal je Sitzung — 2026-09-22 (T-039a)
+
+Offene Frage 4 unten ist am 03.09. mit **ja** entschieden: Der erste Tap auf
+den Start-Chip zeigt einen Hinweis, dass Verlassen des Bildschirms den Lauf
+verwirft, **bevor** der Lauf beginnt. Diese Entscheidung fehlte bislang im
+Wortlaut der Vorgabe — das wird hier nachgetragen.
+
+**Form: bestehendes Muster, kein neues.** Dieselbe `AlertDialog`-Bauart wie
+`LocalConnectionDisclosure` (`ActivateScreen.kt`): Titel, Fliesstext,
+`confirmButton` "Continue", `dismissButton` "Not now". Kein Snackbar (kommt im
+Projekt nirgends vor) und keine dritte Dialogform.
+
+**Bedeutung von "einmalig": einmal ueberhaupt, nicht einmal je
+Bildschirmbesuch.** Genau das bereits gebaute Muster:
+`SetupStore.isLocalConnectionAccepted()` gated `ActivateViewModel.activate()`
+so, dass das Flag **nur beim Bestaetigen** gesetzt wird, beim Ablehnen nicht.
+Uebertragen: ein Flag (Name/Ort durch den developer, analog `SetupStore`),
+gesetzt ausschliesslich durch "Continue". "Not now" schliesst den Dialog,
+startet **keinen** Lauf und setzt das Flag **nicht** — der naechste
+Start-Tap zeigt den Hinweis erneut. Das ist die kleinste Loesung, die den
+Nutzerwunsch erfuellt: sie kopiert ein vorhandenes, bereits abgenommenes
+Muster 1:1, statt ein zweites (In-Memory, je Bildschirmbesuch) einzufuehren,
+das im Projekt nirgends existiert.
+
+**Das ist keine Persistenz im Sinn von AK-17.** AK-17 verbietet, **Messdaten**
+des Laufs — Minimum, Anteil, Verweildauer, Zeitstempel — abzulegen, weil daraus
+eine Aussage ueber unbeobachtete Zeit entstuende. Ein Bestaetigungs-Flag traegt
+keine Messung und keinen Zeitbezug; es ist dieselbe Kategorie wie
+`isLocalConnectionAccepted` — eine gewoehnliche Einstellung, kein
+Beobachtungsergebnis. **AK-4 ist unberuehrt:** Lesen/Schreiben eines Booleans
+beim Tap auf einen Chip ist ein einmaliger, nutzerausgeloester Zugriff, keine
+wiederkehrende Arbeit, und beruehrt den Audiopfad nicht.
+
+**Wirkung auf AK-T039-1:** Beim allerersten Start ueberhaupt beginnt der Lauf
+erst mit "Continue", nicht mit dem Chip-Tap selbst. Bei jedem folgenden Start —
+in dieser wie in jeder spaeteren Sitzung — startet der Chip-Tap den Lauf
+direkt, ohne Dialog. Das Fenster gleitet weiterhin nicht: in beiden Faellen
+beginnt es mit der ersten Lesung nach dem tatsaechlichen Start.
+
 ---
 
 ### Aufbau, Ort, Token
@@ -2677,7 +2716,25 @@ steht nie "break(s)".)
 - `"Run ended when the LDAC quality changed. {T} observed."`
 - `"Run ended when the codec changed. {T} observed."`
 - `"Run ended after {RUN_GAP_MAX} without a reading. {T} observed."`
+- `"Run ended after {RUN_GAP_MAX} of paused playback. {T} observed."` (T-046, Nutzer 23.09.)
 - `"Run ended when the rate stopped being readable. {T} observed."`
+- `"Run reached its set length. {T} observed."` (`RunEnd.TARGET_REACHED`,
+  AD-030/T-047c: **in diesem AK-17-Lauf unerreichbar**, weil `targetMs` hier
+  immer `null` ist — die Bedingung existiert nur, wenn ein Aufrufer ein Ziel
+  vorgibt. Wortlaut hier festgelegt, damit es nur eine Stelle mit dieser
+  Zeile gibt; der einzige heutige Aufrufer ist der Vergleichslauf, siehe
+  T-047c, Abschnitt S3-6, "Phase `ArmA`/`ArmB`".)
+
+**Starthinweis (Dialog, `AlertDialog`-Muster wie `LocalConnectionDisclosure`,
+nur beim ersten Start-Tap ueberhaupt — T-039a):** Wortlaut identisch mit Satz 1
+der zweiten Ebene unten, derselbe String an beiden Stellen, nicht zweimal
+formuliert.
+Titel: `"This screen must stay open"`
+Text: `"A run counts only while this screen is open; leaving it discards the
+run, and nothing is recorded."`
+`confirmButton`: `"Continue"` — startet den Lauf, setzt das Flag.
+`dismissButton`: `"Not now"` — schliesst den Dialog, kein Lauf, Flag bleibt
+ungesetzt.
 
 **Zweite Ebene (hinter dem Fragezeichen), vier Saetze, mehr nicht:**
 1. "A run counts only while this screen is open; leaving it discards the run,
@@ -2702,9 +2759,9 @@ zusaetzlich unveraendert.
 
 | Ereignis | Erkannt an | Folge |
 |---|---|---|
-| Wiedergabe pausiert | `device.isPlaying == false` oder `measuredKbps == null` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. Lauf laeuft weiter |
+| Wiedergabe pausiert | `device.isPlaying == false` | **Luecke.** Keine Zeit, keine Zahl, kein fortgeschriebener letzter Wert. **Dauert die Pause laenger als `RUN_GAP_MAX_MS`, endet der Lauf**, Grundzeile "after {RUN_GAP_MAX} of paused playback" (Nutzer 23.09., T-046; ersetzt „unabhaengig davon, wie lange die Pause dauert") |
 | Eine Lesung faellt aus (dumpsys-Fehler, Warnung) | Abstand `> 2 x Kadenz` | **Luecke**, sonst nichts |
-| Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
+| Luecke laenger als `RUN_GAP_MAX_MS` | Zeitstempelabstand **zwischen zwei Abfragen** (nicht zwischen zwei Ratenlesungen) | **Lauf endet**, Grundzeile "after {RUN_GAP_MAX} without a reading" |
 | Geraet trennt oder ein anderes wird aktiv | `device.address` wechselt, `isConnected == false` | **Lauf endet**, Grund genannt. Ein Lauf gehoert zu **einer** Paarung |
 | Stufe von Hand gewechselt | `LdacState.mode` wechselt oder `isAdaptive` kippt | **Lauf endet**, Grund genannt. Zwei Regime in einer Zahl waeren zwei Aussagen aus einem Beleg |
 | Codec wechselt | `codec.family` wechselt | **Lauf endet**, Grund genannt |
@@ -2713,6 +2770,48 @@ zusaetzlich unveraendert.
 | Monitor-Screen verlassen (Nav-Eintrag weg) | ViewModel stirbt | **Lauf ist weg**, ersatzlos. Das steht im Erklaertext, Satz 1 |
 | Kadenz gewechselt (1/2/5 s) | `intervalMs` wechselt | Lauf laeuft weiter; die Lueckenregel nutzt die jeweils gueltige Kadenz. Die Intervallrechnung ist dagegen immun |
 | "Watch closely" ein/aus | `closeUpEnabled` | **Ohne Wirkung auf den Lauf.** Der Lauf speist ausschliesslich aus `liveUpdates`, nie aus `A2dpTxProbe` |
+
+**Korrektur (T-043c, 2026-09-23):** Die Pausenzeile trug bis hierhin zusaetzlich
+"oder `measuredKbps == null`" — das kollidierte woertlich mit der Zeile "Rate
+nicht mehr lesbar" (`liveBitrateHonesty != MEASURED`): Beide Bedingungen sind
+bei laufender Wiedergabe (`isPlaying == true`) dieselbe Bedingung, weil
+`LdacState.from()` `measuredKbps` und `liveBitrateHonesty` aus derselben
+Ableseoperation baut — eine Rate ist nie null, waehrend die Lesbarkeit
+`MEASURED` bleibt, und umgekehrt. Der Fall "spielt, aber keine Rate" gehoert
+deshalb ausschliesslich in die Zeile "Rate nicht mehr lesbar" (Lauf endet); die
+Pausenzeile bezieht sich nur auf `isPlaying == false`. Umgesetzt genau so
+(`ObservationRun.kt`, `endAgainst()`), belegt durch
+`ObservationRunTest."each of the six ends is recognised and freezes the
+figures"` (Fall `RATE_UNREADABLE`). Kein Verhalten geaendert, nur der
+widerspruechliche Wortlaut. Ebenso praezisiert: `RUN_GAP_MAX_MS` zaehlt den
+Abstand zwischen zwei **Abfragen** (jeder Poll aktualisiert den Zeitstempel,
+auch ohne Rate), nicht zwischen zwei Ratenlesungen — das ist bereits die
+gebaute und getestete Bedeutung
+(`ObservationRunTest."a ten minute pause is a gap, not observed time"`: ein
+zehnminuetiger Ratenausfall bei fortlaufenden Abfragen beendet den Lauf
+**nicht**, er wird als eine einzige Luecke gezaehlt). Das ist konsistent mit
+der Zeile "App im Hintergrund": dort beendet erst der **Ausfall der Abfrage
+selbst** (Poller stoppt) den Lauf ueber `RUN_GAP_MAX_MS`, nicht das Fehlen
+einer Rate bei laufenden Abfragen. Wer eine Kappung von langen Pausen will,
+muesste das als neue, eigene Entscheidung treffen (offene Frage unten) — die
+bestehende Vorgabe verlangte sie nicht ausdruecklich, der alte Wortlaut hat sie
+nur unklar suggeriert.
+
+**Korrektur (T-047c, 2026-09-23):** Der Absatz oben ist durch T-046
+ueberholt, in der zentralen Aussage, nicht nur im Testnamen. Der Nutzer hat
+die dort als "offene Frage 5" gestellte Frage am 23.09. mit **nein**
+beantwortet (siehe "Offene Fragen" unten): Eine Pause **beendet** den Lauf
+jetzt, sobald sie `RUN_GAP_MAX_MS` (2 min) ueberschreitet, mit eigenem Grund
+`PAUSED` (Unterbrechungstabelle oben, Zeile "Wiedergabe pausiert"). Der Satz
+"eine beliebig lange Pause ... beendet den Lauf nie" gilt damit **nicht mehr**.
+Der zitierte Test ist umbenannt und misst jetzt genau die Grenze statt zehn
+Minuten: `ObservationRunTest."a pause of exactly the gap maximum is a gap,
+not observed time"` — eine Pause **bis einschliesslich** `RUN_GAP_MAX_MS`
+bleibt eine Luecke (`assertNull(run.end)`, `observedMs == 120_000L`), **eine
+Sekunde mehr** endet den Lauf (`ObservationRunTest."a pause one poll longer
+than the gap maximum ends the run"`, `RunEnd.PAUSED`). Der Rest des Absatzes
+(Abgrenzung zu "App im Hintergrund", Ausfall der Abfrage selbst vs. Fehlen
+einer Rate) bleibt unveraendert gueltig.
 
 **Warum die Nahaufnahme nicht speist:** Sonst aendert ein Chip mitten im Lauf
 die Aufloesung, und das Minimum spraenge in dem Moment, in dem er gedrueckt
@@ -2779,9 +2878,16 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   Fensterangabe. Ein Rendern der Stufenliste ohne ihre Kopfzeile ist ein
   Fehlschlag.
 - **AK-T039-3** `{T}` ist die Summe der abgedeckten Intervalle, nie
-  `jetzt - Start`. Unit-Test: eine Lesungsfolge mit einer 10-min-Luecke ergibt
-  ein `{T}`, das die Luecke **nicht** enthaelt, und die Lueckenzeile mit Anzahl
-  und Gesamtdauer erscheint.
+  `jetzt - Start`. Unit-Test: eine Lesungsfolge mit einer Luecke **bis
+  einschliesslich** `RUN_GAP_MAX_MS` (2 min) ergibt ein `{T}`, das die Luecke
+  **nicht** enthaelt, und die Lueckenzeile mit Anzahl und Gesamtdauer
+  erscheint; eine Luecke **darueber** beendet den Lauf stattdessen
+  (`RunEnd.PAUSED`/`READING_GAP`, AK-T039-9). **Korrigiert (T-047c,
+  2026-09-23):** ersetzt die fruehere 10-min-Beispielzahl, die seit T-046
+  (Pause endet den Lauf ab `RUN_GAP_MAX_MS`) keinen gueltigen Fall mehr
+  beschreibt. Beleg: `ObservationRunTest."a pause of exactly the gap maximum
+  is a gap, not observed time"` (Grenze, `observedMs == 120_000L`) und
+  `"a pause one poll longer than the gap maximum ends the run"` (darueber).
 - **AK-T039-4** Vor Erreichen von `RUN_MIN_OBSERVED_MS` **und**
   `RUN_MIN_READINGS` existiert im Baum **keine** Zeichenkette mit Minimum,
   Anteil oder Verweildauer — nur die `RUN_COLLECTING`-Zeile. Compose-Test mit
@@ -2803,9 +2909,20 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   660 → 990 → 660 (moving **und** at-or-above 660) und 492 → 660 (moving, nicht
   at-or-above 660). Der Satz "the share is a lower bound" steht in der zweiten
   Ebene.
-- **AK-T039-9** Jeder der sechs Abbruchgruende erzeugt seine eigene Grundzeile,
-  und die Kennzahlen bleiben danach unveraendert sichtbar, bis ein neuer Lauf
-  startet oder der Bildschirm verlassen wird. Unit-Test je Grund.
+- **AK-T039-9** Jeder der **sieben** Abbruchgruende (T-046: `PAUSED` kam als
+  eigener Grund hinzu, seither trennt die Tabelle "Wiedergabe pausiert" von
+  "Lesung faellt aus") erzeugt seine eigene Grundzeile, und die Kennzahlen
+  bleiben danach unveraendert sichtbar, bis ein neuer Lauf startet oder der
+  Bildschirm verlassen wird. Unit-Test je Grund. **Korrigiert (T-047c,
+  2026-09-23):** "sechs" auf "sieben" und der Testname auf den aktuellen
+  Stand gebracht — `ObservationRunTest."each end is recognised and freezes
+  the figures"` deckt alle sieben `RunEnd`-Werte ab
+  (`assertEquals(RunEnd.entries.toSet(), cases.keys)`). **Vorgriff:** AD-030
+  (T-047e) fuegt `RunEnd.TARGET_REACHED` als achten Wert hinzu; in diesem
+  AK-17-Lauf bleibt er unerreichbar (`targetMs == null`), sieben bleibt die
+  Zahl der hier tatsaechlich sichtbaren Grundzeilen. Die achte Grundzeile ist
+  oben im Wortlaut-Abschnitt festgelegt und gilt fuer den Vergleichslauf
+  (T-047c, S3-6).
 - **AK-T039-10** Der Lauf hat **keine** eigene periodische Arbeit und **keine**
   Persistenz: kein Timer, keine Uhr im Rechenkern, kein `WorkManager`, kein
   Room-, DataStore-, `SavedStateHandle`- oder Dateizugriff im Laufpfad. Pruefbar
@@ -2822,7 +2939,7 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   60 min "h min". An keiner Spanne ueber 90 s erscheint eine Sekundenangabe.
   Unit-Test mit 45 s, 89 s, 91 s, 24 min, 72 min.
 - **AK-T039-14** Herkunft je Groesse (`GOAL.md` AK-8), im KDoc nachvollziehbar:
-  Minimum und `{T}` **MEASURED**, Anteil und Verweildauer **DERIVED** mit
+  Minimum **MEASURED**, `{T}` (Summe nach der App-Uhr, T-045 P-1), Anteil und Verweildauer **DERIVED** mit
   benannten Eingangsgroessen, die Schwelle **Wahl des Nutzers** und nirgends als
   gemessen oder abgeleitet ausgezeichnet.
 - **AK-T039-15** Die Graph-Caption der 60-s-Uebersicht nennt "low {x}" zwischen
@@ -2833,6 +2950,14 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   Unit-Test, in dem dieselben Stufen und Zeiten einmal durchgehend mit 1 s und
   einmal gemischt 1 s/5 s abgetastet werden — Anteil und Verweildauer stimmen
   bis auf die Lueckenregel ueberein.
+- **AK-T039-17 (T-039a)** Der Starthinweis erscheint genau beim ersten Tap auf
+  den Start-Chip ueberhaupt (persistiertes Flag noch nicht gesetzt) und nie
+  wieder, auch nicht nach Neustart der App. "Continue" startet den Lauf und
+  setzt das Flag; "Not now" startet **keinen** Lauf und laesst das Flag
+  ungesetzt. Jeder weitere Start-Tap — in dieser wie in jeder spaeteren
+  Sitzung — startet den Lauf direkt, ohne Dialog. Unit-Test mit persistiertem
+  Store: erster Tap -> Dialog, kein Lauf; "Continue" -> Lauf laeuft, Flag
+  gesetzt; frisches ViewModel auf demselben Store, Tap -> Lauf startet direkt.
 
 **Geaendert an bestehenden Kriterien:**
 
@@ -2848,6 +2973,11 @@ traegt sein KDoc mit Herkunft und, wo offen, `TODO(M-15)` bzw. `TODO(M-16)`.
   die Verweildauer des Laufs. Beide duerfen nebeneinander stehen, weil beide ihr
   Fenster nennen — sie duerfen aber **nie** denselben Namen tragen und nie in
   einem Satz erscheinen.
+- **AK-T039-1 praezisiert (T-039a):** "ausschliesslich durch Betaetigen des
+  Start-Chips" gilt mit einer Ausnahme, dem allerersten Start ueberhaupt: dort
+  beginnt der Lauf erst mit "Continue" im Starthinweis, der Chip-Tap allein
+  startet ihn nicht. Ab dem zweiten Start, in jeder Sitzung, startet der
+  Chip-Tap wieder direkt. Kein gleitendes Fenster in keinem der beiden Faelle.
 
 ### Messanforderungen
 
@@ -2897,6 +3027,7 @@ dieser Abschnitt sagt nichts ueber Verluste.
    das bei jedem Tabwechsel neu anfaengt, ohne dass es jemand merkt. **Beide
    Varianten sind gleich ehrlich; sie unterscheiden sich in Bequemlichkeit gegen
    Kontrolle ueber den Zeitraum.**
+   **Entschieden (Nutzer, 2026-09-03): von Hand, wie empfohlen.**
 2. **Darf das Fenster einmal statt dreimal genannt werden?** AK-17 verlangt die
    Nennung "an Ort und Stelle"; das ergibt drei ", 24 min observed."
    untereinander. Ich habe wortgetreu umgesetzt. Die ruhigere Variante waere das
@@ -2904,12 +3035,1754 @@ dieser Abschnitt sagt nichts ueber Verluste.
    sobald jemand eine Zeile einzeln zitiert oder abfotografiert — genau der
    Fall, gegen den AK-17 geschrieben ist. **Meine Empfehlung: so lassen**; die
    Frage geht nur deshalb hoch, weil das Ergebnis den Nutzer taeglich ansieht.
+   **Entschieden (Nutzer, 2026-09-22): so lassen, dreimal — wie empfohlen.**
 3. **Sollen die gemessenen Zwischenstufen (396, 492) als Schwelle waehlbar
    sein?** Ich habe sie ausgeschlossen, weil sie nicht pinnbar sind — ein Anteil
    ueber 492 beantwortet keine Handlung. Wer sie als Schwelle will, will
    vermutlich etwas anderes: verstehen, wie der Regler arbeitet. Dafuer ist die
    Verweildauer-Liste da, in der sie ohnehin erscheinen.
+   **Entschieden (Nutzer, 2026-09-22): ausgeschlossen, nur pinnbare Stufen —
+   wie empfohlen.**
 4. **Soll beim Start einmalig darauf hingewiesen werden, dass das Verlassen des
    Bildschirms den Lauf verwirft?** Es steht im Erklaertext (Satz 1), also hinter
    dem Fragezeichen. Ein Hinweis beim Start waere sicherer und zugleich das, was
    dieses Panel bisher konsequent vermeidet: Text, den niemand angefordert hat.
+   **Entschieden (Nutzer, 2026-09-03): ja, einmalig beim Start.** Umgesetzt in
+   Entscheidung 5 und AK-T039-17 (T-039a, 2026-09-22): Dialog beim allerersten
+   Start ueberhaupt, `AlertDialog`-Muster wie `LocalConnectionDisclosure`,
+   persistiertes Flag statt Text je Sitzung.
+5. **Soll eine Pause (`isPlaying == false`) beliebig lang sein duerfen, ohne den
+   Lauf zu beenden?** So ist es gebaut und getestet (siehe Korrektur oben,
+   T-043c, 2026-09-23): Solange die Oberflaeche offen bleibt und weiter abfragt,
+   ueberlebt der Lauf jede Pausenlaenge und zaehlt sie als eine Luecke;
+   `RUN_GAP_MAX_MS` greift nur, wenn die Abfragen selbst ausbleiben (Hintergrund,
+   dumpsys-Ausfall). Dafuer spricht: eine Pause zum Telefonat oder
+   Song-Wechsel soll nicht die halbe Beobachtung verwerfen, und die Luecke wird
+   ehrlich ausgewiesen. Dagegen spricht: eine sehr lange Pause (Stunden) fasst
+   zwei moeglicherweise ungleiche Nutzungsphasen in eine Zahl — nicht
+   unehrlich, aber vermischend. Ich empfehle **so lassen**, weil eine Grenze
+   hier ohne gemessenen Anlass eine weitere gesetzte Konstante waere, die
+   niemand angefordert hat, und weil das Verwerfen einer laufenden Beobachtung
+   nach einer langen, aber gewollten Pause den in T-039 selbst benannten
+   Nutzerwunsch (Entscheidung 1) unterlaeuft.
+   **Entschieden (Nutzer, 2026-09-23): nein.** Eine Pause laenger als
+   `RUN_GAP_MAX_MS` beendet den Lauf mit eigenem Grund (Tabelle oben, T-046).
+
+---
+
+## Saeule 3 — Rueckweg, Skip-Grund, gefuehrter Vergleich (T-047c) — 2026-09-23
+
+Liefert die Oberflaechentexte und Ablaeufe, die `ARCHITECTURE.md` AD-038
+(Spalte "UI-Spec liefert") fuer S3-3, S3-5, S3-6 verlangt, dazu D2, D4,
+AD-036 und den Messrahmen nach AK-14. Grundlage: `docs/tasks/T-047.md`
+(F1–F5, D1–D4, AD-030..038 im Wortlaut kopiert), `ARCHITECTURE.md` AD-030..038,
+`GOAL.md` AK-11..16, `docs/research/R-010.md` Teil 1/2 (Massnahmen- und
+Ausweich-Grundlage). **Unverifiziert (Spezifikation ohne Geraet und ohne
+laufende App)** — das Geraet ist durch eine andere Rolle belegt; der Ist-Stand
+ist am Quelltext gelesen (`BluetoothScreen.kt`, `LiveLinkPanel.kt`,
+`ObservationRunSection.kt`, `DeviceProfilesViewModel.kt`,
+`DeviceProfileApplier.kt`, `BtDashboardApp.kt`), keine Screenshots.
+
+Alles, was hier nicht ausdruecklich geaendert wird, gilt unveraendert weiter:
+R-A bis R-G, die Woerterverbote aus T-039 ("always", "never below", "stable"
+usw.), die Dauerformatierung `{T}`/`{t}`/`{g}` und die `plural()`-Regel aus
+T-039.
+
+### Bestand statt Neuerfindung — welche Komponenten wiederverwendet werden
+
+| Neu gebraucht fuer | Wiederverwendete Komponente | Beleg |
+|---|---|---|
+| Rueckweg-Banner (Bluetooth-Tab) | `Panel` + `GoldOutlinedButton`, wie beim Block "Other devices" | `BluetoothScreen.kt:152-159` |
+| Bestaetigung vor dem Rueckweg | `AlertDialog`-Muster (Titel, Fliesstext, `confirmButton`, `dismissButton`) | `LocalConnectionDisclosure` (`ActivateScreen.kt`), T-039a-Starthinweis |
+| Rueckweg-Bericht, Zeile je Einstellung | Satzfamilie `"{Name} set to {value}."` / `"{Name} was already {value}."` | `DeviceProfilesViewModel.describe()` |
+| Vergleichsabschnitt (`ComparisonSection`) | `ExplainedBlock`, `FilterChip`, `Text` in `bodyMedium`/`bodySmall`, keine Fehlerfarbe/kein Bildzeichen | `ObservationRunSection` (T-039) |
+
+Kein neues Token, keine neue Farbe, keine neue Dialogform.
+
+### S3-3 — Skip-Grund beim Ledger-Schreibversuch
+
+Wenn `SettingsLedger.recordGlobal`/`recordHdAudio` `false` liefert (Vorwert
+nicht lesbar, noch kein Eintrag — AD-033), schreibt der Applier nicht und
+meldet `ProfileAction.Skipped(what, reason)`, gerendert durch das bestehende
+`"Skipped ${what}: ${reason}."` (`DeviceProfilesViewModel.kt:574`).
+
+**Wortlaut `reason` (neu, wortgleich):**
+`"the value before could not be read, so it could not be restored — nothing was written"`
+
+`what` bleibt die bereits vorhandene Bezeichnung derselben Einstellung
+("absolute volume", der `BluetoothDeveloperOptions`-Label, "HD audio") — kein
+zweites Vokabular fuer dieselbe Einstellung.
+
+### D2 — Dauerhafter Hinweis auf offene Ledger-Eintraege
+
+**Ort:** `BluetoothScreen`, direkt unter der Ueberschrift "Bluetooth" und
+**vor** `BluetoothCodecSection` — die erste sichtbare Flaeche nach jedem
+App-Start, weil die Bluetooth-Tab bereits `startDestination` ist
+(`BtDashboardApp.kt:237`). "Nicht erst im Bluetooth-Tab gesucht" (D2) heisst
+hier: nicht scrollen, nicht aufklappen, kein `ExplainedBlock`-Fragezeichen —
+der Banner steht ungefragt da, solange mindestens ein Eintrag offen ist.
+
+**Sichtbarkeitsregel:** gerendert, wenn `SettingsLedger.entries()` nicht leer
+ist — unabhaengig von Verbindungsstatus und davon, welcher Screen zuletzt
+offen war.
+
+**Wortlaut (fest, D2 wortgleich):**
+Kopf: `"Settings changed by the process are still active."`
+Detail: `"{N} setting{s} not put back yet."` (`{s}` per `plural()`)
+Knopf, solange kein Rueckweg versucht wurde oder der letzte vollstaendig war:
+`"Back to before"`
+Knopf, nachdem ein Rueckweg Eintraege offen gelassen hat (`pending`
+nicht leer — der Dauerhinweis aus AD-038): `"Try again"`
+
+### S3-5 — Rueckweg: Bestaetigung, Ausfuehrung, Bericht
+
+**Bestaetigungsdialog**, ausgeloest durch den Banner-Knopf:
+Titel: `"Put settings back to before?"`
+Text: `"This puts back every setting this app has changed and not restored
+yet — global options, HD audio, and codec preference. Profiles that made any
+of these changes stop applying automatically until you switch them back on."`
+`confirmButton`: `"Back to before"` — startet `SettingsRestore.restoreAll()`.
+`dismissButton`: `"Cancel"` — kein Aufruf, keine Aenderung.
+
+**Bericht, in dieser Reihenfolge, jede Zeile ein Satz derselben Familie wie
+`describe()`:**
+
+1. **Je zurueckgestelltem Eintrag** (`restored`):
+   - Global, `prior != null`: `"{name} put back to {value}."`
+   - Global, `prior == null` (Ausgangszustand "nicht gesetzt"): `"{name} put
+     back — cleared, it was not set before this app touched it."`
+   - HD-Audio: `"HD audio for {device} put back to {state}."` — `{state}`
+     identisch mit `HdAudioSet` ("on" / "off — this device is now SBC only" /
+     "back to Android's own choice").
+   - Codec-Wunsch: `"Codec preference for {device} put back to {value}."`
+     bzw. bei `priorWish == null`: `"Codec preference for {device} put back —
+     cleared, no preference was set before."`
+   - LDAC-Live-Stufe (nur wenn verbunden und `priorLive != null`): `"LDAC
+     quality for {device} put back to {chipLabel}."` — `{chipLabel}` aus
+     `LdacQualityMode.label` (Bestand, z. B. "High quality").
+   - **LDAC-Live-Stufe, verbunden und `priorLive == null`** (Security M12:
+     der Vorwert war `UNKNOWN` oder fehlte — ein `ADAPTIVE`-Antrag waere
+     erfunden, nicht zurueckgestellt): eigene Zeile, **nicht** unter
+     "zurueckgestellt" gezaehlt: `"LDAC quality for {device} stays as it is
+     until it connects again — the level before this app touched it could
+     not be read."` Nicht verbunden und `priorLive == null`: keine Zeile (die
+     Stufe stirbt bereits mit der Verbindung, AD-038 S3-5).
+2. **Je nicht zurueckgestelltem Eintrag** (`pending`, mit dem vom Applier
+   gelieferten Grund): `"{name} could not be put back yet: {reason}."` —
+   `{reason}` ist die vorhandene Fehlerbeschreibung desselben Schreibpfads
+   (z. B. "the write was accepted but it could not be read back",
+   `HelperBluetooth.kt:261`/`:396`), kein neuer Wortlaut je Fehlerart.
+3. **Je ausgesetztem Profil** (AD-034): `"Autoapply paused for {profile}. It
+   will not re-apply its codec, developer options, absolute volume or HD
+   audio settings — and not its volume or EQ choices either — until you
+   turn Autoapply back on."`
+4. **Codec-Familie, genau einmal, nur wenn ein Codec-Eintrag betroffen war
+   (D4):** `"The codec family for {device} goes back to the stack's own
+   choice the next time it connects — that did not happen as part of this
+   action."` Diese Zeile steht **im selben Bericht** wie die uebrigen drei,
+   nicht auf einem zweiten Screen: D4 zaehlt den Rueckweg nur dann als "eine
+   Handlung", wenn der Bericht das hier ausdruecklich sagt.
+
+**Nach dem Bericht:** Bleiben `pending`-Eintraege, bleibt der Banner (D2)
+sichtbar, Detailzeile neu gerechnet, Knopf jetzt `"Try again"`. Sind alle
+Eintraege weg, verschwindet der Banner vollstaendig — kein leerer Rahmen.
+
+**Security M13 — keine rohe Adresse in keinem Grundtext:** Jedes `{device}`/
+`{name}` oben ist der Anzeigename (Geraetename bzw. `deviceKey`-Label), nie
+die Bluetooth-MAC. Jede Zeile dieses Berichts, des Banners und des
+Bestaetigungsdialogs geht durch `redactAddresses`, bevor sie gerendert wird —
+dieselbe Funktion, kein zweiter Filter.
+
+**Security M14 — der Hinweis gilt auch ohne laufenden Helfer:** Der Banner
+(D2) haengt ausschliesslich an `SettingsLedger.entries()` (lokale Ablage,
+kein Helfer-Aufruf) und erscheint deshalb **zusaetzlich** auf `ActivateRoute`
+(`BtDashboardApp.kt`, `SetupPhase.ACTIVATION_ONLY` — der Bildschirm, den der
+Nutzer sieht, wenn Berechtigungen erteilt, der Helfer aber nicht verbunden
+ist), nicht nur in `BluetoothScreen`. Gleiche Komponente, gleicher Wortlaut,
+gleicher Knopf. Tippt der Nutzer dort auf "Back to before", laeuft derselbe
+`SettingsRestore.restoreAll()`; was den Helfer braucht (HD-Audio, Codec) und
+ihn nicht bekommt, landet als `pending` mit einem Grund aus der bestehenden
+Wortfamilie ("the helper is not connected"), Globals ueber
+`WRITE_SECURE_SETTINGS` gehen unabhaengig vom Helfer.
+
+**Security-Auflagen, die den Zugang betreffen (kein neues UI-Element noetig,
+hier dokumentiert, weil sie Einstiegspunkte dieses Abschnitts einschraenken):**
+Der Rueckweg startet **nie** automatisch (App-Start, Neustart, Prozesstod) —
+ausschliesslich ueber den hier spezifizierten Knopf mit Bestaetigungsdialog;
+er ist **nicht** von aussen erreichbar (kein Intent, kein Receiver, kein
+Provider); Grundtexte werden nicht gespeichert (nur die Ledger-Rohdaten); D3
+bleibt: Medienlautstaerke und EQ-Kompensation kommen in keiner Zeile dieses
+Abschnitts vor.
+
+### S3-6 — Gefuehrter Vergleich (`ComparisonSection`)
+
+**Zweck & Nutzerziel:** Eine Massnahme aus R-010 auf **belegte** Wirkung
+pruefen — nicht behaupten, sondern in zwei gleich langen Armen zaehlen
+(AK-13).
+
+**Ort:** in `LiveLinkPanel`, unmittelbar **unter** `ObservationRunSection`,
+**ueber** `UpdateRateRow`. Begruendung wie in T-039: kurze Fenster (Stufenzeile,
+Caption) oben, lange Zeitraeume unten, in der Reihenfolge, in der die zwei
+Fragen entstehen — erst "wie tief war ich" (T-039), dann "hilft eine
+Massnahme dagegen" (hier).
+
+**Einstieg (Phase `Choose`), Ruhezustand:**
+Kopf: `"Compare a change, before and after"`
+Erklaertext (`?`, immer sichtbar beim ersten Aufklappen — **F1, Pflichtsatz,
+nicht versteckt hinter einer zweiten Ebene**): `"This runs two 15-minute
+observations back to back: as it is now, then with one change applied, both
+pinned to {S} kbps. Pinning a fixed step does not avoid dropped-audio
+incidents — expect to notice some during both arms; that is what lets this
+run count them."` (AK-T009-43: "notice"/"expect" statt der verbotenen
+Wortfamilie "audible/audibly/audibility" — dieser Abschnitt liegt in
+`ui/screens/monitor` und faellt unter dasselbe Verbot.)
+
+**Katalog — genau sechs Massnahmen, plus eine getrennte Kategorie
+"Workarounds" mit genau vier Eintraegen (AK-12):**
+
+| Measure | Anzeigename | Anleitung (Wortlaut) | Bedingung (Verification) |
+|---|---|---|---|
+| `NO_DISCOVERY` (A1) | "No device discovery or scanning" | "Close any 'pair new device' screen and turn off nearby-device search before this arm — both keep scanning while open." | immer `NOT_VERIFIABLE` |
+| `NO_2_4_GHZ_WIFI` (A2) | "Wi-Fi off" | "Turn Wi-Fi off on this phone for this arm — the band it uses competes with Bluetooth for airtime." | `WIFI_RADIO` |
+| `NO_SECOND_DEVICE` (A3) | "No second Bluetooth device" | "Disconnect every other Bluetooth device from this phone, and turn off multipoint on the headphone if it has the setting." | `OTHER_ACL_LINKS` |
+| `BODY_OUT_OF_PATH` (A4) | "Clear line of sight" | "Keep this phone close to the headphone and your body out of the direct line between them." | immer `NOT_VERIFIABLE` |
+| `USB_CABLE_OFF` (A5) | "USB cable unplugged" | "Unplug the USB cable and run this arm on battery." | `USB_POWER` |
+| `SINK_ALLOWS_LDAC` (A7) | "Headphone set to allow LDAC" | "Check the headphone's own app or menu for a sound-quality setting, and choose the option for sound quality rather than the one for connection priority." | immer `NOT_VERIFIABLE` |
+
+Auswahl: ein Listeneintrag je Massnahme, einfach waehlbar (kein `FilterChip`-
+Mehrfachzustand), Knopf `"Compare"` erst aktiv, wenn eine Massnahme gewaehlt
+ist.
+
+**"Workarounds" — eigene Sektion, unterhalb des Katalogs, nicht waehlbar,
+kein Start-Knopf (AK-12: "erscheinen ausschliesslich in einer ausdruecklich
+als 'Ausweichen' benannten Kategorie und nie als Behebung"):**
+
+Kopf (fest, muss als eigene Kategorie erkennbar sein): `"Workarounds"`
+Erklaertext: `"These lower the bitrate on purpose. They are not fixes for
+the incidents above — they avoid them by asking for less."`
+
+| Fallback | Anzeigename | Satz |
+|---|---|---|
+| `LOWER_STEP` | "Lower LDAC quality step" | "Drops the bitrate by a third or two-thirds — fewer incidents because there is less to lose, not because the link improved." |
+| `ADAPTIVE_BITRATE` | "Adaptive Bit Rate" | "Leaves {S} kbps long before the send queue is actually full, so it avoids the incidents by not requesting the rate that causes them." |
+| `CODEC_CHANGE` | "Switch codec away from LDAC" | "AAC or SBC ask for a third or less of the airtime — a different, lower-bitrate codec, not a repaired one." |
+| `FAMILY_44_1_KHZ` | "Switch to the 44.1/88.2 kHz family" | "The step below {S} kbps in that family is {S44}, about 8% less airtime — still a lower rate, not a fix." |
+
+**AK-12-Woerterverbot, grep-pruefbar:** Das Wort "fix"/"fixes"/"fixed" (im
+Sinn von "repariert") kommt in der Workarounds-Sektion nur negiert vor
+("not a fix"/"not fixes"); im sechser-Katalog und seinen Anleitungen kommt es
+gar nicht vor.
+
+**Phase `PinAndCheck`:** pinnt `HIGH_QUALITY` ueber `LdacTuning.pin` (F3,
+kein neues Kommando).
+- Waehrend: `"Pinning to {S} kbps…"`
+- `CodecApplyOutcome` nicht `Applied`: `"Could not pin to {S} kbps: {reason}.
+  Nothing was measured."`, Knopf `"Try again"` / `"Cancel"`, kein Lauf
+  gestartet.
+- Massnahme ist **vor** Arm A schon `VERIFIED` (Bedingung liegt bereits vor):
+  `"{Anzeigename} already applies — there is nothing to compare a change
+  against."`, kein Lauf gestartet, zurueck zu `Choose`.
+
+**Phase `ArmA` / `ArmB`, Fortschritt (AD-038 wortgleich):**
+`"{T} of 15 min observed."` — `{T}` nach der T-039-Formatregel; da
+`ARM_TARGET_MS` = 15 min und Arm B hoechstens ein Intervall darueber zielt,
+rundet die Regel beide Anzeigen auf "15 min".
+Endet ein Arm **ohne** `TARGET_REACHED`, wird nur dieser Arm wiederholt (Arm A
+bleibt bestehen): `"Arm {A|B} ended before 15 minutes ({Grundzeile aus
+T-039/T-046, wortgleich}). Starting Arm {A|B} again."`
+Erreicht der Arm sein Ziel, zeigt er kurz die achte Grundzeile aus T-039
+(oben festgelegt, hier zum ersten Mal erreichbar): `"Run reached its set
+length. {T} observed."`, danach der Uebergang in die naechste Phase.
+
+**Phase `Instruct`** (zwischen Arm A und Arm B): zeigt die Anleitung der
+gewaehlten Massnahme (Tabelle oben) plus, sobald gelesen, das
+Rueckleseergebnis.
+
+**Rueckleseworte (AD-038, drei Woerter, an die Bedingung gebunden — AD-035
+Ausnahme A2 beachtet):**
+
+| `Verification` | Bedingung | Wortlaut |
+|---|---|---|
+| `VERIFIED` | `WIFI_RADIO` = off | `"Confirmed: Wi-Fi is off on this phone."` |
+| `VERIFIED` | `OTHER_ACL_LINKS` = 0 | `"Confirmed: no other Bluetooth device is connected."` |
+| `VERIFIED` | `USB_POWER` = none | `"Confirmed: the phone is running on battery."` |
+| `CONTRADICTED` | `OTHER_ACL_LINKS` > 0 | `"Contradicts what this run needs: {n} other Bluetooth device(s) are still connected."` |
+| `CONTRADICTED` | `USB_POWER` ≠ none | `"Contradicts what this run needs: the phone is still receiving power."` |
+| `NOT_VERIFIABLE` | `WIFI_RADIO` = on (**nie** `CONTRADICTED`, AD-035) | `"Not checkable: Wi-Fi being on here does not say which band it used."` |
+| `NOT_VERIFIABLE` | Massnahme ohne `Condition` (A1, A4, A7) | `"Not checkable from this phone."` |
+| `NOT_VERIFIABLE`/`Unreadable` | Bedingung nicht lesbar | `"Not checkable: {reason}."` |
+
+**Korrektur (T-059b, 2026-09-29):** Die `WIFI_RADIO`=on-Zeile oben ist durch
+AD-046 (Saeule 3, T-057b/T-058c) ueberholt — der Satz behauptet, ein
+eingeschaltetes Wi-Fi sage nichts ueber das Band, aber die App liest das
+Band inzwischen (`ConnectivityManager`, ohne Standortrecht) und A2
+**widerspricht** jetzt bei 2,4 GHz (`CONTRADICTED`, entgegen dem "nie
+CONTRADICTED" der Klammer). Der Satz bleibt hier nur als Beleg, was vor
+AD-046 galt; die aktuell gueltige Aufteilung nach Band steht unten im
+Abschnitt "Saeule 3 — P-003 (AK-21)" und in `Measures.kt::verify`,
+`ConditionStatus.kt::readBackSentence` (`Condition.WIFI_BAND`-Zweige).
+
+`CONTRADICTED` startet Arm B **nicht**: `"Arm B has not started — the
+condition above still holds."`, Knopf `"Check again"`. `VERIFIED` und
+`NOT_VERIFIABLE` starten Arm B.
+
+**Phase `Result` — Urteil, Messrahmen, AK-16, Prozesstod, Rueckweg, alles im
+selben Composable (AK-14: kein Fussnoten-Muster):**
+
+**Vier Urteilssaetze (`Verdict`), R-A eingehalten — Subjekt ist der
+Zaehler, nie der Klang:**
+
+| `Verdict` | Satz |
+|---|---|
+| `FEWER_DETECTED` | `"Fewer dropped-audio incidents were counted after than before — a difference this size is unlikely by chance alone (p ≈ {pValue})."` |
+| `MORE_DETECTED` | `"More dropped-audio incidents were counted after than before — a difference this size is unlikely by chance alone (p ≈ {pValue})."` |
+| `WITHIN_DETECTION_LIMIT` | `"The incidents counted before and after are within what chance alone can explain (p ≈ {pValue}) — no difference is detectable at this length."` |
+| `NO_BASELINE_EVENTS` | `"Arm A (before) counted no incidents at all, so no effect is detectable — a reduction from zero cannot be measured, whatever Arm B counted."` (F2) |
+
+`{pValue}` mit drei signifikanten Stellen, nie bei `NO_BASELINE_EVENTS`.
+
+**`NotComparableResult`, ein Satz je Grund, alle Gruende sichtbar, nicht nur
+der erste:**
+
+| `NotComparable` | Satz |
+|---|---|
+| `ArmAIncomplete` | `"Arm A did not reach 15 minutes, so the two arms cannot be compared."` |
+| `ArmBIncomplete` | `"Arm B did not reach 15 minutes, so the two arms cannot be compared."` |
+| `LinkDiffers` | `"The link ran at a different step or codec in the two arms, so their counts are not the same measurement."` |
+| `CadenceDiffers` | `"The two arms were read at different intervals, so their counts are not the same measurement."` |
+| `DropoutsUncounted` | `"The incident counter could not be read for part of an arm, so its count is incomplete."` |
+| `ConditionChanged(c, where)` | `"{Bedingungsname(c)} was different {waehrend/zwischen(where)}, so the comparison does not hold."` |
+| `MeasureNotInEffect(c)` | `"The condition this measure needs ({Bedingungsname(c)}) was not in place during the run, so it was not actually tested."` |
+
+Bedingungsnamen: `WIFI_RADIO` → "Wi-Fi power", `WIFI_SCAN_ALWAYS` → "Wi-Fi
+scanning", `OTHER_ACL_LINKS` → "another Bluetooth device", `USB_POWER` →
+"USB power". `where`: `IN_ARM_A` → "during Arm A", `IN_ARM_B` → "during Arm
+B", `BETWEEN_ARMS` → "between the two arms".
+
+**Messrahmen (AK-14), immer im Ergebnis, unabhaengig vom Urteil, direkt bei
+Urteil/NotComparable-Saetzen, keine zweite Ebene:**
+
+- `"Arm A ran for {tA}, Arm B for {tB}."`
+- `"Both pinned to {S} kbps, {codec family}."`
+- `"Read every {Kadenz}."`
+- Zustandsbuch je Bedingung, Anfang/Ende je Arm: `"{Bedingungsname}: {Wert}
+  at the start of Arm A, {Wert} at the end. {Wert} at the start of Arm B,
+  {Wert} at the end."` — nicht lesbare Bedingungen: `"not checkable"`.
+- `notChecked`, falls nicht leer: `"Not checked in this run: {Liste der
+  Bedingungsnamen}."`
+- Drift-Satz (F2, immer): `"The two arms ran one after another, not at the
+  same time — anything that changed between them besides the chosen change
+  is part of this difference too, and this run cannot separate it out."`
+- Geltungssatz (AK-14, wortgleich gefordert): `"This is a relative result
+  about these exact 15 minutes on each side, not a statement about everyday
+  quality."`
+- Nachweisgrenze: `"At 15 minutes each, a difference is only detectable if
+  Arm A counted at least {smallestDetectableBaseline()} incidents — fewer
+  than that, and even a drop to zero afterwards would not be
+  distinguishable from chance."`
+
+**AK-16-Satz und Paarungsfakten (AD-036), immer im Ergebnis, unter dem
+Messrahmen:**
+
+`"Whether this pairing can carry {S} kbps at all is not something this
+phone can determine — that needs the packet type, and it is not readable
+without BQR access this app does not have."`
+
+- `"3 Mbps EDR: {yes/no/not readable} — read on this pairing."`
+- `"Effective MTU: {mtu} — read on this pairing."` (bzw. "not readable")
+- `"Packet type and retransmission rate: not readable without BQR."`
+
+**Security M18 — keine rohe Adresse:** Messrahmen, Zustandsbuch und
+Paarungsfakten nennen nie die Bluetooth-MAC, weder auf dem Schirm noch im
+Zustand noch im Log — dieselbe `redactAddresses`-Pflicht wie in S3-5 (M13).
+`{device}`, falls hier ueberhaupt gebraucht, ist der Anzeigename.
+
+**Prozesstod-Satz (AD-037, immer im Ergebnis):** `"A comparison does not
+survive the app's process ending — Arm A lives only in this app's memory.
+Leaving this screen or the app keeps it; being killed by Android between
+arms loses it, and the comparison starts over."`
+
+**Rueckweg-Knopf:** ab `PinAndCheck` erfolgreich bis `Result` sichtbar,
+derselbe Knopf/Fluss wie S3-5 (`"Back to before"`) — kein zweiter Rueckweg,
+keine zweite Implementierung.
+
+### Zustaende vollstaendig — `ComparisonSection`, genau eine Phase sichtbar
+
+| # | Phase | Aktion(en) |
+|---|---|---|
+| 1 | `Choose` | Katalog (6) + Workarounds (4, nicht waehlbar) + "Compare" |
+| 2 | `PinAndCheck` | Abbrechen; bei "already applies" zurueck zu 1 |
+| 3 | `ArmA` | Abbrechen; bei vorzeitigem Ende: Wiederholung nur von Arm A |
+| 4 | `Instruct` | Anleitung + Rueckleseergebnis; "Check again" bei `CONTRADICTED` |
+| 5 | `ArmB` | Abbrechen; bei vorzeitigem Ende: Wiederholung nur von Arm B |
+| 6 | `Result` | "New comparison" (zurueck zu 1) + Rueckweg-Knopf |
+
+### Regelpruefung
+
+- **R-A:** Subjekt jedes Urteilssatzes ist "incidents"/der Zaehler, nie
+  "audio"/"Bluetooth"/der Klang.
+- **R-F:** Keine Groesse je Minute/Sekunde in diesem Abschnitt; `{p}` ist
+  eine Wahrscheinlichkeit, keine Rate; Kadenz und Dauern sind gemessene
+  Spannen.
+- **R-G:** Das Wort "packet" kommt nur in den zwei ausdruecklich erlaubten
+  Stellen vor: "Packet type and retransmission rate" (AD-036, Grenzsatz) und
+  nirgends sonst — insbesondere nicht fuer die `dropouts`-Zaehlung selbst
+  ("dropped-audio incidents" bleibt das Wort, wie im Rest der App).
+- **R-E / T-039-Woerterverbote:** gelten unveraendert; zusaetzlich verboten in
+  diesem Abschnitt: "fix"/"fixes"/"fixed" ausserhalb der negierten Form in
+  "Workarounds".
+
+### Akzeptanzkriterien
+
+- **AK-T047-1** Der Skip-Grund-Satz aus S3-3 ist zeichengenau `"the value
+  before could not be read, so it could not be restored — nothing was
+  written"` und erscheint nur ueber `ProfileAction.Skipped`, nie als eigener
+  Textbaustein. Grep-pruefbar.
+- **AK-T047-2** Der Rueckweg-Banner (D2) ist in `BluetoothScreen` vor
+  `BluetoothCodecSection` platziert, sichtbar ohne Scroll und ohne Tippen auf
+  ein Fragezeichen, gerendert genau dann, wenn `SettingsLedger.entries()`
+  nicht leer ist. Compose-Test: Banner-Textknoten liegt vor dem ersten
+  Textknoten von `BluetoothCodecSection` im Baum.
+- **AK-T047-3** Der Bestaetigungsdialog vor dem Rueckweg ist zeichengenau wie
+  oben; `"Cancel"` fuehrt keinen Rueckweg aus. Compose-Test.
+- **AK-T047-4** Jede Zeile des Rueckweg-Berichts gehoert zu genau einer der
+  vier Kategorien (zurueckgestellt, nicht zurueck mit Grund, Autoapply
+  ausgesetzt, Codec-Familie) und die Codec-Familie-Zeile erscheint hoechstens
+  einmal je Geraet, nur wenn ein Codec-Eintrag betroffen war. Unit-Test ueber
+  `RestoreReport`.
+- **AK-T047-5** Bleiben nach einem Rueckweg `pending`-Eintraege, zeigt der
+  Banner (D2) unveraendert weiter, mit neu berechneter Anzahl und dem Knopf
+  `"Try again"`; sind alle Eintraege weg, verschwindet der Banner. Compose-
+  Test ueber beide Faelle.
+- **AK-T047-6** Der Katalog zeigt genau sechs waehlbare Massnahmen
+  (`Measure.entries`) und genau vier nicht waehlbare Workarounds
+  (`Fallback.entries`) in einer eigenen, als "Workarounds" ueberschriebenen
+  Sektion ohne Start-Knopf. Compose-Test zaehlt waehlbare vs. nicht waehlbare
+  Eintraege.
+- **AK-T047-7** Das Wort "fix"/"fixes"/"fixed" kommt im sechser-Katalog gar
+  nicht vor und in der Workarounds-Sektion nur in negierter Form ("not a
+  fix"/"not fixes"). Grep-pruefbar im Laufpfad dieses Abschnitts.
+- **AK-T047-8** Die Rueckleseworte folgen AD-035 zeichengenau: `WIFI_RADIO`
+  = "on" ist **immer** `NOT_VERIFIABLE`, nie `CONTRADICTED`. Unit-Test mit
+  allen drei `Verification`-Werten je gebundener `Condition`.
+- **AK-T047-9** Arm-Fortschritt ist zeichengenau `"{T} of 15 min observed."`
+  in beiden Armen; ein vorzeitiges Ende wiederholt nur den betroffenen Arm,
+  der jeweils andere bleibt unveraendert erhalten; erreicht ein Arm sein Ziel,
+  zeigt er `"Run reached its set length. {T} observed."`
+  (`RunEnd.TARGET_REACHED`) vor dem Phasenwechsel. Unit- und Compose-Test.
+- **AK-T047-10** Jeder der vier `Verdict`-Werte und jeder der sieben
+  `NotComparable`-Werte hat genau einen der oben definierten Saetze; kein
+  Satz nennt eine Effektgroesse ausser dem `p`-Wert, keiner behauptet eine
+  Verbesserung ohne den zugehoerigen `Verdict`. Compose-Test ueber alle elf
+  Faelle.
+- **AK-T047-11** Der Messrahmen (Dauern, Stufe, Codec, Kadenz, Zustandsbuch,
+  `notChecked`, Drift-Satz, Geltungssatz, Nachweisgrenze) und der AK-16-Block
+  (Grenzsatz + Paarungsfakten) stehen **im selben Composable** wie der
+  Urteils- bzw. `NotComparable`-Satz, nie hinter einem `ExplainedBlock`-
+  Fragezeichen. Compose-Test prueft die Elternschaft im Baum.
+- **AK-T047-12** Der Prozesstod-Satz erscheint in jedem `Result`-Zustand
+  zeichengenau wie oben. Compose-Test.
+- **AK-T047-13** Der Rueckweg-Knopf in `Result` loest denselben Ablauf aus
+  wie der Banner-Knopf (D2) — keine zweite `SettingsRestore`-Instanz, kein
+  zweiter Bestaetigungstext. Unit-Test auf Funktionsidentitaet/Delegation.
+- **AK-T047-14** Kein Satz dieses Abschnitts enthaelt "packet"/"packets"
+  ausser dem AD-036-Grenzsatz; keine Groesse ist auf Minute/Sekunde normiert
+  (R-F); "fix" ausser negiert kommt nicht vor (AK-T047-7); die
+  T-039-Woerterverbotsliste **und** die Wortfamilie
+  "audible"/"audibly"/"audibility" (AK-T009-43 — `ComparisonSection` liegt in
+  `ui/screens/monitor`) sind verletzungsfrei. Grep-Test, in derselben Form wie
+  `AcceptanceCriteriaGrepTest.kt`.
+- **AK-T047-15 (Security M12)** Eine LDAC-Live-Stufe mit verbundenem Geraet
+  und `priorLive == null` erzeugt die eigene Zeile "stays as it is until it
+  connects again..." und zaehlt **nicht** zu den zurueckgestellten Eintraegen;
+  `ADAPTIVE` wird in diesem Fall **nicht** angefragt. Unit-Test.
+- **AK-T047-16 (Security M13/M18)** Keine Zeile aus S3-5 oder S3-6 (Banner,
+  Dialog, Bericht, Messrahmen, Paarungsfakten) enthaelt eine Bluetooth-MAC in
+  einem Format, das `redactAddresses` erkennt und ersetzt. Grep-/Unit-Test
+  mit einer Test-Adresse durch jeden Textpfad.
+- **AK-T047-17 (Security M14)** Der Banner (D2) rendert identisch in
+  `BluetoothScreen` **und** in `ActivateRoute`, ausschliesslich abhaengig von
+  `SettingsLedger.entries()`, unabhaengig vom Helfer-Verbindungsstatus.
+  Compose-Test auf beiden Screens mit getrenntem Helfer-Zustand.
+
+### Ausdruecklich nicht Teil dieser Vorgabe
+
+- **Persistenz vergangener Vergleiche.** AD-037: keine Historie, keine
+  Sammelaussage ueber mehrere Laeufe.
+- **Eine Reihenfolge-Empfehlung ("versuch das zuerst").** Der Katalog steht
+  in der R-010-Rangfolge (Tabellenreihenfolge oben), das ist Anordnung, keine
+  Aussage.
+- **Ein kuenstlicher Stoerhebel.** Bleibt bei der Entscheidung vom
+  2026-09-03 (T-039, AK-14-Fassung): der Vergleich laeuft ohne Stress.
+- **Eine Aussage ueber Effektgroesse.** Der `p`-Wert sagt, ob ein Unterschied
+  nachweisbar ist, nicht wie gross die Wirkung ist (AD-032).
+- **T-037 (Pakettyp/BQR).** Der AK-16-Satz bleibt bis dahin unveraendert
+  (AD-036).
+
+### Offene Fragen an den App Designer
+
+1. **Soll "Workarounds" als Kategoriename so bleiben, oder ein anderes
+   englisches Wort tragen?** Ich habe "Workarounds" gewaehlt, weil es im
+   Deutschen "Ausweichen" am naechsten kommt und im Englischen eindeutig "kein
+   Fix" mitschwingen laesst. Alternativen waeren z. B. "Trade-offs" (betont
+   staerker den Bitratenverlust, klingt aber weniger nach "Notloesung") oder
+   "Not a fix" als Kopfzeile selbst (sehr direkt, etwas ungewoehnlich als
+   Ueberschrift). **Meine Empfehlung: "Workarounds" beibehalten** — es ist das
+   kuerzeste Wort, das AK-12 traegt.
+   **Entschieden (Nutzer, 23.09.2026 19:16):** "Workarounds" bleibt.
+2. **Soll der Rueckweg-Knopf im `Result`-Zustand des Vergleichs ein
+   sichtbarer zweiter Ort sein, oder soll `Result` stattdessen nur auf den
+   Banner (D2) verweisen ("settings changed — see the Bluetooth tab")?** Ich
+   habe einen echten zweiten Knopf mit demselben Ablauf spezifiziert, weil der
+   Nutzer nach einem Vergleich direkt hier steht und ein Verweis einen
+   zusaetzlichen Weg braeuchte. **Empfehlung: zweiter Knopf, wie
+   spezifiziert.**
+   **Entschieden (Nutzer, 23.09.2026 19:16):** der zweite Rueckweg-Knopf
+   bleibt.
+3. **Soll `restoreButton` in `ArmProgress`/`Instruct`/`Result` der volle D2-
+   Banner sein (Kopfzeile "Settings changed by the process are still
+   active." + Zaehlsatz + Knopf, `MonitorScreen.kt:125`:
+   `restoreButton = { SettingsRestoreBanner() }`) oder nur der blosse Knopf?**
+   AD-038 verlangt nur einen "Rueckweg-Knopf", die Umsetzung rendert die ganze
+   Komponente samt Kopfzeile — inhaltlich korrekt (erinnert waehrend eines
+   laufenden Arms daran, dass die App gerade 990 kbps haelt) und spart eine
+   zweite Implementierung (AK-T047-13), macht das Fortschritts-/Anleitungs-
+   Composable aber dichter, gerade in `ArmProgress` waehrend der 15 Minuten.
+   **Meine Empfehlung: so lassen** — die Kopfzeile ist keine Wiederholung
+   ohne Nutzen, sie ist hier die einzige Stelle, die dem Nutzer *waehrend*
+   des Arms sagt, dass 990 kbps kein Alltagszustand ist, sondern gehalten wird
+   (Review T-051a, 28.09.2026).
+
+## Saeule 3 — Fixzyklus Wortlaute (T-054b) — 2026-09-28
+
+Wortlaute und Akzeptanzkriterien zum Fixauftrag T-054 (Nutzerentscheide 28.09.,
+`docs/tasks/T-054.md`). Ergaenzt/korrigiert den T-047-Abschnitt oben; dessen
+Saetze werden dort nicht geloescht, sondern hier ersetzt/erweitert, mit
+Verweis auf die alte Stelle. Mechanik (Vordergrunddienst,
+Benachrichtigungs-API, wo genau die LDAC-Sperre technisch sitzt) legt
+`ARCHITECTURE.md` (T-054a) fest — weicht die gebaute Mechanik von einer hier
+getroffenen Annahme ab (z. B. Name eines Endgrunds), passt sich der
+**Wortlaut** an, nicht die hier verlangte Bedeutung.
+
+### F-015 / DEEP — sichtbare Ankuendigung "misst weiter", korrigierter Prozesstod-Satz
+
+**Betrifft:** `ComparisonSection.kt` (`ArmProgress`, `PROCESS_END`,
+Z. 141-154, 393-396), `MonitorScreen.kt`/`DataSourcePanel` ("Watch live",
+Z. 130-198), neue Vordergrunddienst-Benachrichtigung aus T-054a.
+
+**Warum ein neuer Satz noetig ist:** Der bisherige `PROCESS_END`-Satz sagt
+die Ueberlebensregel nur rueckblickend, im `Result`-Zustand, nachdem beide
+Arme fertig sind. AK-4s Ausnahme verlangt "sichtbar angekuendigt" — das muss
+stehen, *bevor* und *waehrend* eine Messung ohne offenen Monitor weiterlaeuft,
+nicht erst im Ergebnis. Vor F-014/F-015 war der Satz zudem schlicht falsch
+fuer einen laufenden Arm (der brach bei Displayaus > 2 min neu ab); mit der
+Bindung des Samplers an den Vordergrunddienst (T-054a) gilt "weiterlaufen
+trotz Displayaus" jetzt tatsaechlich, und der Satz muss das sagen statt es
+nur zu suggerieren.
+
+**1. Start-Ankuendigung, sichtbar ohne zusaetzliches Tippen, immer solange
+die Messung laeuft (nicht nur beim ersten Mal):**
+
+- **Vergleichsarm** (`ArmProgress`, Phasen `ARM_A`/`ARM_B`), unter der
+  bestehenden Fortschrittszeile `"{T} of 15 min observed."`:
+  `"This keeps counting if you leave this screen, switch apps, or the
+  screen turns off — only stopping the app's process ends it early. Stop it
+  here or from the notification."`
+- **Tiefenaufnahme ("Watch live"/`SamplingMode.DEEP`)**, `DataSourcePanel`,
+  solange `mode == SamplingMode.DEEP`, unter der Knopfreihe (`"Watch
+  live"`/`"Stop capture"`):
+  `"Keeps capturing for up to 5 minutes even off this screen — stop it here
+  or from the notification."`
+  Dabei zusaetzlich eine Fortschrittszeile, in derselben Formel wie bei den
+  Vergleichsarmen: `"{T} of 5 min captured."` (`formatSpan`).
+
+**2. Benachrichtigung (Fortschritt), waehrend die Messung laeuft, sichtbar
+und wortgleich mit der In-App-Zeile.** R-013 verlangt fuer einen
+Vordergrunddienst "accurate and clear user notification" und "runs only for
+as long as necessary" — `EqForegroundService`s bewusst stille
+Benachrichtigung (`PRIORITY_MIN`, `VISIBILITY_SECRET`, kein Text) ist dafuer
+**kein** Vorbild; hier gilt das Gegenteil, weil die Policy-Lage eine andere
+ist (Dauerbetrieb "headset"-FGS vs. eine vom Nutzer ausgeloeste, zeitlich
+begrenzte Messung):
+
+| Kontext | Titel | Text | Aktion |
+|---|---|---|---|
+| Vergleichsarm | `"BT Dashboard — comparing"` | `"Arm {A/B}: {T} of 15 min. Ends on its own, or tap Stop."` | `"Stop"` — derselbe Abbruchpfad wie der In-App-Knopf `"Cancel"` in `ArmProgress`, keine zweite Implementierung |
+| Tiefenaufnahme | `"BT Dashboard — watching live"` | `"{T} of 5 min. Ends on its own, or tap Stop."` | `"Stop"` — derselbe Pfad wie der bestehende Knopf `"Stop capture"` (`MonitorScreen.kt:194-197`) |
+
+Eigener Benachrichtigungskanal (nicht `eq_running_quiet`),
+`IMPORTANCE_LOW` (lautlos) mit Icon im Status-Balken und
+`setOnlyAlertOnce(true)` — **Director 28.09. (T-055s B2), ersetzt
+„`IMPORTANCE_DEFAULT` oder hoeher“**; AD-039 gilt.
+**Sample-Rate-Ende (Director 28.09., T-055a Teil 4, fehlte in der Tabelle der
+Endsaetze):** `RunEnd.SAMPLE_RATE_CHANGED` → Satz `"Stopped: the sample rate
+changed, so readings before and after are not the same measurement."`
+
+**3. Ersetzter Prozesstod-Satz (`PROCESS_END`, ersetzt AK-T047-12
+zeichengenau; steht weiterhin "immer im `Result`"):**
+
+Alt (falsch/unvollstaendig fuer einen laufenden Arm, s. o.):
+`"A comparison does not survive the app's process ending — Arm A lives
+only in this app's memory. Leaving this screen or the app keeps it; being
+killed by Android between arms loses it, and the comparison starts over."`
+
+**Neu (woertlich):**
+`"A comparison does not survive the app's process ending — Arm A and Arm B
+live only in this app's memory. Once an arm has started, leaving this
+screen, switching apps, or the screen turning off does not pause or
+restart it; only the process ending does, and then the comparison starts
+over."`
+
+### F-019 — LDAC-Stufe gesperrt waehrend einer Messphase; Rueckweg/Codec-Wechsel beenden den Vergleich ohne Urteil
+
+**Betrifft:** `LiveLinkPanel.kt` (`LdacSection`, FilterChip-Zeile
+Z. 281-294), `ComparisonSection.kt` (`ArmProgress`/`Instruct`, Z. 140-175),
+`ComparisonController.kt`.
+
+**1. Sperre:** Waehrend `ComparisonPhase` in {`PIN_AND_CHECK`, `ARM_A`,
+`INSTRUCT`, `ARM_B`} sind die LDAC-Stufen-Chips (`LdacQuality.pinnable`)
+nicht bedienbar (`enabled = false`, zusaetzlich zur bestehenden
+`!tuning.busy`-Bedingung). In `CHOOSE` und `RESULT` bleiben sie wie heute
+bedienbar. Erklaertext, als letzter Satz an `LDAC_TUNING_EXPLANATION`
+angehaengt, nur sichtbar, waehrend gesperrt:
+`"Locked while a comparison is running below — changing it now would make
+the two arms not the same measurement."`
+
+**2. Rueckweg-Knopf bleibt, beendet aber den Vergleich statt eines
+Neustarts je Lesung:** Der D2-Rueckweg (`restoreButton`, bereits gerendert
+in `ArmProgress`/`Instruct`) bleibt bedienbar und fuehrt `restoreAll()`
+unveraendert aus (S3-5, kein zweiter Bestaetigungstext). Zusaetzlich, sobald
+`restoreAll()` waehrend `ARM_A`/`INSTRUCT`/`ARM_B` bestaetigt wurde: der
+Vergleich geht auf `CHOOSE` zurueck (wie der bestehende `"Cancel"`-Knopf,
+`onReset()` — die Messwahl bleibt erhalten), mit einer Zeile dort, die bis
+zum naechsten "Compare"-Tipp steht (gleicher Anzeigeplatz/gleiche
+Lebensdauer wie das bestehende `state.alreadyApplies`):
+`"Comparing {Anzeigename} was stopped when settings were put back — no
+result, and neither arm counts."`
+
+**3. Codec wechselt weg von LDAC waehrend einer Messphase beendet den
+Vergleich genauso, statt bei jeder Lesung neu zu starten** (ersetzt die
+heutige Neustart-Schleife ueber `armFrom()`; `RunEnd.CODEC_CHANGED`/
+`.QUALITY_CHANGED` **innerhalb** einer Messphase loest diese Zeile aus, nicht
+mehr einen Neustart):
+`"Comparing {Anzeigename} was stopped because the codec left LDAC — no
+result, and neither arm counts."`
+
+Beide Saetze teilen sich Anzeigeplatz und Lebensdauer (nur einer kann
+gleichzeitig stehen); kein neuer `Verdict`- oder `NotComparable`-Wert — diese
+zwei Faelle haben nie ein Ergebnis erreicht, im Unterschied zu allen
+bestehenden Faellen in diesen zwei Tabellen.
+
+### F-017 — Rueckleseergebnis im Ergebnis, wiederverwendeter Wortlaut
+
+**Betrifft:** `ComparisonSection.kt` (`frameLines`/`Result`, Z. 178-233),
+`Comparison.kt:46,83` (`result.verification`); `ARCHITECTURE.md:2118`
+(AD-035); ersetzt/ergaenzt die Messrahmen-Aufzaehlung in `UI_SPEC.md`
+3352-3372 oben.
+
+Eine zusaetzliche Zeile im Messrahmen, direkt nach `"Read every {Kadenz}."`,
+nur wenn `result` ein `Compared` ist (bei `NotComparableResult` gibt es
+keine `verification`): derselbe Satz, den die Instruct-Phase fuer dieselbe
+Massnahme/`Verification` schon zeigt (Tabelle "Rueckleseworte" oben),
+**keine neue Formulierung**. Da `CONTRADICTED` Arm B nie startet (AD-035),
+kommen an dieser Stelle nur die `VERIFIED`- und die zwei
+`NOT_VERIFIABLE`-Varianten vor. Quelle ist `result.verification` plus
+`result.measure.condition`, nicht ein zweites Ablesen des Zustandsbuchs.
+
+### F-018 — Messrahmen nennt Stufe und Codec je Arm getrennt, "pinned" nur wenn wirklich gepinnt
+
+**Betrifft:** `ComparisonSection.kt:202-210` (`frameLines`).
+
+Ersetzt die einzelne Zeile `"Both pinned to {S} kbps, {codec family}."`
+durch zwei Zeilen, je Arm aus dem **eigenen** `RunLink` (`armA.run.link`
+bzw. `armB.run.link`), nie aus Arm A fuer beide:
+
+`"Arm A: {S_A} kbps, {codec_A}."` bzw., wenn `armA.run.link?.mode ==
+LdacQualityMode.ADAPTIVE` (bzw. `isAdaptive == true`): `"Arm A: not pinned
+(ABR), {codec_A}."` Gleiches Muster fuer Arm B mit `armB.run.link`.
+
+Sind beide Zeilen inhaltlich identisch (gleiche Stufe, gleicher Codec, beide
+gepinnt), stehen sie trotzdem als zwei Zeilen da — keine Zusammenfassung, die
+im naechsten Fall (unterschiedliche Stufe oder ABR in nur einem Arm) wieder
+falsch waere. Diese Zeilen widersprechen dem `LinkDiffers`-Satz direkt
+darueber jetzt nie mehr, weil sie denselben Vergleich zeigen, den
+`LinkDiffers` bereits auswertet.
+
+### F-016 — Paarungsfakten nur zur gemessenen Paarung, sonst ehrlicher Fallback
+
+**Betrifft:** `ComparisonSection.kt:236-251` (`boundaryLines`); AK-15.
+
+Die zwei Zeilen `"3 Mbps EDR: ..."` und `"Effective MTU: ..."` werden nur
+gerendert, wenn die aktuell verbundene Adresse (`snapshot.device?.address`)
+gleich `armA.run.link?.address` ist — derselbe Vergleich, den `RunEnd.
+DISCONNECTED` schon fuer den Lauf selbst zieht, hier auf die Anzeige
+angewandt. Weichen sie ab (ein anderes Geraet ist inzwischen verbunden),
+ersetzt eine einzige Zeile beide:
+
+`"3 Mbps EDR and effective MTU are not shown — the connected pairing has
+changed since this comparison ran."`
+
+Stimmen sie ueberein, bleibt der bestehende Wortlaut unveraendert
+(`"3 Mbps EDR: {yes/no/not readable} — read on this pairing."` /
+`"Effective MTU: {mtu} — read on this pairing."`) — er war nie falsch,
+solange die Paarung dieselbe ist; falsch war nur das Fehlen der Pruefung.
+
+### F-021 — Ausweg aus einem dauerhaft unlesbaren Ledger, mit Warnung
+
+**Betrifft:** `DeviceProfilesScreen.kt:1429` (`SettingsRestoreBannerContent`,
+Zweig `RestoreBanner.Unreadable`); `SettingsLedger.kt:127-141`; M3 ("kaputtes
+Ledger nicht als leer lesen") bleibt unangetastet — keiner der beiden Wege
+unten behauptet, ein Eintrag sei zurueckgestellt oder das Ledger sei leer.
+Mechanismus (wie "erneut lesen" bzw. "vergessen" technisch greifen) legt
+T-054a fest; hier nur Wortlaut und Bedienreihenfolge.
+
+**1. Banner-Text, ersetzt den bisherigen (T-051a-Korrektur, woertlich):**
+Alt: `"The list of changed settings could not be read, so they cannot be put
+back from here."`
+**Neu:** `"The list of changed settings could not be read, so nothing can be
+put back until it can be read again."`
+
+**2. Nicht-destruktive Wiederholung, primaerer Knopf im `Unreadable`-Zustand**
+(`GoldOutlinedButton`, gleiche Komponente wie das bestehende "Try again" nach
+unvollstaendigem Rueckweg — **eigene Beschriftung**, weil es eine andere
+Handlung ist: dort wird ein Rueckweg mit `pending`-Resten wiederholt, hier
+wird nur die Datei neu gelesen):
+`"Read again"` — liest die Ledger-Datei erneut; gelingt es, geht der Banner
+in den passenden `Open`/`Hidden`-Zustand ueber, ohne weitere Bestaetigung;
+gelingt es nicht, bleibt genau dieselbe Zeile stehen.
+
+**3. Destruktiver Ausweg, wenn Wiederholen dauerhaft nichts bringt — mit
+Warnung**, zurueckhaltender platziert (`TextButton`, unterhalb von "Read
+again", nicht als `GoldButton`, damit er nicht mit dem eigentlichen Rueckweg
+verwechselt wird):
+Knopf: `"Forget this list"`
+Bestaetigungsdialog — Titel: `"Forget the list of changed settings?"` · Text:
+`"This does not put anything back — whatever this app changed stays as it is
+now. It only clears the record, so this banner goes away and future changes
+start a fresh list. Settings changed before this point can no longer be put
+back automatically."` · `confirmButton`: `"Forget the list"` ·
+`dismissButton`: `"Cancel"`
+
+### DR-006 / T-051a — Bericht-Dialog-Titel, erstmals spezifiziert
+
+**Betrifft:** `DeviceProfilesScreen.kt:1457` (Bericht-`AlertDialog` nach
+`restoreAll()`). S3-5 legte fuer diesen Dialog bisher keinen Titel fest (nur
+die Zeilenfamilie); der Titel `"Back to before"` war ein unspezifizierter
+Zusatz des developers und stand identisch dreimal auf demselben Weg
+(Banner-Knopf, Bestaetigungs-Knopf, Bericht-Titel — DR-006). **Titel, jetzt
+verbindlich:** `"Settings put back"`.
+
+### F-011 — Root-Satz neutral, ohne Hinweis auf Root
+
+**Betrifft:** `DeviceProfilesScreen.kt:318` (Kopftext "Shown but not
+changeable"), `BluetoothSystemControls.kt:105-106`
+(`a2dpHardwareOffload.whyReadOnly`) — beide erstmals hier in `UI_SPEC.md`
+festgehalten, vorher nur Code. Nutzerentscheid 28.09.: neutral, kein
+Root-Hinweis — unabhaengig davon, ob ein Entwickleroptionen-Pfad existiert
+(`docs/perf/T-049a-inventur.md`: am Geraet keiner gefunden); die App nennt
+Root so oder so nicht, auch nicht als Weg (GOAL.md, Nicht-Ziele).
+
+Alt (zwei Formulierungen fuer denselben Sachverhalt, beide "rooted phone"):
+`"Each is a system property, which only a rooted phone can change."`
+`"A system property, not a setting: only a rooted phone can change it."`
+
+**Neu, in derselben neutralen Form wie die bereits bestehende dritte Zeile
+(`maxConnectedAudioDevices.whyReadOnly`: "A system property again — the
+shell may not write it.") — keine der drei Zeilen benennt mehr, wer oder was
+es koennte:**
+Kopftext: `"Each is a system property outside the settings this app can
+write."`
+`a2dpHardwareOffload.whyReadOnly`: `"A system property, not a setting — this
+app cannot write it."`
+
+### Bestand statt Neuerfindung
+
+| Neu gebraucht fuer | Wiederverwendete Komponente/Wortlaut | Beleg |
+|---|---|---|
+| Sperre der LDAC-Chips | bestehende `enabled`-Bedingung erweitert, `ExplainedBlock` | `LiveLinkPanel.kt:270,283-294` |
+| "Comparison ended"-Zeilen | Anzeigeplatz/Lebensdauer von `state.alreadyApplies` | `ComparisonSection.kt:88-90` |
+| Benachrichtigungs-"Stop" | ruft dieselbe Funktion wie der jeweilige In-App-Abbrechen-Knopf | `MonitorScreen.kt:135-136,194-197`, `ArmProgress`-`onCancel` |
+| "Read again" | gleiche Komponente wie D2 (`Panel`+`GoldOutlinedButton`), neue Beschriftung | `DeviceProfilesScreen.kt:1409-1432` |
+| "Forget this list" | gleiches `AlertDialog`-Muster wie der Rueckweg-Bestaetigungsdialog | `DeviceProfilesScreen.kt:1434-1452` |
+
+Kein neues Token, keine neue Farbe, keine neue Dialogform.
+
+### Akzeptanzkriterien
+
+- **AK-T054-1** Waehrend `ARM_A`/`ARM_B` steht unter der Fortschrittszeile
+  zeichengenau `"This keeps counting if you leave this screen, switch apps,
+  or the screen turns off — only stopping the app's process ends it early.
+  Stop it here or from the notification."`; waehrend `SamplingMode.DEEP`
+  steht in `DataSourcePanel` zeichengenau `"Keeps capturing for up to 5
+  minutes even off this screen — stop it here or from the notification."`
+  plus `"{T} of 5 min captured."` Compose-Test je Zustand.
+- **AK-T054-2** Die Benachrichtigung waehrend eines laufenden Arms bzw. einer
+  Tiefenaufnahme zeigt Titel und Text aus der Tabelle oben, und ihr
+  `"Stop"` ruft dieselbe Funktion wie der jeweilige In-App-Abbrechen-Knopf
+  (Funktionsidentitaet, kein zweiter Pfad). Unit-Test auf die
+  Benachrichtigungs-Bauklasse; Compose-/Instrumentierungstest wo moeglich.
+- **AK-T054-3** `PROCESS_END` ist zeichengenau der neue Satz oben (ersetzt
+  AK-T047-12); der alte Satz kommt nirgends mehr vor. Grep-Test.
+- **AK-T054-4** Die LDAC-Stufen-Chips sind in `PIN_AND_CHECK`/`ARM_A`/
+  `INSTRUCT`/`ARM_B` `enabled == false`, in `CHOOSE`/`RESULT` unveraendert
+  bedienbar; der Sperr-Satz erscheint genau dann. Compose-Test ueber alle
+  sechs Phasen.
+- **AK-T054-5** Ein bestaetigter Rueckweg (`restoreAll()`) waehrend
+  `ARM_A`/`INSTRUCT`/`ARM_B` fuehrt zu `CHOOSE` mit der Zeile "...settings
+  were put back...", ein Codec-Wechsel weg von LDAC in derselben Phase zur
+  Zeile "...codec left LDAC...", beide mit erhaltener Messwahl und ohne
+  `Verdict`/`NotComparable`-Wert. Unit-Test auf `ComparisonController`.
+- **AK-T054-6** Bei `ComparisonResult.Compared` steht im Messrahmen nach
+  "Read every {Kadenz}." derselbe Satz wie in der Instruct-Rueckleseworte-
+  Tabelle fuer `result.verification`/`result.measure`; `CONTRADICTED` kommt
+  an dieser Stelle nie vor. Unit-Test ueber alle erreichbaren
+  `Verification`-Werte.
+- **AK-T054-7** `frameLines` liefert zwei Zeilen "Arm A: ..."/"Arm B: ...",
+  nie eine zusammengefasste "Both pinned"-Zeile; `ADAPTIVE`/`isAdaptive`
+  fuehrt zu "not pinned (ABR)" im jeweiligen Arm. Unit-Test mit gleichem und
+  mit unterschiedlichem `RunLink` je Arm.
+- **AK-T054-8** `boundaryLines` zeigt die zwei Paarungsfakten-Zeilen nur,
+  wenn `snapshot.device?.address == armA.run.link?.address`, sonst die
+  Fallback-Zeile "...pairing has changed since this comparison ran."; nie
+  beides gleichzeitig. Unit-Test mit gleicher und mit abweichender Adresse.
+- **AK-T054-9** Der `Unreadable`-Banner zeigt den neuen Text, einen
+  aktivierten `"Read again"`-Knopf und, erst nach mindestens einem
+  erfolglosen "Read again", den Knopf `"Forget this list"` mit dem
+  Bestaetigungsdialog oben; `"Cancel"` dort aendert nichts. Kein Pfad hier
+  behauptet, ein Eintrag sei zurueckgestellt oder das Ledger sei leer (M3).
+  Compose-Test.
+- **AK-T054-10** Der Bericht-Dialog nach `restoreAll()` hat zeichengenau den
+  Titel `"Settings put back"`. Compose-Test.
+- **AK-T054-11** Kein sichtbarer Nutzertext (String-Literal in einem
+  Compose-`Text`/`whyReadOnly`) in `DeviceProfilesScreen.kt` oder
+  `BluetoothSystemControls.kt` enthaelt "root"/"rooted"; KDoc-Kommentare
+  (Begruendung fuer Entwickler, z. B. `BluetoothSystemControls.kt:85`,
+  `PrivilegedServer.kt:505`) sind ausdruecklich ausgenommen. Grep-Test auf
+  String-Literale.
+
+### Ausdruecklich nicht Teil dieser Vorgabe
+
+- **F-020** (Profileditor-Autoapply ins Ledger) — reiner Architektur-/
+  Datenpfad, keine neue Nutzertextfamilie: die vorhandenen S3-5-Saetze
+  ("Codec preference for {device} put back...") gelten unveraendert, sobald
+  T-054a/developer den Schreibpfad ergaenzen.
+- **Sample-Rate-Wechsel beendet den Lauf** (T-054a) — kein neuer Satz
+  angefordert; die bestehende Grundzeilen-Tabelle (T-039/T-046) deckt einen
+  neuen `RunEnd`-Grund bereits ab, sobald T-054a ihn benennt.
+- **Wie genau der Vordergrunddienst technisch an den Sampler bindet**
+  (F-014) — unsichtbar fuer den Nutzer, keine Textfrage.
+
+### Offene Fragen an den App Designer
+
+1. **Soll "Forget this list" (F-021) ueberhaupt ausgeliefert werden, oder
+   bleibt der einzige Ausweg aus einem dauerhaft unlesbaren Ledger das
+   Loeschen der App-Daten wie heute?** Ich habe eine zurueckhaltend
+   platzierte, mit Warnung versehene Variante spezifiziert, weil ein
+   dauerhaft haengender Banner ohne jeden Ausweg ausser App-Daten-Loeschen
+   selbst eine Art Sackgasse ist. Der Preis: es ist eine neue Handlung, die
+   zwar nichts Falsches behauptet, aber auch nichts reparieren kann — sie
+   macht nur die Buchfuehrung wieder sauber. **Empfehlung: ausliefern, wie
+   spezifiziert** — "Read again" allein fuehrt bei einer dauerhaft kaputten
+   Datei (z. B. Datentraegerfehler) nie zum Ziel, und der Banner bliebe sonst
+   fuer immer stehen.
+2. **Reicht eine reine In-App-Zeile fuer die Start-Ankuendigung, oder soll
+   das Starten eines Vergleichsarms/einer Tiefenaufnahme zusaetzlich einen
+   kurzen Bestaetigungsdialog zeigen** (wie T-039s "This screen must stay
+   open" beim Beobachtungslauf)? Ich habe bewusst **keinen** Dialog
+   vorgesehen: Der Nutzer loest die Handlung hier durch einen expliziten
+   Tipp ("Compare"/"Watch live") selbst aus, und der Dialog beim
+   Beobachtungslauf war genau umgekehrt begruendet — jener Lauf **brauchte**
+   den offenen Schirm; dieser hier **braucht ihn nicht mehr**, und genau das
+   ist die Nachricht. **Empfehlung: keinen Dialog, nur die In-App-Zeile plus
+   Benachrichtigung.**
+
+## Saeule 3 — Pruefstand, Umgebung, Sprung, Band (T-057b) — 2026-09-28
+
+Wortlaute und Akzeptanzkriterien zu P-001/P-004/P-002/P-003 (`docs/tasks/T-057.md`,
+`GOAL.md` AK-18..21, `docs/product/BACKLOG.md`). **Unverifiziert (Spezifikation
+ohne Geraet und ohne laufende App), Code gelesen und Wortlaute daraus
+wiederverwendet, nicht ausgefuehrt.** Gelesen: `Measures.kt`,
+`ComparisonSection.kt`, `EnvironmentConditions.kt`, `MonitorViewModel.kt`,
+`MonitorScreen.kt`, `EventLog.kt`, `LinkEvent.kt`, `ActivateScreen.kt`,
+`BluetoothSection.kt`, `GOAL.md`, `docs/product/BACKLOG.md`. `ARCHITECTURE.md`
+(T-057a) lief parallel und war beim Schreiben dieses Abschnitts nicht
+gegengelesen — Mechanik (Lesetakt, Episoden-Zuordnung, Intent-Ziele je Eintrag,
+P-003-Baubarkeit) legt a fest; weicht die gebaute Mechanik von einer hier
+getroffenen Annahme ab, passt sich der **Wortlaut** an, nicht die verlangte
+Bedeutung. Alles, was hier nicht geaendert wird, gilt unveraendert weiter
+(R-A..R-G, Woerterverbote aus T-039, `{T}`/`{t}`/`{g}`-Formatierung).
+
+### Bestand statt Neuerfindung
+
+| Neu gebraucht fuer | Wiederverwendete Komponente/Wortlaut | Beleg |
+|---|---|---|
+| Pruefstand je Massnahme (P-001) | `readBackSentence(measure, book)` zeichengenau, `measure.displayName` | `ComparisonSection.kt:289-306,320-328` |
+| Panelrahmen | `Panel`, `PanelHeader`, `ExplainedHeader` | `Panel.kt:40-121`, `MonitorScreen.kt:172,216` |
+| Sekundaerknopf fuer Sprung (P-002) | `GoldOutlinedButton` | `MonitorScreen.kt:194-197` |
+| Knopf-Beschriftung "Open {Ziel}" | bestehendes Muster | `ActivateScreen.kt:225,230,294,472` |
+| Aufklappbare Zeile fuer Umgebungszustand (P-004) | `AnimatedVisibility`-Erweiterungsmuster der Eventzeile | `EventLog.kt:141-204` |
+| Fehlersatz-Ton bei nicht aufloesbarem Sprung | Formel von `PinAndCheck`s Fehlersatz ("Could not ... Nothing was measured.") | `ComparisonSection.kt:131-132` |
+
+Kein neues Token, keine neue Farbe, keine neue Dialogform. **Eine bestehende
+Stelle wird bewusst NICHT wiederverwendet:** das `runCatching { startActivity
+(...) }.onFailure { Log.w(...) }`-Muster aus `ActivateScreen.kt:339-345,346-351`
+und `BluetoothSection.kt:558-564` schluckt einen nicht aufloesbaren Sprung
+stumm — genau der Fehler, den AK-20 verbietet ("ein nicht aufloesbarer Sprung
+erzeugt einen sichtbaren Satz"). Fuer die neuen P-002-Knoepfe gilt stattdessen
+AK-T057-8 unten.
+
+### P-001 (AK-18) — Panel "Measures", immer sichtbar solange der Monitor offen ist
+
+**Zweck:** Auf einen Blick sehen, ob die Bedingungen fuer eine belegte
+Massnahme *jetzt* gegeben sind — ohne dafuer einen Vergleich zu starten.
+
+**Aufbau:** Neues, eigenstaendiges `Panel` in `MonitorScreen`s Spalte,
+zwischen `LiveLinkPanel` (Zeile 91-128) und `DataSourcePanel` (Zeile 130-137)
+— dieselbe Reihenfolge-Logik wie im bestehenden Kommentar ("erstes Panel
+beantwortet, was der Link gerade tut"; dieses beantwortet als naechstes "was
+kann ich gerade pruefen"). Kein Einklappen, keine eigene Sichtbarkeits-Regel
+jenseits der Bildschirmkomposition — wie `DataSourcePanel`/`TimelinePanel`
+immer da, nie ein Umschalter, der es verschwinden lassen kann (ein Panel, das
+man wegklappen kann, wird beim genauen Fall, in dem man es braucht, zuerst
+weggeklappt sein).
+
+`PanelHeader("Measures")`, `ExplainedHeader`-Erklaerung (Fragezeichen,
+bestehendes Muster):
+`"The six measures with evidence behind them (R-010). Each line below is
+read from this phone right now, in the same words the guided comparison uses
+to read a condition back. This is a reading, not a score — there is no
+combined result across the six, and a line reading confirmed here was never
+tested under a pinned run."`
+
+Je Zeile, in fester `Measure.entries`-Reihenfolge (A2, A1, A3, A4, A5, A7 —
+dieselbe Reihenfolge wie in `Choose()`, `ComparisonSection.kt:91`), niemals
+nach Status sortiert oder gruppiert:
+
+`Text(measure.displayName, bodyMedium)` + darunter
+`Text(readBackSentence(measure, book), bodySmall, onSurfaceVariant)` — **die
+bestehende Funktion, zeichengenau, keine zweite Formulierung.** Fuer
+`NO_DISCOVERY`, `BODY_OUT_OF_PATH`, `SINK_ALLOWS_LDAC` liefert sie bereits
+`"Not checkable from this phone."` (kein `Condition` hinterlegt); das bleibt
+so, bis eine dieser drei je gelesen werden kann.
+
+**Zustaende:**
+- *Sechs Zeilen, immer* — kein Leerzustand, keine "lädt"-Zeile: die erste
+  Zeile erscheint mit der ersten `LinkLiveSnapshot`, die `MonitorScreen`
+  sowieso schon haelt; vor der ersten Lesung zeigt jede Zeile den
+  `Unreadable`-Zweig ("Not checkable: ...") statt eines Platzhalters.
+- *Eine Massnahme nicht lesbar:* eigener Grund aus `ConditionValue.Unreadable
+  .reason`, nie ein generisches "unknown".
+- *Sehr lange Geraetename/keine Sonderbehandlung noetig* — diese Zeilen
+  nennen kein `{device}`, keine Textlaenge haengt von aussen ab.
+
+**Ausdruecklich verboten (R-E, Risiko aus dem Backlog):** kein Icon, kein
+Haken/Kreuz, keine Farbe nach `Verification` (wie in `ComparisonSection.kt`
+bereits Konvention: "keine Fehlerfarbe/kein Bildzeichen", `UI_SPEC.md`
+Zeile 3098), kein Zaehler ("4 von 6"), keine zusammenfassende Zeile, kein Wort
+aus der T-039-Verbotsliste ("ready", "stable", "good to go" u. ae.), keine
+Sortierung, die "erfuellt" nach oben oder unten zieht.
+
+### P-004 (AK-19) — Umgebungszustand am Verlustausbruch, im Eventprotokoll
+
+**Zweck:** Wer im Protokoll einen Verlustausbruch sieht, sieht daneben auch,
+was die Umgebung zu dem Zeitpunkt war — ohne dass die App eine Ursache
+behauptet.
+
+**Aufbau:** Erweiterung der bestehenden Aufklapp-Zeile in `EventLogPanel`
+(`EventRow`, `EventLog.kt:179-202`) fuer denjenigen `LossDetected`-Eintrag,
+der die erste Lesung einer Episode traegt (Zuordnung/Speicherort legt
+`ARCHITECTURE.md` fest, T-057a Punkt 1) — der Wortlaut unten gilt
+unveraendert, unabhaengig davon, wie die Episodengrenze technisch gezogen
+wird, solange es "die erste Lesung dieser Episode" ist. Position: nach
+`event.detail` (Satz), vor `event.payloadLine()` (Zeilen 184-200), als
+weitere `Text`-Zeilen in `bodySmall`/`onSurfaceVariant` — dieselbe
+Aufklapp-Mechanik, kein zweiter Tap-Ort.
+
+Kopfzeile: `"Conditions when this episode was first read:"`
+
+Je `Condition` (feste Reihenfolge: `WIFI_RADIO`, `WIFI_BAND`,
+`WIFI_SCAN_ALWAYS`, `USB_POWER`, `OTHER_ACL_LINKS`, `DISCOVERY_SEEN`), eine
+Zeile:
+- Gelesen: `"{displayName}: {value}, read."` — z. B. `"Wi-Fi power: on, read."`
+- Nicht lesbar: `"{displayName}: not readable — {reason}."` — `{reason}` ist
+  `ConditionValue.Unreadable.reason` zeichengenau, wie an anderen Stellen
+  (`readBackSentence`) auch nicht neu formuliert.
+
+`{displayName}` ist `Condition.displayName` (`ComparisonSection.kt:375ff.`,
+dort `private` — fuer die Wiederverwendung in `EventLog.kt` `internal`
+machen; kein neues Vokabular fuer dieselben fuenf Bedingungen).
+
+**Zustaende:** Jeder andere `LossDetected`-Eintrag (nicht die erste Lesung
+seiner Episode) zeigt diesen Block **nicht** — sonst wiederholt sich
+dasselbe Zustandsbuch bei jedem Fenster einer laengeren Episode und liest
+sich wie fuenf neue Tatsachen statt einer. Ohne offenen Monitor entsteht laut
+AK-19 gar kein Eintrag — das ist bereits durch die bestehende Architektur
+gegeben (das Eventprotokoll fuellt sich nur bei laufendem Poller) und wird
+hier nicht veraendert.
+
+**Verboten (Scheinkausalitaet, GOAL.md AK-19, Backlog-Risiko):** Kein Satz in
+diesem Block oder in der Kopfzeile enthaelt eines der Woerter/Fragmente
+*because, cause, causes, caused, due to, leads to, trigger, triggers,
+correlat, explains, result in, so that, that is why* (Grep-testbar, engl.
+Wortliste, da die UI englisch ist).
+
+### P-002 (AK-20) — Sprungknoepfe je Massnahme/Ausweichen, sichtbarer Fehlschlag
+
+**Zweck:** Jede der zehn Eintraege (sechs `Measure`, vier `Fallback`) fuehrt
+entweder mit einem Knopf direkt zur Systemstelle, oder sagt ausdruecklich,
+dass es keine gibt — nie ein Text ohne Handlung, wo eine moeglich waere, und
+nie ein Knopf, der schweigend nichts tut.
+
+**Aufbau:** Zusaetzlicher `GoldOutlinedButton` unter der bestehenden
+`instruction`-Zeile jedes Eintrags — an beiden Stellen, an denen die zehn
+Eintraege heute schon einzeln mit Text stehen: der `Instruct`-Phase
+(`ComparisonSection.kt:170-178`, Anleitungssatz zwischen Arm A und Arm B)
+**und** dem neuen P-001-Panel oben (dieselbe `onClick`-Funktion an beiden
+Stellen verdrahtet — Funktionsidentitaet, kein zweiter Pfad). Welcher der
+zehn Eintraege einen Knopf bekommt und wohin er fuehrt, legt
+`ARCHITECTURE.md` (T-057a Punkt 2) fest; diese Vorgabe legt nur die **Worte
+und das Verhalten** fest, nicht die Zuordnung.
+
+**Korrektur (T-059b, 2026-09-29):** Hier stand urspruenglich `Choose()`
+(`ComparisonSection.kt:91-122`, die Massnahmen-Auswahlliste vor Arm A) als
+zweiter Renderort. Gebaut wurde stattdessen `Instruct()`
+(`ComparisonSection.kt:178`, `SettingsJump(measure)`) — dort steht die
+Massnahme schon fest, und der Nutzer soll genau dort handeln, wo er "diese
+Bedingung jetzt herstellen" liest, nicht schon in der Auswahlliste, in der
+noch keine Massnahme gewaehlt ist. `Choose()` rendert die zehn Eintraege nur
+als Radio-Zeilen ohne Platz fuer einen Zweitknopf je Zeile
+(`ComparisonSection.kt:98-110`) — ein Knopf dort haette die Auswahlliste nur
+verlaengert, ohne einen Mehrwert gegenueber dem Panel oben zu bieten. Wortlaut
+und Verhalten des Knopfs bleiben unveraendert, nur der zweite Ort ist
+berichtigt; `SettingsJumpsTest.kt` und die AK-T057-6/7-Pruefung greifen davon
+unberuehrt an derselben Funktion an.
+
+**Beschriftung, wo ein Ziel existiert:** `"Open {Ziel-Name}"` — dasselbe
+Muster wie die bestehenden Knoepfe `"Open Wi-Fi settings"`/`"Open wireless
+debugging"` (`ActivateScreen.kt:225,230,294,472`). Fuehrt derselbe Eintrag
+schon heute zu einem bestehenden Knopf mit eigenem Namen (z. B. Wi-Fi), wird
+dessen Beschriftung uebernommen, keine zweite Formulierung fuer dasselbe
+Ziel.
+
+**Wo kein Ziel existiert ("Handgriff"):** kein Knopf. Der bestehende
+`instruction`-Satz (`ComparisonSection.kt:330-346`) steht allein und bleibt
+unveraendert — er beschreibt heute schon die Handbewegung (Kabel ab, Koerper
+aus dem Weg, Kopfhoerer-eigenes Menue), nicht eine Systemeinstellung dieses
+Telefons.
+
+**Nicht aufloesbarer Sprung (AK-T057-8):** Der Knopf versucht die Navigation
+immer; schlaegt sie fehl (`ActivityNotFoundException` oder jede andere
+Exception aus `startActivity`), ersetzt an derselben Stelle, an der der
+Knopf stand, dieser Satz den Knopf, bis zum naechsten Tap auf eine andere
+Handlung in derselben Zeile:
+`"Could not open {Ziel-Name} on this phone — nothing changed."`
+(Formel wie `PinAndCheck`s `"Could not pin to {S} kbps: {reason}. Nothing
+was measured."`, `ComparisonSection.kt:132`.) Das bestehende
+Silent-Swallow-Muster (`runCatching {...}.onFailure { Log.w(...) }` ohne
+Nutzertext) wird fuer diese neuen Knoepfe **nicht** uebernommen.
+
+**Rueckkehr, Neu-Lesung:** Kommt die App nach einem Sprung in den
+Vordergrund zurueck (`ON_START`, bereits vorhandener Haken in
+`MonitorScreen.kt:64-77`), wird das Zustandsbuch **einmal sofort** neu
+gelesen — nicht erst beim naechsten regulaeren Poll-Takt. Ob das ueber genau
+denselben `ON_START`-Callback oder einen eigenen Trigger laeuft, ist
+Mechanik (T-057a); die Anforderung ist die *sofortige* Neulesung, weil sonst
+die Zeile aus P-001 fuer die Dauer eines ganzen Takts sichtbar veraltet
+bliebe, direkt nachdem der Nutzer genau diese Einstellung geaendert hat.
+
+### P-003 (AK-21) — WLAN-Band im Pruefstand von A2
+
+**Korrektur (T-059b, 2026-09-29):** Diese Unterueberschrift hiess zuerst
+"(AK-21, bedingt)" mit einer Bedingungsklausel darunter — `ARCHITECTURE.md`
+hat P-003 seither entschieden: AD-046 (28.09.2026, Status aktiv) bestaetigt
+"P-003 baubar: ja" und ist gebaut (`EnvironmentConditions.kt::bandValue`,
+`Condition.WIFI_BAND`). Der Abschnitt gilt damit **unbedingt**, nicht mehr
+konjunktivisch; die alte "Falls baubar"-Formulierung unten ist entsprechend
+durch die tatsaechlichen drei Zweige (nicht vier, siehe Korrektur nach der
+Liste) ersetzt.
+
+Drei Zweige in derselben Familie wie die bestehenden
+`Verification`/`Condition.WIFI_RADIO`-Zeilen in `readBackSentence`
+(`ConditionStatus.kt:65-84`), wortgleich in der P-001-Zeile und im
+Rueckleseergebnis der Instruct-Phase (dieselbe Funktion):
+
+- 2,4 GHz, verbunden: `"Contradicts what this run needs: Wi-Fi here is on a
+  2.4 GHz network."`
+- 5 GHz, verbunden: `"Not checkable: whether 5 GHz Wi-Fi affects this
+  pairing has not been measured."`
+- 6 GHz, verbunden: dieselbe Formel mit `"6 GHz"` statt `"5 GHz"` — kein
+  eigener Satz, derselbe generische Zweig (`ConditionStatus.kt:65-84`, ueber
+  `book.shown(condition)`).
+- Band nicht lesbar (Lesung schlaegt fehl, Grund vorhanden):
+  `"Not checkable: {reason}."` — `{reason}` aus der Lesefunktion
+  (`EnvironmentConditions.kt::bandValue`), gleiche Formel wie der bestehende
+  `Unreadable`-Zweig.
+
+Keine dieser Zeilen behauptet, 5- oder 6-GHz-WLAN sei unbedenklich — das ist
+laut `docs/perf/T-036-trennmessung.md` nicht gemessen und bleibt es.
+
+**Korrektur (T-059b, 2026-09-29):** Der vierte, urspruenglich hier
+aufgefuehrte Zweig ("Berechtigung fehlt ... needs location access this app
+does not request") ist gestrichen. AD-046 hat den Leseweg bewusst so gewaehlt
+(`ConnectivityManager`/`WifiInfo`, `ACCESS_NETWORK_STATE` statt
+Standortrecht), dass dieser Fall nicht eintreten kann — bestaetigt durch
+`EnvironmentConditionsTest.kt:189-191` ("the app asks for network state and
+for no location or Wi-Fi permission") und dadurch, dass kein
+`Unreadable`-Grund im Code je "location" nennt. Ein Satz fuer einen Fall, der
+per Konstruktion nie auftritt, waere selbst eine kleine Unehrlichkeit
+(ungenutzter Zweig, der eine Moeglichkeit suggeriert, die es nicht gibt) —
+gestrichen statt behalten.
+
+### Ausdruecklich nicht Teil dieser Vorgabe
+
+- **Lesetakt/`ConditionBook`-Zugriffspfad fuer P-001/P-004** (AK-4-Inventar,
+  ob ein neuer `dumpsys` noetig wird) — reine Architekturfrage, T-057a Punkt 1.
+- **Episodengrenze** (wann eine Serie von `LossDetected` als "eine Episode"
+  statt viele Einzelereignisse zaehlt, und wo der Zustandsbuch-Schnappschuss
+  dafuer gespeichert wird) — T-057a Punkt 1; der Wortlaut oben gilt fuer das
+  Ergebnis, nicht fuer den Algorithmus.
+- **Welcher der zehn Eintraege ein Sprungziel bekommt, und die konkrete
+  Intent-Aktion je Ziel** — T-057a Punkt 2.
+- **Ob das Oeffnen der Bluetooth-Einstellungen (falls das A3s Ziel wird) eine
+  Geraetesuche ausloest und damit A1 widerspraeche** — offene Architekturfrage
+  aus dem Backlog; findet T-057a das heraus und bestaetigt den Widerspruch,
+  braucht der betroffene Knopf einen zusaetzlichen Warnsatz, der dann als
+  Nachtrag hier ergaenzt wird, nicht in dieser Fassung vorweggenommen.
+- **P-003s Leseweg selbst** (`NetworkCapabilities`/`WifiInfo`, welche
+  Berechtigung) — T-057a Punkt 3, mit Nutzerbedingung.
+
+### Akzeptanzkriterien
+
+- **AK-T057-1** `MeasuresPanel` rendert in jeder Komposition von
+  `MonitorScreen` genau sechs Zeilen in `Measure.entries`-Reihenfolge; keine
+  Zeile wird abhaengig vom `Verification`-Wert hinzugefuegt, entfernt oder
+  umsortiert. Compose-Test ueber alle drei `Verification`-Werte gemischt.
+- **AK-T057-2** Jede Zeile ist zeichengenau `measure.displayName` gefolgt von
+  `readBackSentence(measure, book)` — derselbe Funktionsaufruf wie im
+  Vergleich, keine zweite Implementierung. Unit-/Compose-Test, der beide
+  Renderorte (P-001-Panel, Instruct-Phase) gegen denselben `ConditionBook`
+  vergleicht.
+- **AK-T057-3** Kein sichtbarer Text im `MeasuresPanel` und in seiner
+  `ExplainedHeader`-Erklaerung enthaelt ein Wort aus der bestehenden
+  T-039-Verbotsliste, ein Icon-Ressourcenverweis, eine von `Verification`
+  abhaengige Farbe, oder einen Zaehler-artigen Ausdruck (Regex auf
+  `\d+\s*(of|von)\s*6`). Grep-Test.
+- **AK-T057-4** Der `LossDetected`-Eintrag, der die erste Lesung einer
+  Episode traegt, zeigt beim Aufklappen zusaetzlich die Kopfzeile und genau
+  `Condition.entries.size` Zeilen in der festen `Condition`-Reihenfolge oben,
+  jede endend auf `", read."` oder `"not readable — {reason}."`; jeder andere
+  `LossDetected`-Eintrag zeigt diesen Block nicht. Unit-Test mit einer
+  Fixture-Episode aus mehreren Fenstern.
+  **Korrektur (T-059b, 2026-09-29):** stand hier zuerst als `"genau fuenf
+  Zeilen"` — `Condition` hatte beim Schreiben von T-057b fuenf Eintraege;
+  AD-046 (T-058c) hat `WIFI_BAND` als sechsten ergaenzt. Eine hartcodierte
+  Zahl wuerde beim naechsten neuen `Condition`-Eintrag wieder veralten; der
+  Test (`ConditionStatusTest.kt:70,84`) prueft bereits gegen
+  `Condition.entries.size` statt gegen eine Zahl, dieser Text zieht nur nach.
+- **AK-T057-5** Keine der fuenf Zeilen, der Kopfzeile oder eines Satzes in
+  diesem Abschnitt enthaelt eines der Fragmente *because, cause, causes,
+  caused, due to, leads to, trigger, triggers, correlat, explains, result
+  in, so that, that is why* (Gross-/Kleinschreibung ignoriert). Grep-Test,
+  Ergebnis auch bei leerem Treffer in den Bericht.
+- **AK-T057-6** Fuer alle zehn `Measure`/`Fallback`-Eintraege legt eine
+  Zuordnungstabelle im Programm fest: Knopf mit Ziel, oder kein Knopf. Ein
+  Eintrag ohne Knopf zeigt nie einen deaktivierten/leeren Knopf, nur den
+  bestehenden Instruktionssatz. Unit-Test, der `Measure.entries +
+  Fallback.entries` gegen die Tabelle prueft (Vollstaendigkeit, AK-20).
+- **AK-T057-7** Jeder Knopf mit Ziel ist an beiden Renderorten (`Instruct`-
+  Phase, P-001-Panel — **Korrektur T-059b, 2026-09-29:** nicht Choose-Liste,
+  siehe P-002-Korrektur oben) mit derselben Callback-Referenz verdrahtet.
+  Compose-Test oder Referenzgleichheits-Unit-Test.
+- **AK-T057-8** Schlaegt die Navigation fehl, ersetzt der Satz `"Could not
+  open {Ziel-Name} on this phone — nothing changed."` den Knopf an Ort und
+  Stelle; kein `Log`-only-Pfad ohne Nutzertext fuer einen der neuen Knoepfe.
+  Unit-/Compose-Test mit simuliertem `ActivityNotFoundException`.
+- **AK-T057-9** Nach Rueckkehr aus einem Sprung (naechstes `ON_START`) wird
+  das Zustandsbuch spaetestens im naechsten Rendering neu gelesen, ohne auf
+  den naechsten regulaeren Poll-Takt zu warten. Unit-Test auf den
+  Lifecycle-Hook.
+- **AK-T057-10** Bei 2,4-GHz-Verbindung liefert die A2-Zeile zeichengenau
+  den Contradicts-Satz oben; bei 5 GHz, 6 GHz und nicht lesbarem Band die
+  passende Not-checkable-Zeile mit Grund; keiner der Saetze behauptet, 5-
+  oder 6-GHz-WLAN sei unbedenklich. Unit-Test ueber alle Faelle
+  (`MeasuresTest.kt`, `ComparisonSectionTest.kt`).
+  **Korrektur (T-059b, 2026-09-29):** Klammer "(nur falls P-003 ... baubar
+  ist)" und der vierte Fall "fehlende Berechtigung" entfernt — AD-046
+  bestaetigt P-003 als gebaut (siehe P-003-Korrektur oben), und der
+  Berechtigungs-Fall tritt per Konstruktion nie ein (siehe dortige
+  Korrektur). Der Ist-nicht-baubar-Ausweichsatz danach ist damit
+  gegenstandslos und ebenfalls entfernt.
+
+### Offene Fragen an den App Designer
+
+1. **Sollen die P-002-Sprungknoepfe sowohl in der Vergleichs-Auswahlliste als
+   auch im neuen, staendig sichtbaren P-001-Panel erscheinen, oder nur an
+   einer der beiden Stellen?** Ich habe beide vorgesehen (gleiche Funktion,
+   kein zweiter Pfad), weil das P-001-Panel genau der Ort ist, an dem der
+   Nutzer "Wi-Fi ist an" liest und sofort handeln will — ein Knopf nur in der
+   Vergleichs-Liste waere dort unsichtbar, wo der Bedarf entsteht. Preis:
+   sechs bis zehn zusaetzliche Knopfzeilen machen das ohnehin schon dichte
+   Panel laenger. **Empfehlung: an beiden Stellen, wie spezifiziert.**
+2. **Soll das P-001-Panel eine eigene, ausklappbare Kurzfassung bekommen
+   (z. B. nur "Measures" mit Pfeil, Zeilen erst nach Tap), statt immer alle
+   sechs Zeilen auf dem Bildschirm zu haben?** Ich habe mich gegen ein
+   Einklappen entschieden, weil AK-18 "zeigt ... zu jeder der sechs
+   Massnahmen" als staendige Anzeige liest und ein Panel, das man wegklappen
+   kann, im entscheidenden Moment (Musik laeuft, Aussetzer werden bemerkt)
+   typischerweise zugeklappt ist. **Empfehlung: kein Einklappen, wie
+   spezifiziert** — wird der Bildschirm dadurch zu dicht, ist das ein
+   Bildschirm-Layout-Finding fuer einen spaeteren Review, keine Frage, die
+   das Merkmal selbst betrifft.
+
+```
+STATUS: erledigt
+AUFTRAG: T-057b — Vorgabe (`UI_SPEC.md`) fuer P-001 (AK-18), P-004 (AK-19),
+  P-002 (AK-20), P-003 bedingt (AK-21); Spec-Modus, kein Code.
+GELESEN: GOAL.md, docs/product/BACKLOG.md (P-001..P-004, Streichungen,
+  Empfehlung), Measures.kt, ComparisonSection.kt, EnvironmentConditions.kt,
+  MonitorViewModel.kt, MonitorScreen.kt, EventLog.kt, LinkEvent.kt,
+  ActivateScreen.kt, BluetoothSection.kt, UI_SPEC.md (T-054b/T-047c-Abschnitte
+  als Formatvorbild), .claude/agent-memory/ui-ux-designer/*.
+GEÄNDERT: UI_SPEC.md — neuer Abschnitt "Saeule 3 — Pruefstand, Umgebung,
+  Sprung, Band (T-057b) — 2026-09-28" angehaengt, kein bestehender Abschnitt
+  veraendert.
+ANNAHMEN: (1) P-001/P-004-Panel-Platzierung, Panel-Titel "Measures" und
+  Nicht-Einklappbarkeit sind Geschmacksentscheidungen ohne objektiv richtig/
+  falsch — als Empfehlung entschieden, zwei Varianten als offene Fragen
+  gestellt. (2) P-002-Zuordnung (welcher der zehn Eintraege ein Sprungziel
+  bekommt) und P-003-Baubarkeit sind ARCHITECTURE.md/T-057a vorbehalten;
+  diese Vorgabe legt nur Wortlaut/Verhalten fest, nicht die Zuordnung selbst.
+  (3) `ARCHITECTURE.md` war beim Schreiben nicht gegengelesen (Parallellauf);
+  bei Widerspruch gilt laut Auftrag die Mechanik aus a, der Wortlaut hier
+  passt sich an.
+NÄCHSTER: developer-Laeufe gegen ARCHITECTURE.md (T-057a) + UI_SPEC.md
+  (dieser Abschnitt); Abgleich beider Dokumente vor dem ersten Bau empfohlen,
+  falls a von einer hier getroffenen Wortlaut-Annahme abweicht.
+BLOCKIERT DURCH: nichts.
+```
+
+
+---
+
+## T-074 Play-Stufe — Wortlaute AK-22/AK-24, Offenlegungsdialog AD-051, Einstieg Recht und Daten AD-052 (T-074b) — 2026-09-29
+
+Vorgabe zu `GOAL.md` AK-22..AK-26 (`docs/tasks/T-074.md`, `ARCHITECTURE.md`
+AD-050/AD-051/AD-052/AD-054, `docs/legal/C-002.md` Befunde 1 und 8). **Unverifiziert:
+Spezifikation ohne Geraet und ohne laufende App; Code gelesen (Stand `e32505b`),
+nichts ausgefuehrt.** Gelesen: `CompensationSection.kt`, `HearingTestScreen.kt`,
+`DeviceProfilesScreen.kt`, `DeviceProfilesViewModel.kt`, `BluetoothSection.kt`,
+`ActivateScreen.kt`, `ActivateViewModel.kt`, `SystemAccessScreen.kt`,
+`SettingsScreen.kt`, `BtDashboardApp.kt`, `PrivilegedProtocol.kt`,
+`NalRCompensationCalculator.kt`, `ClinicalAudiogram.kt`. Parallel lief T-074a
+(technical-writer): die Saetze von `HelperDisclosure` und die Asset-Texte liegen
+dort; diese Vorgabe legt **Aufbau, Ueberschriften, Knoepfe und Verhalten** fest,
+nicht die Saetze der Offenlegung. Alles, was hier nicht geaendert wird, gilt
+unveraendert (Sprache Englisch, Erklaertexte hoechstens zwei Saetze,
+Woerterverbote aus T-039).
+
+### Bestand statt Neuerfindung
+
+| Neu gebraucht fuer | Wiederverwendet | Beleg |
+|---|---|---|
+| Offenlegungsdialog | `AlertDialog` mit `TextButton`-Knoepfen, Zustand `ActivateState.Disclosure`, Flag `isLocalConnectionAccepted` | `ActivateScreen.kt:487-509`, `ActivateViewModel.kt:107-146` |
+| Bestaetigungsdialog "Verlauf loeschen" | Muster "Frage als Titel / ein Satz, was passiert / Verb-Knopf + Cancel" | `HearingTestScreen.kt:1384-1402`, `CompensationSection.kt:787-806` |
+| Ergebniszeile nach dem Loeschen | Muster `message` + `Dismiss` des `BackupPanel` (Fehler in `colorScheme.error`) | `SettingsScreen.kt:449-461` |
+| Einstellungs-Abschnitt | `Panel`, `PanelHeader`, `PanelDivider`, `GoldOutlinedButton` | `SettingsScreen.kt:157-214` |
+| Knopfbeschriftung "Open {Ziel}" | bestehendes Muster | `SettingsScreen.kt:212`, `ActivateScreen.kt:472` |
+| Zurueck-Knopf oben auf einer Unterseite | `TextButton("Back to ...")` | `DeviceProfilesScreen.kt:114` |
+
+Kein neues Token, keine neue Farbe, kein neuer Dialogtyp. Neu sind zwei Bausteine
+ohne Vorbild im Bestand: die Textseite (`AssetTextScreen`) und die Bullet-Liste im
+Dialog; beide aus vorhandenen Typografie-Rollen gebaut (`displayMedium`,
+`titleSmall`, `bodyMedium`, `bodySmall`).
+
+### 1. AK-24 — Ersatzwortlaut fuer die 19 nutzersichtbaren Zeilen
+
+Gezaehlt am Stand `e32505b` mit der Wortliste aus C-002 Befund 8 (String-Literale
+in `app/src/main`, `core-hearing/src/main`, `core-audio/src/main`): dieselben 19
+Zeilen wie im Befund; **eine Verschiebung:** `DeviceProfilesViewModel.kt` steht
+heute auf **645** (Befund: 641). Die Zeilen sind zu zusammenhaengenden Literalen
+gruppiert; die Klammer nennt die gezaehlten Zeilen, die das Literal abdeckt
+(Summe 12 + 3 + 3 + 1 = 19).
+
+**Regel fuer den Umbau:** Jedes Literal wird als Ganzes ersetzt. Keine
+Wortlisten-Wendung darf ueber einen `" +"`-Umbruch verteilt entstehen (der Test
+sieht sie dann nicht, ein Nutzer aber schon). KDoc und Kommentare bleiben
+unangetastet (nicht Teil der Pruefung); Bezeichner (`CompensationSection`,
+`severeLossWarning`, `SevereLossNotice`, ...) bleiben. Die Beschriftung
+"Correction strength" und der Panelname "Tuned to your hearing" bleiben
+unveraendert (C-002 erlaubt beide; ein Wechsel waere Churn).
+
+#### `CompensationSection.kt` (12 Zeilen)
+
+| Zeilen | Alt | Neu |
+|---|---|---|
+| 166 | `"Beyond what an EQ can fix"` | `"Large boosts are capped"` |
+| 167-172 (167, 169) | `"Correcting a loss this large needs gain that would clip the music long before it restored the detail, and level alone does not bring back clarity once the sensory cells are gone. A fitted hearing aid compresses loudness rather than just raising it, which is the part missing here. What this app can still do is make the quietest detail audible: keep the strength low and judge it by ear."` | `"Your thresholds ask for more lift than a headphone EQ can apply cleanly. Boosts this large would clip the music, so every band is capped, and more level alone does not make quiet detail clearer. What this app can still do is lift the quietest detail a little: keep the strength low and judge it by ear.\n\nIf you are concerned about your hearing, ask a hearing professional."` |
+| 175-176 (175) | `"Your thresholds are past what an EQ can correct. What is applied below still helps, but only partly."` | `"Your thresholds are high, so the curve below is capped and follows them only in part."` |
+| 266-271 (267) | erster Absatz: `"Anything up to 20 dB HL is normal hearing, and your audiogram is flat inside that. NAL-R is a prescription for hearing loss: with no loss and no tilt, the honest output is a flat correction. What the formula would still return at that level is its own speech-spectrum weighting, the same constant for every listener, and applying that would be inventing a correction.\n\n"` | `"Every value in your audiogram is at or below 20 dB HL, where NAL-R adds no boost. With nothing above that line and no tilt, the honest output is a flat correction. What the formula would still return at that level is its own speech-spectrum weighting, the same constant for every listener, and applying that would be inventing a correction.\n\n"` — der zweite Absatz (Zeilen 272-274, "Loudness restoration ...") bleibt |
+| 357-361 (357, 358, 360) | `"100 % is the whole correction this app prescribes for your ears — not the whole size of your hearing loss. The rule it follows (NAL-R) asks for about half a decibel of lift per decibel of measured loss, so 100 % here makes up roughly 46 % of what you measured, and the 60 % it starts at lands near 28 %.\n\n"` | `"100 % is the whole correction this app calculates for your ears — not the full size of your thresholds. The rule it follows (NAL-R) asks for about half a decibel of lift per decibel of measured threshold, so 100 % here makes up roughly 46 % of what you measured, and the 60 % it starts at lands near 28 %.\n\n"` |
+| 362-366 (362, 364) | `"That gap is the point: restoring a loss in full over-lifts everything that was already audible, and real listeners tested against the prescription wanted less gain, not more. Judge it with \"Compare with EQ off\" rather than by the number, and give a change a few days."` | `"That gap is the point: lifting by the full threshold over-lifts everything that was already audible, and real listeners tested against the rule wanted less gain, not more. Judge it with \"Compare with EQ off\" rather than by the number, and give a change a few days."` |
+| 443-449 (443) | `"Your measured threshold there is high enough that the sensory cells may no longer be working. Where that is the case, lifting the band adds loudness and roughness rather than detail — but this app cannot find out which: the test for it needs calibrated equipment, and a Bluetooth headphone is not that. The correction is applied unchanged; turn the strength down if those frequencies sound coarse rather than clearer."` | `"Your measured threshold there is high. At very high thresholds, lifting a band can add loudness and roughness rather than detail, and this app cannot tell whether that applies to you: that needs calibrated equipment, and a Bluetooth headphone is not that. The correction is applied unchanged; turn the strength down if those frequencies sound coarse rather than clearer. For questions about your hearing, ask a hearing professional."` |
+| 585 | `"Asymmetry is normal and the ears are compensated independently."` | `"Each ear gets its own curve, so a difference between them is expected."` |
+
+Die zwei neuen Verweise "ask a hearing professional" (166-172 und 443-449)
+tragen die Fachpraxis-Linie der Play-Richtlinie in die App; "professional" ist laut
+C-002 ausdruecklich nicht verboten.
+
+#### `HearingTestScreen.kt` (3 Zeilen)
+
+| Zeile | Alt | Neu |
+|---|---|---|
+| 347 | `"All values are inside normal limits — there is no loss to correct."` | `"All values are at or below 20 dB HL — NAL-R adds no boost for them."` (die 20 darf aus `ClinicalAudiogram.NORMAL_LIMIT_DB` interpoliert werden) |
+| 888-889 (888) | `"therefore misses real changes a clinic would catch, and it never diagnoses " + "or notifies."` | `"therefore misses real changes a clinic would catch. It never says whether your hearing is healthy, " + "and it never notifies."` — umformuliert, **nicht** allowgelistet (C-002) |
+| 1251 | `"either one raises 250 and 500 Hz and looks like a low-frequency loss."` | `"either one raises your 250 and 500 Hz thresholds and makes your low-frequency hearing look weaker than it is."` |
+
+#### `DeviceProfilesScreen.kt` (3 Zeilen) und `DeviceProfilesViewModel.kt` (1 Zeile)
+
+| Datei:Zeile | Alt | Neu |
+|---|---|---|
+| `DeviceProfilesScreen.kt:118` | `"A profile can set the compensation curve, media volume, "` | `"A profile can set the EQ preset, media volume, "` (Rest des Literals unveraendert) |
+| `DeviceProfilesScreen.kt:409` | `add("compensation")` | `add("EQ preset")` |
+| `DeviceProfilesScreen.kt:581` | `"A preset is a named compensation curve saved on the EQ "` | `"A preset is a named EQ curve saved on the EQ "` (Rest unveraendert) |
+| `DeviceProfilesViewModel.kt:645` (Befund: 641) | `"Compensation profile applied."` | `"EQ preset applied."` |
+
+Begruendung "EQ preset": so heisst dasselbe Ding schon im Auswahlfeld
+(`DeviceProfilesScreen.kt:574`, `label = "EQ preset"`); der Wortwechsel macht die
+vier Stellen einheitlich statt neu.
+
+#### Zusatzzeile ausserhalb der 19 (von mir gefunden, gleiche Klasse)
+
+| Datei:Zeile | Alt | Neu |
+|---|---|---|
+| `CompensationSection.kt:89-90` | `"Your sound profile shows which frequencies you hear less well, and this lifts exactly those. It is built from your test automatically"` | `"Your sound profile shows the level at which you first hear each frequency, and this lifts the frequencies that needed more level. It is built from your test automatically"` (Rest des Literals unveraendert) |
+
+Grund: die Alt-Fassung ist kein Listenwort, verspricht aber im Klartext den
+Ausgleich eines schwaecheren Hoerens — genau das schliesst AK-24 aus. Die
+Neu-Fassung beschreibt den Mechanismus (Pegel je Frequenz), nicht ein Ergebnis.
+
+#### Persistenzschluessel und Allowlist
+
+Die drei Schluessel bleiben **buchstabengleich** (sonst Datenverlust):
+`"compensation_profiles"` (`CompensationProfileStore.kt:26`, DataStore-Name),
+`"compensation_profiles_json"` (`:200`), `"compensation_source"`
+(`AudiogramStore.kt:550`). Die Allowlist im `PurposeWordingTest` gilt **nach
+Literalwert, nicht nach Datei oder Zeile**: ein neues nutzersichtbares Literal in
+derselben Datei faellt weiter durch. Zu den zwei uebrigen technischen Literalen
+(TAG `:198` "CompensationProfileStore", Log `:144` "Dropping unreadable
+compensation profiles ...") entscheidet der developer; Empfehlung: umbenennen
+(TAG `"EqPresetStore"`, Log `"Dropping unreadable EQ preset data (...)"`) — ein
+Log-Tag ist keine Persistenz, und es sind zwei Allowlist-Eintraege weniger.
+
+#### Zwei Fehler in der Wortliste (C-002 Befund 8) — vor dem Test-Bau zu klaeren
+
+Am Stand `e32505b` gezaehlt (Muster `"[^"]*<wort>`, case-insensitive, nur
+Literalzeilen, ohne Kommentarzeilen, ueber die drei Module):
+- **`cure` als Teilzeichenfolge trifft 13 Literalzeilen** ("secure settings",
+  `WRITE_SECURE_SETTINGS`, u. a. `SystemAccessScreen.kt:303`,
+  `DeviceProfilesViewModel.kt:353/560`, `SettingsRestore.kt:116`); als Wort
+  (`\bcure\b`) 0 Treffer. Die neue Offenlegung nennt `WRITE_SECURE_SETTINGS`
+  zwingend — der Riegel waere von Anfang an rot. **`cure` nur mit Wortgrenze.**
+- **`diagnos` trifft `EventLog.kt:90` und `:103`** ("Diagnostics", Filterknopf des
+  Ereignisprotokolls, kein medizinischer Sinn). Empfehlung: Muster
+  `diagnos(e|es|ed|ing|is)\b` (laesst "diagnostic/diagnostics" durch) oder
+  Datei-Ausnahme fuer `EventLog.kt`. Die einzige medizinische Fundstelle
+  (`HearingTestScreen.kt:888`) ist mit dem Ersatz oben weg.
+
+Alle Neu-Strings dieses Abschnitts sind gegen die volle Liste **einschliesslich**
+der blanken Woerter `loss` und `restor` geprueft: 0 Treffer (Teilzeichenfolge,
+case-insensitive; `cure` sowohl als Teilzeichenfolge als auch mit Wortgrenze;
+Pruefdatei im Scratchpad von T-074b, 2026-09-29).
+
+#### Akzeptanzkriterien AK-24
+
+- **AK-T074-1** Nach dem Umbau kommt keiner der Alt-Strings aus den Tabellen
+  mehr in `app/src/main`, `core-hearing/src/main`, `core-audio/src/main` vor; je
+  Zeile ein Suchmuster (erstes eindeutiges Wort, z. B. `Beyond what an EQ`,
+  `sensory cells`, `never diagnoses`, `compensation curve`, `Compensation profile
+  applied`, `low-frequency loss`) mit Trefferzahl 0 im Bericht.
+- **AK-T074-2** Jeder Neu-String steht zeichengenau wie oben (Literalvergleich
+  oder `onNodeWithText`; mindestens 166, 175-176, 443-449, 585, 888-889, 645).
+- **AK-T074-3** `PurposeWordingTest` traegt die Liste aus C-002 Befund 8 mit den
+  zwei Berichtigungen (`cure` mit Wortgrenze, `diagnos` ohne "diagnostic"); die
+  Allowlist besteht aus genau den drei Schluessel-Literalen (plus die zwei
+  technischen, falls nicht umbenannt); **jeder Allowlist-Eintrag muss im
+  Quelltext genau einmal vorkommen** (ein veralteter Eintrag darf nichts
+  durchwinken).
+- **AK-T074-4** Der Test beweist sich selbst: eine Fixture-Zeile mit einer
+  Listenwendung (z. B. `"hearing loss"`) macht seinen Pruefer rot, gemessen im
+  selben Lauf; die Erwartung steht als Literal, nicht aus der Liste gerechnet.
+- **AK-T074-5** Die drei Persistenzschluessel sind buchstabengleich (Test liest
+  sie als Literal).
+
+### 2. AK-22 — Satz "nur bekannte EQ-Apps"
+
+**Bestaetigt, und aus dem Fragezeichen herausgeholt.** Der Satz
+`"Only known EQ apps are recognized: apps that declare an equalizer panel, and ${VendorEqApps.known.size} headphone companion apps."`
+(`BluetoothSection.kt:530-531`) ist sachlich richtig und bleibt **wortgleich**
+(AD-050 schreibt "recognised", der Code "recognized"; der Code gilt, US-Schreibweise
+wie im uebrigen Text). Aber er steht heute hinter dem Fragezeichen der
+Ueberschrift; AK-22 verlangt "sagt sichtbar". Ein zugeklappter Satz sagt es nur
+dem, der fragt.
+
+Aenderungen in `BluetoothSection.kt`, Panel "Apps that might have an equalizer":
+
+| Zeile | Alt | Neu |
+|---|---|---|
+| 447 | `ExplainedHeader("Apps that might have an equalizer", candidateExplanation(scan))` | `ExplainedHeader("Known equalizer apps", candidateExplanation(scan))` — "might have" sagt etwas ueber eine unbekannte Menge, die App kennt nur die bekannten |
+| direkt unter 447, in **jedem** Zustand | — | `Text("Only known EQ apps are recognized: apps that declare an equalizer panel, and ${VendorEqApps.known.size} headphone companion apps.", labelSmall, colorScheme.outline)` |
+| 529-532 | zweiter Absatz in `candidateExplanation` | **entfaellt** (ein Satz, ein Ort — zwei Wortlaute driften auseinander); der erste Absatz ("This is a hint, not a verdict ...") und die Dauerzeile "Checked in N ms" bleiben |
+| 451 | `"Checking installed apps…"` | `"Checking for known EQ apps…"` |
+| 459 und `EqCandidateScanner.kt:115`, `:145` | `"Cannot check which apps might have an equalizer."` (in `:145` mit angehaengtem `— ${read.reason}.`) | `"Cannot check for known EQ apps."` (in `:145` mit demselben Anhang) |
+| 467 | `"No installed app declares an equalizer."` | `"No known equalizer app found."` |
+| 511 | `"Check installed apps"` | `"Check for known EQ apps"` |
+
+**Warum 467 und 511 zwingend sind (Befund, nicht Geschmack):** Ohne
+`QUERY_ALL_PACKAGES` (AD-050) sieht die App nur die in `<queries>` genannten
+Pakete. "No installed app declares an equalizer" behauptet etwas ueber **alle**
+installierten Apps und ist damit ein stiller Freispruch (AK-3); "Check installed
+apps" verspricht dieselbe Reichweite. "No known equalizer app found." sagt nur,
+was gemessen wurde. Suchmuster `might have an equalizer` ueber `app/src` und
+`core-*/src`, `*.kt`: 4 Treffer (447, 459, `EqCandidateScanner.kt:115`, `:145`).
+
+**Nebenfund fuer den developer (kein Vorgabetext):** Nach AD-050 behaelt der
+Filter nur Apps mit Panel oder aus `VendorEqApps`; der Zweig "Weaker matches"
+(`BluetoothSection.kt:491-493` und sein `ExplainedBlock`) zeigt Apps, die nur eine
+Berechtigung anfragen — er kann dann nie befuellt sein. Toter Zweig oder
+Zaehlfehler; H-1 prueft und entfernt ihn oder belegt ihn.
+
+#### Akzeptanzkriterien AK-22
+
+- **AK-T074-6** Der Satz steht **ohne Tippen auf das Fragezeichen** auf dem
+  Bildschirm, in allen fuenf Zustaenden des Panels (nicht geprueft, wird
+  geprueft, nicht pruefbar, leer, Liste). Compose-Test je Zustand mit
+  `onNodeWithText(<Satz>)`, kein Klick zuvor.
+- **AK-T074-7** Der Satz kommt in `BluetoothSection.kt` genau einmal als Literal
+  vor (Suchmuster `Only known EQ apps are recognized`, Trefferzahl 1 im
+  Bericht); `candidateExplanation` enthaelt ihn nicht.
+- **AK-T074-8** In keinem Literal von `BluetoothSection.kt`,
+  `EqCandidateScanner.kt`, `AndroidEqCandidateSources.kt` steht "installed app"
+  (Muster `installed app`, Kommentare ausgenommen, Trefferzahl 0), und kein
+  Zustand sagt "No installed app ...".
+- **AK-T074-9** Im leeren Zustand stehen der Satz aus AK-T074-6 **und**
+  `"No known equalizer app found."` — nie eine Leermeldung ohne den Bezug auf
+  "known".
+
+### 3. AD-051 — Offenlegungsdialog (`ActivateScreen`) und PC-Weg
+
+**Zweck & Nutzerziel:** Wer den Helfer startet, soll **vor** der ersten
+Verbindung lesen und bewusst zustimmen, was der Helfer tut und was die App
+schreibt (C-001 Auflagen 1, 3, 8) — und es danach wiederfinden koennen, vor allem
+den Widerruf.
+
+#### 3a. Der Dialog
+
+Ein Baustein `HelperDisclosureDialog(mode, onConfirm, onDismiss)` in
+`ActivateScreen.kt` (heute privat `LocalConnectionDisclosure`), `internal`, damit
+`SystemAccessScreen` denselben aufruft. Er rendert **ausschliesslich** aus
+`HelperDisclosure`; kein Satz der Offenlegung steht im Compose-Code. Heutige
+Aufrufer bleiben (Gate, Zeile 98; `ActivateStep`, Zeile 397 — der auch im Wizard
+und in System access erscheint); neu ruft ihn `SystemAccessScreen` fuer die Modi
+`ConsentForCommand` und `ReadOnly`. Keine zweite Kopie.
+
+**Aufbau (Reihenfolge fest; Ueberschriften `titleSmall`, Fliesstext `bodyMedium`):**
+
+1. Titel: **`What starting the helper does`** (ersetzt "The app will talk to your
+   phone's own debugging service").
+2. Einleitung, **ohne Ueberschrift**: `HelperDisclosure.intro`, die vier Absaetze
+   aus `docs/release/HELPER_DISCLOSURE.md` Abschnitt 1 (was der Helfer ist,
+   Wireless debugging, Verbindung zu `127.0.0.1` und `INTERNET`, "nur was hier
+   steht"). Der Netz-Absatz ist damit Teil der Einleitung, kein eigener Block.
+3. **`What it changes`** — Bullet-Liste: zuerst die Werte von `helperActions` (**5**,
+   in `PrivilegedOperation.entries`-Reihenfolge; die Aufzaehlung hat fuenf
+   `mutates = true`-Eintraege, AD-051 nennt vier), dann die Werte von
+   `writtenSettings` (6, in Map-Reihenfolge). Ein Satz je Bullet. Die automatische
+   Vergabe von `WRITE_SECURE_SETTINGS` bei jeder Helfer-Ankunft (Vorgabe D1) steht
+   im Bullet `GRANT_SECURE_SETTINGS`; ein eigener Block waere doppelt.
+4. **`What it only reads`** — Bullet-Liste der Werte von `readCommands` (4, in
+   `PrivilegedProtocol.ALLOWED`-Reihenfolge; Vorgabe D1). Je Bullet der Befehl und
+   ein Satz, wozu.
+5. **`How long it runs`** — `HelperDisclosure.lifecycle`: bis zum Neustart; startet nach
+   dem Neustart selbst wieder (`BootReceiver.kt:113`).
+6. **`How to undo it`** — `HelperDisclosure.revoke`: gekoppeltes Geraet unter
+   "Wireless debugging" entfernen; nach Deinstallation neu starten (die drei
+   Absaetze aus Abschnitt 6 der Datei).
+
+Die Feldnamen sind Vorschlag; bindend sind **Reihenfolge und Rolle**, nicht der
+Bezeichner. Liefert T-074a die Saetze anders geschnitten, passt sich der
+Feldschnitt an, nicht die Ueberschriftenfolge. **Abweichung von
+`HELPER_DISCLOSURE.md` Abschnitt 7 (bewusst):** Dort steht der PC-Weg als Liste
+inline auf dem Bildschirm; hier laeuft er ueber **denselben Dialog** (3b) — ein
+Baustein, ein Text, ein Flag. Der eine Zusatzsatz aus Abschnitt 7 bleibt, mit
+angepasstem Bezug (3b).
+
+**Knoepfe** (`TextButton`, wie im Bestand): links Ablehnen, rechts Bestaetigen.
+
+| Modus | Bestaetigen | Ablehnen | Wirkung von Bestaetigen |
+|---|---|---|---|
+| `Consent` (Telefon-Weg: Gate, Setup-Schritt, System access) | **`Agree and continue`** | **`Not now`** | Flag setzen, danach `attempt()` wie heute |
+| `ConsentForCommand` (PC-Weg, 3b) | **`Agree and show command`** | **`Not now`** | Flag setzen, Befehl einblenden, **kein** `attempt()` |
+| `ReadOnly` (Nachlesen, 3c) | **`Close`** | — (kein zweiter Knopf) | nichts |
+
+"Continue" wird zu "Agree and continue": auf dem Knopf steht, dass hier zugestimmt
+wird. Ablehnen (Knopf, Zurueck-Geste, Tippen ausserhalb) setzt **nie** das Flag
+und startet **nie** eine Verbindung; der Zustand geht auf `Idle`
+(`dismissDisclosure`, `ActivateViewModel.kt:125`, unveraendert).
+
+**Bedienung und Lesbarkeit:**
+- Der Textteil scrollt (`verticalScroll`); die beiden Knoepfe bleiben unten fest
+  sichtbar. Der Dialog wird lang (mindestens 5 + 6 + 4 Bullets), ein nicht
+  scrollbarer `AlertDialog` schnitte den Widerruf ab.
+- Kein erzwungenes "erst bis unten lesen": entschieden gegen ein Scroll-Gate
+  (fuer Screenreader unzugaenglich, ein Wischen weg von "gelesen"). Die Reihenfolge
+  traegt stattdessen: das Wichtigste (was sich aendert) steht oben, der Widerruf am
+  Ende, die Ueberschriften machen es ueberfliegbar.
+- Bullets als `Row(Text("•"), Text(satz))`, der Punkt fuer Screenreader ausgeblendet
+  (`clearAndSetSemantics {}`); Abstand zwischen Bullets 6 dp, zwischen Bloecken
+  16 dp. Ueberschriften mit `heading()`-Semantik.
+- Lesbar bis 200 % Schriftskala; Knoepfe >= 48 dp hoch (Standard `TextButton`).
+
+**Zustaende:** Die Inhalte sind statisch (kein leer, kein Laden, kein Fehler);
+lang: scrollt. Die Vollstaendigkeit gegen den Code sichert `HelperDisclosureTest`
+(Vorgabe D1), nicht der Dialog.
+
+#### 3b. PC-Weg: Offenlegung vor dem Befehl (Vorgabe D3)
+
+Heute zeigt die App den ADB-Befehl an **drei** Stellen ohne Zustimmung (Suchmuster
+`CopyableCommand(`, 3 Aufrufe am Stand `e32505b`): `SystemAccessScreen.kt:161`
+(Befehl mit Token), `SystemAccessScreen.kt:326` (`gate.adbGrantCommand()`),
+`DeviceProfilesScreen.kt:1215` (`status.adbCommand`, Absolute Volume).
+
+**Vorgabe:** ein Baustein `ConsentGatedCommand(command: () -> String)` ersetzt alle
+drei Aufrufe; `CopyableCommand` wird nur noch von ihm gerufen.
+
+- **Flag false:** an der Stelle des Befehls steht bei `SystemAccessScreen.kt:161`
+  der Satz `"The command starts the helper from a computer. Read what the helper does first."`
+  (`bodySmall`) und darunter ein `GoldOutlinedButton` **`Show the command`**; an
+  den beiden anderen Stellen nur der Knopf. Der Knopf oeffnet den Dialog im Modus
+  `ConsentForCommand`. Kein Knoten mit Befehlstext, kein Token-Erklaersatz ("The
+  command carries a token ..."), keine Zeile "Replace the command" (sie mintet
+  ein Token).
+- **Das Token wird nie vorher gemintet:** `bootstrap.adbCommand()`
+  (`SystemAccessScreen.kt:77-79`) wird nicht mehr beim Aufbau des Bildschirms
+  gerufen, sondern erst, wenn das Flag true ist (`command: () -> String` wird erst
+  dann ausgewertet). Sonst liegt das Token im Speicher, bevor jemand zugestimmt hat.
+- **Flag true** (auch durch fruehere Zustimmung ueber den Telefon-Weg — es ist
+  **dasselbe** Flag): der Befehl steht sofort, ohne Extra-Knopf, wie heute. Der
+  Knopf `Show the command` wird an derselben Stelle vom Befehl ersetzt. Bei
+  `SystemAccessScreen.kt:161` steht darueber (an der Stelle des Vor-Zustimmung-Satzes)
+  der Zusatzsatz aus `HELPER_DISCLOSURE.md` Abschnitt 7 mit angepasstem Bezug:
+  `"This command starts the same helper from a computer. It does exactly what the list you agreed to says, and nothing else."`
+  (`bodySmall`; die Datei sagt "the list above", weil sie den PC-Weg inline
+  vorsah — bei einem Dialog steht keine Liste "oberhalb").
+- Der Bildschirm beobachtet das Flag als Flow, damit eine Zustimmung aus dem
+  Telefon-Weg (`ActivateStep` im selben Bildschirm) den Befehl sofort freigibt.
+- Bestaetigen im PC-Weg setzt das Flag und blendet den Befehl ein; es startet
+  **keine** Verbindung von der App aus (der Nutzer hat den Computer gewaehlt).
+
+**Am Motor, nicht in der Oberflaeche** (D3, hier nur zur Vollstaendigkeit):
+`HelperAutoStart.attempt()` und `pairThenStart()` enden ohne Verbindung, wenn das
+Flag false ist. Die Oberflaeche verlaesst sich nicht darauf, sie zeigt vorher den
+Dialog.
+
+#### 3c. Nachlesen
+
+`SystemAccessScreen`, Panel "App helper" (`HelperPanel`): unter der Pill-Zeile ein
+`TextButton` **`What the helper does`**, der den Dialog im Modus `ReadOnly` oeffnet.
+Grund: nach der einmaligen Zustimmung waere die Offenlegung — und mit ihr der
+Widerruf — sonst nie wieder erreichbar (toter Weg). Kein neuer Screen.
+
+#### 3d. Weiterer Wortlaut AK-23 / Auflage 6
+
+| Datei:Zeile | Alt | Neu |
+|---|---|---|
+| `SystemAccessScreen.kt:232-234` | `"Android reports the negotiated codec only to apps holding BLUETOOTH_PRIVILEGED, which no sideloaded app has. The fallback reads it out of the Bluetooth stack's dump, which needs the shell."` | `"Android reports the negotiated codec only to privileged system apps that hold BLUETOOTH_PRIVILEGED. The fallback reads it out of the Bluetooth stack's dump, which needs the shell."` |
+
+Gezaehlt (Auflage 6, Suchmuster `sideload|play store|google play`, case-insensitive,
+ueber `app/src` und `core-*/src`, `*.kt` und `*.xml`, Stand `e32505b`): **3** Treffer
+— in Nutzertexten 1 (die obige Zeile), dazu 2 Kommentarzeilen in
+`core-audio/src/androidTest/.../AcousticEqTest.kt:206-207` (Sache von H-3).
+Der Manifest-Kommentar traegt das Muster nicht mehr. Der About-Absatz "Network
+access" (`SettingsScreen.kt:550-555`) bleibt wortgleich; er muss dem Abschnitt
+`Network` im Dialog entsprechen (bei jeder Aenderung des einen den anderen
+mitziehen).
+
+#### Akzeptanzkriterien AD-051
+
+- **AK-T074-10** Dialog `Consent`: Titel, Einleitung ohne Ueberschrift und vier
+  Bloecke in der Reihenfolge aus 3a, Ueberschriften zeichengenau (`What it
+  changes`, `What it only reads`, `How long it runs`, `How to undo it`); der Test
+  liest die Ueberschriften per Semantik in Reihenfolge.
+- **AK-T074-11** Bullet-Zahl unter `What it changes` = **11** (heute 5 + 6), unter
+  `What it only reads` = 4; die Erwartung steht als Literal, nicht aus den Maps
+  gerechnet. (Vorgabe D1 und `HELPER_DISCLOSURE.md` zaehlen 5 mutierende
+  Operationen; ein Test gegen die 4 aus AD-051 waere rot.)
+- **AK-T074-12** Knoepfe je Modus wie in der Tabelle 3a; `Continue` kommt im
+  Dialog nicht mehr vor. (`ActivateStrandedStateTest` prueft "Continue" im Zustand
+  `Done`, `ActivateScreen.kt:259` — das ist ein anderer Knopf und bleibt.)
+- **AK-T074-13** Ablehnen (Knopf, Zurueck, Tippen ausserhalb): Flag bleibt false,
+  keine Verbindung wird begonnen, Zustand `Idle`. Bestaetigen im Modus `Consent`:
+  Flag true, danach genau ein `attempt()`.
+- **AK-T074-14** Der Textteil scrollt; bei 360 x 640 dp und Schriftskala 1,3 sowie
+  2,0 sind beide Knoepfe **ohne Scrollen** sichtbar und erreichbar (Compose-Test,
+  `assertIsDisplayed`).
+- **AK-T074-15** Kein Satz der Offenlegung steht als Literal im Compose-Code
+  (`ActivateScreen.kt`, `SystemAccessScreen.kt`): das Suchmuster
+  `WRITE_SECURE_SETTINGS` liefert dort nur die Panel-Ueberschrift
+  (`SystemAccessScreen.kt:303`), keinen Dialogsatz.
+- **AK-T074-16** `SystemAccessScreenTest`, Flag false: **kein** Knoten mit dem
+  ADB-Befehl (Teilzeichenfolge `adb`), keiner mit `pm grant`, keiner mit "carries a
+  token", keine Zeile "Replace the command"; `Show the command` ist vorhanden,
+  mindestens ein Knopf je Stelle. Dazu: `bootstrap.adbCommand()` wird bei Flag false
+  **nicht** gerufen (Fake zaehlt 0).
+- **AK-T074-17** Flag false, Tipp auf `Show the command`: Dialog im Modus
+  `ConsentForCommand`; `Not now` -> Befehl bleibt verborgen, Flag false;
+  `Agree and show command` -> Flag true, Befehl sichtbar, `attempt()` nicht
+  gerufen.
+- **AK-T074-18** Flag true beim Betreten: Befehl sofort sichtbar, kein
+  Zwischenschritt, darueber der Zusatzsatz aus 3b; `CopyableCommand(` hat im
+  Quelltext genau **1** Aufrufer (Suchmuster, Trefferzahl im Bericht).
+- **AK-T074-19** `HelperPanel` zeigt `What the helper does`; Tipp oeffnet den Dialog
+  im Modus `ReadOnly` mit genau einem Knopf `Close`; das Flag aendert sich nicht.
+- **AK-T074-20** `ActivateViewModel` mit Flag false: `activate()` fuehrt in
+  `Disclosure` (Vorgabe-D3-Test, unveraendert).
+
+### 4. AD-052 — Einstieg zu Datenschutz, Impressum, Lizenzen, "Verlauf loeschen"
+
+**Zweck & Nutzerziel:** Der Nutzer findet die rechtlichen Texte dort, wo er
+Einstellungen sucht, und kann den Messverlauf mit einem bewussten Schritt und einer
+ehrlichen Rueckmeldung loeschen.
+
+#### 4a. Ort in den Einstellungen
+
+Neues `Panel` **`Privacy and legal`** in `SettingsScreen`, **zwischen** `BackupPanel`
+(Zeile 118) und `HowToPanel` (Zeile 119): Daten-Themen liegen nebeneinander (Backup,
+dann Datenschutz und Loeschen), "How it works" und "About" bleiben am Ende.
+Aufbau von oben nach unten:
+
+1. `PanelHeader("Privacy and legal")`
+2. Drei Zeilen, je ein `GoldOutlinedButton` ueber die volle Breite, 8 dp Abstand,
+   Beschriftung nach dem Bestandsmuster "Open {Ziel}": **`Open privacy policy`** ->
+   `ROUTE_PRIVACY`, **`Open imprint`** -> `ROUTE_IMPRINT`, **`Open licenses`** ->
+   `ROUTE_LICENSES`.
+3. `PanelDivider()`
+4. Block "Monitoring history":
+   - `Text("Monitoring history", titleSmall)`
+   - `Text("The history records your headphones by name and address, with link samples and events. Deleting it does not touch device profiles, hearing data, EQ presets, setup, the list of changed settings or the helper's pairing key.", bodySmall, onSurfaceVariant)` — zwei Saetze; nennt Namen und Adressen (E5) und die Speicher, die "Verlauf loeschen" **nicht** erfasst.
+   - `GoldOutlinedButton` **`Delete monitoring history`**; waehrend der Loeschung
+     deaktiviert, Beschriftung `Deleting…`.
+   - Ergebniszeile (Muster `BackupPanel`): erst nach Abschluss, `bodySmall`, Erfolg
+     in `onSurface`, Fehler in `colorScheme.error`, darunter `TextButton("Dismiss")`.
+
+Die destruktive Aktion steht **sichtbar getrennt** von den drei Lese-Einstiegen
+(Trennlinie, eigene Ueberschrift), damit ein Tipp daneben nicht in den Dialog
+fuehrt.
+
+#### 4b. Bestaetigungsdialog (Vorgabe E2)
+
+Muster wie `HearingTestScreen.kt:1384`:
+- Titel **`Delete monitoring history?`**
+- Text **`Every stored link sample and event, including the device names and addresses in them, is removed. This cannot be undone. Nothing else in the app is touched.`**
+- Bestaetigen `TextButton` **`Delete history`**, Ablehnen `TextButton` **`Cancel`**.
+- Ablehnen, Zurueck-Geste, Tippen ausserhalb: keine Loeschung.
+- Geloescht wird **nur** im `onClick` von `Delete history`. Es gibt **keine Route
+  und keinen Intent-Extra**, die loeschen (`MainActivity` ist exportiert und
+  navigiert zu jedem Routen-String, Vorgabe E2).
+
+#### 4c. Rueckmeldung (Vorgabe E3)
+
+| Ergebnis von `purgeOlderThan(Long.MAX_VALUE)` | Zeile | Farbe |
+|---|---|---|
+| `true` | **`Monitoring history deleted.`** | `onSurface` |
+| `false` | **`Could not delete the monitoring history. It may still be on this phone — try again.`** | `error` |
+
+"Geloescht" steht **nur** bei `true`. Der Fehlersatz behauptet nicht "nichts wurde
+geloescht": die Zusage der einen Transaktion gehoert in `MonitorRepository`, die
+Oberflaeche sagt, was sie weiss (AK-3). Die Zeile bleibt bis "Dismiss" oder bis zur
+naechsten Loeschung stehen; eine neue Loeschung ersetzt sie.
+
+#### 4d. Die Textseite (`AssetTextScreen`)
+
+Eine Seite fuer alle drei Assets; Parameter `(asset: String, title: String, onBack:
+() -> Unit)`, keine Routen-Argumente. Die Route steht **nicht** in
+`FULL_SCREEN_ROUTES` (Bottom-Bar sichtbar, wie `ROUTE_DEVICE_PROFILES`); Zurueck
+kehrt zur unveraenderten Einstellungsseite (`popBackStack`).
+
+- **Kopf:** `TextButton("Back to settings")` (Muster `Back to Bluetooth`), darunter
+  der Seitentitel in `displayMedium`: **`Privacy policy`**, **`Imprint`**,
+  **`Open-source licenses`**.
+- **Inhalt:** `LazyColumn` mit 16 dp Rand, 12 dp Absatzabstand, `bodyMedium`, in
+  `SelectionContainer` (E-Mail-Adresse und Pfade sollen sich kopieren lassen). Ein
+  Absatz je Textblock, damit die Apache-Lizenz (rund 11 000 Zeichen) nicht als ein
+  Text-Knoten gesetzt wird.
+- **Lesevertrag mit den Asset-Dateien (T-074a):** Absaetze durch eine Leerzeile
+  getrennt; eine Zeile `# Ueberschrift` wird als `titleSmall` ohne das `#` gesetzt;
+  Zeilen mit `- ` beginnen einen Bullet (gleiche Bullet-Form wie im Dialog);
+  **Zeilenumbrueche innerhalb eines Absatzes werden zu Leerzeichen (Umbruch neu
+  berechnet)**, ausser die Folgezeile beginnt mit einem Einzug, `-` oder `*`.
+  Grund: die Apache-Lizenz kommt hart bei etwa 80 Spalten umbrochen; auf 360 dp
+  zerfiele sie in Zeilenreste. Dieselbe Datei bleibt als Rohtext auf der Pages-Seite
+  lesbar (`#` und `-` sind dort Klartext).
+- **Fehler:** Laesst sich das Asset nicht lesen, steht statt einer leeren Seite
+  `"Could not open this page. Go back and try again."` (`bodyMedium`); nie eine
+  leere Flaeche (wirkt wie ein Bug, und bei "Privacy policy" wie ein fehlender
+  Pflichttext).
+- **Leer:** nicht vorgesehen; ein leeres Asset wird wie ein Lesefehler behandelt.
+- **Bedienung:** Fokus beim Oeffnen auf den Titel; `Back to settings` per Tab
+  erreichbar; Titel mit `heading()`-Semantik.
+
+#### Akzeptanzkriterien AD-052
+
+- **AK-T074-21** `SettingsScreen` zeigt zwischen "Backup" und "How it works" das
+  Panel `Privacy and legal` mit den drei Knoepfen `Open privacy policy`, `Open
+  imprint`, `Open licenses` in dieser Reihenfolge; jeder oeffnet seine Route, Titel
+  wie in 4d, Zurueck landet auf den Einstellungen (Scrollstand erhalten).
+- **AK-T074-22** Alle drei Seiten sind ohne Netz lesbar und zeigen den Inhalt der
+  jeweiligen Asset-Datei; kein Absatz fehlt (Test: Anzahl Absatz-Knoten = Anzahl
+  der durch Leerzeilen getrennten Absaetze im Asset, Literal je Datei).
+- **AK-T074-23** Lesevertrag: ein Fixture-Text mit hart umbrochenem Absatz erscheint
+  als **ein** Knoten ohne eingebettete Umbrueche; ein `- `-Absatz wird zu Bullets;
+  `# X` zu einer Ueberschrift ohne `#`.
+- **AK-T074-24** Lesefehler (Asset fehlt, Fake): der Satz aus 4d steht, `Back to
+  settings` funktioniert; kein leerer Bildschirm.
+- **AK-T074-25** Tipp auf `Delete monitoring history` oeffnet den Dialog und ruft
+  die Loeschung **0** Mal; `Cancel` ruft sie 0 Mal; `Delete history` ruft sie
+  **genau 1** Mal (Vorgabe E2, Test mit Zaehler).
+- **AK-T074-26** Kein Routenstring, kein Intent-Extra und kein `ROUTE_*` loest die
+  Loeschung aus: Suchmuster auf den Namen der Loesch-Funktion in `MainActivity.kt`
+  und `BtDashboardApp.kt`, Trefferzahl 0.
+- **AK-T074-27** Ergebnis `true` -> `Monitoring history deleted.`; `false` -> der
+  Fehlersatz aus 4c in `error`-Farbe und **nicht** der Erfolgssatz (ViewModel-Test
+  mit Fake `false`, Vorgabe E3). Waehrend der Loeschung ist der Knopf deaktiviert
+  (kein Doppelaufruf).
+- **AK-T074-28** Der Block "Monitoring history" nennt, dass Namen und Adressen im
+  Verlauf stehen, und die Speicher, die **nicht** erfasst werden (Literaltest auf
+  `name and address`, `pairing key`, `list of changed settings`).
+- **AK-T074-29** Alle Tap-Ziele der neuen Bereiche >= 48 dp hoch; Farben
+  ausschliesslich aus `MaterialTheme.colorScheme`, wie im `BackupPanel`
+  (Kontrast der neuen Flaechen nicht neu gemessen).
+
+### Explizit nicht Teil dieser Vorgabe
+
+- Die **Saetze** der Offenlegung (`HelperDisclosure`), der Store-Text, `privacy.txt`,
+  `imprint.txt`, `licenses.txt` — T-074a. Die Platzhalter `<NAME>`, `<ANSCHRIFT>`,
+  `<TELEFON>`, `<E-MAIL>`, `<PRIVACY_URL>` erscheinen nur dort; im UI-Code steht
+  keiner davon.
+- Zustimmung zu einer Datenschutzerklaerung beim ersten Start: nicht verlangt, die
+  App erhebt nichts.
+- Loeschen des Verlaufs aus dem Monitoring-Bildschirm: bewusst nur in den
+  Einstellungen (E2: eine Stelle, ein Dialog).
+- Umbenennung von "Loudness restoration" (`EqScreen.kt:141`): kein Listenwort, aber
+  Hoergeraete-Vokabular; Beobachtung fuer den compliance-agent, keine Aenderung hier.
+- Versionierung des Flags: es bleibt "einmal je Installation" (AD-051).
+
+### Offene Fragen an den App Designer
+
+1. **Soll die App ihre Zweckbestimmung an einer Stelle in einem Satz sagen?**
+   Vorschlag: ein Satz im "About"-Panel (`SettingsScreen.kt`, ueber "Nothing you
+   measure leaves the phone."): `"An equalizer for Bluetooth headphones that shapes
+   the sound to your personal hearing profile. It says nothing about your health."`
+   Kein Listenwort. Ohne ihn stehen Zweck und Haftungsgrenze nur im Store-Text und in
+   den Verneinungen einzelner Bildschirme; mit ihm auch dort, wo der Nutzer die App
+   schon hat. Preis: eine Zeile mehr in einem ohnehin dichten Panel.
+   **Empfehlung: ja.**

@@ -89,7 +89,7 @@ data class ClinicalAudiogram(
      * curves. A per-ear median would silently subtract each ear's own offset
      * and hide exactly the left/right asymmetry the overlay exists to show.
      */
-    fun medianDbHl(): Double? = allValues().takeIf { it.isNotEmpty() }?.let(::medianOf)
+    fun medianDbHl(): Double? = allValues().takeIf { it.isNotEmpty() }?.let(MedianAudiogramAggregator::median)
 
     /**
      * True when every recorded value is inside the clinical definition of
@@ -173,7 +173,7 @@ data class ClinicalAudiogram(
      * ## The unit mapping, which is the whole point of this function
      *
      * [NalR.insertionGainDb] implements `IG(f) = 0.15*PTA + 0.31*H_T(f) + C(f)`
-     * verbatim from COMPENSATION.md, and COMPENSATION.md step 3.2 names its
+     * verbatim from docs/archiv/COMPENSATION.md, and docs/archiv/COMPENSATION.md step 3.2 names its
      * argument: `H_T(f)` "in dB HL". So the rule's natural input is **absolute
      * dB HL, positive, 0 = no loss** — precisely what an ENT form prints. No
      * conversion is needed and none is applied: the numbers go in as they are
@@ -263,12 +263,6 @@ data class ClinicalAudiogram(
 
         /** Marks an [Audiogram] built from clinical values, not from runs. */
         const val RUN_ID: String = "clinical"
-
-        internal fun medianOf(values: List<Double>): Double {
-            val sorted = values.sorted()
-            val mid = sorted.size / 2
-            return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
-        }
     }
 }
 
@@ -409,7 +403,7 @@ object LowToneArtifact {
         val usable = points.filter { it.converged }.associate { it.frequencyHz to it.thresholdDb }
         val mids = MID_FREQUENCIES_HZ.mapNotNull { usable[it] }
         if (mids.isEmpty()) return false
-        val midMedian = ClinicalAudiogram.medianOf(mids)
+        val midMedian = MedianAudiogramAggregator.median(mids)
         val lows = LOW_FREQUENCIES_HZ.mapNotNull { usable[it] }
         if (lows.isEmpty()) return false
         return lows.any { it - midMedian >= RAISED_BY_DB }

@@ -2,35 +2,6 @@ package dev.dankyeeter.btdashboard.hearing
 
 import dev.dankyeeter.btdashboard.hearing.level.VolumeGuard
 import dev.dankyeeter.btdashboard.audio.eq.Ear
-import kotlinx.coroutines.flow.Flow
-
-/**
- * Contract for the modified Hughson-Westlake test driver (Worker B).
- *
- * Protocol recap the implementation must honour:
- *  - per frequency: ascend in 5 dB steps until a response, then down 10 dB and
- *    up 5 dB again; threshold = lowest level with >= 2 of 3 responses
- *  - strict per-ear presentation (one channel only, see ToneGenerator)
- *  - level steps happen digitally in the tone generator, never via system
- *    volume; the run is invalidated if the user changes media volume
- *  - pulsed tones with randomised inter-stimulus intervals so the listener
- *    cannot anticipate presentations
- */
-interface HearingTestController {
-    val state: Flow<HearingTestState>
-
-    /** Prepares the run: opens the tone stream, latches the reference volume. */
-    suspend fun prepare(config: HearingTestConfig): PrepareResult
-
-    /** Starts the measurement. Emits progress through [state]. */
-    suspend fun start()
-
-    /** Called from the UI when the user reports hearing the tone. */
-    fun onUserResponse()
-
-    /** Aborts and releases audio resources. */
-    suspend fun abort(reason: AbortReason)
-}
 
 data class HearingTestConfig(
     val ear: Ear?,               // null = both ears sequentially

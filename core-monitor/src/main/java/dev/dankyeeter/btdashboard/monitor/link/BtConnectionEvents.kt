@@ -23,22 +23,15 @@ import kotlinx.coroutines.flow.callbackFlow
  * Deliberately *not* [MonitorEventSource]. That one produces timeline entries
  * and drops any action it cannot turn into a sentence; this one has to fire on
  * every relevant action, including the ones with no story to tell.
- */
-interface ConnectionTicks {
-    fun ticks(): Flow<Unit>
-}
-
-/**
- * [ConnectionTicks] from the real Bluetooth broadcasts.
  *
  * Registered at collection time and unregistered when the last collector goes
  * away, so the receiver's lifetime is the screen's, not the process's.
  */
 class BroadcastConnectionTicks(
     private val context: Context,
-) : ConnectionTicks {
+) {
 
-    override fun ticks(): Flow<Unit> = callbackFlow {
+    fun ticks(): Flow<Unit> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 if (intent?.action == null) return

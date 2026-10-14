@@ -2,24 +2,36 @@ package dev.dankyeeter.btdashboard.system.setup
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 private val Context.setupDataStore: DataStore<Preferences> by preferencesDataStore(name = "setup_state")
 
 /**
- * Remembers the two things about setup that the OS cannot be asked about:
- * which optional steps the user waved away, and whether the local-connection
- * disclosure has been accepted.
+ * DataStore runs `edit` in the caller's context while holding the write lock
+ * (D-001). A caller on `Dispatchers.Main` — e.g. Robolectric's main looper —
+ * can leave that lock held forever if the test ends before the queued block
+ * runs, so every write moves onto its own dispatcher first.
+ */
+private suspend fun DataStore<Preferences>.editOnIo(
+    transform: suspend (MutablePreferences) -> Unit,
+): Preferences = withContext(Dispatchers.IO) { edit(transform) }
+
+/**
+ * Remembers what the OS cannot be asked about: which optional setup steps the
+ * user waved away, and which one-time notices have been accepted.
  *
  * Everything else is read from the system on the spot. There used to be a
  * "wizard completed" flag here as well, and it was the wrong shape: it went on
@@ -53,11 +65,26 @@ class SetupStore(context: Context) {
     suspend fun isLocalConnectionAccepted(): Boolean = localConnectionAccepted.first()
 
     suspend fun setLocalConnectionAccepted(accepted: Boolean) {
-        appContext.setupDataStore.edit { it[KEY_LOCAL_CONNECTION] = accepted }
+        appContext.setupDataStore.editOnIo { it[KEY_LOCAL_CONNECTION] = accepted }
+    }
+
+    /**
+     * Whether the observation run's start notice — leaving the screen discards
+     * the run — has been confirmed with "Continue" (`UI_SPEC.md` T-039,
+     * decision 5).
+     *
+     * A confirmation, not a measurement: nothing of any run is kept here, which
+     * is what `GOAL.md` AK-17 rules out.
+     */
+    suspend fun isObservationRunNoticeAccepted(): Boolean =
+        prefs.map { it[KEY_OBSERVATION_RUN_NOTICE] ?: false }.first()
+
+    suspend fun setObservationRunNoticeAccepted(accepted: Boolean) {
+        appContext.setupDataStore.editOnIo { it[KEY_OBSERVATION_RUN_NOTICE] = accepted }
     }
 
     suspend fun setSkipped(stepId: String, skipped: Boolean) {
-        appContext.setupDataStore.edit { store ->
+        appContext.setupDataStore.editOnIo { store ->
             val current = store[KEY_SKIPPED] ?: emptySet()
             store[KEY_SKIPPED] = if (skipped) current + stepId else current - stepId
         }
@@ -65,11 +92,12 @@ class SetupStore(context: Context) {
 
     /** Used by "run the wizard again" so previously skipped steps are asked once more. */
     suspend fun clearSkips() {
-        appContext.setupDataStore.edit { it[KEY_SKIPPED] = emptySet() }
+        appContext.setupDataStore.editOnIo { it[KEY_SKIPPED] = emptySet() }
     }
 
     private companion object {
         val KEY_LOCAL_CONNECTION = booleanPreferencesKey("local_connection_accepted")
+        val KEY_OBSERVATION_RUN_NOTICE = booleanPreferencesKey("observation_run_notice_accepted")
         val KEY_SKIPPED = stringSetPreferencesKey("setup_skipped_steps")
     }
 }

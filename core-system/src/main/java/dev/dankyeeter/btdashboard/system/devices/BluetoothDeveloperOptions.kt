@@ -145,7 +145,7 @@ object BluetoothDeveloperOptions {
      * prevent, so they stay out.
      *
      * The A2DP-offload one is the painful omission: it is the switch that would
-     * answer whether the app's EQ is even in the signal path (see HANDOVER, the
+     * answer whether the app's EQ is even in the signal path (see docs/archiv/HANDOVER.md, the
      * acoustic test). A shell can set it — `setprop` is what ADB does — so the
      * privileged helper could in principle offer it. That would mean a second
      * *mutating* privileged operation and a whitelist entry for a write
@@ -371,6 +371,9 @@ interface SecureSettingsController {
 
     /** Current value, or null when the key is unset — which is not the same as unsupported. */
     fun read(key: String): String?
+
+    /** Like [read], but a failed read is [SettingRead.Unreadable] rather than null. */
+    fun readState(key: String): SettingRead
 
     /**
      * Writes [value] and confirms it by reading back.

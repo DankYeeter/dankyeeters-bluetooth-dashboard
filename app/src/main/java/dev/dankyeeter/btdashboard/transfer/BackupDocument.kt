@@ -11,9 +11,9 @@ import kotlinx.serialization.Serializable
  * a contract with every backup a user has ever written, so it only ever grows
  * fields, and every added field must have a default so old files keep loading.
  *
- * The file is plain, readable JSON. There is no cloud and no INTERNET
- * permission: a backup goes wherever the user points the system file picker,
- * and comes back the same way.
+ * The file is plain, readable JSON. There is no cloud upload: a backup goes
+ * only wherever the user points the system file picker, and comes back the
+ * same way.
  */
 @Serializable
 data class BackupDocument(

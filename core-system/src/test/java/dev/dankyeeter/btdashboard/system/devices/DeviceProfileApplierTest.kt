@@ -38,7 +38,7 @@ private class FakeCompensation(private val known: Set<String>) : CompensationApp
     }
 }
 
-private class FakeAbsoluteVolume(
+class FakeAbsoluteVolume(
     private val writable: Boolean = true,
     private var enabled: Boolean? = true,
     private val acceptWrites: Boolean = true,
@@ -113,6 +113,8 @@ class FakeSecureSettings(
     /** Keys whose writes never land, standing in for an unsupported option. */
     private val rejects: Set<String> = emptySet(),
     initial: Map<String, String> = emptyMap(),
+    /** Keys whose read fails, standing in for a provider that throws. */
+    private val unreadable: Set<String> = emptySet(),
 ) : SecureSettingsController {
 
     val values = initial.toMutableMap()
@@ -121,6 +123,11 @@ class FakeSecureSettings(
     override fun isWritable(): Boolean = writable
 
     override fun read(key: String): String? = values[key]
+
+    override fun readState(key: String): SettingRead = when {
+        key in unreadable -> SettingRead.Unreadable
+        else -> values[key]?.let(SettingRead::Value) ?: SettingRead.Unset
+    }
 
     override fun write(key: String, value: String): Boolean {
         writes += key to value

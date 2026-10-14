@@ -8,7 +8,7 @@ import dev.dankyeeter.btdashboard.audio.eq.Ear
  *
  * STAGE A NOTE: this module is a contract-only skeleton. The Hughson-Westlake
  * state machine (Worker B) and the compensation math (Worker C, strictly
- * against COMPENSATION.md) fill in the implementations. Do not change these
+ * against docs/archiv/COMPENSATION.md) fill in the implementations. Do not change these
  * signatures without telling the other workers.
  *
  * Honesty rule that applies to every number in here: these are
@@ -100,16 +100,11 @@ data class Audiogram(
     }
 }
 
-/** Aggregates several runs into the active audiogram. Implemented by Worker B. */
-interface AudiogramAggregator {
-    fun aggregate(runs: List<AudiogramRun>): Audiogram
-}
-
 /**
  * Rewrites a measured audiogram from the app's internal dBFS frame into the
  * loss frame NAL-R actually takes.
  *
- * NAL-R's formula (COMPENSATION.md §3) wants H_T(f) in dB HL: positive,
+ * NAL-R's formula (docs/archiv/COMPENSATION.md §3) wants H_T(f) in dB HL: positive,
  * zero = no loss. The Hughson-Westlake engine stores thresholds as dBFS
  * attenuation — negative, −90…−6 — and for a long time those raw values went
  * into the calculator unchanged. Every term of the formula then came out
