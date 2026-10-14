@@ -98,7 +98,6 @@ class SettingsLedgerStoreTest {
                 override suspend fun profileFor(deviceKey: String): DeviceProfile? = null
             },
             volume = object : MediaVolumeController {
-                override fun currentPercent(): Int? = null
                 override fun setPercent(percent: Int): Boolean = true
             },
             compensation = object : CompensationApplier {
@@ -235,7 +234,6 @@ class SettingsLedgerStoreTest {
                 override suspend fun profileFor(deviceKey: String): DeviceProfile? = profile
             },
             volume = object : MediaVolumeController {
-                override fun currentPercent(): Int? = null
                 override fun setPercent(percent: Int): Boolean = true
             },
             compensation = object : CompensationApplier {

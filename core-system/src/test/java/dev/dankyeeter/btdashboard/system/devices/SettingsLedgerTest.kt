@@ -83,7 +83,6 @@ class LedgerApplierTest {
     ) = DeviceProfileApplier(
         profiles = profiles,
         volume = object : MediaVolumeController {
-            override fun currentPercent(): Int? = null
             override fun setPercent(percent: Int): Boolean = true
         },
         compensation = object : CompensationApplier {
