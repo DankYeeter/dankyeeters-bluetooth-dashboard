@@ -134,6 +134,17 @@ object PrivilegedServer {
 
     private const val TAG = "btdash_privileged"
 
+    /**
+     * The app token currently watched for death, held strongly on purpose.
+     *
+     * A death link lives only as long as its BinderProxy. After a re-attach the
+     * token was referenced only by the reconnect thread, which ends right after
+     * linking; the next GC collected the proxy and the death notification with
+     * it, so the helper never noticed the app dying again (A17 probe U-4).
+     */
+    @Volatile
+    private var watchedApp: IBinder? = null
+
     @JvmStatic
     fun main(args: Array<String>) {
         val token = args.firstOrNull()
@@ -275,6 +286,7 @@ object PrivilegedServer {
                 }
             }.apply { isDaemon = true }.start()
         }
+        watchedApp = appToken
         runCatching { appToken.linkToDeath(onDeath, 0) }.onFailure {
             System.err.println(
                 "privileged helper: cannot watch the app for death (${it.message}); " +

@@ -93,7 +93,9 @@ else
     note "- SELinux denials during the round trip: $("$ADB" logcat -d | tr -d '\r' | grep -c 'avc: denied.*shell')"
     "$ADB" logcat -d | tr -d '\r' | grep 'avc: denied.*shell' | head -10 | sed 's/^/    /' | tee -a "$SUMMARY"
     HPID=$(sh_ ps -A -o PID,NAME | awk '/btdash_privileged/ {print $1; exit}')
-    fds() { [ -n "$HPID" ] && sh_ ls /proc/"$HPID"/fd | wc -l || echo "?"; }
+    # userfaultfd is ART's compacting GC (Android 17), opened once at the first
+    # collection; it is no reply descriptor, so it must not count as a leak.
+    fds() { [ -n "$HPID" ] && sh_ ls -l /proc/"$HPID"/fd | grep -- '->' | grep -vc userfaultfd || echo "?"; }
     FD_BEFORE=$(fds)
     instrument helperRefusals
     note "- helper open descriptors: before $FD_BEFORE, after refusals $(fds)"
