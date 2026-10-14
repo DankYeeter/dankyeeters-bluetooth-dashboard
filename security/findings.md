@@ -32,8 +32,8 @@ und Entscheider) | entfallen (Grund)
 | SR-020 | Empfangener Deskriptor wird auf den Ablehnpfaden von `exec` nicht freigegeben; `null`-Deskriptor auf privilegierter Flaeche | niedrig | behoben (Emulator API 35: 53 offene Deskriptoren vor und nach 200 Ablehnungen, null beantwortet) | 2026-10-13 |
 | SR-021 | Aufraeumpfad in `shutdown()` laeuft beim Helperwechsel nicht (Nachfolger SIGKILLt den Vorgaenger vor dem Handover); Inode-Falle bestaetigt und zu verallgemeinern | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
 | SR-022 | Schrittnummern S-1..S-7 gehoeren zu T-005; AD-010/011/012 haben keine eigene Schrittfolge — Auflagen nicht verankerbar (Vorschlag U-0..U-6) | niedrig | offen (Nachtrag an architect) | 2026-09-01 |
-| SR-023 | Exportierter `AudioEffectSessionReceiver`: jede App kann im Session-Modus beliebig viele Sessions ankuendigen, jede erzeugte ein weiteres `DynamicsProcessing` in audioserver, ohne Obergrenze | mittel | behoben (Obergrenze 8, tote Effekte zuerst, sonst die aelteste Session; Unit-Tests) | 2026-10-13 |
-| SR-024 | Exportierter `AudioEffectSessionReceiver`: ein gefaelschtes CLOSE nimmt den EQ von einer echten Session, bis sich die Menge der Player aendert; Absender ist nicht feststellbar | niedrig | akzeptiert (Restrisiko, 2026-10-13, Nutzer) | 2026-10-13 |
+| SR-023 | Exportierter `AudioEffectSessionReceiver`: ein gefaelschtes CLOSE nimmt den EQ von einer echten Session, bis sich die Menge der Player aendert; Absender ist nicht feststellbar | niedrig | akzeptiert (Restrisiko, 2026-10-13, Nutzer) | 2026-10-13 |
+| SR-024 | Exportierter `AudioEffectSessionReceiver`: jede App kann im Session-Modus beliebig viele Sessions ankuendigen, jede erzeugte ein weiteres `DynamicsProcessing` in audioserver, ohne Obergrenze | mittel | behoben (Obergrenze 8, tote Effekte zuerst, sonst die aelteste Session; Unit-Tests) | 2026-10-13 |
 
 ## Kurzfassungen
 
@@ -266,12 +266,12 @@ bleibt ohne Wirkung.
 Im Session-Modus traegt der Broadcast nur eine Session-ID. Was ein Faelscher
 damit erreicht:
 
-- **OPEN mit erfundenen IDs (SR-023):** frueher je ID ein weiterer Effekt in
+- **OPEN mit erfundenen IDs (SR-024):** frueher je ID ein weiterer Effekt in
   audioserver, unbegrenzt. Jetzt hoechstens 8 gleichzeitig
   (`SessionAttachmentStrategy.MAX_SESSIONS`); Ueberzaehliges verdraengt die
   aelteste Session, die geschlossen wird. Ein Flood kann den EQ damit von der
   laufenden Musik verdraengen, aber keine Effekte mehr anhaeufen.
-- **CLOSE mit einer echten ID (SR-024):** der EQ verschwindet von dieser
+- **CLOSE mit einer echten ID (SR-023):** der EQ verschwindet von dieser
   Session, bis sich die Menge der Player aendert. Der Absender eines Broadcasts
   ist nicht feststellbar (`getSentFromUid` liefert nur, wenn der Sender es
   freigibt; Player tun das nicht), also laesst sich ein echtes CLOSE nicht von
@@ -280,3 +280,79 @@ damit erreicht:
   Restrisiko akzeptiert — Wirkung ist ein ausgeschalteter EQ, kein Datenabfluss.
 - **Kein Datenabfluss:** der Empfaenger antwortet nicht und gibt nichts heraus.
   `EXTRA_PACKAGE_NAME` landet ungeprueft in einer Debug-Logzeile; ohne Folgen.
+
+- 2026-09-22 · T-041d, Vorlauf W-1 (AD-027): PASS, Auflagen V-1..V-11 in `docs/tasks/T-041.md`, keine neuen SR.
+| SR-023 | `AudioEffectSessionReceiver`: gefaelschtes CLOSE loest Hoerkorrektur auch von Harvester-Sessions, kein Wiederanlegen | niedrig | offen, beschlossen nicht beauftragt | 2026-09-23 |
+| SR-024 | `AudioEffectSessionReceiver`: gefaelschtes OPEN legt unbegrenzt Effekte an, Hauptthread; erfundene IDs = Hypothese, Geraet | niedrig | offen, beschlossen nicht beauftragt | 2026-09-23 |
+
+- 2026-09-23 · T-043b: Review `AudioEffectSessionReceiver` erledigt (SR-023, SR-024), Export noetig und bleibt. W-1 am Stand afacd89 gegen V-1..V-11 PASS. F-005 ohne Angriffspfad. Bericht `docs/berichte/T-043b-security-reviewer.md`.
+
+| SR-004 | (Bestand) | hoch | entfallen (F3, keine Leihe; lebt mit „geliehen" wieder auf) | 2026-09-23 |
+| SR-005 | (Bestand) | hoch | entfallen (F3 und D2; lebt mit „geliehen" wieder auf) | 2026-09-23 |
+| SR-006 | (Bestand) | mittel | in Arbeit (T-047 S3-3, M5) | 2026-09-23 |
+| SR-007 | (Bestand) | mittel | in Arbeit (erste Haelfte S3-3; zweite entfaellt, solange der Rueckweg nur auf Knopfdruck laeuft) | 2026-09-23 |
+| SR-025 | Globals: Lesefehler wird als „nicht gesetzt" festgehalten und bestaetigt (`GlobalSettingsController.kt:34-36`, `:72-73`) | mittel | offen (M1, M9) | 2026-09-23 |
+| SR-026 | LDAC: `codeOf(UNKNOWN/null)` = NONE statt null (`LdacTuning.kt:98-104`) | mittel | offen (M12) | 2026-09-23 |
+| SR-027 | Kaputtes Ledger wuerde als leer gelesen, Vorwerte gingen verloren (Muster `DeviceProfileStore.kt:40-41`) | mittel | offen (M3) | 2026-09-23 |
+| SR-028 | Wettlauf Rueckweg und Autoapply (`DeviceConnectionWatcher.kt:93-103`): Einstellung geaendert ohne Eintrag | mittel | offen (M4, M11) | 2026-09-23 |
+| SR-029 | Rueckweg schreibt Schluessel aus Datei, braucht feste Schluesselliste | niedrig | offen (M8) | 2026-09-23 |
+| SR-030 | Grundtexte des Helfers mit roher MAC (`HelperBluetooth.kt:564`) im Rueckweg-Bericht | niedrig | offen (M13) | 2026-09-23 |
+
+- 2026-09-23 · T-047b Vorlauf AD-033/AD-034: CONCERNS, Vorgaben M1–M18 in `docs/berichte/T-047b-security-reviewer.md`.
+
+| ID | Titel | Prioritaet | Status | Letzte Pruefung |
+|---|---|---|---|---|
+| SR-006 | (Bestand) | mittel | behoben am Quellstand (M5); Geraetepfad nicht gemessen | 2026-09-28 |
+| SR-007 | (Bestand) | mittel | behoben (M2) | 2026-09-28 |
+| SR-025 | (Bestand) | mittel | behoben (M1, M9) | 2026-09-28 |
+| SR-026 | (Bestand) | mittel | behoben (M12) | 2026-09-28 |
+| SR-027 | (Bestand) | mittel | behoben (M3) | 2026-09-28 |
+| SR-028 | (Bestand) | mittel | behoben (M4, M10, M11) | 2026-09-28 |
+| SR-029 | (Bestand) | niedrig | behoben (M8) | 2026-09-28 |
+| SR-030 | (Bestand) | niedrig | Rueckweg und Vergleich behoben (M13); Devices-Tab `Skipped codec: <reason>` ohne `redactAddresses` offen (`HelperBluetooth.kt:564`) | 2026-09-28 |
+| SR-031 | Banner zu offenen Einstellungen fehlt in FULL_SETUP (`BtDashboardApp.kt:160-163`), M14 teilweise | niedrig | offen | 2026-09-28 |
+
+- 2026-09-28 · T-051c am Stand c2a29f5: PASS; AK-6 erfuellt (Helfer nicht erweitert); M1–M18 bis auf M14 wirksam. Bericht `docs/berichte/T-051c-security-reviewer.md`.
+| SR-032 | Vorwert vor der Ledger-Sperre gelesen: Codec (AD-041-Wortlaut, `DeviceProfileApplier.kt:81`) und HD (`:254`, Bestand); zweiter Rueckweg fuehrt auf den eigenen App-Wert | mittel | offen (V2, V3 in T-055b) | 2026-09-28 |
+| SR-033 | JSONException-Meldungen tragen den ganzen Ledger-Inhalt ins Logcat (`SettingsLedger.kt:136-140`) | niedrig | offen (V12 in T-055b) | 2026-09-28 |
+
+- 2026-09-28 · T-055s Vorlauf AD-039/AD-041/AD-042: CONCERNS, Auflagen V1–V21 (`docs/berichte/T-055s-security-reviewer.md`).
+| SR-034 | Grep-Vorschlag AD-046 uebersieht Kotlin-Property-Zugriff (`.ssid`/`.ipAddress`), prueft nur `app/src/main/java` | niedrig | offen (W5 in Y-3) | 2026-09-28 |
+| SR-035 | Pruefung auf Standortberechtigung nur an den Quellmanifesten, Manifest-Merge ungeprueft | niedrig | offen (W6 in Y-3) | 2026-09-28 |
+| SR-036 | `openSettings(action: String)` nimmt jede Aktion an; exportierte `MainActivity` nimmt fremde Strings an | niedrig | offen (W3 in Y-2) | 2026-09-28 |
+| SR-037 | Sichtbarkeit beim Sprung zu `BLUETOOTH_SETTINGS` am Pixel nicht belegt (Hypothese) | niedrig | offen (W4, Geraeteprobe) | 2026-09-28 |
+| SR-038 | Zeilenumbruch in einem Grund faelscht Bedingungszeilen in `monitor_events.detail` | niedrig | offen (W2 in Y-1) | 2026-09-28 |
+
+- 2026-09-28 · T-058s Vorlauf AD-044/AD-045/AD-046: PASS, Bauauflagen W1–W7 in `docs/berichte/T-058s-security-reviewer.md`.
+
+| ID | Titel | Prioritaet | Status | Letzte Pruefung |
+|---|---|---|---|---|
+| SR-031 | (Bestand) | niedrig | behoben (Banner in FULL_SETUP und ACTIVATION_ONLY, `BtDashboardApp.kt:164,181`) | 2026-09-29 |
+| SR-032 | (Bestand) | mittel | behoben (V2, V3; `DeviceProfileApplier.kt:262,304,326`) | 2026-09-29 |
+| SR-033 | (Bestand) | niedrig | behoben (V12) | 2026-09-29 |
+| SR-034 | (Bestand) | niedrig | behoben (W5) | 2026-09-29 |
+| SR-035 | (Bestand) | niedrig | behoben (W6) | 2026-09-29 |
+| SR-036 | (Bestand) | niedrig | behoben (W3) | 2026-09-29 |
+| SR-037 | (Bestand) | niedrig | offen (W4, Geraet) | 2026-09-29 |
+| SR-038 | (Bestand) | niedrig | behoben (W2) | 2026-09-29 |
+| SR-039 | `PairingTrace` loggt beide SPAKE2-Nachrichten und 48 Bit Schluessel-Fingerabdruck in jedem Build (`PairingTrace.kt:35-49`); kein Angriffspfad; Behebung: hinter `BuildConfig.DEBUG` oder entfernen | niedrig | offen | 2026-09-29 |
+| SR-040 | 0-Byte-Ledgerdatei liest als nie geschrieben (M3-Luecke, `SettingsLedgerStoreTest.kt:203`); nur durch Dateisystemschaden/Root | niedrig | offen (Restrisiko, Entscheidung App Designer) | 2026-09-29 |
+
+- 2026-09-29 · T-059c am Stand d6d1890: PASS; V1–V21, W1–W3, W5–W7 wirksam. Ed25519: Peer-Eingabe wird ueber `Ed25519.decode` (`:107-119`) geprueft, kein Befund; KDoc `Ed25519.kt:200` falsch. W5-Ausnahme `AirPodsScanner.kt:57,60` vertretbar. README `:16`, `:155-156`, `BackupDocument.kt:14`, `core-hearing/src/main/AndroidManifest.xml:8` behaupten „no INTERNET/no network“ — falsch seit `4321cba`.
+| SR-039 | (Bestand) | niedrig | behoben (`ef15605`, `loggingEnabled` = `BuildConfig.DEBUG`, R8 faltet Release-Zweig; QA-Retest T-060r PASS) | 2026-09-29 |
+- 2026-09-29 · T-061a: B5 (priorLive unter der Sperre, `c58e503`) und B7 (`DeviceConnectionWatcher` loggt keine Rohadresse mehr, `e05c64a`) behoben; K-2-Rest `PrivilegedClient.kt:532` an T-062 gegeben.
+| SR-041 | Ledger-Sperre beim LDAC-Pinnen ueber drei `exec` ohne Zeitgrenze (`LdacTuning.kt:278`→`LiveLinkSource.kt:136-138`→`PrivilegedClient.kt:371`); Folge von `c58e503` (B5), widerspricht der `exec`-Ausnahme in AD-048; B6 nur teilweise behoben | mittel | offen | 2026-09-29 |
+
+- 2026-09-29 · T-063c am Stand 483d78b: CONCERNS. B5, B7 wirksam; K-2-Rest `PrivilegedClient.kt:540` behoben. B6 fuer Codec/HD-Audio und Ping wirksam, beim Pinnen nicht (SR-041). Beobachtung: `DeviceConnectionWatcher.kt:94` loggt namenloses Geraet mit `DeviceKey` (rueckrechenbar) → fester Text.
+| SR-042 | Rohe JSONException-Meldungen tragen gespeicherte Hoer-/Gesundheitsdaten ins Logcat (`AudiogramStore.kt:344/389/411/427`, `CompensationProfileStore.kt:144`) sowie Profilspeicher mit Key/Name (`DeviceProfileStore.kt:145`); gefunden vom developer in T-064 (Klasse V12/SR-033) | mittel | behoben (`8130e44`, `abe8953`, Test `HearingStoreLogTest` Rot-vorher), Retest offen | 2026-09-29 |
+| SR-041 | (Bestand) | mittel | behoben (`fe0c0f9`, `readAtMost` `LdacTuning.kt:315`; Randbedingung: Lesung wartet, blockiert nicht — im Produktivpfad erfuellt) | 2026-09-29 |
+| SR-042 | (Bestand) | mittel | behoben (Retest T-065c; V12 projektweit, 56 Throwable-Logs ohne Personendaten) | 2026-09-29 |
+
+- 2026-09-29 · T-065c am Stand abe8953: PASS; SR-041 und SR-042 behoben, `AdbKeyStore.kt:60` in Ordnung, keine neuen SR.
+- 2026-09-29 · SR-040: Nutzerentscheid beheben statt Restrisiko; developer-Auftrag mit der Play-Stufe. Status offen.
+- 2026-09-29 · SR-040 am Geraet bestaetigt (T-066a): 0-Byte-Ledger mit echtem DataStore liest als nie geschrieben, Rueckweg meldet falschen Vorwert (1001 statt 1000). Behebung beauftragt mit der Play-Stufe.
+- 2026-09-29 · SR-040: behoben im Code (`76144d9`, gemergt `7b33795`): 0-Byte-Datei liest als unlesbar, verwerfbar; fehlende Datei bleibt leeres Ledger. Suite 2750/0 (Director 21:42). Geraete-Retest offen.
+- 2026-09-29 · T-070a Vorlauf AD-050..053: FAIL fuer die Veroeffentlichung (SR-001 hoch auf Kaeufergeraeten); Vorgaben A1-A2, D1-D4, E1-E5, C1-C4 (`docs/berichte/T-070a-security-reviewer.md`). SR-001: Vorbedingung der Einreichung. SR-016: Handover ohne Eigentuemerpruefung (Hypothese), mittel, offen.
+- 2026-10-14 · Zusammenfuehrung von master (PR #3 bis #8) mit `auto/2026-09-23-saeule3`: Beide Zweige hatten den `AudioEffectSessionReceiver` unabhaengig geprueft und dieselben zwei Befunde mit vertauschten Nummern vergeben. Es gilt die aeltere Nummerierung vom 23.09.: **SR-023** = gefaelschtes CLOSE (am 13.10. vom Nutzer als Restrisiko akzeptiert), **SR-024** = gefaelschtes OPEN ohne Obergrenze (behoben, `MAX_SESSIONS` = 8). Die Eintraege vom 13.10. oben sind entsprechend umnummeriert.
+- 2026-10-14 · SR-039: `PairingTrace` ist mit der Zusammenfuehrung ganz entfernt (master PR #3), samt `buildConfig`-Schalter; die Pairing-Folge wird in keinem Build mehr geloggt. Behoben.
+- 2026-10-14 · SR-001/SR-009/SR-016: Der Dateiweg (`ExecSpill`, eine wiederverwendete Datei `btdash_exec_current.out`) aus `saeule3` ist durch Helper v6 ersetzt (Antwort ueber Deskriptor in app-privaten Speicher). Die Zeitgrenzen aus AD-048/AD-053 (Helfer 15 s, App 20 s, ein exec-Platz) gelten weiter, jetzt fuer den Deskriptor-Weg.

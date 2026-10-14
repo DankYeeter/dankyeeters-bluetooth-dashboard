@@ -16,17 +16,12 @@ import android.os.Process
  */
 class SecureSettingsGate(private val context: Context) {
 
-    fun state(): SecureSettingsState =
-        if (context.checkPermission(
-                android.Manifest.permission.WRITE_SECURE_SETTINGS,
-                Process.myPid(),
-                Process.myUid(),
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            SecureSettingsState.GRANTED
-        } else {
-            SecureSettingsState.NOT_GRANTED
-        }
+    fun isGranted(): Boolean =
+        context.checkPermission(
+            android.Manifest.permission.WRITE_SECURE_SETTINGS,
+            Process.myPid(),
+            Process.myUid(),
+        ) == PackageManager.PERMISSION_GRANTED
 
     /** Copy-paste command, for the case where the helper never came up. */
     fun adbGrantCommand(): String =

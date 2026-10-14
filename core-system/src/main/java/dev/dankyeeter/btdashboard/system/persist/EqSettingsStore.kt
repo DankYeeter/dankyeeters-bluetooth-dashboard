@@ -2,6 +2,7 @@ package dev.dankyeeter.btdashboard.system.persist
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -22,8 +23,18 @@ import java.io.IOException
 private val Context.eqDataStore: DataStore<Preferences> by preferencesDataStore(name = "eq_settings")
 
 /**
- * Persists the EQ state locally with DataStore. Nothing leaves the device;
- * there is no INTERNET permission.
+ * DataStore runs `edit` in the caller's context while holding the write lock
+ * (D-001). A caller on `Dispatchers.Main` — e.g. Robolectric's main looper —
+ * can leave that lock held forever if the test ends before the queued block
+ * runs, so every write moves onto its own dispatcher first.
+ */
+private suspend fun DataStore<Preferences>.editOnIo(
+    transform: suspend (MutablePreferences) -> Unit,
+): Preferences = withContext(Dispatchers.IO) { edit(transform) }
+
+/**
+ * Persists the EQ state locally with DataStore. Nothing leaves the device:
+ * this store never opens a network connection.
  *
  * Band gains are stored as a semicolon-separated string rather than 20 separate
  * keys so that a partial write can never leave a half-updated curve behind.
@@ -36,13 +47,9 @@ class EqSettingsStore(private val context: Context) {
 
     suspend fun current(): EqSettings = settings.first()
 
-    // Both writers edit on IO. DataStore runs an edit's transform in the
-    // caller's context while it holds the store's write lock, so an edit from
-    // viewModelScope needs the main thread to finish; a main dispatch that never
-    // comes (a torn-down Robolectric looper) would wedge every later write.
     suspend fun save(value: EqSettings) {
         val clean = value.sanitized()
-        withContext(Dispatchers.IO) { context.eqDataStore.edit { prefs ->
+        context.eqDataStore.editOnIo { prefs ->
             prefs[KEY_ENABLED] = clean.enabled
             prefs[KEY_LAYOUT] = clean.layout.id
             prefs[KEY_LEFT] = clean.leftGainsDb.joinToString(";")
@@ -55,7 +62,7 @@ class EqSettingsStore(private val context: Context) {
             // at the moment it is applied, so storing it would mean restoring a
             // correction for a volume that is no longer set.
             prefs[KEY_VOLUME_TILT] = clean.volumeAwareTilt
-        } }
+        }
     }
 
     /** Id of the active compensation profile, or null if the EQ is manual. */
@@ -67,9 +74,9 @@ class EqSettingsStore(private val context: Context) {
     suspend fun activeProfileIdOrNull(): String? = activeProfileId.first()
 
     suspend fun setActiveProfileId(id: String?) {
-        withContext(Dispatchers.IO) { context.eqDataStore.edit { prefs ->
+        context.eqDataStore.editOnIo { prefs ->
             if (id == null) prefs.remove(KEY_PROFILE_ID) else prefs[KEY_PROFILE_ID] = id
-        } }
+        }
     }
 
     private fun Preferences.toEqSettings(): EqSettings {

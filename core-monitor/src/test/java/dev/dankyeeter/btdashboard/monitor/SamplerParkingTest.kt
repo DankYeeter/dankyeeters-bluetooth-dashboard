@@ -9,8 +9,6 @@ import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -75,7 +73,7 @@ class SamplerParkingTest {
         val sleeps = mutableListOf<Long>()
         val engine = engine(FakeCodecStatusSource(devices = emptyList()), sleeps)
         engine.startDeepCapture(10 * 60_000L)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
 
         advanceTimeBy(10 * 60_000L)
 
@@ -92,7 +90,7 @@ class SamplerParkingTest {
         val codecSource = FakeCodecStatusSource(devices = emptyList())
         val engine = engine(codecSource)
         engine.startDeepCapture(10 * 60_000L)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
         advanceTimeBy(60_000L)
         assertEquals(SamplingMode.STOPPED, engine.status.value.mode)
 

@@ -156,8 +156,9 @@ abstract class MonitorDatabase : RoomDatabase() {
          *
          * `monitor_events` and `link_samples` are deliberately absent from this
          * statement: the point of the migration is that the history already in
-         * them survives untouched. The table is dropped again by [MIGRATION_3_4];
-         * this step stays so a version-1 file still walks every version in order.
+         * them survives untouched. The table no longer has an entity;
+         * [MIGRATION_3_4] drops it again, and a version-1 file passes through
+         * both on its way up.
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -225,10 +226,13 @@ abstract class MonitorDatabase : RoomDatabase() {
         }
 
         /**
-         * Drops the calibration table added by [MIGRATION_1_2].
+         * Drops the calibration table and touches nothing else (AD-028).
          *
-         * The calibrator that wrote it was never wired to the app, so on every
-         * phone the table is empty. History tables are not touched.
+         * Its rows were measured off a counter that is not a packet counter and
+         * nothing reads them any more. This is the one migration that deletes
+         * user data. `IF EXISTS`, so a file that somehow lacks the table still
+         * upgrades. Room validates declared entities only and would not notice a
+         * leftover table, so `MonitorDatabaseMigrationTest` checks its absence.
          */
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {

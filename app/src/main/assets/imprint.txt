@@ -1,0 +1,15 @@
+Provider of this app and of the web page that belongs to it, according to Section 5 of the German Digitale-Dienste-Gesetz (DDG):
+
+<NAME>
+
+<ANSCHRIFT>
+
+# Contact
+
+E-mail: <E-MAIL>
+
+Telephone: <TELEFON>
+
+# VAT identification number
+
+<UST_IDNR>

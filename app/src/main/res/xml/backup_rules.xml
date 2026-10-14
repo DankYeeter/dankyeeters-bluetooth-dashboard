@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <include domain="file" path="datastore/" />
+    <!-- Prior values of this phone's settings (AD-033): never restored elsewhere. -->
+    <exclude domain="file" path="datastore/settings_ledger.preferences_pb" />
 </full-backup-content>

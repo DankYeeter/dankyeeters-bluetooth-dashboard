@@ -2,7 +2,6 @@ package dev.dankyeeter.btdashboard.system.attach
 
 import dev.dankyeeter.btdashboard.audio.eq.EqSettings
 import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizer
-import dev.dankyeeter.btdashboard.audio.eq.SystemEqualizerFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -378,17 +377,6 @@ class EqAttachmentLifecycleTest {
         )
     }
 
-    // ---- doubles -------------------------------------------------------------
-
-    /**
-     * Records every effect it ever built and whether it was closed, which is the
-     * whole invariant this file is about.
-     *
-     * [onCreate] runs *before* the effect is built, so a test can drive another
-     * thread into the exact gap a real attach leaves open: creating a
-     * `DynamicsProcessing` is a binder round-trip into audioserver and takes
-     * milliseconds on the device.
-     */
     /**
      * The session broadcast is open to any app. A flood of invented sessions
      * must not stack effects in audioserver without limit.
@@ -425,7 +413,18 @@ class EqAttachmentLifecycleTest {
         assertFalse(SESSION + SessionAttachmentStrategy.MAX_SESSIONS - 1 in attached)
     }
 
-    private class RecordingFactory : SystemEqualizerFactory {
+    // ---- doubles -------------------------------------------------------------
+
+    /**
+     * Records every effect it ever built and whether it was closed, which is the
+     * whole invariant this file is about.
+     *
+     * [onCreate] runs *before* the effect is built, so a test can drive another
+     * thread into the exact gap a real attach leaves open: creating a
+     * `DynamicsProcessing` is a binder round-trip into audioserver and takes
+     * milliseconds on the device.
+     */
+    private class RecordingFactory : (Int) -> SystemEqualizer? {
         val created = mutableListOf<FakeEqualizer>()
 
         /** When true, stands in for AudioFlinger refusing the effect. */
@@ -435,7 +434,7 @@ class EqAttachmentLifecycleTest {
         @Volatile
         var onCreate: ((Int) -> Unit)? = null
 
-        override fun create(sessionId: Int): SystemEqualizer? {
+        override fun invoke(sessionId: Int): SystemEqualizer? {
             onCreate?.invoke(sessionId)
             if (refuse) return null
             return FakeEqualizer(sessionId).also { synchronized(created) { created += it } }

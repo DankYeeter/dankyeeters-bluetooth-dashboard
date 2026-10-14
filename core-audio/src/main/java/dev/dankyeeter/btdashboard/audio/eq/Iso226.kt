@@ -26,7 +26,7 @@ import kotlin.math.pow
  * What this is for: the contours are **steeper at low levels**. Halving the
  * listening level does not take the same number of dB out of the bass as it
  * does out of the mids — the bass loses more loudness, which is why quiet
- * listening sounds thin. Section 4.3 of REPORT-2026-08-26 calls this the one
+ * listening sounds thin. Section 4.3 of docs/archiv/REPORT-2026-08-26.md calls this the one
  * physically hard, level-dependent (not person-dependent) effect behind what
  * headphone vendors sell as "personalisation"; [VolumeAwareTilt] turns it into
  * a correction curve.

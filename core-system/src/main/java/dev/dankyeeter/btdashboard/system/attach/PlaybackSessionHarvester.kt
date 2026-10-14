@@ -46,8 +46,8 @@ import kotlinx.coroutines.launch
  * ## Privacy
  *
  * Only session ids leave the parse; the player's identity, its metadata and
- * what it is playing are all discarded. Nothing is stored and nothing is sent —
- * the app holds no INTERNET permission.
+ * what it is playing are all discarded. Nothing is stored and nothing is
+ * sent — this class never opens a network connection.
  */
 class PlaybackSessionHarvester(
     private val context: Context,

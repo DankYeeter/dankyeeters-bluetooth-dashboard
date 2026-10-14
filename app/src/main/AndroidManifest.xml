@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
       INTERNET, and it is worth writing down why, because this project went
@@ -28,34 +27,24 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
-      QUERY_ALL_PACKAGES: needed for the "these apps could have their own EQ"
-      check, which has to look at every installed app — an equaliser we have
-      never heard of is exactly the one worth warning about, and a fixed
-      <queries> list can only ever find the ones we already knew.
-
-      Play Store policy restricts this permission to a short list of app types.
-      It is granted here because this app is explicitly never going to the Play
-      Store (see PLAN.md non-goals): local git and a sideloaded APK, no store
-      listing, no distribution. The package list is read, tiered, shown, and
-      discarded when the process ends — it is never stored and never sent.
-
-      That last sentence used to lean on there being no INTERNET permission at
-      all. There is one now, for the loopback connection to this phone's own
-      debugging service, so the claim rests on review instead of on a locked
-      door: no code in this project addresses a remote host.
+      ACCESS_NETWORK_STATE: only for the Wi-Fi band in the Measures panel and
+      the comparison's read-back of A2 (AD-046). The app reads the active
+      network's frequency and nothing else of it - no SSID, no BSSID, no
+      location. Android blanks those fields for an app without location
+      access, and this app requests none.
     -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
-      Kept even though QUERY_ALL_PACKAGES makes it redundant today: if that
-      permission is ever restricted or revoked, the high-confidence tiers still
-      work. The <intent> element keeps the "declares an equalizer panel" tier
-      alive, and the explicit packages keep the vendor-companion tier alive.
-
-      Those companion apps run their equaliser inside the headphone, where no
-      audio-effect scan can see it, so the only detectable signal is that the
-      app is installed.
+      The only view of other apps this one has: there is no QUERY_ALL_PACKAGES
+      (AD-050). The equaliser check therefore recognises exactly two kinds of
+      app, and says so on screen: apps that declare an equaliser panel (the
+      <intent>), and the headphone companion apps named below. Those run their
+      equaliser inside the headphone, where no audio-effect scan can see it, so
+      the only detectable signal is that the app is installed. The package list
+      must match VendorEqApps.known; StoreManifestTest holds the two together.
+      What is read is tiered, shown, and discarded when the process ends - it is
+      never stored and never sent.
     -->
     <queries>
         <intent>
@@ -120,6 +109,19 @@
         <receiver
             android:name=".privileged.adb.PairingCodeReceiver"
             android:exported="false" />
+
+        <!--
+            Keeps a comparison arm or a live capture the user started measuring
+            with the screen off, only for as long as it runs (AD-039). Not
+            exported: the only senders are this app's own taps and the Stop in
+            its notification. stopWithTask="true": swiping the app away ends the
+            measurement, unlike the EQ. No wake lock.
+        -->
+        <service
+            android:name=".ui.screens.monitor.MeasurementService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:stopWithTask="true" />
 
     </application>
 </manifest>

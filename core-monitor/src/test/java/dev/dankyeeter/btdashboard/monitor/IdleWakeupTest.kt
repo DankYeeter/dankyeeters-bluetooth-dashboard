@@ -9,7 +9,6 @@ import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -72,7 +71,7 @@ class IdleWakeupTest {
     @Test
     fun `an idle sampler does not tick`() = runTest {
         val (engine, sleeps) = engine(this)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
 
         // Ten minutes of screen-off, nothing playing.
         advanceTimeBy(10 * 60_000L)
@@ -91,7 +90,7 @@ class IdleWakeupTest {
     @Test
     fun `the screen coming on alone does not start polling`() = runTest {
         val (engine, sleeps) = engine(this)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
         advanceTimeBy(60_000L)
         assertEquals(SamplingMode.STOPPED, engine.status.value.mode)
 
@@ -106,7 +105,7 @@ class IdleWakeupTest {
     @Test
     fun `an open monitor screen with the display on ends the idle wait`() = runTest {
         val (engine, _) = engine(this)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
         advanceTimeBy(60_000L)
         assertEquals(SamplingMode.STOPPED, engine.status.value.mode)
 
@@ -124,7 +123,7 @@ class IdleWakeupTest {
         val (engine, _) = engine(this)
         screenOn.value = true
         uiVisible.value = true
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
         advanceTimeBy(1_000L)
         assertEquals(SamplingMode.BACKGROUND, engine.status.value.mode)
 
@@ -138,7 +137,7 @@ class IdleWakeupTest {
     @Test
     fun `deep capture ends the idle wait immediately`() = runTest {
         val (engine, _) = engine(this)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        engine.start(backgroundScope)
         advanceTimeBy(60_000L)
 
         engine.startDeepCapture(30_000L)
@@ -154,14 +153,20 @@ class IdleWakeupTest {
      * and that is unchanged — but a codec change with nothing playing and no
      * screen open is now correctly *not* a reason to poll, so it can no longer
      * carry the assertion.
+     *
+     * Adjusted for F-014: playback is a reason to poll only under the open
+     * monitor. The monitor is therefore open from the start, with the display
+     * off, so the broadcast is the only thing that changes — the screen coming
+     * on would itself end the wait and prove nothing about the event.
      */
     @Test
     fun `a bluetooth event ends the idle wait`() = runTest {
         val (engine, _) = engine(this)
-        engine.start(TestScope(StandardTestDispatcher(testScheduler)))
+        uiVisible.value = true
+        engine.start(backgroundScope)
         advanceTimeBy(60_000L)
+        assertEquals(SamplingMode.STOPPED, engine.status.value.mode)
 
-        screenOn.value = true
         events.flow.emit(
             MonitorEvent(
                 timestampMs = 1_000L,

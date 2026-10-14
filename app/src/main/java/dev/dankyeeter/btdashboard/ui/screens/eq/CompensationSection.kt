@@ -57,7 +57,7 @@ import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedRow
 
 /**
- * The compensation flow of COMPENSATION.md, rendered on the EQ screen:
+ * The compensation flow of docs/archiv/COMPENSATION.md, rendered on the EQ screen:
  * audiogram (median curve) -> calibration preset -> intensity -> live preview
  * -> apply, plus named profiles.
  *

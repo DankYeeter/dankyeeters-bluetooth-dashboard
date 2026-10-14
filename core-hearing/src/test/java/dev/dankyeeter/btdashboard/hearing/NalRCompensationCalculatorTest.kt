@@ -11,7 +11,7 @@ import org.junit.Test
 import kotlin.math.abs
 
 /**
- * The full pipeline of COMPENSATION.md section 3.
+ * The full pipeline of docs/archiv/COMPENSATION.md section 3.
  *
  * The reference audiogram used throughout is a typical gently sloping
  * high-frequency loss:

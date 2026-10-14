@@ -6,7 +6,6 @@ data class MixerTrack(
     val uid: Int,
     val sessionId: Int?,
     val portId: Int?,
-    val sampleRateHz: Int?,
     val format: PcmFormat?,
     val channelMask: Int?,
     val underruns: Long?,
@@ -178,7 +177,6 @@ object AudioFlingerTrackParser {
             portId = head.groupValues[4].toIntOrNull(),
             format = PcmFormat.of(head.groupValues[5].toIntOrNull(16)),
             channelMask = head.groupValues[6].toIntOrNull(16),
-            sampleRateHz = head.groupValues[7].toIntOrNull(),
             underruns = tail?.groupValues?.getOrNull(1)?.toLongOrNull(),
             flushed = tail?.groupValues?.getOrNull(2)?.toLongOrNull(),
         )
@@ -193,7 +191,6 @@ object AudioFlingerTrackParser {
         var deviceNames: String? = null
         var standby = false
         var fastUnderruns: Long? = null
-        var partialUnderruns: Long? = null
         var emptyUnderruns: Long? = null
 
         /**
@@ -226,7 +223,6 @@ object AudioFlingerTrackParser {
                 }
             }
             NORMAL_UNDERRUNS.find(body)?.let { m ->
-                partialUnderruns = m.groupValues[1].toLongOrNull()
                 emptyUnderruns = m.groupValues[2].toLongOrNull()
             }
         }
@@ -241,7 +237,6 @@ object AudioFlingerTrackParser {
                 halFormat = halFormat,
                 isInStandby = standby,
                 fastMixerUnderruns = fastUnderruns,
-                normalMixerPartialUnderruns = partialUnderruns,
                 normalMixerEmptyUnderruns = emptyUnderruns,
             ),
             tracks = tracks.toList(),

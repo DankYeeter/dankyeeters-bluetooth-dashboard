@@ -14,6 +14,8 @@ data class A2dpLinkDump(
      * the codec actually configured. Null is the honest "not reported here".
      */
     val ldacStack: LdacStackState? = null,
+    /** Radio-level pairing facts (AK-15, AK-16). See [PairingFacts]. */
+    val pairing: PairingFacts? = null,
     val warnings: List<String> = emptyList(),
 )
 
@@ -87,6 +89,7 @@ object A2dpLinkDumpParser {
         val device = readStateMachine(dump)
         val tx = readTxStats(dump)
         val ldacStack = readLdacStackState(dump)
+        val pairing = readPairingFacts(dump, a2dpPeerConnected = device?.device?.isConnected == true)
 
         if (device == null) warnings += "no A2dpStateMachine block in dump"
         if (tx == null) warnings += "no 'A2DP State:' section in dump"
@@ -107,6 +110,7 @@ object A2dpLinkDumpParser {
             codec = codec,
             tx = tx,
             ldacStack = ldacForThisLink,
+            pairing = pairing,
             warnings = warnings,
         )
     }
@@ -317,21 +321,12 @@ object A2dpLinkDumpParser {
 
         return A2dpTxStats(
             enqueueCount = at(COUNTS, 0),
-            dequeueCount = at(COUNTS, 1),
-            readBufCount = at(COUNTS, 2),
             framesPerPacketTotal = at(FRAMES, 0),
-            framesPerPacketMax = at(FRAMES, 1)?.toInt(),
-            framesPerPacketAvg = at(FRAMES, 2)?.toInt(),
             flushedCount = at(LOSS, 0),
             droppedCount = at(LOSS, 1),
             dropoutCount = at(LOSS, 2),
-            maxDroppedCount = at(MAX_DROPPED, 0),
             underflowCount = at(UNDERFLOW_COUNT, 0),
             underflowBytes = at(UNDERFLOW_BYTES, 0),
-            enqueueOverdue = at(ENQUEUE_DEVIATION, 0),
-            enqueuePremature = at(ENQUEUE_DEVIATION, 1),
-            dequeueOverdue = at(DEQUEUE_DEVIATION, 0),
-            dequeuePremature = at(DEQUEUE_DEVIATION, 1),
         ).takeUnless { it.isEmpty }
     }
 
@@ -351,12 +346,12 @@ object A2dpLinkDumpParser {
      * saying "this codec is not the one running", and it is rejected here rather
      * than passed on as a bitrate of zero.
      *
-     * ## Six rows, no verdicts
+     * ## Five rows, no verdicts
      *
-     * The two `LDAC adaptive bit rate` rows are read alongside the rate because
-     * the rate alone cannot say what happened between two polls; see
-     * [LdacStackState.adaptiveBitrateAdjustments]. Like every other row they are
-     * carried as read and nothing here decides what they mean — in particular a
+     * The `LDAC adaptive bit rate adjustments` row is read alongside the rate
+     * because the rate alone cannot say what happened between two polls; see
+     * [LdacStackState.adaptiveBitrateAdjustments]. Like every other row it is
+     * carried as read and nothing here decides what it means — in particular a
      * reading of 990 kbps is a reading and not an event. The adaptive controller
      * tries that rung on its own and leaves it again within a single sample: 31
      * times in one 39-minute run, 30 of them for exactly one sample and none of
@@ -372,7 +367,6 @@ object A2dpLinkDumpParser {
         var kbps: Int? = null
         var mtu: Int? = null
         var savedQueue: Int? = null
-        var abrIndex: Int? = null
         var abrAdjustments: Long? = null
 
         for (raw in dump.lineSequence()) {
@@ -396,7 +390,6 @@ object A2dpLinkDumpParser {
                 LDAC_BITRATE -> kbps = value.toIntOrNull()
                 LDAC_EFFECTIVE_MTU -> mtu = value.toIntOrNull()
                 LDAC_SAVED_QUEUE -> savedQueue = value.toIntOrNull()
-                LDAC_ABR_INDEX -> abrIndex = value.toIntOrNull()
                 LDAC_ABR_ADJUSTMENTS -> abrAdjustments = value.toLongOrNull()
             }
         }
@@ -408,14 +401,106 @@ object A2dpLinkDumpParser {
             transmissionKbps = kbps?.takeIf { it > 0 },
             effectiveMtu = mtu?.takeIf { it > 0 },
             savedTxQueueLength = savedQueue,
-            // Both pass through exactly as printed, zero included: a rung of 0
-            // and a count of 0 are answers. Null is absence — and, with the
-            // same value, a printed number this could not read; the two are not
-            // separated here, see [LdacStackState] for why.
-            adaptiveBitrateIndex = abrIndex,
+            // Passes through exactly as printed, zero included: a count of 0 is
+            // an answer. Null is absence — and, with the same value, a printed
+            // number this could not read; the two are not separated here, see
+            // [LdacStackState] for why.
             adaptiveBitrateAdjustments = abrAdjustments,
         ).takeUnless { it.isEmpty }
     }
+
+    // ---- the pairing itself (AD-038 S3-1) ------------------------------------
+
+    /**
+     * Radio-level pairing facts, read once per dump and never carried over
+     * from another device (AK-15). See [PairingFacts].
+     */
+    private fun readPairingFacts(dump: String, a2dpPeerConnected: Boolean): PairingFacts {
+        val (edr, threeMbps) = readA2dpSourcePeerFacts(dump)
+        return PairingFacts(
+            edr = edr,
+            threeMbps = threeMbps,
+            otherAclLinks = countOtherAclLinks(dump, a2dpPeerConnected),
+            discovering = dump.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith(DISCOVERING) }
+                ?.let { parseBoolean(it.substringAfter(':')) },
+        )
+    }
+
+    /**
+     * `EDR:`/`Support 3Mbps:` off the first peer in the `A2DP Source State:`
+     * block. Scoped exactly like [readTxStats]: the block is top-level and
+     * ends at the next unindented non-blank line, so a whole-dump scan could
+     * not pick up an idle profile's own row of the same name.
+     */
+    private fun readA2dpSourcePeerFacts(dump: String): Pair<Boolean?, Boolean?> {
+        var inBlock = false
+        var edr: Boolean? = null
+        var threeMbps: Boolean? = null
+        for (raw in dump.lineSequence()) {
+            val line = raw.trimEnd()
+            if (line.isBlank()) continue
+            val unindented = line.first() != ' ' && line.first() != '\t'
+            if (unindented) {
+                inBlock = line.trim().startsWith(A2DP_SOURCE_STATE_HEADER)
+                continue
+            }
+            if (!inBlock) continue
+            val body = line.trim()
+            when {
+                edr == null && body.startsWith(PAIRING_EDR) ->
+                    edr = parseBoolean(body.substringAfter(':'))
+                threeMbps == null && body.startsWith(PAIRING_SUPPORT_3MBPS) ->
+                    threeMbps = parseBoolean(body.substringAfter(':'))
+            }
+        }
+        return edr to threeMbps
+    }
+
+    /**
+     * Bonded devices with a live BR/EDR ACL link, minus the A2DP peer itself.
+     *
+     * Null when the `BluetoothRemoteDevices` section — the only place this
+     * dump lists ACL state per device — was not found at all, so a build
+     * that omits it does not read as "zero other links". Never negative: on
+     * this Pixel 11 Pro the connected A2DP peer's own row always counts
+     * itself (Grep 23.09.), and a build that ever printed it differently
+     * would otherwise read as a negative link count.
+     */
+    private fun countOtherAclLinks(dump: String, a2dpPeerConnected: Boolean): Int? {
+        var inBlock = false
+        var sawBlock = false
+        var count = 0
+        for (raw in dump.lineSequence()) {
+            val line = raw.trimEnd()
+            if (line.isBlank()) continue
+            val unindented = line.first() != ' ' && line.first() != '\t'
+            if (unindented) {
+                inBlock = line.trim() == BLUETOOTH_REMOTE_DEVICES_HEADER
+                if (inBlock) sawBlock = true
+                continue
+            }
+            if (!inBlock) continue
+            if (line.contains(ACL_CONNECTED_MARKER)) count++
+        }
+        if (!sawBlock) return null
+        val others = if (a2dpPeerConnected) count - 1 else count
+        return others.coerceAtLeast(0)
+    }
+
+    private fun parseBoolean(value: String): Boolean? = when (value.trim().lowercase()) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
+
+    private const val A2DP_SOURCE_STATE_HEADER = "A2DP Source State:"
+    private const val PAIRING_EDR = "EDR:"
+    private const val PAIRING_SUPPORT_3MBPS = "Support 3Mbps:"
+    private const val BLUETOOTH_REMOTE_DEVICES_HEADER = "BluetoothRemoteDevices"
+    private const val ACL_CONNECTED_MARKER = "[ACL BR/EDR:Y"
+    private const val DISCOVERING = "Discovering:"
 
     // Labels exactly as the stack prints them, same rule as the tx block below:
     // a silent rename upstream should fail one obvious test rather than quietly
@@ -426,7 +511,6 @@ object A2dpLinkDumpParser {
     private const val LDAC_BITRATE = "LDAC transmission bitrate (Kbps)"
     private const val LDAC_EFFECTIVE_MTU = "Effective MTU"
     private const val LDAC_SAVED_QUEUE = "LDAC saved transmit queue length"
-    private const val LDAC_ABR_INDEX = "LDAC adaptive bit rate encode quality mode index"
     private const val LDAC_ABR_ADJUSTMENTS = "LDAC adaptive bit rate adjustments"
 
     // Labels exactly as `btif_a2dp_source_debug_dump` prints them. Kept as
@@ -435,9 +519,6 @@ object A2dpLinkDumpParser {
     private const val COUNTS = "Counts (enqueue/dequeue/readbuf)"
     private const val FRAMES = "Frames per packet (total/max/ave)"
     private const val LOSS = "Counts (flushed/dropped/dropouts)"
-    private const val MAX_DROPPED = "Counts (max dropped)"
     private const val UNDERFLOW_COUNT = "Counts (underflow)"
     private const val UNDERFLOW_BYTES = "Bytes (underflow)"
-    private const val ENQUEUE_DEVIATION = "Enqueue deviation counts (overdue/premature)"
-    private const val DEQUEUE_DEVIATION = "Dequeue deviation counts (overdue/premature)"
 }

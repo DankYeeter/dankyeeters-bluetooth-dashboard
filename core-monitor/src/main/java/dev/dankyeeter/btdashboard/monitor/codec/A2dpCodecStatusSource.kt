@@ -9,14 +9,13 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.content.ContextCompat
 import dev.dankyeeter.btdashboard.monitor.link.BroadcastConnectionTicks
-import dev.dankyeeter.btdashboard.monitor.link.ConnectionTicks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import java.lang.reflect.InvocationTargetException
 
 /**
  * Real [CodecStatusSource] on top of `BluetoothA2dp`.
@@ -29,8 +28,9 @@ import kotlinx.coroutines.flow.merge
  */
 class A2dpCodecStatusSource(
     private val context: Context,
-    private val ticks: ConnectionTicks = BroadcastConnectionTicks(context),
 ) : CodecStatusSource {
+
+    private val ticks = BroadcastConnectionTicks(context)
 
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -77,7 +77,7 @@ class A2dpCodecStatusSource(
         get() = adapter != null && a2dp != null && hasConnectPermission()
 
     private fun hasConnectPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+        context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission") // guarded by hasConnectPermission()
@@ -110,14 +110,16 @@ class A2dpCodecStatusSource(
      *  - [ticks], the Bluetooth broadcasts.
      *
      * The breadth of the broadcast set is what makes guessing a settling delay
-     * unnecessary. ACL_CONNECTED arrives before A2DP is negotiated, so that
-     * read finds the device with an unknown codec - and then
-     * CONNECTION_STATE_CHANGED and CODEC_CONFIG_CHANGED arrive and it is read
-     * again, now complete.
+     * unnecessary: ACL_CONNECTED arrives before A2DP is negotiated, and
+     * CONNECTION_STATE_CHANGED follows, so the list is read again once the
+     * device is really there.
      *
      * [distinctUntilChanged] is what keeps that from churning: several
      * broadcasts describe one connect, and only the reads that actually
-     * changed something reach the UI.
+     * changed the list reach the UI. A codec that becomes readable later
+     * (CODEC_CONFIG_CHANGED) does not change the list, so this flow stays
+     * silent then — a screen that shows the codec re-reads on the broadcasts
+     * itself, see the dashboard's `devicesToRead`.
      */
     override fun connectedDevicesFlow(): Flow<List<BtAudioDevice>> =
         merge(proxyBound.map { }, ticks.ticks())
@@ -162,14 +164,8 @@ class A2dpCodecStatusSource(
                 ?: return CodecReadResult.Unsupported("no codec config in status")
             CodecReadResult.Available(readConfig(config))
         }.getOrElse { t ->
-            // NoSuchMethodException on OEM stubs, SecurityException without
-            // BLUETOOTH_PRIVILEGED, anything else from a vendor implementation.
             Log.i(TAG, "getCodecStatus unavailable: ${t.javaClass.simpleName}")
-            when (t) {
-                is NoSuchMethodException -> CodecReadResult.Unsupported("API not present on this build")
-                is SecurityException -> CodecReadResult.Unsupported("privileged permission required")
-                else -> CodecReadResult.Failed(t.message ?: t.javaClass.simpleName)
-            }
+            codecReadFailure(t)
         }
     }
 
@@ -211,3 +207,21 @@ class A2dpCodecStatusSource(
         const val TAG = "A2dpCodecStatus"
     }
 }
+
+/**
+ * What a throw from the reflective codec read means.
+ *
+ * `Method.invoke` wraps whatever the called method threw in an
+ * [InvocationTargetException], so the cause is what gets classified — the
+ * SecurityException stock Android answers with arrived wrapped and used to fall
+ * through to the class name. The reason is shown as-is on the dashboard, so it
+ * is a fixed sentence, never an exception's class name or message.
+ */
+internal fun codecReadFailure(thrown: Throwable): CodecReadResult =
+    when ((thrown as? InvocationTargetException)?.targetException ?: thrown) {
+        // OEM stubs without the hidden method.
+        is NoSuchMethodException -> CodecReadResult.Unsupported("API not present on this build")
+        // No BLUETOOTH_PRIVILEGED, which is every normal app on stock Android.
+        is SecurityException -> CodecReadResult.Unsupported("privileged permission required")
+        else -> CodecReadResult.Failed("the codec read failed, so it cannot be checked")
+    }

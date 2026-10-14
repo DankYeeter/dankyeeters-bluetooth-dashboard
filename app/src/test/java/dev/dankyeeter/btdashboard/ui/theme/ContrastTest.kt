@@ -1,6 +1,7 @@
 package dev.dankyeeter.btdashboard.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,53 +17,29 @@ import org.junit.Test
  * A test is the only thing that catches that class of bug, because the bug is
  * invisible to the person who chose the colour and knows what it says.
  */
-/** WCAG minimum for body text. Below this, small text is not readable. */
-private const val BODY_MIN: Double = 4.5
-
-/**
- * WCAG minimum for large text (>= 18.66 sp bold or 24 sp) and for the
- * non-text parts of a control — a border, a slider track, an icon.
- */
-private const val LARGE_MIN: Double = 3.0
-
-/**
- * Flattens [foreground] onto [background] at its own alpha.
- *
- * The app tints a lot of things at 25-35% alpha; measuring those against
- * the surface without compositing would report the contrast of a colour
- * that is never actually painted.
- */
-private fun composite(foreground: Color, background: Color): Color {
-    val alpha = foreground.alpha
-    if (alpha >= 1f) return foreground
-    return Color(
-        red = foreground.red * alpha + background.red * (1 - alpha),
-        green = foreground.green * alpha + background.green * (1 - alpha),
-        blue = foreground.blue * alpha + background.blue * (1 - alpha),
-        alpha = 1f,
-    )
-}
-
 class ContrastTest {
 
     private val scheme = EdgyColorScheme
 
+    /** WCAG minimum for body text. Below this, small text is not readable. */
+    private val bodyMin = 4.5
+
+    /** WCAG minimum for large text and for the non-text parts of a control. */
+    private val largeMin = 3.0
+
     private fun assertBody(name: String, foreground: Color, background: Color) {
         val ratio = Contrast.ratio(foreground, background)
         assertTrue(
-            "$name is %.2f:1, needs %.1f:1 for body text".format(ratio, BODY_MIN),
-            ratio >= BODY_MIN,
+            "$name is %.2f:1, needs %.1f:1 for body text".format(ratio, bodyMin),
+            ratio >= bodyMin,
         )
     }
 
     private fun assertNonText(name: String, foreground: Color, background: Color) {
         val ratio = Contrast.ratio(foreground, background)
         assertTrue(
-            "$name is %.2f:1, needs %.1f:1 to be visible as a control".format(
-                ratio,
-                LARGE_MIN,
-            ),
-            ratio >= LARGE_MIN,
+            "$name is %.2f:1, needs %.1f:1 to be visible as a control".format(ratio, largeMin),
+            ratio >= largeMin,
         )
     }
 
@@ -126,7 +103,7 @@ class ContrastTest {
         // of it cannot also stand out against a black surface. So the lane's
         // boundaries and its label carry the information, and those are what is
         // pinned here.
-        val fill = composite(scheme.primary.copy(alpha = 0.18f), scheme.surface)
+        val fill = scheme.primary.copy(alpha = 0.18f).compositeOver(scheme.surface)
         assertNonText("codec change divider on surface", scheme.primary, scheme.surface)
         assertBody("codec name on the lane fill", scheme.onSurface, fill)
     }
@@ -175,7 +152,7 @@ class ContrastTest {
         )
         tones.forEach { (tone, accent) ->
             panelStops.forEach { (name, background) ->
-                val fill = composite(accent.copy(alpha = 0.14f), background)
+                val fill = accent.copy(alpha = 0.14f).compositeOver(background)
                 assertBody("$tone pill label over $name", accent, fill)
             }
         }
@@ -200,7 +177,7 @@ class ContrastTest {
     @Test
     fun `panel header eyebrow is readable, not just decorative`() {
         panelStops.forEach { (name, background) ->
-            val eyebrow = composite(Gold.Base.copy(alpha = 0.85f), background)
+            val eyebrow = Gold.Base.copy(alpha = 0.85f).compositeOver(background)
             assertBody("panel header eyebrow on $name", eyebrow, background)
         }
     }
@@ -246,17 +223,5 @@ class ContrastTest {
             Contrast.ratio(Color.Black, Color.White),
             1e-9,
         )
-    }
-
-    @Test
-    fun `compositing an opaque colour changes nothing`() {
-        assertEquals(Color.Red, composite(Color.Red, Color.Blue))
-    }
-
-    @Test
-    fun `a fully transparent foreground becomes the background`() {
-        val result = composite(Color.Red.copy(alpha = 0f), Color.Blue)
-        assertEquals(Color.Blue.red, result.red, 1e-6f)
-        assertEquals(Color.Blue.blue, result.blue, 1e-6f)
     }
 }

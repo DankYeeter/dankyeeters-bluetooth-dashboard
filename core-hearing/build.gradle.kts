@@ -25,4 +25,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    // The JSON codecs are built on Android's own org.json, which only runs in
+    // a test under Robolectric (AD-026). Already in the catalog and on the test
+    // classpath of :app and :core-monitor.
+    testImplementation(libs.robolectric)
 }

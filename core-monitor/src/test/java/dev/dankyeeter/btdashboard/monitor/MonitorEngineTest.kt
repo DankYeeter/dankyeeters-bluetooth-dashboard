@@ -9,6 +9,7 @@ import dev.dankyeeter.btdashboard.monitor.link.MonitorEventType
 import dev.dankyeeter.btdashboard.monitor.sampling.LinkSampleCollector
 import dev.dankyeeter.btdashboard.monitor.sampling.MonitorEngine
 import dev.dankyeeter.btdashboard.monitor.sampling.SamplingMode
+import dev.dankyeeter.btdashboard.monitor.sampling.SamplingPolicy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -37,7 +38,7 @@ class MonitorEngineTest {
         val events: FakeEventSource,
     )
 
-    private fun TestScope.fixture(clock: TestClock, screenOn: Boolean = true): Fixture {
+    private fun TestScope.fixture(clock: TestClock, screenOn: Boolean = true, uiVisible: Boolean = false): Fixture {
         val testScope = this
         val repository = InMemoryMonitorRepository()
         val eventSource = FakeEventSource()
@@ -55,6 +56,7 @@ class MonitorEngineTest {
             eventSource = eventSource,
             collector = collector,
             screenOn = MutableStateFlow(screenOn),
+            uiVisible = MutableStateFlow(uiVisible),
             clock = clock::now,
             sleep = { ms ->
                 kotlinx.coroutines.delay(ms)
@@ -80,7 +82,7 @@ class MonitorEngineTest {
     @Test
     fun `playback events switch the sampler to the active interval`() = runTest {
         val clock = TestClock()
-        val f = fixture(clock)
+        val f = fixture(clock, uiVisible = true)
         f.engine.start(backgroundScope)
         runCurrent()
 
@@ -109,5 +111,28 @@ class MonitorEngineTest {
         assertTrue(f.repository.samples(0).first().size >= 5)
         assertEquals(SamplingMode.DEEP, f.engine.status.value.mode)
         f.engine.stop()
+    }
+
+    /** T-055s V21: whatever a caller asks for, a capture is never longer than its window. */
+    @Test
+    fun `deep capture is bounded to its window`() = runTest {
+        val clock = TestClock()
+        val f = fixture(clock)
+        f.engine.startDeepCapture(Long.MAX_VALUE)
+
+        assertEquals(clock.now() + SamplingPolicy.DEEP_CAPTURE_WINDOW_MS, f.engine.status.value.deepCaptureUntilMs)
+    }
+
+    /** AD-039 point 4: the measurement service follows the status, so start and stop show in it at once. */
+    @Test
+    fun `starting and stopping deep capture shows in the status at once`() = runTest {
+        val clock = TestClock()
+        val f = fixture(clock)
+        f.engine.startDeepCapture(60_000)
+        assertEquals(clock.now() + 60_000, f.engine.status.value.deepCaptureUntilMs)
+        assertEquals(clock.now(), f.engine.status.value.deepCaptureSinceMs)
+
+        f.engine.stopDeepCapture()
+        assertEquals(0L, f.engine.status.value.deepCaptureUntilMs)
     }
 }

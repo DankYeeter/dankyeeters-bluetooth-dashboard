@@ -5,13 +5,11 @@ import android.content.SharedPreferences
 import android.os.ParcelFileDescriptor
 import dev.dankyeeter.btdashboard.privileged.adb.WirelessDebuggingSwitch
 import android.util.Log
-import dev.dankyeeter.btdashboard.monitor.codec.CodecController
 import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
-import dev.dankyeeter.btdashboard.monitor.codec.NoOpCodecController
 import dev.dankyeeter.btdashboard.monitor.shell.ShellResult
 import dev.dankyeeter.btdashboard.monitor.shell.ShellRunner
+import dev.dankyeeter.btdashboard.privileged.PrivilegedCallGuard.Bounded
 import dev.dankyeeter.btdashboard.system.devices.BluetoothCodecOptions
-import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartController
 import dev.dankyeeter.btdashboard.system.devices.BluetoothRestartOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecApplyOutcome
 import dev.dankyeeter.btdashboard.system.devices.CodecPreference
@@ -20,11 +18,14 @@ import dev.dankyeeter.btdashboard.system.devices.HdAudioController
 import dev.dankyeeter.btdashboard.system.devices.HdAudioOutcome
 import dev.dankyeeter.btdashboard.system.devices.HdAudioPreference
 import dev.dankyeeter.btdashboard.system.devices.HdAudioState
+import dev.dankyeeter.btdashboard.ui.screens.monitor.redactAddresses
 import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -378,18 +379,34 @@ class PrivilegedShellRunner internal constructor(
 
         EXEC_LOCK.withLock {
             runCatching {
-                ExecReplyFile.open(replyDirectory).use { replyFile ->
-                    val reply = service.exec(token, command, replyFile.descriptor)
-                    // The transaction came back. Whatever the reply *says*, the
-                    // transport worked, so any run of transient failures is over.
-                    guard.succeeded()
-                    if (reply == null) {
-                        ShellResult(-1, "", "helper returned nothing")
-                    } else {
-                        decode(reply, replyFile)
+                // The reply file is opened and closed inside the slot, so an
+                // answer that arrives after its caller gave up still lands in a
+                // descriptor that is open, and is released before the next exec
+                // may reach the helper (AD-053).
+                val outcome = guard.boundedExec {
+                    ExecReplyFile.open(replyDirectory).use { replyFile ->
+                        val reply = service.exec(token, command, replyFile.descriptor)
+                        // The transaction came back. Whatever the reply *says*, the
+                        // transport worked, so any run of transient failures is over.
+                        guard.succeeded()
+                        if (reply == null) {
+                            ShellResult(-1, "", "helper returned nothing")
+                        } else {
+                            decode(reply, replyFile)
+                        }
                     }
                 }
+                when (outcome) {
+                    is Bounded.Done -> outcome.value
+                    is Bounded.Unanswered -> ShellResult(
+                        -1,
+                        "",
+                        outcome.reason(changes = false, timeoutMs = PrivilegedCallGuard.EXEC_CALL_TIMEOUT_MS),
+                    )
+                }
             }.getOrElse { error ->
+                // The caller leaving (a cancelled wait in boundedExec), not a failed call.
+                if (error is CancellationException) throw error
                 // NOT automatically a dead helper — that assumption is what put
                 // the activation screen in front of a user whose helper was
                 // running fine. [PrivilegedCallGuard] decides, and only
@@ -452,6 +469,12 @@ class PrivilegedShellRunner internal constructor(
          * would be twice the load in the Bluetooth process, and AK-1 forbids
          * extra load on the audio path (ARCHITECTURE.md AD-010). No test
          * catches its removal, so read that before touching it.
+         *
+         * A caller that stops waiting (AD-053) releases this lock while its
+         * exec runs on; the guard's exec slot ([PrivilegedCallGuard.boundedExec])
+         * then refuses further execs until that one has ended, so the AK-1
+         * reason holds for abandoned calls too. The slot is per guard, which is
+         * why every runner shares [PrivilegedCallGuard.SHARED].
          */
         val EXEC_LOCK = Mutex()
     }
@@ -522,16 +545,15 @@ internal class ExecReplyFile private constructor(
 /**
  * Where the rest of the app picks up codec control.
  *
- * `MonitorViewModel` is a plain `ViewModel` with no Context, and it should stay
- * that way — so the one controller the Application builds is registered here
- * and handed out on demand. Resolved per call, never cached by the caller: the
- * helper can connect or die at any moment, and a diagnostic started an hour
- * after the screen opened must ask again.
+ * The callers hold no Context and should not need one, so the one controller
+ * the Application builds is registered here and handed out on demand. Resolved
+ * per call, never cached by the caller: the helper can connect or die at any
+ * moment.
  *
- * [controller] deliberately falls back to [NoOpCodecController] rather than
- * returning a live controller that would answer "no codecs" — the diagnostic
- * words an empty list as "needs privileged access we do not have", which is the
- * truth when the helper is absent and a lie when it is present.
+ * [controller] deliberately answers null rather than a live controller that
+ * would answer "no codecs": callers word null as "needs privileged access we do
+ * not have", which is the truth when the helper is absent and a lie when it is
+ * present.
  */
 object PrivilegedCodec {
 
@@ -542,9 +564,9 @@ object PrivilegedCodec {
         installed = controller
     }
 
-    /** The real controller while the helper is answering, the honest stub otherwise. */
-    fun controller(): CodecController =
-        installed?.takeIf { it.isAvailable() } ?: NoOpCodecController
+    /** The real controller while the helper is answering, null otherwise. */
+    fun controller(): PrivilegedCodecController? =
+        installed?.takeIf { it.isAvailable() }
 }
 
 /** Where a codec answer came from, and what it actually said. */
@@ -558,15 +580,12 @@ sealed interface CodecCallResult {
 /**
  * Codec control through the privileged helper.
  *
- * ## Why one class implements two interfaces
+ * ## Why the capability read lives here
  *
- * `CodecController` lives in `:core-monitor` (the diagnostic uses it) and
  * `CodecPreferenceController` lives in `:core-system` (the profile applier uses
- * it). `:core-system` does not depend on `:core-monitor` and should not start
- * now — the two modules are deliberately unaware of each other. `:app` sees
- * both, so the one place that can satisfy both contracts is here, and doing it
- * with one object is what keeps a single codec request from having two
- * different code paths.
+ * it), and the Devices tab reads codec capabilities through [availableCodecs]
+ * on this same object. Doing both with one object is what keeps a single codec
+ * request from having two different code paths.
  *
  * ## What it will and will not claim
  *
@@ -576,43 +595,32 @@ sealed interface CodecCallResult {
  * never "no codecs available" — those look identical in a list and mean
  * opposite things.
  */
-class PrivilegedCodecController(
-    context: Context,
-    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
-) : CodecController, CodecPreferenceController {
-
+class PrivilegedCodecController internal constructor(
+    private val bootstrap: PrivilegedBootstrap,
     /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
-    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
+    private val guard: PrivilegedCallGuard,
+) : CodecPreferenceController {
+
+    constructor(
+        context: Context,
+        bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+    ) : this(bootstrap, PrivilegedCallGuard.SHARED)
 
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
     /** What the headphone advertised, narrowed to what this app can request. */
-    override suspend fun availableCodecs(address: String): List<CodecFamily> =
+    suspend fun availableCodecs(address: String): List<CodecFamily> =
         when (val result = read(address)) {
             is CodecCallResult.Observed ->
                 result.observation.selectableFamilies
                     .filter { it in A2dpCodecMasks.writableFamilies }
 
             is CodecCallResult.Unavailable -> {
-                Log.i(TAG, "codec capabilities unreadable: ${result.reason}")
+                // The helper's text can quote the raw address (B7, SR-030).
+                Log.i(TAG, "codec capabilities unreadable: ${redactAddresses(result.reason)}")
                 emptyList()
             }
-        }
-
-    /**
-     * Asks for a codec family and nothing else.
-     *
-     * Returns the family only when the read-back agreed. A request that was
-     * accepted but not observed comes back null — the diagnostic's wording for
-     * that is "could not be applied", which is the truth.
-     */
-    override suspend fun selectCodec(address: String, codec: CodecFamily): CodecFamily? =
-        when (val result = request(address, CodecRequest(family = codec))) {
-            is CodecCallResult.Observed ->
-                result.observation.takeIf { it.matched == true }?.codecFamily
-
-            is CodecCallResult.Unavailable -> null
         }
 
     override suspend fun apply(
@@ -624,7 +632,7 @@ class PrivilegedCodecController(
         // "match" afterwards — whatever the stack renegotiates is the point —
         // so the raw call is used and any observation counts as applied.
         if (preference.codec == BluetoothCodecOptions.SYSTEM_DEFAULT) {
-            return when (val result = call { service, token ->
+            return when (val result = call(changes = true) { service, token ->
                 service.setCodecPreference(
                     token, address, A2dpCodecMasks.SYSTEM_DEFAULT_SENTINEL, 0, 0, 0, 0L,
                 )
@@ -661,7 +669,7 @@ class PrivilegedCodecController(
     }
 
     /** Reads the codec status through the helper. */
-    private suspend fun read(address: String): CodecCallResult = call { service, token ->
+    private suspend fun read(address: String): CodecCallResult = call(changes = false) { service, token ->
         service.codecStatus(token, address)
     }
 
@@ -672,7 +680,7 @@ class PrivilegedCodecController(
             ?: return CodecCallResult.Unavailable(
                 "${requested.family.displayName} cannot be requested on this Android version",
             )
-        return call { service, token ->
+        return call(changes = true) { service, token ->
             service.setCodecPreference(
                 token,
                 address,
@@ -685,7 +693,9 @@ class PrivilegedCodecController(
         }
     }
 
+    /** @param changes whether the call writes, which decides the time-out sentence. */
     private suspend fun call(
+        changes: Boolean,
         block: (IPrivilegedService, String) -> String?,
     ): CodecCallResult = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
@@ -696,7 +706,11 @@ class PrivilegedCodecController(
             ?: return@withContext CodecCallResult.Unavailable("no token for the privileged helper")
 
         runCatching {
-            val reply = block(service, token)
+            val reply = when (val outcome = guard.bounded { block(service, token) }) {
+                is Bounded.Done -> outcome.value
+                is Bounded.Unanswered ->
+                    return@withContext CodecCallResult.Unavailable(outcome.reason(changes))
+            }
             guard.succeeded()
             if (reply == null) {
                 CodecCallResult.Unavailable("the helper returned nothing")
@@ -707,6 +721,10 @@ class PrivilegedCodecController(
                     )
             }
         }.getOrElse { error ->
+            // The wait in bounded() can be cancelled. That is the caller leaving,
+            // not a failed call — counting it could end in failed()'s ping, one
+            // more unbounded call into a helper that is not answering.
+            if (error is CancellationException) throw error
             // The line that used to be here called forget() on any throw, and
             // the `getCodecStatus unavailable: InvocationTargetException` in the
             // owner's log was one such throw from a live helper — which then
@@ -736,19 +754,22 @@ class PrivilegedCodecController(
  * success is reported from a call that merely returned, and an absent helper
  * answers "cannot check" rather than "not supported".
  */
-class PrivilegedHdAudioController(
-    context: Context,
-    private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+class PrivilegedHdAudioController internal constructor(
+    private val bootstrap: PrivilegedBootstrap,
+    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
+    private val guard: PrivilegedCallGuard,
 ) : HdAudioController {
 
-    /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
-    private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
+    constructor(
+        context: Context,
+        bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
+    ) : this(bootstrap, PrivilegedCallGuard.SHARED)
 
     override fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
     override suspend fun read(address: String): HdAudioState =
-        when (val result = call { service, token -> service.optionalCodecs(token, address) }) {
+        when (val result = call(changes = false) { service, token -> service.optionalCodecs(token, address) }) {
             is HdAudioCallResult.Observed -> HdAudioState.Known(
                 // Unknown support is reported as supported rather than as not.
                 // A bonded device that has never connected reads "unknown", and
@@ -766,7 +787,7 @@ class PrivilegedHdAudioController(
     override suspend fun apply(address: String, preference: HdAudioPreference): HdAudioOutcome {
         val wire = OptionalCodecs.fromTriState(preference.asEnabled())
         return when (
-            val result = call { service, token ->
+            val result = call(changes = true) { service, token ->
                 service.setOptionalCodecs(token, address, wire)
             }
         ) {
@@ -791,6 +812,7 @@ class PrivilegedHdAudioController(
      * where a wrong answer would be least visible.
      */
     private suspend fun call(
+        changes: Boolean,
         block: (IPrivilegedService, String) -> String?,
     ): HdAudioCallResult = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
@@ -803,7 +825,11 @@ class PrivilegedHdAudioController(
             )
 
         runCatching {
-            val reply = block(service, token)
+            val reply = when (val outcome = guard.bounded { block(service, token) }) {
+                is Bounded.Done -> outcome.value
+                is Bounded.Unanswered ->
+                    return@withContext HdAudioCallResult.Unavailable(outcome.reason(changes))
+            }
             guard.succeeded()
             if (reply == null) {
                 HdAudioCallResult.Unavailable("the helper returned nothing")
@@ -814,6 +840,7 @@ class PrivilegedHdAudioController(
                     )
             }
         }.getOrElse { error ->
+            if (error is CancellationException) throw error
             val verdict = guard.failed("a privileged HD-audio call", error) { service.version() }
             HdAudioCallResult.Unavailable(verdict.reason)
         }
@@ -823,6 +850,28 @@ class PrivilegedHdAudioController(
     // PrivilegedCallGuard, which logs every privileged failure in one place
     // together with how it classified it — which is the part worth reading.
 }
+
+/**
+ * The sentence for a call [PrivilegedCallGuard] did not let finish (AD-048, AD-053).
+ *
+ * @param changes whether the call writes: only then is its effect unknown.
+ * @param timeoutMs how long the caller waited.
+ */
+private fun Bounded.Unanswered.reason(
+    changes: Boolean,
+    timeoutMs: Long = PrivilegedCallGuard.HELPER_CALL_TIMEOUT_MS,
+): String = when (this) {
+    Bounded.Unanswered.BUSY ->
+        "the privileged helper has not answered an earlier request yet — nothing was sent"
+
+    Bounded.Unanswered.TIMED_OUT ->
+        "the privileged helper did not answer within " +
+            "${timeoutMs.milliseconds.inWholeSeconds} s" +
+            if (changes) " — $EFFECT_UNKNOWN" else ""
+}
+
+/** How an unanswered write ends its sentence; a frame around it must not claim "not changed" (DR-008). */
+internal const val EFFECT_UNKNOWN = "whether the change took effect is unknown"
 
 /** Where an HD-audio answer came from, and what it actually said. */
 private sealed interface HdAudioCallResult {
@@ -838,19 +887,26 @@ private sealed interface HdAudioCallResult {
  * version does nothing until the radio is cycled. The instruction was correct
  * and was still a dead end: the app knew what had to happen and made the user
  * go and do it.
+ *
+ * `BluetoothAdapter.disable()` was removed for ordinary apps; what remains is
+ * `cmd bluetooth_manager disable` / `enable`, which needs shell. It is not a
+ * whitelist entry in the helper: it changes the state of the phone, and the
+ * whitelist is classified read-only, so this travels as its own typed,
+ * explicitly-mutating operation.
  */
 class PrivilegedBluetoothRestartController(
     context: Context,
     private val bootstrap: PrivilegedBootstrap = PrivilegedBootstrap(context),
-) : BluetoothRestartController {
+) {
 
     /** Shared with every other privileged caller; see [PrivilegedCallGuard]. */
     private val guard: PrivilegedCallGuard = PrivilegedCallGuard.SHARED
 
-    override fun isAvailable(): Boolean =
+    /** False when the helper is not running. */
+    fun isAvailable(): Boolean =
         PrivilegedConnection.isConnected && bootstrap.activeToken() != null
 
-    override suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
+    suspend fun restart(): BluetoothRestartOutcome = withContext(Dispatchers.IO) {
         val service = PrivilegedConnection.service.value
             ?: return@withContext BluetoothRestartOutcome.Unavailable(
                 "the privileged helper is not running, so Bluetooth cannot be restarted from here",

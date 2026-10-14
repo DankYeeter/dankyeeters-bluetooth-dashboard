@@ -1,9 +1,9 @@
 package dev.dankyeeter.btdashboard.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
 
 /**
  * WCAG 2.1 contrast, used both as a test and at runtime.
@@ -24,22 +24,13 @@ object Contrast {
      * (black on white).
      *
      * Alpha is ignored: a translucent colour's real contrast depends on
-     * whatever is behind it, so composite it first and pass the result. A ratio
+     * whatever is behind it, so composite it first (`compositeOver`) and pass
+     * the result. The app tints a lot of things at 25-35% alpha; a ratio
      * computed against a colour the user never sees is worse than no check.
      */
     fun ratio(a: Color, b: Color): Double {
-        val la = luminance(a)
-        val lb = luminance(b)
+        val la = a.luminance().toDouble()
+        val lb = b.luminance().toDouble()
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
-    }
-
-    /** Relative luminance, per the WCAG definition. */
-    private fun luminance(color: Color): Double =
-        0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
-
-    /** Undoes the sRGB transfer curve for one channel. */
-    private fun linear(channel: Float): Double {
-        val v = channel.toDouble()
-        return if (v <= 0.04045) v / 12.92 else ((v + 0.055) / 1.055).pow(2.4)
     }
 }

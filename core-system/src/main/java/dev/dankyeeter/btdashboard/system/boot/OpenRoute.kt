@@ -18,7 +18,7 @@ object OpenRoute {
     /**
      * The one-button screen that brings the helper back.
      *
-     * Separate from the setup wizard because the two answer different questions. Setup is
+     * Separate from setup because the two answer different questions. Setup is
      * a five-step review of everything the app needs; this is the single thing
      * that broke during the night, and putting it behind five steps would be
      * asking the user to audit their phone when all they wanted was their

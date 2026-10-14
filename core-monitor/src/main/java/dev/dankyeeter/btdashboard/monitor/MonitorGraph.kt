@@ -13,7 +13,6 @@ import dev.dankyeeter.btdashboard.monitor.data.MonitorDatabase
 import dev.dankyeeter.btdashboard.monitor.data.MonitorRepository
 import dev.dankyeeter.btdashboard.monitor.data.RoomMonitorRepository
 import dev.dankyeeter.btdashboard.monitor.dumpsys.CachedDumpsysLinkSource
-import dev.dankyeeter.btdashboard.monitor.dumpsys.DumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.dumpsys.ShellDumpsysLinkSource
 import dev.dankyeeter.btdashboard.monitor.effects.AudioManagerPlayingAppsSource
 import dev.dankyeeter.btdashboard.monitor.effects.AudioPlaybackWatcher
@@ -38,6 +37,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.shareIn
 
 /**
@@ -47,18 +48,6 @@ import kotlinx.coroutines.flow.shareIn
 object MonitorGraph {
 
     @Volatile private var appContext: Context? = null
-    private val lock = Any()
-
-    private var _db: MonitorDatabase? = null
-    private var _repository: MonitorRepository? = null
-    private var _codecSource: CodecStatusSource? = null
-    private var _engine: MonitorEngine? = null
-    private var _bqr: QualityReportSource? = null
-    private var _scanner: ForeignEqScanner? = null
-    private var _candidates: EqCandidateScanner? = null
-    private var _playbackWatcher: AudioPlaybackWatcher? = null
-    private var _screenOn: MutableStateFlow<Boolean>? = null
-    private var _dumpsys: CachedDumpsysLinkSource? = null
 
     /**
      * Whether a screen showing link data is in the foreground. Only the
@@ -66,6 +55,13 @@ object MonitorGraph {
      * anything; the event sources are unaffected and stay armed either way.
      */
     private val _uiVisible = MutableStateFlow(false)
+
+    /**
+     * Read side of [setUiVisible]. The observation run (AK-17) counts only while
+     * this is true: a comparison arm may hold the poll off the screen (AD-039),
+     * and the run must not count on that exception.
+     */
+    val uiVisible: StateFlow<Boolean> = _uiVisible.asStateFlow()
 
     @Volatile
     private var installedShell: ShellRunner? = null
@@ -128,24 +124,19 @@ object MonitorGraph {
     private fun ctx(): Context =
         requireNotNull(appContext) { "MonitorGraph.init() must be called from Application.onCreate" }
 
-    val repository: MonitorRepository
-        get() = synchronized(lock) {
-            _repository ?: buildRepository().also { _repository = it }
-        }
+    val repository: MonitorRepository by lazy { buildRepository() }
 
     /**
-     * The one Room instance in the process.
+     * Builds the one Room instance in the process, behind the history repository.
      *
-     * Null only when construction itself throws. Note that Room opens the file
-     * lazily, so an unopenable or un-migratable database does not fail here: it
-     * fails on the first DAO call, which is why every consumer wraps its own
-     * calls rather than trusting this.
+     * The in-memory fallback covers only a throwing constructor. Room opens the
+     * file lazily, so an unopenable or un-migratable database does not fail
+     * here: it fails on the first DAO call, which is why [RoomMonitorRepository]
+     * wraps its own calls rather than trusting this.
      */
-    private fun database(): MonitorDatabase? =
-        _db ?: runCatching { MonitorDatabase.create(ctx()) }.getOrNull()?.also { _db = it }
-
     private fun buildRepository(): MonitorRepository =
-        database()?.monitorDao()?.let { RoomMonitorRepository(it) }
+        runCatching { MonitorDatabase.create(ctx()) }.getOrNull()
+            ?.let { RoomMonitorRepository(it.monitorDao()) }
             // A broken database must never take the app down; history is expendable.
             ?: InMemoryMonitorRepository()
 
@@ -157,40 +148,33 @@ object MonitorGraph {
      * separately constructed `ShellDumpsysLinkSource` used to mean another
      * exec-plus-parse. See [CachedDumpsysLinkSource] for what one costs.
      */
-    val dumpsysSource: DumpsysLinkSource
-        get() = synchronized(lock) { cachedDumpsys() }
-
-    private fun cachedDumpsys(): CachedDumpsysLinkSource =
-        _dumpsys ?: CachedDumpsysLinkSource(ShellDumpsysLinkSource(shell)).also { _dumpsys = it }
+    val dumpsysSource: CachedDumpsysLinkSource by lazy {
+        CachedDumpsysLinkSource(ShellDumpsysLinkSource(shell))
+    }
 
     /**
      * The A2DP system API first, `dumpsys` under the shell identity second.
      * Without the fallback the codec reads as "unknown" on stock Android for
      * every app that does not hold BLUETOOTH_PRIVILEGED — which is all of them.
      */
-    val codecSource: CodecStatusSource
-        get() = synchronized(lock) {
-            _codecSource ?: run {
-                FallbackCodecStatusSource(
-                    primary = A2dpCodecStatusSource(ctx()).also { it.connect() },
-                    dumpsys = cachedDumpsys(),
-                ).also { _codecSource = it }
-            }
-        }
+    val codecSource: CodecStatusSource by lazy {
+        FallbackCodecStatusSource(
+            primary = A2dpCodecStatusSource(ctx()).also { it.connect() },
+            dumpsys = dumpsysSource,
+        )
+    }
 
-    val qualityReportSource: QualityReportSource
-        get() = synchronized(lock) {
-            _bqr ?: ReflectiveQualityReportSource(ctx()).also { _bqr = it }
-        }
+    val qualityReportSource: QualityReportSource by lazy {
+        ReflectiveQualityReportSource(ctx())
+    }
 
     // ---- live link view ------------------------------------------------------
     //
     // The API a screen showing "what is happening on the link right now" builds
-    // against: `liveLinkUpdates`, one poll carrying the reading and the changes
-    // together. It is one shared poll loop; collecting it from several places
-    // costs the same as collecting it once, and collecting it from none costs
-    // nothing, which is the important half (see LiveLinkSource for what a pass
-    // actually runs).
+    // against: liveLinkUpdates, one poll with the reading and the changes
+    // together, on one shared poll loop. Collecting it twice costs the same as
+    // collecting it once; collecting it not at all costs nothing, which is the
+    // important half (see LiveLinkSource for what a pass actually runs).
     //
     // ### Honesty contract, in one place
     //
@@ -209,20 +193,22 @@ object MonitorGraph {
     //    offloaded codec bypasses the stack that maintains them, and the
     //    warning list says so.
 
-    private var _liveLink: LiveLinkSource? = null
-    private var _liveLinkUpdates: SharedFlow<LinkLiveUpdate>? = null
     /** The poller itself. Screens normally want [liveLinkUpdates] instead. */
-    val liveLink: LiveLinkSource
-        get() = synchronized(lock) {
-            // The starvation sink resolves `repository` per call rather than
-            // capturing it, for the reason [shell] documents at length: this
-            // object is built lazily by whichever caller touches it first, and
-            // that is not guaranteed to be after the database exists.
-            _liveLink ?: LiveLinkSource(
-                shell = shell,
-                onStarvationCaptured = { report -> repository.recordStarvation(report) },
-            ).also { _liveLink = it }
-        }
+    val liveLink: LiveLinkSource by lazy {
+        // No signature store here any more: the live reading comes from the
+        // stack's own bitrate field, and the learned bands it used to
+        // consult were measured off a counter that turned out not to be a
+        // packet counter.
+        //
+        // The starvation sink resolves `repository` per call rather than
+        // capturing it, for the reason [shell] documents at length: this
+        // object is built lazily by whichever caller touches it first, and
+        // that is not guaranteed to be after the database exists.
+        LiveLinkSource(
+            shell = shell,
+            onStarvationCaptured = { report -> repository.recordStarvation(report) },
+        )
+    }
 
     /**
      * One shared poll loop, started by the first collector and stopped shortly
@@ -232,29 +218,29 @@ object MonitorGraph {
      * three `dumpsys` execs, and nothing about it is worth running for a screen
      * nobody is looking at. `replay = 1` means a screen that rotates redraws
      * from the last reading instead of an empty panel for one interval.
+     *
+     * It stops the moment the last collector goes. The grace that carries a
+     * rotation belongs to the screen's own flows downstream, which outlive a
+     * configuration change; a second grace here was added to theirs and kept
+     * the poll running well past the screen (F-012).
      */
-    val liveLinkUpdates: SharedFlow<LinkLiveUpdate>
-        get() = synchronized(lock) {
-            _liveLinkUpdates ?: liveLink.updates()
-                .shareIn(
-                    scope = monitorScope,
-                    started = SharingStarted.WhileSubscribed(
-                        stopTimeoutMillis = LIVE_LINK_STOP_TIMEOUT_MS,
-                        replayExpirationMillis = LIVE_LINK_REPLAY_EXPIRY_MS,
-                    ),
-                    replay = 1,
-                )
-                .also { _liveLinkUpdates = it }
-        }
+    val liveLinkUpdates: SharedFlow<LinkLiveUpdate> by lazy {
+        liveLink.updates().shareIn(
+            scope = monitorScope,
+            started = SharingStarted.WhileSubscribed(
+                replayExpirationMillis = LIVE_LINK_REPLAY_EXPIRY_MS,
+            ),
+            replay = 1,
+        )
+    }
 
-    val foreignEqScanner: ForeignEqScanner
-        get() = synchronized(lock) {
-            _scanner ?: ForeignEqScanner(
-                shell = shell,
-                processResolver = ShellProcessResolver(ctx(), shell),
-                installedPackages = { installedPackageNames() },
-            ).also { _scanner = it }
-        }
+    val foreignEqScanner: ForeignEqScanner by lazy {
+        ForeignEqScanner(
+            shell = shell,
+            processResolver = ShellProcessResolver(ctx(), shell),
+            installedPackages = { installedPackageNames() },
+        )
+    }
 
     /**
      * The "which apps could have an EQ" scanner.
@@ -264,22 +250,15 @@ object MonitorGraph {
      * at the same moment and for the same reason: an app that never looks at
      * the list has no business listening for changes to it.
      */
-    val eqCandidateScanner: EqCandidateScanner
-        get() = synchronized(lock) {
-            _candidates ?: EqCandidateScanner(
-                apps = PackageManagerAppSource(ctx()),
-                playing = AudioManagerPlayingAppsSource(ctx()),
-                ownPackage = ctx().packageName,
-            ).also {
-                _candidates = it
-                registerPackageChangeInvalidation(it)
-            }
-        }
+    val eqCandidateScanner: EqCandidateScanner by lazy {
+        EqCandidateScanner(
+            apps = PackageManagerAppSource(ctx()),
+            playing = AudioManagerPlayingAppsSource(ctx()),
+            ownPackage = ctx().packageName,
+        ).also { registerPackageChangeInvalidation(it) }
+    }
 
-    val playbackWatcher: AudioPlaybackWatcher
-        get() = synchronized(lock) {
-            _playbackWatcher ?: AudioPlaybackWatcher(ctx()).also { _playbackWatcher = it }
-        }
+    val playbackWatcher: AudioPlaybackWatcher by lazy { AudioPlaybackWatcher(ctx()) }
 
     /**
      * The only thing that may drop the cached package pass. No timer, no
@@ -299,9 +278,8 @@ object MonitorGraph {
         runCatching { ctx().registerReceiver(receiver, filter) }
     }
 
-    private fun screenState(): MutableStateFlow<Boolean> =
-        _screenOn ?: MutableStateFlow(isScreenCurrentlyOn()).also { state ->
-            _screenOn = state
+    val screenOn: StateFlow<Boolean> by lazy {
+        MutableStateFlow(isScreenCurrentlyOn()).also { state ->
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
                     state.value = intent?.action == Intent.ACTION_SCREEN_ON
@@ -313,15 +291,13 @@ object MonitorGraph {
             }
             runCatching { ctx().registerReceiver(receiver, filter) }
         }
+    }
 
     /**
      * Only the vendor EQ apps are looked up, one `getPackageInfo` each.
      *
-     * The app now holds QUERY_ALL_PACKAGES for the candidate scan, so a full
-     * enumeration would work here too — it just costs a hundred times more for
-     * a list of twelve packages we already know by name. It also keeps working
-     * if the broad permission is ever taken away, since the `<queries>` block
-     * still names each package explicitly.
+     * Each is named in the `<queries>` block, which is what makes it visible
+     * at all: the app holds no QUERY_ALL_PACKAGES (AD-050).
      */
     private fun installedPackageNames(): Set<String> {
         val pm = ctx().packageManager
@@ -335,20 +311,19 @@ object MonitorGraph {
         (ctx().getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
     }.getOrDefault(true)
 
-    val engine: MonitorEngine
-        get() = synchronized(lock) {
-            _engine ?: MonitorEngine(
-                repository = repository,
-                eventSource = BluetoothBroadcastSource(ctx()),
-                collector = LinkSampleCollector(
-                    codecSource = codecSource,
-                    dumpsysSource = cachedDumpsys(),
-                    qualityReportSource = qualityReportSource,
-                ),
-                screenOn = screenState(),
-                uiVisible = _uiVisible,
-            ).also { _engine = it }
-        }
+    val engine: MonitorEngine by lazy {
+        MonitorEngine(
+            repository = repository,
+            eventSource = BluetoothBroadcastSource(ctx()),
+            collector = LinkSampleCollector(
+                codecSource = codecSource,
+                dumpsysSource = dumpsysSource,
+                qualityReportSource = qualityReportSource,
+            ),
+            screenOn = screenOn,
+            uiVisible = _uiVisible,
+        )
+    }
 
     /**
      * Which source the collector would use right now. Used before the first
@@ -382,12 +357,6 @@ object MonitorGraph {
     fun setUiVisible(visible: Boolean) {
         _uiVisible.value = visible
     }
-
-    /**
-     * Long enough to survive a configuration change, short enough that leaving
-     * the screen stops the polling within one interval.
-     */
-    private const val LIVE_LINK_STOP_TIMEOUT_MS = 3_000L
 
     /**
      * The held reading is dropped a few seconds after the last collector goes.

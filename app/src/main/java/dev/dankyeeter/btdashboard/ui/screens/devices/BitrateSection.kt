@@ -9,6 +9,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ActiveComparison
+import dev.dankyeeter.btdashboard.ui.screens.monitor.ComparisonPhase
+import dev.dankyeeter.btdashboard.ui.screens.monitor.locksLdacChips
 import dev.dankyeeter.btdashboard.ui.theme.ExplainedHeader
 import dev.dankyeeter.btdashboard.ui.tuning.LdacQuality
 import dev.dankyeeter.btdashboard.ui.tuning.LdacTuningState
@@ -89,12 +93,15 @@ internal fun BitrateSection(
     sampleRateHz: Int? = null,
     /** A live reading, when the caller has one. Null on the Bluetooth tab. */
     measuredKbps: Int? = null,
+    /** The running comparison's phase; the chips lock with the Monitoring tab's (UI_SPEC F-019). */
+    comparisonPhase: ComparisonPhase? = ActiveComparison.held.collectAsStateWithLifecycle().value?.phase,
 ) {
     if (state == BitrateSectionState.HIDDEN) return
 
     val selected = LdacQuality.selected(storedQuality)
+    val locked = locksLdacChips(comparisonPhase)
 
-    ExplainedHeader("Bitrate", BITRATE_EXPLANATION)
+    ExplainedHeader("Bitrate", if (locked) "$BITRATE_EXPLANATION $LOCKED_ON_MONITORING" else BITRATE_EXPLANATION)
 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         LdacQuality.pinnable.forEach { quality ->
@@ -102,7 +109,7 @@ internal fun BitrateSection(
                 selected = selected == quality,
                 // Never two requests in flight: each renegotiates the codec, and
                 // the second would race the first's read-back.
-                enabled = enabled && !tuning.busy,
+                enabled = enabled && !tuning.busy && !locked,
                 onClick = { onPin(quality) },
                 label = { Text(LdacQuality.chipLabel(quality, sampleRateHz)) },
             )
@@ -169,3 +176,8 @@ private const val BITRATE_EXPLANATION =
         "connect, since the stack renegotiates each time. Measured on this phone, ABR " +
         "was never once seen to reach 990 kbps, so pinning is the only way observed to " +
         "get there."
+
+/** UI_SPEC F-019's lock sentence, placed for this tab: the comparison runs on Monitoring, not below. */
+private const val LOCKED_ON_MONITORING =
+    "Locked while a comparison is running on the Monitoring tab — changing it now would make the two arms " +
+        "not the same measurement."

@@ -19,9 +19,6 @@ data class AirPodsBeacon(
     val leftCharging: Boolean,
     val rightCharging: Boolean,
     val caseCharging: Boolean,
-    val leftInEar: Boolean,
-    val rightInEar: Boolean,
-    val color: AirPodsColor,
 )
 
 /**
@@ -46,7 +43,7 @@ enum class AirPodsModel(val displayName: String, val calibrationPresetId: String
     AIRPODS_PRO_2("AirPods Pro 2", "airpods_pro_2"),
     AIRPODS_PRO_2_USB_C("AirPods Pro 2 (USB-C)", "airpods_pro_2"),
     AIRPODS_PRO_3("AirPods Pro 3", "airpods_pro_3"),
-    /** Deliberately without a preset: PLAN.md excludes AirPods Max. */
+    /** Deliberately without a preset: docs/archiv/PLAN.md excludes AirPods Max. */
     AIRPODS_MAX("AirPods Max", null),
     UNKNOWN("Unknown Apple audio device", null),
     ;
@@ -75,43 +72,5 @@ enum class AirPodsModel(val displayName: String, val calibrationPresetId: String
         )
 
         fun fromId(id: Int): AirPodsModel = BY_ID[id] ?: UNKNOWN
-    }
-}
-
-/** Housing colour byte; cosmetic only, used for the device card subtitle. */
-enum class AirPodsColor(val displayName: String) {
-    WHITE("White"),
-    BLACK("Black"),
-    RED("Red"),
-    BLUE("Blue"),
-    PINK("Pink"),
-    GRAY("Gray"),
-    SILVER("Silver"),
-    GOLD("Gold"),
-    ROSE_GOLD("Rose gold"),
-    SPACE_GRAY("Space gray"),
-    DARK_BLUE("Dark blue"),
-    LIGHT_BLUE("Light blue"),
-    GREEN("Green"),
-    UNKNOWN("Unknown"),
-    ;
-
-    companion object {
-        fun fromByte(value: Int): AirPodsColor = when (value and 0xFF) {
-            0x00 -> WHITE
-            0x01 -> BLACK
-            0x02 -> RED
-            0x03 -> BLUE
-            0x04 -> PINK
-            0x05 -> GRAY
-            0x06 -> SILVER
-            0x07 -> GOLD
-            0x08 -> ROSE_GOLD
-            0x09 -> SPACE_GRAY
-            0x0A -> DARK_BLUE
-            0x0B -> LIGHT_BLUE
-            0x0C -> GREEN
-            else -> UNKNOWN
-        }
     }
 }

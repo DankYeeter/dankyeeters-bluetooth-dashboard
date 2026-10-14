@@ -650,9 +650,3 @@ class DynamicsProcessingEqualizer internal constructor(
         }
     }
 }
-
-/** Default factory; :core-system decides which session id to pass in. */
-class DynamicsProcessingEqualizerFactory : SystemEqualizerFactory {
-    override fun create(sessionId: Int): SystemEqualizer? =
-        DynamicsProcessingEqualizer.create(sessionId)
-}

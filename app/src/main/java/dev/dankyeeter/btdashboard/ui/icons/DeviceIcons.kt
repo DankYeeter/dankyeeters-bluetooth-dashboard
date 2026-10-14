@@ -6,7 +6,7 @@ import dev.dankyeeter.btdashboard.R
 /**
  * Maps a calibration preset id to its line-art device icon.
  *
- * The drawables are our own minimalist illustrations — PLAN.md rules out
+ * The drawables are our own minimalist illustrations — docs/archiv/PLAN.md rules out
  * manufacturer press images, whose editorial licences do not cover software
  * redistribution. Each one is a single stroke colour so the theme tints it
  * (gold on the Edgy black background) instead of shipping per-theme copies.

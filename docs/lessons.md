@@ -369,3 +369,206 @@ Zyklus gefunden):**
   **angeordnete** Rollenaufgabe (Mutationstests sind Konvention), nicht
   Eigeninitiative wie in den beiden Zyklus-1-Faellen — zaehlt daher nicht als
   drittes Vorkommen. Weiter beobachten.
+
+## Zyklus 3 — 2026-09-23
+
+**Nummernraum ab hier:** Projekteigene Lehren tragen das Praefix `BD-L-`
+(`_rahmen.md`, "Regeln pflegen": `L-###` ohne Praefix ist teamweit). L-001..L-003
+oben heissen fortan BD-L-001..BD-L-003; im Projekt werden sie weiter als K-1
+(BD-L-002) und K-2 (BD-L-003) zitiert. Geprueft: alle L-/K-Zitate im
+Zyklusmaterial (`docs/tasks/T-039..T-045`, `docs/berichte/*`, `D-001.md`,
+`docs/state.md`, Commit-Botschaften `5f62b15..4414666`) sind eindeutig —
+`L-033` (zweimal, teamweit), K-1/K-2/K-3 (projekteigen). Keine Verwechslung.
+
+**Ziel des Zyklus:** 22.09. 21:55 bis 23.09. 04:20, Branch `auto/2026-09-23`.
+Bereinigung nach Ponytail-Audit (T-040), Umbauten AD-026..AD-028 (T-041),
+Audit-Reste (T-042), AK-17 Beobachtungslauf (T-039b), eine Pruefphase (T-043),
+ein Fixauftrag (T-044a/b, daraus Diagnose T-044c/D-001 und Fix T-044d), Retest
+T-044e beauftragt, Bestandsaufnahme Saeule 3 (T-045). Suite 2488/0 (22.09.
+22:00, `5f62b15`) -> 2498/0 (23.09. 04:14, `4507182`), Zahlen aus `T-040.md`
+und `T-044.md`.
+
+**Datenluecken:** Kein Bericht des developer zu T-044b im Repo (nur die
+Zusammenfassung des Directors in `T-044.md`, Abschnitt T-044c). Exit 127 nach
+dem Beenden fremder Java-Prozesse, Scheitern von `git worktree remove` und die
+"zweimal ueberholten" Startcommits stehen nur im Auftrag dieser Retrospektive
+— uebernommen, nicht am Repo geprueft.
+
+**Gut gelaufen — ausdruecklich benannt, damit es nicht verloren geht:**
+
+- **Pruefphase als ein Block:** qa-engineer, security-reviewer und
+  ui-ux-designer in einer Nachricht auf demselben eingefrorenen Stand
+  (`T-043.md`), danach **ein** Fixauftrag (T-044) und **ein** Retest (T-044e).
+  T-044c/d kamen nicht aus Nacharbeit am Fixauftrag, sondern aus einem neu
+  sichtbaren Fehler, und liefen ueber die vorgesehene Route
+  (fehlerdiagnostiker -> Fixauftrag mit Regressionstest).
+- **Security-Vorlauf ohne Uebergabeverlust:** V-1..V-11 aus T-041d stehen
+  woertlich in T-041e; T-043b hat alle elf einzeln belegt, PASS. V-1 nennt von
+  sich aus seine Randbedingung — die Praxis, die BD-L-001 vorschlug.
+- **Ponytail am Beta-Gate mit Begruendung auch fuer das Nicht-Uebernommene**
+  (`T-043.md`: `RUN_MAX_LEVELS` bleibt, weil `UI_SPEC.md:2792` es vorgibt).
+- **Audit-Praemissen als Pruefauftraege** (`T-040.md`: "keine Anordnung
+  (L-033)", Director-Stichprobe mit Warnung vor gleichnamigen Symbolen). Die
+  zwei nicht gehaltenen Praemissen wurden gemeldet statt geloescht
+  (`T-040a-developer.md` Abschnitt 1; F-003).
+- **D-001 als Diagnosemuster:** zwei Thread-Dumps im Abstand, zwei
+  Rueckschaltproben, Listen "Verworfen" und "Funktioniert nicht"; Fix exakt in
+  der Richtung, Regressionstest rot-vorher als Timeout statt Haenger
+  (`df186ed`). Auftrag 03:10 (`2099973`), Ablage 03:48 (`8afe92f`).
+- **QA misst Behauptungen nach:** Icon-Gleichheit war nur behauptet, T-043a
+  belegt sie (10 Icons, 12 Pfade); JSON-Differenztest 0 von 6000 abweichend.
+
+### BD-L-004 — Die Ursache eines Haengers oder sporadischen Testfehlers wird aus einem Begleitsignal erklaert statt am haengenden Prozess geprueft
+
+**Belege:**
+- F-006 (`qa/findings.md:308`): zwei fallende EQ-Tests als "Verdacht Flaky"
+  gefuehrt. T-043a fand geteilten Store-Zustand (Reihenfolge, nicht Zufall);
+  D-001: Haenger deterministisch, 5/5.
+- T-044b (`T-044.md`, Abschnitt T-044c): Haenger ab 01:16, Ursache laut
+  developer "Last durch parallele Laeufe". D-001 "Verworfen": "deterministisch
+  ohne Last". Auftrag 01:07 (`bc28d3c`), Commit 02:21 (`a831c25`), laut
+  Director 90 min; gemergt 02:22 (`d220379`), die Volllaeufe danach hingen.
+- Director (`T-044.md`, T-044c): "Letzte Ausgabe: `AdbdMaskIdentificationTest`".
+  D-001 "Verworfen": "nur letzter Test mit Konsolenausgabe"; haengend war
+  `EqLayerBypassTest.setUp(:61)`.
+
+**Ursache:** Keine Regel verlangt vor einer Ursachenaussage zu einem Haenger
+einen Thread-Dump, und `developer.md:161` ("Ein langer Testlauf ist kein
+Haenger: warte ihn im Vordergrund ab") legt nahe, Stillstand als Langsamkeit
+zu lesen.
+
+**Massnahme:** zwei Aenderungen, netto keine Zeile mehr.
+1. `~/.claude/agents/_rahmen.md:42` **ersetzt** "Nach zwei erfolglosen
+   Fixversuchen: stoppen, Stand liegen lassen, berichten." durch: *"Nach zwei
+   erfolglosen Fixversuchen oder einem Lauf ohne Fortschritt: stoppen, Stand
+   liegen lassen, berichten. Einen Haenger belegst du mit einem Thread-Dump
+   des haengenden Prozesses (`jstack <pid>`, Auszug in den Bericht). Eine
+   Ursache ohne Dump oder Rueckschaltprobe ('Last', 'flaky', 'haengt nach
+   Test X') steht unter ANNAHMEN."*
+2. `~/.claude/agents/developer.md:161-162` **streichen** ("Ein langer Testlauf
+   ist kein Haenger ... nicht umgekehrt."). Commit vor langen Laeufen steht
+   schon in `_rahmen.md:25`.
+Optionaler Riegel (Codeaenderung, nur mit Director-Freigabe):
+`tasks.withType<Test>().configureEach { timeout.set(Duration.ofMinutes(8)) }` —
+ein Haenger bricht dann vor der 10-min-Werkzeuggrenze ab statt still zu stehen.
+**Wer liest es wann:** jede Rolle bei jedem Auftrag (`_rahmen.md`, von jeder
+Rollendefinition referenziert, `selftest.ps1` prueft den Verweis), der
+Director eingeschlossen; `developer.md` bei jedem developer-Dispatch.
+
+**Erfolgskriterium:** In den naechsten zwei Zyklen wird keine erste
+Ursachenaussage zu einem Haenger oder sporadischen Fehler spaeter widerlegt;
+jeder Haengerbericht traegt einen Dump-Auszug oder fuehrt die Ursache unter
+ANNAHMEN; kein Stand mit ungeklaertem Haenger wird gemergt.
+
+**Kosten:** ein `jstack`-Aufruf (Sekunden). Faelle gehen frueher an den
+fehlerdiagnostiker — gewollt (D-001: 38 min mit Ursache; T-044b: 90 min ohne).
+
+**Status:** vorgeschlagen (2026-09-23).
+
+### BD-L-005 — Parallele Worktrees entstehen auf einer Basis und an einem Pfad, die der Director nicht bestimmt
+
+**Belege:**
+- "Schritt 0" (`git reset --hard <branch>`) in vier Auftraegen: `T-040.md`,
+  `T-041.md`, `T-042.md`, `T-044.md` (grep "Schritt 0" ueber `docs/tasks/`).
+  `_rahmen.md:27` verbietet `reset --hard` — Auftrag und Rahmen widersprechen
+  sich jedes Mal.
+- Genannter Startcommit zweimal schon ueberholt (Auftrag der Retrospektive).
+- "Filename too long": Klon-Volllauf T-040b (`T-040b-developer.md`); `T-041.md`
+  "scheiterte zweimal (Pfadlaenge, Isolations-Hook)"; `git worktree remove`
+  (Auftrag der Retrospektive).
+- Ausweichen auf kurze Pfade, jeweils erfolgreich: `C:\t043` (T-043a),
+  `C:\t044c` (D-001), `C:\t044e` (T-044e).
+
+**Ursache:** `director.md:274-278` schreibt `isolation: "worktree"` plus
+Schritt 0 vor; das Werkzeug legt den Worktree unter dem tiefen Projektpfad auf
+`origin/HEAD` an, und die Korrektur wird als Text in jeden Auftrag kopiert.
+
+**Massnahme:** `~/.claude/commands/director.md:274-278` **ersetzen** durch:
+*"- Zwei `developer` gleichzeitig nur mit disjunkten Dateilisten, je in einem
+Worktree, den du vor dem Dispatch selbst anlegst: `git worktree add -b t<nr>
+C:\t<nr> <dein Branch>`. Der Auftrag nennt Pfad und den Commit aus
+`git -C C:\t<nr> rev-parse --short HEAD`. Kein `isolation: "worktree"`
+(startet auf `origin/HEAD`, Pfad zu lang fuer Windows), kein Schritt 0. Nach
+dem Merge `git worktree remove C:\t<nr>`. Reine Pruefrollen brauchen keinen
+Worktree."*
+Ersatz: der Schritt-0-Satz faellt weg und mit ihm der Widerspruch zu
+`_rahmen.md:27`. Alternative nur fuer den Pfad: `git config core.longpaths
+true` (im Repo nicht gesetzt) — ungeprueft, ob Gradle dann durchlaeuft; loest
+die Basis nicht.
+**Wer liest es wann:** der Director vor jedem parallelen Dispatch.
+
+**Erfolgskriterium:** In zwei Zyklen kein Auftrag mit `reset --hard`, kein
+"Filename too long", kein Bericht gegen einen ueberholten Commit.
+
+**Kosten:** zwei Befehle je Worktree fuer den Director; die Rolle arbeitet mit
+absoluten Pfaden (in drei Laeufen dieses Zyklus ohne gemeldetes Problem).
+
+**Status:** vorgeschlagen (2026-09-23).
+
+### BD-L-006 — Erledigtes bleibt in Stand und Register stehen (BD-L-002 Teil 2 ohne Wirkung)
+
+**Belege:**
+- `qa/findings.md:301-302`: F-001 und F-002 letzter Status "offen"; behoben in
+  `97ffc41`/`fc4a2ae` (22.09. 23:49/23:50), gemergt `f93eaf0`. Die Datei wurde
+  danach viermal bearbeitet (00:10, 00:40, 01:07, 01:20) ohne Statuswechsel.
+- `docs/state.md:148,149,154`: T-041 "laeuft", T-039 "bereit, nach T-040",
+  QA-012/QA-013 "offen". Datei zuletzt 01:20 bearbeitet (`c9faee1`); da waren
+  T-041 und T-039b gemergt und QA-012/013 geschlossen (`qa/findings.md:314-315`).
+- Vorzyklus: die PII-Zeile (BD-L-002).
+
+**Ursache:** K-3 ist eine Textregel ueber eine Tabelle, die denselben Status
+ein zweites Mal fuehrt (`docs/tasks/`, `qa/findings.md`); die Kopie veraltet.
+
+**Massnahme:** Textregel durch Streichung und Waechter ersetzen.
+1. `docs/state.md`, Abschnitt "Laufende und offene Auftraege" (Z. 142-155)
+   **streichen**; offene Arbeit steht in "Hier geht es weiter" und im Register.
+2. Waechter statt Text (`_rahmen.md`: zweites Auftreten -> Waechter): Hinweis-
+   Hook beim Bearbeiten von `qa/findings.md`, der je ID mit letztem Status
+   "offen" `git log --oneline -E --grep="(F|QA)-###"` faehrt und bei einem
+   `fix`-/`merge`-Commit meldet "F-### hat Fix-Commit <sha>, Status offen".
+   Nur Hinweis, keine Sperre.
+BD-L-002 Teil 2 ("alte Zeile im selben Schritt entfernen") wird damit
+**zurueckgenommen**; der K-3-Kopf in `state.md` (Z. 7-11) kann auf einen Satz
+schrumpfen.
+**Wer liest es wann:** der Director beim Pflegen des Registers; die
+Hook-Ausgabe erscheint in dem Zug, in dem er die Datei bearbeitet.
+
+**Erfolgskriterium:** In zwei Zyklen kein Befund mit Fix-Commit, dessen Status
+ueber die naechste Bearbeitung des Registers hinaus "offen" bleibt.
+
+**Kosten:** ein Hookskript, ein `git log` je offener ID (~10 IDs). Die
+Streichung kostet nichts. Ein Schaden ist in diesem Zyklus nicht belegt; der
+Nutzen ist Vorsorge gegen einen Fall wie die PII-Zeile.
+
+**Status:** vorgeschlagen (2026-09-23).
+
+### Wirkungskontrolle frueherer Massnahmen
+
+| ID | Massnahme | Uebernommen am | Wirkung | Konsequenz |
+|---|---|---|---|---|
+| BD-L-002 / K-1 | Abwesenheit an der Primaerquelle | 03.09. (Projekt), 12.09. global (Status oben "vorgeschlagen" war veraltet) | **Wirkt.** Keine widerlegte Abwesenheitsaussage. Aussagen tragen Quittung: T-040a/b belegen F-001 per `git show master:`; T-045 mit Befehl, Zeit, Commit, zwei Kontrollmustern und "mindestens". | Beibehalten. Die Zyklen 04.-21.09. sind nicht ausgewertet. |
+| BD-L-002 Teil 2 / K-3 | Ueberholte Zeile in `state.md` sofort entfernen | 03.09. | **Unveraendert**, siehe BD-L-006. Zeilenzahl 182 (Kriterium < 350 erfuellt). | Zuruecknehmen, ersetzen durch BD-L-006. |
+| BD-L-003 / K-2 | Textbefund erst nach projektweiter Suche fertig | 03.09., 12.09. global | **Wirkt.** F-002 per K-2-Suche in T-040a gefunden (33 Zeilen/17 Dateien, ausserhalb des eigenen Auftrags), eine Runde (T-041a), in T-043 nicht wieder offen. Kommentarreste nach T-041c gemeldet, eine Runde (`abda999`). V-4/V-10 mit Masken vorher/nachher. | Beibehalten. |
+| BD-L-001 | Randbedingung bei tragender Aussage | nie uebernommen | Freiwillig praktiziert (V-1, T-045 "mindestens"). Ueberdehnung trat im Audit wieder auf (zwei Praemissen), aufgefangen durch den Praemissen-Rahmen (L-033). | **Verworfen** (2026-09-23): durch L-033 und `_rahmen.md` Z. 54-55, 73-77 abgedeckt; ein eigener Satz waere Doppelung. |
+| Rot-vorher | Test faellt ohne Fix | vor Zyklus 1 | Wirkt: T-044d rot-vorher als Timeout; T-043a 14 von 17 Mutationen rot, die drei Ueberlebenden wurden F-010. | Beibehalten. |
+
+### Beobachtungen (noch kein Muster)
+
+- 2026-09-23: Beim Aufraeumen beendete der Director fremde Java-Prozesse;
+  Folge Exit 1 im eigenen Volllauf (`T-044.md`, T-044c) und laut Auftrag ein
+  Exit 127, der als Befund zurueckkam. Ab T-044c steht in jedem Auftrag
+  "selbst gestartete Java-Prozesse" — im Zyklus korrigiert. Hypothese,
+  ungeprueft: Gradle-Daemons werden zwischen Worktrees geteilt, "selbst
+  gestartet" ist dann nicht sicher erkennbar. Beim zweiten Vorkommen pruefen.
+- 2026-09-23: Die QA-Einordnung von F-006 "kein Produktfehler" wurde in T-044b
+  zur Grenze "Kein Produktcode"; der tragende Fix war Produktcode (`df186ed`).
+  Die Ausstiegsklausel "Geht es nicht ohne Produktaenderung, melden" stand im
+  Auftrag, griff aber nicht, weil die Ursache als "Last" gelesen wurde
+  (BD-L-004). Einzelfall.
+- 2026-09-23: Zwei Audit-Praemissen hielten nicht ("doppelte AirPods-Logik":
+  zwei Wege mit verschiedenen Eingaben; "~26 Lazies" in `SystemGraph.kt`: dort
+  12, ueber drei Graphen 24 laut T-040a-Suchmuster). Kein Schaden, weil als
+  Pruefauftrag formuliert — kein Handlungsbedarf.
+- Aus Zyklus 2, "Director befuerwortet fremden Vorschlag ungeprueft": kein
+  neues Vorkommen; in T-044c markierte der Director die developer-Vermutung
+  ausdruecklich als "ungeprueft". Weiter 1 Vorkommen.

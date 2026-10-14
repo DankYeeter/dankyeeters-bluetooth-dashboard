@@ -12,12 +12,24 @@ import dev.dankyeeter.btdashboard.monitor.codec.CodecFamily
  * is to print the codec's headline figure and let it look like a measurement.
  * That is the failure this app is supposed to be the opposite of, so every
  * value that reaches the UI carries what kind of value it is.
+ *
+ * ## The three words of `GOAL.md` AK-8
+ *
+ * AK-8 asks whether a figure is measured, reported by the system, or derived.
+ * The app has no sensor of its own, so the first two are one category here:
+ * [MEASURED] means the system reported it. Everything the app works out itself
+ * is [DERIVED], and that includes every duration taken from the app's clock —
+ * a span is the difference of two timestamps, and a total such as
+ * `ObservationRun.observedMs` is a sum of spans.
  */
 enum class Honesty(val label: String) {
-    /** Read from a counter or a field the system maintains. A fact. */
+    /** Reported by the system: a counter or a field it maintains. A fact. */
     MEASURED("measured"),
 
-    /** Arithmetic on measured values only (a delta, a rate). Still a fact. */
+    /**
+     * Arithmetic on measured values and reading timestamps only (a delta, a
+     * rate, a duration). Still a fact.
+     */
     DERIVED("derived"),
 
     /**
@@ -31,8 +43,9 @@ enum class Honesty(val label: String) {
      *
      * Nothing carries this today, and the reason is worth keeping: the one value
      * that did — frames per packet, offered as a stand-in for the LDAC rate —
-     * turned out not to correlate with the rate at all (see
-     * [A2dpTxDelta.framesPerEnqueue]), and the rate itself turned out to be
+     * turned out not to correlate with the rate at all (frames per enqueue tick
+     * measured 13.5 at pinned 990 and 10.5 at pinned 330: the duty cycle, not
+     * the mode), and the rate itself turned out to be
      * directly readable. Both halves of that are a warning about this category:
      * a proxy is a claim that something tracks something else, and it needs the
      * same evidence as any other claim here.
@@ -84,8 +97,6 @@ data class InputStreamSnapshot(
     val channelCount: Int?,
     /** MEASURED: mixer-track PCM format. Null when no track could be matched. */
     val pcmFormat: PcmFormat? = null,
-    /** MEASURED: the sample rate of the mixer track, which may differ from [sampleRateHz]. */
-    val trackSampleRateHz: Int? = null,
     val isSpatialized: Boolean = false,
     /** MEASURED: `USAGE_MEDIA` and friends, verbatim. */
     val usage: String? = null,
@@ -102,8 +113,6 @@ data class InputStreamSnapshot(
     val underrunDelta: Long? = null,
     /** MEASURED: cumulative frames flushed on this track (seeks, stalls). */
     val flushedCount: Long? = null,
-    /** DERIVED: [flushedCount] minus the previous poll's. */
-    val flushedDelta: Long? = null,
 )
 
 /**
@@ -131,9 +140,7 @@ data class MixerOutputSnapshot(
     val fastMixerUnderruns: Long? = null,
     /** DERIVED: [fastMixerUnderruns] minus the previous poll's. */
     val fastMixerUnderrunDelta: Long? = null,
-    /** MEASURED: `Normal mixer raw underrun counters: partial=`, cumulative. */
-    val normalMixerPartialUnderruns: Long? = null,
-    /** MEASURED: `... empty=`, cumulative. The worse of the two. */
+    /** MEASURED: `Normal mixer raw underrun counters: ... empty=`, cumulative. */
     val normalMixerEmptyUnderruns: Long? = null,
     /** DERIVED: increase in [normalMixerEmptyUnderruns] since the previous poll. */
     val normalMixerEmptyDelta: Long? = null,
@@ -188,9 +195,9 @@ data class MixerOutputSnapshot(
  *
  * Before this section was found, the module tried to reconstruct the rate from
  * `btif_a2dp_source`'s packet counters. That reconstruction is falsified — see
- * [A2dpTxDelta.framesPerEnqueue] — and this type is what replaced it.
+ * [Honesty.PROXY] — and this type is what replaced it.
  *
- * ## The two adaptive-bitrate rows, and why a reading is not enough
+ * ## The adjustments row, and why a reading is not enough
  *
  * [transmissionKbps] is a sample of a value that moves between polls.
  * [adaptiveBitrateAdjustments] is the stack's own count of every move it made,
@@ -213,18 +220,17 @@ data class MixerOutputSnapshot(
  *
  * ## What null does not distinguish
  *
- * On [adaptiveBitrateIndex] and [adaptiveBitrateAdjustments], null is "the row
- * was not printed" **and** "the row was printed but its value could not be
- * read" — a digit string past `Int`/`Long` range, or a truncated read that left
- * no digits at all. Both arrive as null and cannot be told apart. This is
- * stated rather than fixed because no reader exists that could act on the
- * difference; a second state invented ahead of its consumer would be a guess
- * about how it is meant to be used.
+ * On [adaptiveBitrateAdjustments], null is "the row was not printed" **and**
+ * "the row was printed but its value could not be read" — a digit string past
+ * `Long` range, or a truncated read that left no digits at all. Both arrive as
+ * null and cannot be told apart. This is stated rather than fixed because no
+ * reader exists that could act on the difference; a second state invented ahead
+ * of its consumer would be a guess about how it is meant to be used.
  *
  * A negative value, unlike a value out of range, is carried through as printed.
  * The `takeIf { it > 0 }` that guards [transmissionKbps] and [effectiveMtu]
- * cannot be copied here, because 0 is a legal rung and a legal count on these
- * two rows; no stack has ever printed a negative one.
+ * cannot be copied here, because 0 is a legal count on this row; no stack has
+ * ever printed a negative one.
  */
 data class LdacStackState(
     /**
@@ -241,22 +247,6 @@ data class LdacStackState(
     val effectiveMtu: Int? = null,
     /** MEASURED: `LDAC saved transmit queue length`. Backlog, not throughput. */
     val savedTxQueueLength: Int? = null,
-    /**
-     * MEASURED, verbatim: `LDAC adaptive bit rate encode quality mode index` —
-     * the rung the adaptive encoder stands on, as the stack numbers it.
-     *
-     * Carried as the stack's own number and **never** mapped to a bitrate. The
-     * measured pairs are 660 kbps at index 1, 492 kbps at index 3
-     * (`docs/perf/T-007-aufnahme.md`, section 3.4) and 396 kbps at index 4 in
-     * the capture this parser is pinned to — so the index does not order the
-     * ladder the way a reader would guess, and only three of its rungs have ever
-     * been seen. [transmissionKbps] is the rate; this is the rung.
-     *
-     * A value of 0 is a rung, not a missing row: absence is null — and so is a
-     * value that could not be read, which null does not distinguish from
-     * absence. See "What null does not distinguish" above.
-     */
-    val adaptiveBitrateIndex: Int? = null,
     /**
      * MEASURED: `LDAC adaptive bit rate adjustments` — how often the adaptive
      * encoder has changed rung, cumulative since the stack started.
@@ -485,7 +475,7 @@ data class LiveCodecSnapshot(
      * [family] is now decided by this name first, so the two no longer
      * disagree — but the name still says more than the family can. [CodecFamily]
      * has one entry per codec this app can badge, while the name distinguishes
-     * codecs it cannot, which is what [CodecModeSignatureRegistry] matches on.
+     * codecs it cannot.
      */
     val rawCodecName: String? = null,
     /**
@@ -533,43 +523,16 @@ data class A2dpTxStats(
      * duty-cycle signal and it is not a throughput signal.
      */
     val enqueueCount: Long? = null,
-    /** Packets the L2CAP layer took off it. */
-    val dequeueCount: Long? = null,
-    /** PCM buffer reads from the audio HAL. */
-    val readBufCount: Long? = null,
     val framesPerPacketTotal: Long? = null,
-    val framesPerPacketMax: Int? = null,
-    /**
-     * MEASURED, and **not** a rate indicator. Never render this.
-     *
-     * `btif_a2dp_source` labels it "frames per packet", which invites reading it
-     * as the encoder's packing and therefore as an inverse stand-in for the
-     * bitrate. It is not. Because [enqueueCount] counts 20 ms timer ticks rather
-     * than radio packets, frames-divided-by-enqueues is
-     * `playing duty cycle x 15` and carries no mode information at all: on the
-     * device, pinned 990 gave 13.5 and pinned 330 gave 10.5, which is the duty
-     * cycle of those two runs and nothing else.
-     *
-     * Kept only because it is what the dump says. The live rate comes from
-     * [LdacStackState.transmissionKbps].
-     */
-    val framesPerPacketAvg: Int? = null,
     /** Queue flushes — the stack threw away buffered audio to catch up. */
     val flushedCount: Long? = null,
     /** Packets dropped because the queue was full. Audible. */
     val droppedCount: Long? = null,
     /** Distinct dropout episodes, as the stack counts them. Audible. */
     val dropoutCount: Long? = null,
-    /** Largest single drop burst. */
-    val maxDroppedCount: Long? = null,
     /** Times the encoder had no PCM ready — the source starved, not the radio. */
     val underflowCount: Long? = null,
     val underflowBytes: Long? = null,
-    /** Media-timer ticks that ran late; a scheduling-pressure signal. */
-    val enqueueOverdue: Long? = null,
-    val enqueuePremature: Long? = null,
-    val dequeueOverdue: Long? = null,
-    val dequeuePremature: Long? = null,
 ) {
     /** True when the block was found but held nothing readable. */
     val isEmpty: Boolean get() = enqueueCount == null && underflowCount == null
@@ -700,24 +663,6 @@ data class A2dpTxDelta(
      */
     val framesPerSecond: Double?
         get() = if (windowMs > 0) framesEncoded * 1000.0 / windowMs else null
-
-    /**
-     * DERIVED encoder-duty diagnostic. **Not** a packing and not a rate.
-     *
-     * Frames encoded divided by enqueue ticks. It was built as
-     * "frames per packet" — the inverse-monotone stand-in for the LDAC rate the
-     * whole old inference rested on — and the device falsified that: enqueues
-     * are 20 ms media-timer ticks, not radio packets, so this ratio is
-     * `playing duty cycle x 15`. Pinned 990 measured 13.5 and pinned 330
-     * measured 10.5, i.e. both runs reported their duty cycle and neither
-     * reported its mode.
-     *
-     * Renamed rather than deleted so that nothing can read it as packing by
-     * accident, and so the old graphs' series has a name that says what it is.
-     * The rate lives in [LdacStackState.transmissionKbps].
-     */
-    val framesPerEnqueue: Double?
-        get() = if (enqueued > 0) framesEncoded.toDouble() / enqueued else null
 }
 
 /**
@@ -744,6 +689,30 @@ enum class LinkObservability(val label: String) {
     /** No codec was readable, so which of the two applies is unknown. */
     UNKNOWN("no negotiated codec — observability unknown"),
 }
+
+/**
+ * Radio-level facts about this pairing, not about what is playing on it —
+ * the ceiling a codec runs under (AK-15, AK-16).
+ *
+ * Every field is read at this device, for this peer, never borrowed from
+ * another device (AK-15): a value this build or this peer did not print
+ * stays null, and nothing here is derived from it.
+ */
+data class PairingFacts(
+    /** MEASURED: `EDR:` off the first peer in the `A2DP Source State:` block. */
+    val edr: Boolean? = null,
+    /** MEASURED: `Support 3Mbps:` off the same peer block. */
+    val threeMbps: Boolean? = null,
+    /**
+     * DERIVED: bonded devices with a live BR/EDR ACL link, not counting the
+     * A2DP peer itself. Null when the `BluetoothRemoteDevices` section — the
+     * only place this dump lists ACL state per device — was not found at
+     * all, so an unreadable list does not read as "zero other links".
+     */
+    val otherAclLinks: Int? = null,
+    /** MEASURED: the adapter's own `Discovering:` state. */
+    val discovering: Boolean? = null,
+)
 
 /** The device the link belongs to. */
 data class LiveDeviceSnapshot(
@@ -777,12 +746,6 @@ data class LinkLiveSnapshot(
      * right now, where the build prints it.
      */
     val ldac: LdacState? = null,
-    /**
-     * What the encoder is **running** at, from the stack's own fields. Never
-     * null: when no build field carries it, it holds
-     * [InferenceConfidence.UNKNOWN] and the reason why.
-     */
-    val modeInference: ModeInference = ModeInference.unknown(null, "no reading yet"),
     /** Whether any of the throughput and loss figures below apply at all. */
     val observability: LinkObservability = LinkObservability.UNKNOWN,
     val tx: A2dpTxStats? = null,
@@ -790,6 +753,8 @@ data class LinkLiveSnapshot(
     val txDelta: A2dpTxDelta? = null,
     val inputs: List<InputStreamSnapshot> = emptyList(),
     val mixer: MixerOutputSnapshot? = null,
+    /** Radio-level facts about the pairing itself (AK-15, AK-16). See [PairingFacts]. */
+    val pairing: PairingFacts? = null,
     /** Why a section is missing. Shown, not swallowed. */
     val warnings: List<String> = emptyList(),
 ) {

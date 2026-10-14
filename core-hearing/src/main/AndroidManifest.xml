@@ -4,8 +4,7 @@
     <!--
         The microphone is used for exactly one thing: the ambient-noise
         pre-check before a hearing test (MicAmbientNoiseCheck). Audio is
-        analysed in memory and never recorded, stored or transmitted — the app
-        has no INTERNET permission.
+        analysed in memory and never recorded, stored or transmitted.
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 

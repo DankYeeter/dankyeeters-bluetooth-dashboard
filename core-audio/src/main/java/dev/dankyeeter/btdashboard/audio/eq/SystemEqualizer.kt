@@ -26,17 +26,3 @@ interface SystemEqualizer : AutoCloseable {
     /** Detaches and releases the underlying effect. Idempotent. */
     override fun close()
 }
-
-/**
- * Creates [SystemEqualizer] instances. :core-system owns the decision *which*
- * session to attach to (session mode vs. global via the helper); this factory only
- * knows how to build an effect for a given session id.
- */
-interface SystemEqualizerFactory {
-    /**
-     * @return a live equalizer, or null if the effect could not be created
-     *   (no permission for this session, OEM without DynamicsProcessing,
-     *   session already gone). Callers must degrade gracefully, never crash.
-     */
-    fun create(sessionId: Int): SystemEqualizer?
-}

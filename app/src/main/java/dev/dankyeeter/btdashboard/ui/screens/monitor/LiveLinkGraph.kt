@@ -238,8 +238,11 @@ fun LabelledTraceGraph(
 }
 
 /**
- * "396 kbps now · peak 660 · 2 of 30 windows lost something", with only the
- * parts that exist.
+ * "396 kbps now · low 330 · peak 660 · 2 of 30 windows lost something", with
+ * only the parts that exist.
+ *
+ * "low" stands before "peak" because a decision about a pinned step hangs on the
+ * lower edge of the line (`UI_SPEC.md` T-039, decision 3).
  *
  * The unit is read off the window rather than hard-coded, because the same graph
  * draws two different series — the measured bitrate, and the enqueue rate as a
@@ -256,10 +259,11 @@ fun LabelledTraceGraph(
  * since T-002; this is that sentence, with the windows nobody could count named
  * separately instead of being folded into `n`.
  */
-private fun LiveTrace.caption(quietText: String): String {
+internal fun LiveTrace.caption(quietText: String): String {
     if (!hasRate) return ""
     return buildList {
         latestValue?.let { add("${it.roundToInt()} $unitLabel now") }
+        lowValue?.let { add("low ${it.roundToInt()}") }
         peakValue?.let { add("peak ${it.roundToInt()}") }
         add(
             if (lossWindowCount == 0) {

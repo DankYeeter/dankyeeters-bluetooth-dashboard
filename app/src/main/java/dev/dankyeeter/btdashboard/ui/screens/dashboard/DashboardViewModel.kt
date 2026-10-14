@@ -66,10 +66,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun stopScan() = scanner.stop()
-
-    fun hasScanPermission(): Boolean = scanner.hasScanPermission()
-
     // ---- backup ---------------------------------------------------------------
 
     fun export(uri: Uri) {

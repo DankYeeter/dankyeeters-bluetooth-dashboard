@@ -3,7 +3,18 @@ package dev.dankyeeter.btdashboard.privileged
 import android.os.DeadObjectException
 import android.os.TransactionTooLargeException
 import android.util.Log
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * What went wrong with a call into the helper, as a decision rather than a
@@ -126,13 +137,78 @@ internal enum class PrivilegedFailure {
 internal class PrivilegedCallGuard(
     private val threshold: Int = FAILURES_BEFORE_PING,
     private val forget: () -> Unit = PrivilegedConnection::forget,
+    private val callTimeoutMs: Long = HELPER_CALL_TIMEOUT_MS,
+    private val execTimeoutMs: Long = EXEC_CALL_TIMEOUT_MS,
 ) {
 
     /** What the caller should do and what it should say. */
     data class Verdict(val forgotten: Boolean, val reason: String)
 
+    /** How a [bounded] call ended. */
+    sealed interface Bounded<out T> {
+        data class Done<T>(val value: T) : Bounded<T>
+
+        enum class Unanswered : Bounded<Nothing> {
+            /** An earlier call is still unanswered; this one never reached the helper. */
+            BUSY,
+
+            /** This call is unanswered and has been left running. */
+            TIMED_OUT,
+        }
+    }
+
     @Volatile
     private var consecutiveFailures: Int = 0
+
+    /** The one codec or HD-audio call left running after its caller stopped waiting, if any. */
+    private val callSlot = AtomicReference<Deferred<*>?>(null)
+
+    /** The one exec left running after its caller stopped waiting, if any (AD-053). */
+    private val execSlot = AtomicReference<Deferred<*>?>(null)
+
+    /**
+     * Runs a blocking codec or HD-audio call, but waits for it at most [callTimeoutMs] (AD-048).
+     *
+     * WHY it is left running rather than cancelled: a Binder transaction cannot
+     * be interrupted, so a cancelled coroutine would still wait for it — and the
+     * caller may be holding the settings ledger's lock. WHY one slot: a call left
+     * running may still write when the helper wakes up, so nothing else is sent
+     * until it has ended; otherwise that late write could land after a way back.
+     *
+     * Exceptions thrown by [block] are rethrown to the caller unchanged. A time-out
+     * deliberately does not count as a failure: the liveness ping would be one
+     * more call into the same unanswering helper.
+     */
+    suspend fun <T> bounded(block: () -> T): Bounded<T> = bounded(callSlot, callTimeoutMs, block)
+
+    /**
+     * [bounded] for `exec`, with its own slot and [execTimeoutMs] (AD-053).
+     *
+     * WHY its own slot: a hanging exec must not lock out the codec calls, nor a
+     * hanging codec call the monitor's reads. WHY one slot all the same: a
+     * second dumpsys while an abandoned one still runs is extra load in the
+     * Bluetooth process, which AK-1 forbids (AD-010). [block] should therefore
+     * include opening, reading back and closing the reply descriptor, so a late
+     * answer still lands in an open descriptor and releases it before the slot
+     * frees.
+     */
+    suspend fun <T> boundedExec(block: () -> T): Bounded<T> = bounded(execSlot, execTimeoutMs, block)
+
+    private suspend fun <T> bounded(slot: AtomicReference<Deferred<*>?>, timeoutMs: Long, block: () -> T): Bounded<T> {
+        val call = CALLS.async(start = CoroutineStart.LAZY) { block() }
+        // isCompleted, not isActive: a call claimed but not yet started is not
+        // active either, and must still count as occupying the slot.
+        val free = slot.get()?.takeIf { it.isCompleted }
+        if (!slot.compareAndSet(free, call)) {
+            call.cancel()
+            return Bounded.Unanswered.BUSY
+        }
+        call.start()
+        return withTimeoutOrNull(timeoutMs) { Bounded.Done(call.await()) }
+            ?: Bounded.Unanswered.TIMED_OUT.also {
+                Log.w(TAG, "a helper call did not answer within $timeoutMs ms and is left running")
+            }
+    }
 
     /** Called after any call that came back, successful or not. */
     fun succeeded() {
@@ -151,7 +227,8 @@ internal class PrivilegedCallGuard(
      */
     fun failed(what: String, error: Throwable, ping: () -> Unit): Verdict {
         val failure = PrivilegedFailure.of(error)
-        Log.w(TAG, "$what failed, classified $failure", error)
+        // The class only (V12): the message can quote the address the call was for.
+        Log.w(TAG, "$what failed, classified $failure (${error.javaClass.simpleName})")
 
         if (failure.isDeath) {
             consecutiveFailures = 0
@@ -181,7 +258,15 @@ internal class PrivilegedCallGuard(
         // cheapest call on the interface settles it with certainty instead of a
         // heuristic.
         val run = consecutiveFailures
-        val alive = runCatching { ping() }.isSuccess
+        // Waited for at most callTimeoutMs, off the caller's thread: the caller
+        // may hold the settings ledger's lock, and a wedged helper would keep it
+        // there. A ping that does not answer counts as a helper that is gone.
+        // Outside bounded()'s slot, because `version()` writes nothing that
+        // could land late.
+        val alive = runCatching {
+            CompletableFuture.runAsync(ping, Dispatchers.IO.asExecutor())
+                .get(callTimeoutMs, TimeUnit.MILLISECONDS)
+        }.isSuccess
         consecutiveFailures = 0
         if (alive) {
             Log.i(TAG, "$run failures in a row, but the helper answered a ping")
@@ -207,7 +292,31 @@ internal class PrivilegedCallGuard(
          */
         const val FAILURES_BEFORE_PING: Int = 5
 
+        /**
+         * How long a caller waits for a codec or HD-audio call (AD-048).
+         *
+         * Above the helper's own budget for such a call, read from the code and
+         * not measured: `HelperBluetooth.BIND_TIMEOUT_SECONDS` (8 s) plus
+         * `SETTLE_BUDGET_MS` (2.5 s). Equal to the helper's own exec time-out,
+         * `PrivilegedServer.TIMEOUT_SECONDS`. Anything shorter would report a slow
+         * but healthy helper as "unknown".
+         */
+        const val HELPER_CALL_TIMEOUT_MS: Long = 15_000
+
+        /**
+         * How long a caller waits for an exec (AD-053).
+         *
+         * The helper's own exec time-out, `PrivilegedServer.TIMEOUT_SECONDS`
+         * (15 s), plus 5 s for writing a reply of up to 444 KB and the
+         * transaction — derived, not measured. So a healthy helper with a slow
+         * child always answers first, with its own and more precise sentence.
+         */
+        const val EXEC_CALL_TIMEOUT_MS: Long = 20_000
+
         private const val TAG = "PrivilegedCallGuard"
+
+        /** Where calls run, so a call left running outlives the caller that gave up on it. */
+        private val CALLS = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
         /** The one every caller in the app uses; see the class documentation. */
         val SHARED: PrivilegedCallGuard = PrivilegedCallGuard()
